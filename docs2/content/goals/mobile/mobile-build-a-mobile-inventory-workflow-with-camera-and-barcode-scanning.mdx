@@ -1,312 +1,676 @@
 ---
 layout: goal
-title: Build a mobile inventory workflow with camera and barcode scanning
-description: "Step-by-step Rust guide to build a mobile inventory workflow with camera and barcode scanning using Fission."
-goal: Capture or scan an item, edit its record, attach a file and provide useful permission-denied paths.
+title: Build a mobile inventory app with Rust, camera and barcode scanning
+description: "Build a mobile inventory workflow in Rust with Fission: scan product barcodes, record a cycle count, attach shelf-photo evidence, and recover when camera access is unavailable."
+goal: "Reconcile a shelf count against the inventory record, attach optional photo evidence, and stage a clear stock adjustment without changing the saved quantity prematurely."
 path: /blog/build-a-mobile-inventory-workflow-with-camera-and-barcode-scanning/
 order: 112
 difficulty: Beginner
-duration: 35 minutes
+duration: 45 minutes
 run_command: "fission run --target android --project-dir ."
 app: mobile-build-a-mobile-inventory-workflow-with-camera-and-barcode-scanning
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify both target workflows and follow physical-device checks when the task requires them
+  - Scan a shelf label and select the matching product from an inventory sheet
+  - Capture optional photo evidence through Fission's camera capability
+  - Record a physical count as a staged adjustment rather than silently replacing saved stock
+  - Keep manual SKU entry and a clear recovery path when scanning or camera access fails
 ---
 
-## Create the project and add the target
+At Cedar Ridge Outfitters, the closing team checks the shelves in aisle C before the weekly stock report is sent. The inventory system says there are **18 Trail tarps** in bin **C-12**. A staff member scans the shelf label, counts the units by hand, and finds 17. They attach a quick shelf photo so the morning manager can investigate the missing tarp.
 
-Install the Fission command line, create the app, and add its native target.
+The important part is that **17 does not immediately overwrite 18**. The app records a proposed count and its difference, then leaves it ready for the normal stock-review service. A blurry label can be entered manually, a camera denial does not block the count, and an unknown SKU cannot change another product’s quantity.
 
+In the browser preview, Fission’s memory scanner returns the tarp SKU and its memory camera returns a small PNG. Those hosts exercise the same capability reducers used by the Android and iOS app without requesting device permissions. The preview displays the photo metadata rather than pretending that its generated image is a real shelf photograph.
+
+## Create the shared mobile project
+
+Add both mobile targets and declare the camera and barcode capabilities. Live scanning uses camera access, so the CLI updates the native configuration needed by each target:
+
+<Tabs>
+<TabItem label="Create the project">
 ```sh
 cargo install cargo-fission
-fission init mobile-build-a-mobile-inventory-workflow-with-camera-and-barcode-scanning
-cd mobile-build-a-mobile-inventory-workflow-with-camera-and-barcode-scanning
+fission init cedar-ridge-cycle-count
+cd cedar-ridge-cycle-count
 fission add-target android ios --project-dir .
-fission add-capability camera --project-dir .
+fission add-capability camera barcode-scanner --project-dir .
 ```
-
-## Files created by Fission
-
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in the generated Android and iOS hosts.
-
+</TabItem>
+<TabItem label="Files used in this guide">
 ```text
-mobile-build-a-mobile-inventory-workflow-with-camera-and-barcode-scanning/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
+cedar-ridge-cycle-count/
+├── Cargo.toml
+├── fission.toml
 ├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
+│   ├── app.rs
+│   └── app/
+│       ├── inventory.rs
+│       └── widgets/
+│           ├── inventory_count.rs
+│           └── inventory_product_row.rs
 └── platforms/
-    ├── android/              # generated Android host
-    └── ios/                  # generated iOS host
+    ├── android/
+    └── ios/
 ```
+</TabItem>
+</Tabs>
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android and iOS hosts own launch and packaging details; shared components describe the user task without importing either platform API.
+`inventory.rs` owns the inventory facts and reducers. The count field and manual SKU field are short-lived drafts owned by the screen component. The generated hosts own Android and iOS permission prompts; the shared Rust code asks Fission to scan or capture and handles the typed result.
 
-<!-- fission:step id="start-screen" -->
-## Try the browser-safe interaction
+<!-- fission:step id="cycle-count" -->
+## Scan a product and stage its count
 
-The preview is a compiled Fission component with two deliberately local simulations. Press **Simulate success** to inspect the normal result, then **Simulate unavailable** to see how the screen can explain that a capability cannot proceed. These actions change only preview state: they do not request permission, access a sensor or run the target app. In the main step, compare that state boundary with the feature-specific instructions.
+The app uses an inventory sheet containing the product’s current system quantity. Scanning chooses a row; it does not change stock. After that, the employee types the physical count and stages the difference. Keeping those actions separate prevents a camera result from silently changing an inventory record.
+
+Open the tabs in order. First, define the product and staged-evidence state. Then follow the reducers that request a scan, ask for camera permission, and record the results. The final tabs show the screen component and the memory providers that make the browser example interactive.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+pub mod inventory;
+pub mod widgets;
+
+pub use inventory::{InventoryProduct, InventoryState};
+pub use widgets::InventoryCountScreen;
+```
+</TabItem>
+<TabItem label="src/app/inventory.rs · state and reducers">
+<!-- fission:file path="src/app/inventory.rs" -->
+```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub MobileInventoryWorkflow<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PhotoEvidence {
+    pub stream: DataStreamId,
+    pub byte_len: Option<u64>,
+    pub content_type: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InventoryProduct {
+    pub sku: String,
+    pub name: String,
+    pub bin: String,
+    pub on_hand: u32,
+    pub physical_count: Option<u32>,
+    pub evidence: Option<PhotoEvidence>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InventoryState {
+    pub products: Vec<InventoryProduct>,
+    pub selected_sku: Option<String>,
+    pub scan_busy: bool,
+    pub camera_busy: bool,
+    pub message: Option<String>,
+    pub error: Option<String>,
+}
+
+impl GlobalState for InventoryState {}
+
+#[fission_reducer(ScanShelfLabel)]
+pub fn on_scan_shelf_label(
+    state: &mut InventoryState,
+    ctx: &mut ReducerContext<InventoryState>,
+) {
+    if state.scan_busy || state.camera_busy || state.selected_sku.is_some() {
+        return;
+    }
+
+    state.scan_busy = true;
+    state.error = None;
+    state.message = Some("Opening the label scanner…".to_string());
+
+    let on_ok = ctx.effects.bind(
+        InventorySkuRead,
+        reduce_with!(on_inventory_sku_read),
+    );
+    let on_err = ctx.effects.bind(
+        InventoryScanFailed,
+        reduce_with!(on_inventory_scan_failed),
+    );
+
+    ctx.effects
+        .barcode_scanner()
+        .scan(BarcodeScanRequest {
+            formats: vec![BarcodeFormat::Code128, BarcodeFormat::QrCode],
+            prompt: Some("Scan the SKU on the shelf label".into()),
+            timeout_ms: Some(20_000),
+            allow_multiple: false,
+            ..Default::default()
+        })
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+#[fission_reducer(InventorySkuRead)]
+pub fn on_inventory_sku_read(
+    state: &mut InventoryState,
+    ctx: &mut ReducerContext<InventoryState>,
+) {
+    state.scan_busy = false;
+    let Some(results) = ctx.input.capability_ok(SCAN_BARCODE) else {
+        state.message = None;
+        state.error = Some("The scanner returned no product code. Enter the SKU printed on the shelf label.".to_string());
+        return;
+    };
+    let Some(result) = results.items.first() else {
+        state.message = None;
+        state.error = Some("No label was read. Keep the code inside the scan frame or enter the SKU manually.".to_string());
+        return;
+    };
+
+    let sku = result.value.trim().to_ascii_uppercase();
+    if let Some(product) = state.products.iter().find(|product| product.sku == sku) {
+        state.selected_sku = Some(sku.clone());
+        state.error = None;
+        state.message = Some(format!(
+            "{} in bin {} selected. Enter the physical shelf total below; saved stock is {}.",
+            product.name, product.bin, product.on_hand
+        ));
+    } else {
+        state.message = None;
+        state.error = Some(format!(
+            "{sku} is not on this cycle-count sheet. Check the label or ask the inventory lead before changing stock."
+        ));
+    }
+}
+
+#[fission_reducer(InventoryScanFailed)]
+pub fn on_inventory_scan_failed(
+    state: &mut InventoryState,
+    ctx: &mut ReducerContext<InventoryState>,
+) {
+    state.scan_busy = false;
+    state.message = None;
+    let Some(error) = ctx.input.capability_error(SCAN_BARCODE) else {
+        state.error = Some("The scanner stopped before returning a result. Enter the SKU manually and continue the count.".to_string());
+        return;
+    };
+
+    state.error = Some(match error.code.as_str() {
+        "cancelled" | "canceled" | "user_cancel" => {
+            "Scanning was cancelled. No inventory changed; enter the SKU manually or scan again.".to_string()
         }
-        state {
-            simulated_success: bool = false,
-            simulated_unavailable: bool = false,
+        "permission_denied" => {
+            "Camera access was denied. Enter the SKU manually, or enable camera access in system settings.".to_string()
+        }
+        "unsupported" | "unavailable" => {
+            "This device cannot scan a live label. Enter the SKU manually to continue the count.".to_string()
+        }
+        "timeout" => {
+            "The label was not read in time. Improve the light or enter the SKU manually.".to_string()
+        }
+        _ => "The label could not be read. No inventory changed; check the code and try again.".to_string(),
+    });
+}
+
+fn queue_shelf_photo_capture(
+    state: &mut InventoryState,
+    ctx: &mut ReducerContext<InventoryState>,
+) {
+    state.camera_busy = true;
+    state.error = None;
+    state.message = Some("Opening the camera for shelf evidence…".to_string());
+
+    let on_ok = ctx.effects.bind(
+        ShelfPhotoCaptured,
+        reduce_with!(on_shelf_photo_captured),
+    );
+    let on_err = ctx.effects.bind(
+        ShelfPhotoCaptureFailed,
+        reduce_with!(on_shelf_photo_capture_failed),
+    );
+
+    ctx.effects
+        .camera()
+        .capture_photo(CameraCaptureRequest {
+            facing: CameraFacing::Back,
+            resolution: Some(CameraResolution { width: 1280, height: 720 }),
+            format: CameraImageFormat::Jpeg,
+            flash: CameraFlashMode::Auto,
+            quality: Some(85),
+            ..Default::default()
+        })
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+#[fission_reducer(CaptureShelfPhoto)]
+pub fn on_capture_shelf_photo(
+    state: &mut InventoryState,
+    ctx: &mut ReducerContext<InventoryState>,
+) {
+    if state.camera_busy || state.scan_busy {
+        return;
+    }
+    if state.selected_sku.is_none() {
+        state.error = Some("Select a product before attaching its shelf photo.".to_string());
+        state.message = None;
+        return;
+    }
+
+    state.camera_busy = true;
+    state.error = None;
+    state.message = Some("Checking camera access…".to_string());
+    let on_ok = ctx.effects.bind(
+        CameraPermissionReceived,
+        reduce_with!(on_camera_permission_received),
+    );
+    let on_err = ctx.effects.bind(
+        CameraPermissionFailed,
+        reduce_with!(on_camera_permission_failed),
+    );
+
+    ctx.effects
+        .camera()
+        .request_permission(CameraPermissionRequest {
+            reason: Some("Attach a shelf photo to this stock-count review".into()),
+        })
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+#[fission_reducer(CameraPermissionReceived)]
+pub fn on_camera_permission_received(
+    state: &mut InventoryState,
+    ctx: &mut ReducerContext<InventoryState>,
+) {
+    let Some(permission) = ctx.input.capability_ok(REQUEST_CAMERA_PERMISSION) else {
+        state.camera_busy = false;
+        state.message = None;
+        state.error = Some("The camera did not return a permission result. You can still stage the count without a photo.".to_string());
+        return;
+    };
+
+    match permission {
+        CameraPermission::Granted => queue_shelf_photo_capture(state, ctx),
+        CameraPermission::Denied | CameraPermission::Restricted => {
+            state.camera_busy = false;
+            state.message = None;
+            state.error = Some("Camera access was not granted. Continue without a photo, or enable it in system settings.".to_string());
+        }
+        CameraPermission::Unknown => {
+            state.camera_busy = false;
+            state.message = None;
+            state.error = Some("The camera permission is still unknown. Continue without a photo or try the request again.".to_string());
         }
     }
-    view(preview, _state, cx) {
+}
+
+#[fission_reducer(CameraPermissionFailed)]
+pub fn on_camera_permission_failed(
+    state: &mut InventoryState,
+    ctx: &mut ReducerContext<InventoryState>,
+) {
+    state.camera_busy = false;
+    state.message = None;
+    let Some(error) = ctx.input.capability_error(REQUEST_CAMERA_PERMISSION) else {
+        state.error = Some("The camera permission request did not finish. You can stage the count without a photo.".to_string());
+        return;
+    };
+    state.error = Some(match error.code.as_str() {
+        "permission_denied" => "Camera access was denied. Continue without a photo or enable camera access in system settings.".to_string(),
+        "unsupported" | "unavailable" => "This device cannot capture a shelf photo. Continue with the stock count without evidence.".to_string(),
+        _ => "The camera permission request failed. Continue without a photo or try again.".to_string(),
+    });
+}
+
+#[fission_reducer(ShelfPhotoCaptured)]
+pub fn on_shelf_photo_captured(
+    state: &mut InventoryState,
+    ctx: &mut ReducerContext<InventoryState>,
+) {
+    state.camera_busy = false;
+    let Some(capture) = ctx.input.capability_ok(CAPTURE_PHOTO) else {
+        state.message = None;
+        state.error = Some("The camera returned no photo. The count is still available without evidence.".to_string());
+        return;
+    };
+    let Some(sku) = state.selected_sku.clone() else {
+        state.message = None;
+        state.error = Some("The selected product changed before the camera finished. Take the photo again for the current item.".to_string());
+        return;
+    };
+    let Some(product) = state.products.iter_mut().find(|product| product.sku == sku) else {
+        state.message = None;
+        state.error = Some("This product is no longer on the cycle-count sheet. No photo was attached.".to_string());
+        return;
+    };
+
+    product.evidence = Some(PhotoEvidence {
+        stream: capture.stream,
+        byte_len: capture.byte_len,
+        content_type: capture.content_type,
+        width: capture.width,
+        height: capture.height,
+    });
+    state.error = None;
+    state.message = Some(format!("Shelf photo attached to {}. The image stays in a runtime-owned stream until the app uploads it.", product.name));
+}
+
+#[fission_reducer(ShelfPhotoCaptureFailed)]
+pub fn on_shelf_photo_capture_failed(
+    state: &mut InventoryState,
+    ctx: &mut ReducerContext<InventoryState>,
+) {
+    state.camera_busy = false;
+    state.message = None;
+    let Some(error) = ctx.input.capability_error(CAPTURE_PHOTO) else {
+        state.error = Some("The camera did not return a photo. You can still stage the count without evidence.".to_string());
+        return;
+    };
+    state.error = Some(match error.code.as_str() {
+        "permission_denied" => "Camera access was denied. Continue the count without a photo, or enable camera access in system settings.".to_string(),
+        "cancelled" | "canceled" | "user_cancel" => "The photo was cancelled. No count changed; try again or continue without evidence.".to_string(),
+        "unsupported" | "unavailable" => "This device cannot capture a photo. Continue the count without evidence.".to_string(),
+        _ => "The photo could not be captured. Continue without evidence or try again.".to_string(),
+    });
+}
+```
+</TabItem>
+<TabItem label="src/app/widgets.rs">
+<!-- fission:file path="src/app/widgets.rs" -->
+```rust
+pub mod inventory_count;
+pub mod inventory_product_row;
+
+pub use inventory_count::InventoryCountScreen;
+```
+</TabItem>
+<TabItem label="src/app/widgets/inventory_product_row.rs">
+<!-- fission:file path="src/app/widgets/inventory_product_row.rs" -->
+```rust
+use fission::prelude::*;
+
+use crate::app::InventoryProduct;
+use crate::app::InventoryState;
+
+fission_component! {
+    pub InventoryProductRow<InventoryState> {
+        props {
+            product: InventoryProduct,
+            selected: bool,
+        }
+    }
+    view(row, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let count_summary = if let Some(count) = row.product.physical_count {
+            let difference = i64::from(count) - i64::from(row.product.on_hand);
+            format!("System {} · counted {} · difference {difference:+}", row.product.on_hand, count)
+        } else {
+            format!("{} units in the system", row.product.on_hand)
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("tutorial-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some(format!("inventory.product.{}", row.product.sku.to_ascii_lowercase())),
+        label: Some(format!("{}, SKU {}, bin {}", row.product.name, row.product.sku, row.product.bin)),
         child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+            Column(gap: tokens.spacing.xs, children: [
+                Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Text(row.product.name.clone())
+                        .weight(tokens.typography.font_weight_semibold),
+                    if row.selected {
+                        Text("Selected for this count")
+                            .color(tokens.colors.text_secondary)
+                    } else {
+                        Text("Cycle-count item")
+                            .color(tokens.colors.text_secondary)
+                    },
+                ]),
+                Text(format!("SKU {} · Bin {}", row.product.sku, row.product.bin)),
+                Text(count_summary)
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Button(
-                    child: Text(if preview.simulated_success {
-                        "Reset success simulation".to_string()
-                    } else {
-                        "Simulate success".to_string()
-                    }),
-                    key: "tutorial-complete",
-                    on_press: reduce {
-                        preview.simulated_success = !preview.simulated_success;
-                        if preview.simulated_success { preview.simulated_unavailable = false; }
-                    },
-                ),
-                Text(if preview.simulated_success {
-                    format!("Simulated success for {}. Only browser-local state changed. Use the target steps below to verify the real behaviour.", preview.goal)
-                } else {
-                    "Ready: no native request has run. Choose a simulation to see how the screen state changes.".to_string()
-                }),
-                Button(
-                    child: Text(if preview.simulated_unavailable {
-                        "Clear unavailable simulation".to_string()
-                    } else {
-                        "Simulate unavailable".to_string()
-                    }),
-                    key: "tutorial-unavailable",
-                    on_press: reduce {
-                        preview.simulated_unavailable = !preview.simulated_unavailable;
-                        if preview.simulated_unavailable { preview.simulated_success = false; }
-                    },
-                ),
-                if preview.simulated_unavailable {
-                    Text(format!("Simulated unavailable result for {}. No native request ran; the target app should explain the real reason and recovery action.", preview.title))
-                } else {
-                    Text("No unavailable response is being simulated.".to_string())
+                if let Some(evidence) = &row.product.evidence {
+                    Text(format!(
+                        "Photo attached · {} × {} · {}",
+                        evidence.width, evidence.height, evidence.content_type
+                    ))
+                    .color(tokens.colors.text_secondary)
                 },
             ])
         )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
+        .padding_all(tokens.spacing.m)
+        .bg(tokens.colors.background)
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        .border_radius(tokens.radii.medium),
     )
 }
 ```
 </TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    let preview = app::MobileInventoryWorkflow::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-</Tabs>
-<!-- fission:preview -->
-
-<!-- fission:checkpoint -->
-Press **Simulate success** and check the visible status change. Then choose **Simulate unavailable** and check that the screen explains the unavailable outcome. Both actions change browser-local state only; they do not invoke the native capability.
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
-
-<!-- fission:step id="main-flow" -->
-## Connect the Camera provider to the user action
-
-This is the real Fission request path for this feature. Keep permission and hardware work outside the component view: the component dispatches one intent, the reducer queues the request, and success or error reducers store the returned result.
-
-Start with task data and status in the app state. Keep a text-field draft, open flag or selected tab in the owning component instead of duplicating that temporary state here:
-
-```rust
-#[derive(Debug, Default)]
-struct CameraDemoState {
-    // Add these fields to your existing app state.
-    profile_photo_stream: Option<DataStreamId>,
-    camera_error: Option<String>,
-    capturing: bool,
-}
-
-impl GlobalState for CameraDemoState {}
-```
-
-Handle successful and failed results separately so the screen can explain denied permission, cancellation, unsupported hardware and provider errors:
-
-```rust
-#[fission_reducer(PhotoCaptured)]
-fn on_photo_captured(state: &mut CameraDemoState, capture: CameraCapture) {
-    state.capturing = false;
-    state.profile_photo_stream = Some(capture.stream);
-    state.camera_error = None;
-}
-
-#[fission_reducer(PhotoCaptureFailed)]
-fn on_photo_capture_failed(state: &mut CameraDemoState, error: CameraError) {
-    state.capturing = false;
-    state.camera_error = Some(error.message);
-}
-```
-
-Queue the operation after the user presses the named control. The host completes asynchronously and dispatches the matching reducer:
-
-```rust
-state.capturing = true;
-ctx.effects
-    .camera()
-    .capture_photo(CameraCaptureRequest {
-        facing: CameraFacing::Back,
-        resolution: Some(CameraResolution { width: 1280, height: 720 }),
-        format: CameraImageFormat::Jpeg,
-        flash: CameraFlashMode::Auto,
-        quality: Some(90),
-        ..Default::default()
-    })
-    .on_ok(ctx.effects.bind(
-        PhotoCaptured(CameraCapture::default()),
-        reduce_with!(on_photo_captured),
-    ))
-    .on_err(ctx.effects.bind(
-        PhotoCaptureFailed(CameraError::default()),
-        reduce_with!(on_photo_capture_failed),
-    ));
-```
-
-Bind the user action from a reusable Fission component. Keep the visible label in the same control so it works with touch, keyboard and assistive technology:
-
-```rust
-fission_component!
-{
-    pub CaptureProfilePhotoButton<CameraDemoState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<CameraDemoState>();
-                let run = with_reducer!(ctx, CaptureProfilePhoto, on_capture_profile_photo);
-
-                Button::new("Take photo")
-                    .disabled(view.state().capturing)
-                    .on_press(run)
-                    .into()
-    }
-}
-```
-
-The [complete Camera guide](/docs/capabilities/camera/) explains configuration and expected platform behaviour. Test a successful memory-provider response and an unavailable or denied response before relying on the physical-device check below. The browser preview exercises the component state only; it does not invoke this native provider.
-
-Keep platform-only code behind the generated target boundary or a typed provider; the shared component should describe the user task rather than call an operating-system API directly.
-
-### Turn a scan into a safe inventory update
-
-A scanner result is input, not a confirmed inventory change. Store the decoded SKU as a draft, look up the matching product asynchronously, and render the product name and current quantity before the user confirms. If the SKU is unknown, show a manual SKU field; if it already exists in the pending batch, focus the existing row instead of adding a duplicate. Only the Confirm action should dispatch the inventory update reducer. Test a known SKU, an unknown SKU, a duplicate scan, camera denial and manual entry with the camera provider unavailable.
-
-
-
-<Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
+<TabItem label="src/app/widgets/inventory_count.rs">
+<!-- fission:file path="src/app/widgets/inventory_count.rs" -->
 ```rust
 use fission::prelude::*;
+
+use crate::app::inventory::{
+    on_capture_shelf_photo, on_scan_shelf_label, InventoryState, ScanShelfLabel,
+    CaptureShelfPhoto,
+};
+use crate::app::widgets::inventory_product_row::InventoryProductRow;
 
 fission_component! {
-    pub MobileInventoryWorkflowResult<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
+    pub InventoryCountScreen<InventoryState> {
         state {
-            outcome: u8 = 0,
+            manual_sku: String = String::new(),
+            physical_count: String = String::new(),
         }
     }
-    view(preview, _state, cx) {
+    view(screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let scan_label = with_reducer!(cx.build, ScanShelfLabel, on_scan_shelf_label);
+        let capture_photo = with_reducer!(cx.build, CaptureShelfPhoto, on_capture_shelf_photo);
+        let selected = state.selected_sku.as_deref();
+        let selected_product = state.products.iter().find(|product| {
+            Some(product.sku.as_str()) == selected
+        });
+        let counted_products = state.products.iter()
+            .filter(|product| product.physical_count.is_some())
+            .count();
+        let evidence_photos = state.products.iter()
+            .filter(|product| product.evidence.is_some())
+            .count();
     } =>
     SemanticsRegion(
-        identifier: Some("capability-result-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("cedar-ridge-cycle-count".to_string()),
+        label: Some("Cedar Ridge Outfitters shelf inventory count".to_string()),
         child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
-                    .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Button(
-                    child: Text("Simulate request success"),
-                    key: "provider-success",
-                    on_press: reduce { preview.outcome = 1; },
+            Row(children: [
+                Spacer(flex_grow: 1.0),
+                Container(
+                    Column(gap: tokens.spacing.l, children: [
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text("Cedar Ridge · cycle count")
+                                .weight(tokens.typography.font_weight_bold),
+                            Text("Closing check · Aisle C · Thursday, 6:15 pm")
+                                .color(tokens.colors.text_secondary),
+                        ]),
+                        Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                            Text(format!("{} of {} items counted", counted_products, state.products.len())),
+                            Text(format!("{} shelf photos attached", evidence_photos)),
+                        ]),
+                        if state.selected_sku.is_none() {
+                            Column(gap: tokens.spacing.s, children: [
+                                Text("Cycle-count sheet")
+                                    .weight(tokens.typography.font_weight_semibold),
+                                if state.products.is_empty() {
+                                    Text("Load a cycle-count sheet before scanning shelf labels.")
+                                        .color(tokens.colors.text_secondary)
+                                } else {
+                                    Column(gap: tokens.spacing.s, children: [
+                                        for product in state.products.iter() {
+                                            InventoryProductRow(
+                                                product.clone(),
+                                                selected == Some(product.sku.as_str()),
+                                                key: product.sku.clone(),
+                                            )
+                                        }
+                                    ])
+                                },
+                            ])
+                        },
+                        if state.selected_sku.is_none() {
+                            Column(gap: tokens.spacing.s, children: [
+                                Button(
+                                    child: Text(if state.scan_busy {
+                                        "Waiting for scanner…"
+                                    } else {
+                                        "Scan shelf label"
+                                    }),
+                                    key: "scan-shelf-label",
+                                    variant: ButtonVariant::Primary,
+                                    disabled: state.scan_busy || state.camera_busy,
+                                    on_press: scan_label,
+                                )
+                                .semantics_identifier("inventory.scan-shelf-label".to_string()),
+                                Text("A scan selects a product. It does not change the saved quantity.")
+                                    .color(tokens.colors.text_secondary),
+                            ])
+                        } else {
+                            Text("Count this item, then finish to return to the sheet.")
+                                .color(tokens.colors.text_secondary)
+                        },
+                        if state.selected_sku.is_none() {
+                            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                                TextInput(
+                                    label: Some("Enter the shelf SKU manually".into()),
+                                    bind: screen.manual_sku,
+                                    placeholder: Some("For example, LMP-308".into()),
+                                    enabled: !state.scan_busy && !state.camera_busy,
+                                    semantics_identifier: "inventory.manual-sku".to_string(),
+                                ),
+                                Button(
+                                    child: Text("Open item"),
+                                    key: "open-manual-sku",
+                                    variant: ButtonVariant::Outline,
+                                    disabled: state.scan_busy || state.camera_busy,
+                                    on_press: reduce {
+                                        let sku = screen.manual_sku.trim().to_ascii_uppercase();
+                                        if sku.is_empty() {
+                                            state.error = Some("Enter the SKU printed on the shelf label.".to_string());
+                                            state.message = None;
+                                        } else if state.products.iter().any(|product| product.sku == sku) {
+                                            state.selected_sku = Some(sku.clone());
+                                            state.error = None;
+                                            state.message = Some(format!("Selected {sku}. Enter the physical shelf total below."));
+                                            screen.manual_sku.clear();
+                                        } else {
+                                            state.error = Some(format!("{sku} is not on this cycle-count sheet. Check the label or ask the inventory lead."));
+                                            state.message = None;
+                                        }
+                                    },
+                                )
+                                .semantics_identifier("inventory.open-manual-sku".to_string()),
+                            ])
+                        },
+                        if let Some(product) = selected_product {
+                            Column(gap: tokens.spacing.s, children: [
+                                Text(format!("Count {} in bin {}", product.name, product.bin))
+                                    .weight(tokens.typography.font_weight_semibold),
+                                TextInput(
+                                    label: Some("Units physically on the shelf".into()),
+                                    bind: screen.physical_count,
+                                    placeholder: Some("Count each unit before entering the total".into()),
+                                    keyboard_type: TextInputType::Number,
+                                    semantics_identifier: "inventory.physical-count".to_string(),
+                                ),
+                                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                                    Button(
+                                        child: Text("Stage this count"),
+                                        key: "stage-physical-count",
+                                        variant: ButtonVariant::Primary,
+                                        disabled: screen.physical_count.trim().is_empty() || state.camera_busy,
+                                        on_press: reduce {
+                                            let parsed_count = screen.physical_count.trim().parse::<u32>();
+                                            match parsed_count {
+                                                Ok(count) => {
+                                                    if let Some(sku) = state.selected_sku.clone() {
+                                                        if let Some(product) = state.products.iter_mut()
+                                                            .find(|product| product.sku == sku)
+                                                        {
+                                                            let previous = product.on_hand;
+                                                            product.physical_count = Some(count);
+                                                            let difference = i64::from(count) - i64::from(previous);
+                                                            state.error = None;
+                                                            state.message = Some(format!("Count staged for review: {count} versus {previous} on hand ({difference:+}). Saved stock is still {previous}."));
+                                                            screen.physical_count.clear();
+                                                        }
+                                                    }
+                                                }
+                                                Err(_) => {
+                                                    state.error = Some("Enter a whole number of units, including 0 if the bin is empty.".to_string());
+                                                    state.message = None;
+                                                }
+                                            }
+                                        },
+                                    )
+                                    .semantics_identifier("inventory.stage-count".to_string()),
+                                    Button(
+                                        child: Text(if state.camera_busy {
+                                            "Opening camera…"
+                                        } else if product.evidence.is_some() {
+                                            "Retake shelf photo"
+                                        } else {
+                                            "Photograph shelf"
+                                        }),
+                                        key: "capture-shelf-photo",
+                                        variant: ButtonVariant::Outline,
+                                        disabled: state.camera_busy || state.scan_busy,
+                                        on_press: capture_photo,
+                                    )
+                                    .semantics_identifier("inventory.capture-shelf-photo".to_string()),
+                                ]),
+                                if let Some(evidence) = &product.evidence {
+                                    Text(format!("Evidence attached: {} × {} {}{}", evidence.width, evidence.height, evidence.content_type, evidence.byte_len.map(|size| format!(" · {size} bytes")).unwrap_or_default()))
+                                        .color(tokens.colors.text_secondary)
+                                } else {
+                                    Text("Photo evidence is optional. You can still stage the count if the camera is unavailable or denied.")
+                                        .color(tokens.colors.text_secondary)
+                                },
+                                Button(
+                                    child: Text("Finish this item and scan the next"),
+                                    key: "finish-counted-item",
+                                    variant: ButtonVariant::Outline,
+                                    disabled: state.scan_busy || state.camera_busy,
+                                    on_press: reduce {
+                                        state.selected_sku = None;
+                                        state.message = Some("Count remains staged. Choose or scan the next SKU.".to_string());
+                                        state.error = None;
+                                        screen.manual_sku.clear();
+                                        screen.physical_count.clear();
+                                    },
+                                )
+                                .semantics_identifier("inventory.next-item".to_string()),
+                            ])
+                        },
+                        if let Some(message) = &state.message {
+                            Text(message.clone()).color(tokens.colors.text_secondary)
+                        },
+                        if let Some(error) = &state.error {
+                            Text(error.clone()).color(tokens.colors.error)
+                        },
+                        if state.selected_sku.is_none() {
+                            Text("A staged count is a proposal, not a saved stock change. Send the count and its photo stream to the inventory service for review.")
+                                .color(tokens.colors.text_secondary)
+                        },
+                    ])
                 )
-                .semantics_identifier("provider-preview.success"),
-                Button(
-                    child: Text("Simulate denial or unavailable"),
-                    key: "provider-unavailable",
-                    on_press: reduce { preview.outcome = 2; },
-                )
-                .semantics_identifier("provider-preview.unavailable"),
-                Text(if preview.outcome == 1 {
-                    format!("The simulated request for {} succeeded. The app can now show its result and the next useful action.", preview.goal)
-                } else if preview.outcome == 2 {
-                    format!("The simulated request for {} is unavailable. Keep the screen usable and explain whether the user can retry, change settings, or choose another path.", preview.goal)
-                } else {
-                    "Ready. No native permission prompt, sensor or provider request has run in this browser.".to_string()
-                }),
-            ])
+                .padding_all(tokens.spacing.l)
+                .width_length(Length::clamp(
+                    Length::points(0.0),
+                    Length::percent(100.0),
+                    Length::points(760.0),
+                ))
+                .bg(tokens.colors.surface)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.large),
+                Spacer(flex_grow: 1.0),
+            ]),
         )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        .width_length(Length::percent(100.0)),
     )
 }
 ```
@@ -316,22 +680,52 @@ fission_component! {
 ```rust
 mod app;
 
+use app::{InventoryCountScreen, InventoryProduct, InventoryState};
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::MobileInventoryWorkflowResult::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+
+    let preview_state = InventoryState {
+        products: vec![
+            InventoryProduct {
+                sku: "TNT-041".into(),
+                name: "Trail tarp · two person".into(),
+                bin: "C-12".into(),
+                on_hand: 18,
+                physical_count: None,
+                evidence: None,
+            },
+            InventoryProduct {
+                sku: "LMP-308".into(),
+                name: "Rechargeable camp lantern".into(),
+                bin: "C-13".into(),
+                on_hand: 7,
+                physical_count: None,
+                evidence: None,
+            },
+        ],
+        ..Default::default()
+    };
+    let scan_results = BarcodeScanResults {
+        items: vec![BarcodeScanResult {
+            value: "TNT-041".into(),
+            format: BarcodeFormat::Code128,
+            raw_bytes: b"TNT-041".to_vec(),
+            bounds: Vec::new(),
+            symbology_identifier: None,
+        }],
+    };
+
+    WebApp::<InventoryState, _>::new(InventoryCountScreen::new())
+        .with_state_init(move |state: &mut InventoryState| {
+            *state = preview_state.clone();
+        })
+        .with_barcode_scanner_host(MemoryBarcodeScannerHost::new(scan_results))
+        .with_camera_host(MemoryCameraHost::default())
+        .with_title("Cedar Ridge cycle count")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -339,57 +733,47 @@ pub fn run() -> Result<(), JsValue> {
 ```
 </TabItem>
 </Tabs>
+
+The scanner and camera results are read from `ReducerContext.input` with `capability_ok(SCAN_BARCODE)` and `capability_ok(CAPTURE_PHOTO)`. Their unit actions only route each host response to the correct reducer. If the operation fails, the corresponding reducer reads `capability_error(...)` and leaves the product’s saved quantity alone.
+
+The camera returns a `DataStreamId`, not an image-sized byte vector in app state. This example keeps the handle with the selected product and shows its metadata. A production upload should pass that handle to an asynchronous job or service, then persist the resulting storage reference with the staged count.
+
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Use the browser controls to simulate success and an unavailable result. They change local component state only and never call a native provider. Use the commands below to verify the real request on an Android emulator or iOS Simulator.
+In the interactive screen, select **Scan shelf label**. The memory scanner selects `TNT-041` in bin C-12. Enter **17** as the physical count and select **Stage this count**: the row should show system 18, counted 17, difference −1, while the saved quantity stays 18. Then select **Photograph shelf**. The memory camera should attach a 96 × 72 PNG stream to the tarp row. Select **Finish this item and scan the next**; the proposal and its evidence remain on the sheet.
+
+To check the fallback, enter `UNKNOWN-999` as a manual SKU and select **Open item**. The page should explain that the item is not on this count sheet; the Trail tarp and lantern rows should remain unchanged.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Verify the native request on Android and iOS
+<!-- fission:step id="verify-mobile-hosts" -->
+## Verify camera and scanner recovery on Android and iOS
 
-The browser controls simulate app state; they never send a request to the platform provider. Run the target below on an emulator or device that supports this feature. Follow the user path from the first explanation through the request and returned result, and keep success hidden until the host replies.
+The browser preview uses memory providers, so it cannot show a real permission prompt, camera viewfinder, autofocus, or barcode decoder. Test those host behaviors on a simulator or device after the project is configured. On each target, scan a known label, scan an unknown label, cancel the scanner, deny camera permission, and capture a shelf photo. Confirm that a permission denial still leaves manual SKU entry and count staging available.
 
-Repeat with the feature unavailable, denied or cancelled, as applicable. Confirm the screen preserves the user’s existing data and offers the right recovery step. Use a physical device when the behavior depends on real hardware or an operating-system prompt.
+Run the checks from the generated project root:
 
-### Run, test and build
-
+<Tabs>
+<TabItem label="Android">
 ```sh
-cargo test
 fission doctor android --project-dir .
 fission run --target android --project-dir .
 fission test --target android --project-dir .
 fission build --target android --project-dir . --release
 ```
-
-`cargo test` runs Rust tests you add for reducer or stale-completion rules; the generated scaffold does not create those feature tests. `fission doctor` checks each target’s toolchain, `fission run` launches its emulator or Simulator, and `fission test` checks that the generated host can start. A release build validates packaging, not real hardware behavior.
-
-
-### Run the shared project on both mobile targets
-
-Run both target checks from the generated project root:
-
+</TabItem>
+<TabItem label="iOS">
 ```sh
-fission doctor android --project-dir .
-fission run --target android --project-dir .
 fission doctor ios --project-dir .
 fission run --target ios --project-dir .
-fission test --target android --project-dir .
 fission test --target ios --project-dir .
+fission build --target ios --project-dir . --release
 ```
+</TabItem>
+</Tabs>
 
+The generated Android manifest declares camera permission. The generated iOS property list includes `NSCameraUsageDescription`. Inspect those generated values before distribution and replace template privacy text with the reason your own app gives the user. A development build proves the app can launch; it does not prove that every device grants camera access or can read a damaged label.
 
-Verify the relevant hardware on a connected Android phone and a signed iPhone build. Use `adb devices -l` and `fission run --target android --device <adb-serial> --project-dir .` for Android. For iOS, use `fission package --project-dir . --target ios --format ipa --release` and install through Xcode Devices and Simulators. The iOS `fission run` path is simulator-only.
-
-
-### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
-- [Camera capability guide](/docs/capabilities/camera/)
-- [Camera capability reference](/reference/capabilities/camera/)
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
+For request fields and host contracts, see the [barcode-scanner reference](/reference/capabilities/barcode-scanner/) and [camera reference](/reference/capabilities/camera/). The [capability matrix](/reference/capabilities/matrix/) summarizes target support, and the [state and effects guide](/docs/guides/state-handles-and-providers/) explains how to keep permission and image work outside component conversion.
 <!-- /fission:step -->
