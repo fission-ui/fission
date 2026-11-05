@@ -1,303 +1,436 @@
 ---
 layout: goal
-title: Add Face ID or Touch ID authentication
-description: "Step-by-step Rust guide to add Face ID or Touch ID authentication using Fission."
-goal: Check biometric availability, handle cancellation and lockout, and retain a safe non-biometric fallback.
+title: Add Face ID or Touch ID authentication with Rust
+description: "Build a refund approval screen with Fission's typed biometric API. Check device availability, handle cancellation, and keep account sign-in as a recovery path."
+goal: "Ask the current device user to verify a refund review, keep the refund unchanged when verification fails, and leave final authorization to the server."
 path: /blog/add-face-id-or-touch-id-authentication/
 order: 89
 difficulty: Beginner
-duration: 35 minutes
+duration: 40 minutes
 run_command: "fission run --target ios --project-dir ."
 app: ios-add-face-id-or-touch-id-authentication
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the iOS workflow and follow physical-device checks when the task requires them
+  - Build a realistic refund approval screen with the Fission biometric capability
+  - Check whether the host can verify a local user before showing the action
+  - Handle authentication success, cancellation, and unavailable-device errors
+  - Understand which native provider is needed before Face ID or Touch ID can run on iOS
 ---
 
-## Create the project and add the target
+At the end of a busy shift, a store manager reviews a **$428.50 refund** for order **GM-2841**. Before the app marks the review as ready to submit, it asks the person holding the device to confirm locally. Face ID, Touch ID, or another supported device prompt can answer that question without asking the manager to type a password in a crowded shop.
 
-Install the Fission command line, create the app, and add its native target.
+That device check is only one part of the decision. A successful biometric result means the host verified its current local user; it does not prove an account identity to a server or grant permission to issue money. The real refund API must still check the signed-in manager, their role, and the refund amount. This screen stops at **ready for server review** so it cannot suggest that a local check alone completed a refund.
 
+The browser example uses Fission’s `MemoryBiometricHost`. It runs the same typed availability and authentication reducers as the app, returning a predictable successful result so you can inspect the screen without a camera or an operating-system prompt.
+
+## Create the iOS app and declare the capability
+
+Install the CLI, create the shared Rust project, add the iOS target, and declare that the app intends to use biometric authentication:
+
+<Tabs>
+<TabItem label="Create the project">
 ```sh
 cargo install cargo-fission
-fission init ios-add-face-id-or-touch-id-authentication
-cd ios-add-face-id-or-touch-id-authentication
+fission init refund-review
+cd refund-review
 fission add-target ios --project-dir .
 fission add-capability biometric --project-dir .
 ```
-
-## Files created by Fission
-
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/ios/`.
-
+</TabItem>
+<TabItem label="Files used in this guide">
 ```text
-ios-add-face-id-or-touch-id-authentication/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
+refund-review/
+├── Cargo.toml
+├── fission.toml
 ├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
+│   ├── app.rs
+│   └── app/
+│       ├── approval.rs
+│       └── widgets.rs
 └── platforms/
-    └── ios/                  # generated iOS host
+    └── ios/
+        └── Info.plist
 ```
+</TabItem>
+</Tabs>
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated iOS host owns launch and packaging details; shared components describe the user task without importing iOS APIs.
+The CLI records `biometric` in `fission.toml` and adds the Face ID usage description to the generated iOS property list. That description is the sentence iOS shows when an app asks for Face ID. It does not install the operating-system provider that performs authentication; we will check that platform boundary before trying this on a device.
 
-<!-- fission:step id="start-screen" -->
-## Try the browser-safe interaction
+The refund is application data, so the shared approval state owns it. A button draft or an open menu would belong to local component state, but this screen has no temporary field: its important state is the selected refund, device availability, and the provider’s eventual response.
 
-The preview is a compiled Fission component with two deliberately local simulations. Press **Simulate success** to inspect the normal result, then **Simulate unavailable** to see how the screen can explain that a capability cannot proceed. These actions change only preview state: they do not request permission, access a sensor or run the target app. In the main step, compare that state boundary with the feature-specific instructions.
+<!-- fission:step id="review-refund" -->
+## Build the approval screen and wait for the host result
+
+The screen asks the host whether authentication is available before enabling **Verify manager**. That avoids sending the user into a prompt the current device cannot complete. The request itself starts in a reducer after the manager presses the button; the reducer returns immediately while Fission waits for the host.
+
+Select each tab to see how the app state, screen, and browser host fit together. In a real app, the signed-in route would provide the selected refund. The preview seeds one review so you can try the interface; the empty default state does not contain production fixture data.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+pub mod approval;
+pub mod widgets;
+
+pub use approval::{RefundApprovalState, RefundDraft};
+pub use widgets::RefundApprovalScreen;
+```
+</TabItem>
+<TabItem label="src/app/approval.rs">
+<!-- fission:file path="src/app/approval.rs" -->
+```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub IosBiometricSignIn<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            simulated_success: bool = false,
-            simulated_unavailable: bool = false,
-        }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RefundDraft {
+    pub refund_id: String,
+    pub order_reference: String,
+    pub customer_name: String,
+    pub amount_cents: u32,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RefundApprovalState {
+    pub refund: Option<RefundDraft>,
+    pub availability: Option<BiometricAvailability>,
+    pub checking_device: bool,
+    pub authenticating: bool,
+    pub verified_with: Option<String>,
+    pub message: Option<String>,
+    pub error: Option<String>,
+}
+
+impl GlobalState for RefundApprovalState {}
+
+fn format_refund_amount(amount_cents: u32) -> String {
+    format!("${}.{:02}", amount_cents / 100, amount_cents % 100)
+}
+
+fn host_can_verify(availability: &BiometricAvailability) -> bool {
+    availability.supported && (availability.enrolled || availability.device_credential)
+}
+
+#[fission_reducer(CheckDeviceBiometrics)]
+pub fn on_check_device_biometrics(
+    state: &mut RefundApprovalState,
+    ctx: &mut ReducerContext<RefundApprovalState>,
+) {
+    if state.checking_device || state.authenticating {
+        return;
     }
-    view(preview, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some("tutorial-preview".to_string()),
-        label: Some(preview.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
 
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
-                    .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Button(
-                    child: Text(if preview.simulated_success {
-                        "Reset success simulation".to_string()
-                    } else {
-                        "Simulate success".to_string()
-                    }),
-                    key: "tutorial-complete",
-                    on_press: reduce {
-                        preview.simulated_success = !preview.simulated_success;
-                        if preview.simulated_success { preview.simulated_unavailable = false; }
-                    },
-                ),
-                Text(if preview.simulated_success {
-                    format!("Simulated success for {}. Only browser-local state changed. Use the target steps below to verify the real behaviour.", preview.goal)
-                } else {
-                    "Ready: no native request has run. Choose a simulation to see how the screen state changes.".to_string()
-                }),
-                Button(
-                    child: Text(if preview.simulated_unavailable {
-                        "Clear unavailable simulation".to_string()
-                    } else {
-                        "Simulate unavailable".to_string()
-                    }),
-                    key: "tutorial-unavailable",
-                    on_press: reduce {
-                        preview.simulated_unavailable = !preview.simulated_unavailable;
-                        if preview.simulated_unavailable { preview.simulated_success = false; }
-                    },
-                ),
-                if preview.simulated_unavailable {
-                    Text(format!("Simulated unavailable result for {}. No native request ran; the target app should explain the real reason and recovery action.", preview.title))
-                } else {
-                    Text("No unavailable response is being simulated.".to_string())
-                },
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
-}
-```
-</TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
+    state.checking_device = true;
+    state.error = None;
+    state.message = Some("Checking this device’s authentication options…".to_string());
 
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
+    let on_ok = ctx.effects.bind(
+        BiometricAvailabilityReceived,
+        reduce_with!(on_biometric_availability_received),
+    );
+    let on_err = ctx.effects.bind(
+        BiometricAvailabilityFailed,
+        reduce_with!(on_biometric_availability_failed),
+    );
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+    ctx.effects
+        .biometrics()
+        .availability()
+        .on_ok(on_ok)
+        .on_err(on_err);
 }
 
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    let preview = app::IosBiometricSignIn::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-</Tabs>
-<!-- fission:preview -->
+#[fission_reducer(BiometricAvailabilityReceived)]
+pub fn on_biometric_availability_received(
+    state: &mut RefundApprovalState,
+    ctx: &mut ReducerContext<RefundApprovalState>,
+) {
+    state.checking_device = false;
+    let Some(availability) = ctx.input.capability_ok(GET_BIOMETRIC_AVAILABILITY) else {
+        state.availability = None;
+        state.message = None;
+        state.error = Some(
+            "The device did not return its authentication options. Check your account another way before continuing."
+                .to_string(),
+        );
+        return;
+    };
 
-<!-- fission:checkpoint -->
-Press **Simulate success** and check the visible status change. Then choose **Simulate unavailable** and check that the screen explains the unavailable outcome. Both actions change browser-local state only; they do not invoke the native capability.
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
-
-<!-- fission:step id="main-flow" -->
-## Connect the Biometrics provider to the user action
-
-This is the real Fission request path for this feature. Keep permission and hardware work outside the component view: the component dispatches one intent, the reducer queues the request, and success or error reducers store the returned result.
-
-Start with task data and status in the app state. Keep a text-field draft, open flag or selected tab in the owning component instead of duplicating that temporary state here:
-
-```rust
-#[derive(Debug, Default)]
-struct BiometricsState {
-    // Add these fields to your existing app state.
-    export_unlocked: bool,
-    biometric_error: Option<String>,
+    let ready = host_can_verify(&availability);
+    let reason = availability.reason.clone();
+    state.availability = Some(availability);
+    state.error = None;
+    state.message = Some(if ready {
+        "This device can verify its current user. You can continue with the local check.".to_string()
+    } else if let Some(reason) = reason {
+        format!("This device cannot verify a local user right now: {reason}. Use manager account sign-in instead.")
+    } else {
+        "No enrolled biometric or device credential is available. Use manager account sign-in instead.".to_string()
+    });
 }
 
-impl GlobalState for BiometricsState {}
-```
+#[fission_reducer(BiometricAvailabilityFailed)]
+pub fn on_biometric_availability_failed(
+    state: &mut RefundApprovalState,
+    ctx: &mut ReducerContext<RefundApprovalState>,
+) {
+    state.checking_device = false;
+    state.availability = None;
+    state.message = None;
+    let Some(error) = ctx.input.capability_error(GET_BIOMETRIC_AVAILABILITY) else {
+        state.error = Some(
+            "The device could not check its authentication options. Use manager account sign-in instead."
+                .to_string(),
+        );
+        return;
+    };
 
-Handle successful and failed results separately so the screen can explain denied permission, cancellation, unsupported hardware and provider errors:
-
-```rust
-#[fission_reducer(UserVerified)]
-fn on_user_verified(state: &mut BiometricsState, result: BiometricAuthenticateResult) {
-    state.export_unlocked = result.verified;
-    state.biometric_error = None;
+    state.error = Some(match error.code.as_str() {
+        "unsupported" | "unavailable" => {
+            "This device does not offer a supported local authentication method. Use manager account sign-in instead.".to_string()
+        }
+        _ => "The device could not check its authentication options. Use manager account sign-in instead.".to_string(),
+    });
 }
 
-#[fission_reducer(UserVerificationFailed)]
-fn on_user_verification_failed(state: &mut BiometricsState, error: BiometricError) {
-    state.export_unlocked = false;
-    state.biometric_error = Some(error.message);
+#[fission_reducer(VerifyRefundManager)]
+pub fn on_verify_refund_manager(
+    state: &mut RefundApprovalState,
+    ctx: &mut ReducerContext<RefundApprovalState>,
+) {
+    if state.authenticating || state.verified_with.is_some() {
+        return;
+    }
+
+    let Some(availability) = state.availability.as_ref() else {
+        state.error = Some("Check this device before asking it to verify the manager.".to_string());
+        state.message = None;
+        return;
+    };
+    if !host_can_verify(availability) {
+        state.error = Some("This device has no usable local credential. Continue with manager account sign-in.".to_string());
+        state.message = None;
+        return;
+    }
+    let Some(refund) = state.refund.as_ref() else {
+        state.error = Some("Open a refund review before asking the manager to verify.".to_string());
+        state.message = None;
+        return;
+    };
+
+    let amount = format_refund_amount(refund.amount_cents);
+    let refund_id = refund.refund_id.clone();
+    let order_reference = refund.order_reference.clone();
+    let customer_name = refund.customer_name.clone();
+    let reason = format!(
+        "Review refund {} for {} ({amount})",
+        refund_id, customer_name
+    );
+    state.authenticating = true;
+    state.error = None;
+    state.message = Some("Waiting for the device’s authentication prompt…".to_string());
+
+    let on_ok = ctx.effects.bind(
+        RefundManagerVerified,
+        reduce_with!(on_refund_manager_verified),
+    );
+    let on_err = ctx.effects.bind(
+        RefundManagerVerificationFailed,
+        reduce_with!(on_refund_manager_verification_failed),
+    );
+
+    ctx.effects
+        .biometrics()
+        .authenticate(BiometricAuthenticateRequest {
+            reason,
+            title: Some("Review refund".into()),
+            subtitle: Some(format!("{order_reference} · {amount}")),
+            fallback_title: Some("Use manager account".into()),
+            cancel_title: Some("Cancel".into()),
+            allow_device_credential: true,
+            required_strength: BiometricStrength::Any,
+        })
+        .on_ok(on_ok)
+        .on_err(on_err);
 }
-```
 
-Queue the operation after the user presses the named control. The host completes asynchronously and dispatches the matching reducer:
+#[fission_reducer(RefundManagerVerified)]
+pub fn on_refund_manager_verified(
+    state: &mut RefundApprovalState,
+    ctx: &mut ReducerContext<RefundApprovalState>,
+) {
+    state.authenticating = false;
+    let Some(result) = ctx.input.capability_ok(AUTHENTICATE_BIOMETRIC) else {
+        state.verified_with = None;
+        state.message = None;
+        state.error = Some("The device returned no verification result. The refund remains unchanged.".to_string());
+        return;
+    };
+    if !result.verified {
+        state.verified_with = None;
+        state.message = None;
+        state.error = Some("The device did not verify the manager. The refund remains unchanged.".to_string());
+        return;
+    }
 
-```rust
-ctx.effects
-    .biometrics()
-    .authenticate(BiometricAuthenticateRequest {
-        reason: "Confirm before exporting secrets".into(),
-        title: Some("Confirm export".into()),
-        allow_device_credential: true,
-        required_strength: BiometricStrength::Strong,
-        ..Default::default()
-    })
-    .on_ok(ctx.effects.bind(
-        UserVerified(BiometricAuthenticateResult::default()),
-        reduce_with!(on_user_verified),
-    ))
-    .on_err(ctx.effects.bind(
-        UserVerificationFailed(BiometricError::default()),
-        reduce_with!(on_user_verification_failed),
+    let method = if result.used_device_credential {
+        "device passcode"
+    } else {
+        match result.kind {
+            Some(BiometricKind::Face) => "face recognition",
+            Some(BiometricKind::Fingerprint) => "fingerprint",
+            Some(BiometricKind::Iris) => "iris recognition",
+            Some(BiometricKind::DeviceCredential) => "device credential",
+            Some(BiometricKind::Unknown) | None => "local authentication",
+        }
+    };
+    state.verified_with = Some(method.to_string());
+    state.error = None;
+    state.message = Some(format!(
+        "Local verification passed with {method}. The refund is ready for server review; it has not been submitted."
     ));
-```
+}
 
-Bind the user action from a reusable Fission component. Keep the visible label in the same control so it works with touch, keyboard and assistive technology:
+#[fission_reducer(RefundManagerVerificationFailed)]
+pub fn on_refund_manager_verification_failed(
+    state: &mut RefundApprovalState,
+    ctx: &mut ReducerContext<RefundApprovalState>,
+) {
+    state.authenticating = false;
+    state.verified_with = None;
+    state.message = None;
+    let Some(error) = ctx.input.capability_error(AUTHENTICATE_BIOMETRIC) else {
+        state.error = Some("The device did not return a verification result. The refund remains unchanged; try again or use manager account sign-in.".to_string());
+        return;
+    };
 
-```rust
-fission_component!
-{
-    pub ConfirmExportButton<BiometricsState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<BiometricsState>();
-                let run = with_reducer!(ctx, ConfirmExport, on_confirm_export);
-
-                Button::new("Confirm export")
-                    .disabled(false)
-                    .on_press(run)
-                    .into()
-    }
+    state.error = Some(match error.code.as_str() {
+        "cancelled" | "canceled" | "user_cancel" | "system_cancelled" => {
+            "Authentication was cancelled. The refund remains unchanged; try again or use manager account sign-in.".to_string()
+        }
+        "locked_out" | "lockout" => {
+            "Local authentication is temporarily locked. Wait for the device to unlock it, or use manager account sign-in.".to_string()
+        }
+        "not_enrolled" | "unavailable" | "unsupported" | "permission_denied" => {
+            "This device cannot complete local authentication right now. Use manager account sign-in instead.".to_string()
+        }
+        _ => "The device did not verify the manager. The refund remains unchanged; try again or use manager account sign-in.".to_string(),
+    });
 }
 ```
-
-The [complete Biometrics guide](/docs/capabilities/biometrics/) explains configuration and expected platform behaviour. Test a successful memory-provider response and an unavailable or denied response before relying on the physical-device check below. The browser preview exercises the component state only; it does not invoke this native provider.
-
-Keep platform-only code behind the generated target boundary or a typed provider; the shared component should describe the user task rather than call an operating-system API directly.
-
-
-
-<Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
+</TabItem>
+<TabItem label="src/app/widgets.rs">
+<!-- fission:file path="src/app/widgets.rs" -->
 ```rust
 use fission::prelude::*;
 
+use super::approval::{
+    on_check_device_biometrics, on_verify_refund_manager, CheckDeviceBiometrics,
+    RefundApprovalState, VerifyRefundManager,
+};
+
 fission_component! {
-    pub IosBiometricSignInResult<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            outcome: u8 = 0,
-        }
-    }
-    view(preview, _state, cx) {
+    pub RefundApprovalScreen<RefundApprovalState> {}
+    view(screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let check_device = with_reducer!(
+            cx.build,
+            CheckDeviceBiometrics,
+            on_check_device_biometrics,
+        );
+        let verify_manager = with_reducer!(
+            cx.build,
+            VerifyRefundManager,
+            on_verify_refund_manager,
+        );
+        let device_ready = state.availability.as_ref().map(|availability| {
+            availability.supported && (availability.enrolled || availability.device_credential)
+        }).unwrap_or(false);
     } =>
     SemanticsRegion(
-        identifier: Some("capability-result-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("refund-approval-screen".to_string()),
+        label: Some("Refund review and local manager verification".to_string()),
         child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
-                    .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Button(
-                    child: Text("Simulate request success"),
-                    key: "provider-success",
-                    on_press: reduce { preview.outcome = 1; },
+            Row(children: [
+                Spacer(flex_grow: 1.0),
+                Container(
+                    Column(gap: tokens.spacing.l, children: [
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text("Manager refund review")
+                                .weight(tokens.typography.font_weight_bold),
+                            Text("Verify the person holding this device before preparing the refund for server review.")
+                                .color(tokens.colors.text_secondary),
+                        ]),
+                        if let Some(refund) = &state.refund {
+                            Column(gap: tokens.spacing.s, children: [
+                                Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                                    Text(refund.refund_id.clone())
+                                        .weight(tokens.typography.font_weight_semibold),
+                                    Text(format!("Order {}", refund.order_reference)),
+                                ]),
+                                Text(refund.customer_name.clone()),
+                                Text(format!("Refund request: ${}.{:02}", refund.amount_cents / 100, refund.amount_cents % 100))
+                                    .weight(tokens.typography.font_weight_bold),
+                                Text(format!("Reason: {}", refund.reason))
+                                    .color(tokens.colors.text_secondary),
+                            ])
+                        } else {
+                            Text("Open a refund from the signed-in manager’s review queue to continue.")
+                                .color(tokens.colors.text_secondary)
+                        },
+                        Button(
+                            child: Text(if state.checking_device {
+                                "Checking device…"
+                            } else {
+                                "Check this device"
+                            }),
+                            key: "check-device-biometrics",
+                            variant: ButtonVariant::Outline,
+                            disabled: state.checking_device || state.authenticating,
+                            on_press: check_device,
+                        )
+                        .semantics_identifier("refund.check-device".to_string()),
+                        if device_ready {
+                            Button(
+                                child: Text(if state.authenticating {
+                                    "Waiting for verification…"
+                                } else if state.verified_with.is_some() {
+                                    "Manager verified on this device"
+                                } else {
+                                    "Verify manager"
+                                }),
+                                key: "verify-refund-manager",
+                                variant: ButtonVariant::Primary,
+                                disabled: state.authenticating || state.verified_with.is_some() || state.refund.is_none(),
+                                on_press: verify_manager,
+                            )
+                            .semantics_identifier("refund.verify-manager".to_string())
+                        } else {
+                            Text("After the device check, this action is enabled only when the host reports an enrolled biometric or an allowed device credential.")
+                                .color(tokens.colors.text_secondary)
+                        },
+                        if let Some(message) = &state.message {
+                            Text(message.clone()).color(tokens.colors.text_secondary)
+                        },
+                        if let Some(error) = &state.error {
+                            Text(error.clone()).color(tokens.colors.error)
+                        },
+                        Text("If local verification is unavailable, use the manager’s account sign-in. The server must still check the account, role, and refund before submitting it.")
+                            .color(tokens.colors.text_secondary),
+                    ])
                 )
-                .semantics_identifier("provider-preview.success"),
-                Button(
-                    child: Text("Simulate denial or unavailable"),
-                    key: "provider-unavailable",
-                    on_press: reduce { preview.outcome = 2; },
-                )
-                .semantics_identifier("provider-preview.unavailable"),
-                Text(if preview.outcome == 1 {
-                    format!("The simulated request for {} succeeded. The app can now show its result and the next useful action.", preview.goal)
-                } else if preview.outcome == 2 {
-                    format!("The simulated request for {} is unavailable. Keep the screen usable and explain whether the user can retry, change settings, or choose another path.", preview.goal)
-                } else {
-                    "Ready. No native permission prompt, sensor or provider request has run in this browser.".to_string()
-                }),
-            ])
+                .padding_all(tokens.spacing.l)
+                .width_length(Length::clamp(
+                    Length::points(0.0),
+                    Length::percent(100.0),
+                    Length::points(760.0),
+                ))
+                .bg(tokens.colors.surface)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.large),
+                Spacer(flex_grow: 1.0),
+            ]),
         )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        .width_length(Length::percent(100.0)),
     )
 }
 ```
@@ -307,22 +440,31 @@ fission_component! {
 ```rust
 mod app;
 
+use app::{RefundApprovalScreen, RefundApprovalState, RefundDraft};
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosBiometricSignInResult::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+
+    let preview_state = RefundApprovalState {
+        refund: Some(RefundDraft {
+            refund_id: "RFD-8842".into(),
+            order_reference: "GM-2841".into(),
+            customer_name: "Mara Chen".into(),
+            amount_cents: 42_850,
+            reason: "Duplicate shipment".into(),
+        }),
+        ..Default::default()
+    };
+
+    WebApp::<RefundApprovalState, _>::new(RefundApprovalScreen)
+        .with_state_init(move |state: &mut RefundApprovalState| {
+            *state = preview_state.clone();
+        })
+        .with_biometric_host(MemoryBiometricHost::default())
+        .with_title("Refund review")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -330,60 +472,40 @@ pub fn run() -> Result<(), JsValue> {
 ```
 </TabItem>
 </Tabs>
+
+The availability response and authentication result arrive through `ReducerContext.input`: `GET_BIOMETRIC_AVAILABILITY` supplies the device check, and `AUTHENTICATE_BIOMETRIC` supplies the authentication result. The unit actions named `BiometricAvailabilityReceived` and `RefundManagerVerified` only route each response to its reducer. They do not carry pretend provider data in their action payloads.
+
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Use the browser controls to simulate success and an unavailable result. They change local component state only and never call a native provider. Use the commands below to verify the real request on the iOS Simulator or an iPhone.
+In the interactive screen, select **Check this device**. The memory host reports an enrolled local method, which enables **Verify manager**. Select it and the host returns a successful face-recognition result. The screen should say the refund is ready for server review, and the displayed amount should remain **$428.50**. The preview stops before submitting anything.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Verify the native request on iOS
+<!-- fission:step id="verify-ios-support" -->
+## Check the native provider before testing Face ID or Touch ID
 
-The browser controls simulate app state; they never send a request to the platform provider. Run the target below on an emulator or device that supports this feature. Follow the user path from the first explanation through the request and returned result, and keep success hidden until the host replies.
+The Rust request and browser preview are ready, but this checkout does not yet contain an iOS biometric host. The iOS shell registers camera, barcode, geolocation, and microphone providers; biometric requests still use `UnsupportedBiometricHost` unless the app registers its own `BiometricHost`. Adding `biometric` to `fission.toml` creates the Face ID usage string, but that metadata does not implement LocalAuthentication.
 
-Repeat with the feature unavailable, denied or cancelled, as applicable. Confirm the screen preserves the user’s existing data and offers the right recovery step. Use a physical device when the behavior depends on real hardware or an operating-system prompt.
+The capability matrix now marks iOS biometrics as **Provider** for this reason. To run this flow with real Face ID or Touch ID, add a `BiometricHost` backed by Apple’s LocalAuthentication framework and register it with the mobile shell. The host must report availability and enrollment, then return a typed success or error from the system prompt. Until that provider exists, an iOS request should fail with `unsupported`; keep the refund unchanged and use the account sign-in path.
 
-### Run, test and build
+You can still build and inspect the generated iOS configuration now:
 
-```sh
-cargo test
-fission doctor ios --project-dir .
-fission run --target ios --project-dir .
-fission test --target ios --project-dir .
-fission build --target ios --project-dir . --release
-```
-
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Xcode, simulator SDK or Rust targets, `fission run` launches an iOS Simulator, and `fission test` checks that the generated host can start. A release build checks the simulator package; it does not verify iPhone signing or physical-device behavior.
-
-
-### Simulator and device commands
-
-Fission’s run command discovers iOS simulators. Run these checks from the generated project root:
-
+<Tabs>
+<TabItem label="Check the target">
 ```sh
 fission doctor ios --project-dir .
-fission devices --project-dir .
-fission run --target ios --project-dir .
-fission test --target ios --project-dir .
+fission build --target ios --project-dir .
 ```
-
-
-To verify a hardware-dependent path on an iPhone, configure development signing and Developer Mode, create a signed release IPA, then install it through Xcode Devices and Simulators:
-
+</TabItem>
+<TabItem label="Inspect generated privacy text">
 ```sh
-fission package --project-dir . --target ios --format ipa --release
+rg -n "NSFaceIDUsageDescription" platforms/ios/Info.plist
 ```
+</TabItem>
+</Tabs>
 
-`fission run --target ios` remains simulator-only; it does not launch directly on a physical iPhone. A simulator preview cannot prove NFC, camera, biometrics or other physical capability behaviour.
+These commands verify the target toolchain and privacy metadata. They do not prove that Face ID completed: a successful device test requires the missing native provider. On a target with a registered provider, test both an enrolled biometric and the recovery paths. Cancel the prompt, remove enrollment, and try a device that does not support the requested method. In every failure case, the refund should remain a draft and the app should direct the manager to account sign-in.
 
-
-### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
-- [Biometric capability reference](/reference/capabilities/biometrics/)
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
+For the exact request types and current support by platform, continue to the [biometric capability reference](/reference/capabilities/biometrics/) and [capability matrix](/reference/capabilities/matrix/). The reference explains what the provider must return; the [state and effects guide](/docs/guides/state-handles-and-providers/) explains why the request begins in a reducer and finishes in a later one.
 <!-- /fission:step -->
