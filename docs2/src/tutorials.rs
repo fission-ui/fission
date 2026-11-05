@@ -815,7 +815,7 @@ fn tutorial_html(goal: &str, step: &str, task: &str) -> String {
         r#"<!doctype html>
 <html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{step} — {goal}</title><meta name="tutorial-goal" content="{task}"><style>html,body,#fission-web-mount{{width:100%;height:100%;margin:0;overflow:hidden}}body{{background:#f7f6f1}}</style></head>
-<body><main id="fission-web-mount" aria-label="Interactive result for {step}"></main><script>
+<body><main id="fission-web-mount" aria-label="App preview for {step}"></main><script>
 // A preview must not steal focus or scroll its parent when its canvas starts.
 // After the reader interacts, normal canvas focus and keyboard input resume.
 let interacted = false;

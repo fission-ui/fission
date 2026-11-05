@@ -112,7 +112,7 @@ fission_component! {
                                 child: WebView(
                                     id: preview_id,
                                     url: finished.preview_url(&document.meta.app),
-                                    label: Some(format!("Interactive result for {}", document.meta.title)),
+                                    label: Some(format!("App preview for {}", document.meta.title)),
                                     height: Some(560.0),
                                 ),
                             ),

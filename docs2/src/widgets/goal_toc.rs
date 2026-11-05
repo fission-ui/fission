@@ -68,10 +68,6 @@ fission_component! {
                         Icon::svg(material::device::devices::regular()).size(tokens.spacing.m),
                         Column(children: [copy("goal.project_target").weight(tokens.typography.font_weight_semibold), Text(target)]),
                     ]),
-                    Row(gap: tokens.spacing.s, children: [
-                        Icon::svg(material::action::code::regular()).size(tokens.spacing.m),
-                        Column(children: [copy("goal.preview_target").weight(tokens.typography.font_weight_semibold), copy("goal.wasm_preview")]),
-                    ]),
                 ]),
             ),
             if let Some(previous) = previous {

@@ -46,9 +46,9 @@ android-use-android-volume-control-from-fission/
 Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android host owns launch and packaging details; shared components describe the user task without importing Android APIs.
 
 <!-- fission:step id="start-screen" -->
-## Try the browser-safe interaction
+## See where the browser stops
 
-The preview is a compiled Fission component with two deliberately local simulations. Press **Simulate success** to inspect the normal result, then **Simulate unavailable** to see how the screen can explain that a capability cannot proceed. These actions change only preview state: they do not request permission, access a sensor or run the target app. In the main step, compare that state boundary with the feature-specific instructions.
+A browser cannot reach the device provider for this feature, so this preview is intentionally read-only. It explains where the browser stops and where the native app takes over; it never claims that a permission prompt or hardware action succeeded. In the following steps, we will connect the user action to Fission’s capability request and handle the result returned by the target.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -63,59 +63,32 @@ fission_component! {
             step: String,
             goal: String,
         }
-        state {
-            simulated_success: bool = false,
-            simulated_unavailable: bool = false,
-        }
     }
     view(preview, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("tutorial-preview".to_string()),
+        identifier: Some("native-capability-preview".to_string()),
         label: Some(preview.title.clone()),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
                 Text(preview.title.clone())
-
                     .weight(tokens.typography.font_weight_bold),
                 Text(preview.step.clone())
                     .color(tokens.colors.text_secondary),
                 Text(preview.goal.clone()),
-                Button(
-                    child: Text(if preview.simulated_success {
-                        "Reset success simulation".to_string()
-                    } else {
-                        "Simulate success".to_string()
-                    }),
-                    key: "tutorial-complete",
-                    on_press: reduce {
-                        preview.simulated_success = !preview.simulated_success;
-                        if preview.simulated_success { preview.simulated_unavailable = false; }
-                    },
-                ),
-                Text(if preview.simulated_success {
-                    format!("Simulated success for {}. Only browser-local state changed. Use the target steps below to verify the real behaviour.", preview.goal)
-                } else {
-                    "Ready: no native request has run. Choose a simulation to see how the screen state changes.".to_string()
-                }),
-                Button(
-                    child: Text(if preview.simulated_unavailable {
-                        "Clear unavailable simulation".to_string()
-                    } else {
-                        "Simulate unavailable".to_string()
-                    }),
-                    key: "tutorial-unavailable",
-                    on_press: reduce {
-                        preview.simulated_unavailable = !preview.simulated_unavailable;
-                        if preview.simulated_unavailable { preview.simulated_success = false; }
-                    },
-                ),
-                if preview.simulated_unavailable {
-                    Text(format!("Simulated unavailable result for {}. No native request ran; the target app should explain the real reason and recovery action.", preview.title))
-                } else {
-                    Text("No unavailable response is being simulated.".to_string())
-                },
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text("The browser and device boundary".to_string())
+                            .weight(tokens.typography.font_weight_bold),
+                        Text("This website cannot call the Android host provider or reach device hardware. The preview shows the app context without pretending that the capability has run.".to_string()),
+                        Text("In the native app, the visible action starts the request. The platform host then returns the outcome that the app should explain to the user.".to_string()),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -157,7 +130,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Press **Simulate success** and check the visible status change. Then choose **Simulate unavailable** and check that the screen explains the unavailable outcome. Both actions change browser-local state only; they do not invoke the native capability.
+Use this read-only preview to identify the boundary between the website and the native app. No device request has been made. The next step follows the actual request path and shows how the app should handle a result from its platform provider.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -233,7 +206,7 @@ fission_component!
 }
 ```
 
-The [complete Volume Control guide](/docs/capabilities/volume-control/) explains configuration and expected platform behaviour. Test a successful memory-provider response and an unavailable or denied response before relying on the physical-device check below. The browser preview exercises the component state only; it does not invoke this native provider.
+The [complete Volume Control guide](/docs/capabilities/volume-control/) explains configuration and expected platform behaviour. Test a successful memory-provider response and an unavailable or denied response before relying on the physical-device check below. The preview is read-only. The native target uses Fission’s provider to perform the request and report the result.
 
 Keep platform-only code behind the generated target boundary or a typed provider; the shared component should describe the user task rather than call an operating-system API directly.
 
@@ -252,43 +225,32 @@ fission_component! {
             step: String,
             goal: String,
         }
-        state {
-            outcome: u8 = 0,
-        }
     }
     view(preview, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("capability-result-preview".to_string()),
+        identifier: Some("native-capability-preview".to_string()),
         label: Some(preview.title.clone()),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
                 Text(preview.title.clone())
-
                     .weight(tokens.typography.font_weight_bold),
                 Text(preview.step.clone())
                     .color(tokens.colors.text_secondary),
                 Text(preview.goal.clone()),
-                Button(
-                    child: Text("Simulate request success"),
-                    key: "provider-success",
-                    on_press: reduce { preview.outcome = 1; },
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text("Where the request result comes from".to_string())
+                            .weight(tokens.typography.font_weight_bold),
+                        Text("In the target app, Fission’s native host completes the request and reports its real outcome to shared Rust state. The browser cannot manufacture that outcome, so this preview stays read-only.".to_string()),
+                        Text("Handle success and errors as separate state transitions. Keep the surrounding screen usable if the user declines, cancels, or the device does not support the capability.".to_string()),
+                    ])
                 )
-                .semantics_identifier("provider-preview.success"),
-                Button(
-                    child: Text("Simulate denial or unavailable"),
-                    key: "provider-unavailable",
-                    on_press: reduce { preview.outcome = 2; },
-                )
-                .semantics_identifier("provider-preview.unavailable"),
-                Text(if preview.outcome == 1 {
-                    format!("The simulated request for {} succeeded. The app can now show its result and the next useful action.", preview.goal)
-                } else if preview.outcome == 2 {
-                    format!("The simulated request for {} is unavailable. Keep the screen usable and explain whether the user can retry, change settings, or choose another path.", preview.goal)
-                } else {
-                    "Ready. No native permission prompt, sensor or provider request has run in this browser.".to_string()
-                }),
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -330,14 +292,14 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Use the browser controls to simulate success and an unavailable result. They change local component state only and never call a native provider. Use the commands below to verify the real request on an Android emulator or phone.
+This preview is read-only: the actual result comes from the native host when you run the app on a supported target. Continue below to build and check that real request on a device or emulator.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
 ## Verify the native request on Android
 
-The browser controls simulate app state; they never send a request to the platform provider. Run the target below on an emulator or device that supports this feature. Follow the user path from the first explanation through the request and returned result, and keep success hidden until the host replies.
+The website preview cannot exercise the native provider. Build and launch this target on a supported emulator or device, then use the feature action from the component above. Check the result the host actually returns, including denial, cancellation or unsupported hardware where those outcomes apply.
 
 Repeat with the feature unavailable, denied or cancelled, as applicable. Confirm the screen preserves the user’s existing data and offers the right recovery step. Use a physical device when the behavior depends on real hardware or an operating-system prompt.
 
