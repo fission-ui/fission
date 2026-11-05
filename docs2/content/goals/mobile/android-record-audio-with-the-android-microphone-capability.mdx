@@ -15,14 +15,6 @@ outcomes:
   - Verify the Android workflow and follow physical-device checks when the task requires them
 ---
 
-## What you will build
-
-In this tutorial, you will configure recording permission, manage start, stop and error states, and handle app lifecycle changes. Try the interactive screen below in your browser. It changes local component state only; it does not open Android permission prompts, use device hardware or build an Android app. Follow the emulator checks below, then use a phone for hardware behavior.
-
-### The Fission pieces in this example
-
-Keep native work out of a component’s `view`: the component sends a typed request through an effect, and the host returns a success or error action for the reducer. That lets the screen stay responsive and show a useful recovery path. The browser preview below simulates these result states locally; the target checks later are where you verify the real capability.
-
 ## Create the project and add the target
 
 Install the Fission command line, create the app, and add its native target.

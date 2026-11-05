@@ -16,13 +16,7 @@ outcomes:
 ---
 This guide installs and verifies the tools needed to build a Rust Android app with Fission. We will check the command-line tools, SDK, NDK, emulator and phone connection in the order the build uses them. You need a terminal and basic Rust familiarity; each command explains what it checks before you move on.
 
-## What you will build
-
 By the end, you will have a verified Android development setup for Fission. The WebAssembly preview is a compiled example of the component syntax used in the guide; it cannot install SDK packages, create an emulator or connect to a phone. The terminal checks below are what prove the toolchain is ready.
-
-### How the screen uses Fission
-
-Throughout this guide, the screen is written as a `fission_component!`. That component owns its temporary interaction state and renders widgets from that state; a reducer changes it after a user action. Put durable facts shared across screens in `GlobalState`, and request native or service work through an effect or capability after the view is built.
 
 ## Create the project and add the target
 

@@ -15,14 +15,6 @@ outcomes:
   - Verify the iOS workflow and follow physical-device checks when the task requires them
 ---
 
-## What you will build
-
-In this tutorial, you will combine reducer and provider tests, fission test smoke checks, LiveTest against the simulator and physical-device checks for hardware behaviour. Try the interactive screen below in your browser. It changes local component state only; it does not open iOS permission prompts, use device hardware or build an iPhone app. Follow the Simulator checks below, then use a signed iPhone build for hardware behavior.
-
-### How the screen uses Fission
-
-Throughout this guide, the screen is written as a `fission_component!`. That component owns its temporary interaction state and renders widgets from that state; a reducer changes it after a user action. Put durable facts shared across screens in `GlobalState`, and request native or service work through an effect or capability after the view is built.
-
 ## Create the project and add the target
 
 Install the Fission command line, create the app, and add its native target.

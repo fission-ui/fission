@@ -17,8 +17,6 @@ outcomes:
 
 Protect a Rust account area by hydrating the session, rendering pending and denied states, delaying private content and authorising every server action. This tutorial takes you from project setup to a runnable result in three steps. Each step’s `src/app.rs` component is compiled into the WebAssembly preview shown beside its code, so you can try the same Fission component while you read. The preview changes the session status locally. In the real SSR app, load and verify the session on the server, and do not build private content until access is confirmed.
 
-## What you will build
-
 Add a protected account route that handles session loading, an unauthenticated visitor, an authorised user and an expired session without flashing private data.
 
 Install the Fission CLI and scaffold the SSR project:
