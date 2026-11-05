@@ -23,10 +23,11 @@ workspaces so their Cargo features stay isolated. Cargo compiles up to ten
 preview apps at once by default, then the site packages and optimizes their
 WASM previews with the same number of workers. Set
 `FISSION_TUTORIAL_BUILD_PARALLELISM` to a value from `1` to `64` to tune CPU and
-memory use. The site serving startup deadline defaults to 900 seconds; set
-`FISSION_SERVING_STARTUP_TIMEOUT_SECONDS` to a value from `1` to `3600` when a
-complete site build needs more time. The same timeout can be set with
-`--startup-timeout-seconds` on the CLI.
+memory use. This checkout’s site serving startup deadline defaults to 900
+seconds; set `FISSION_SERVING_STARTUP_TIMEOUT_SECONDS` to a value from `1` to
+`3600` when a complete site build needs more time. The same timeout can be set
+with `--startup-timeout-seconds` on the CLI. The current `main` CLI defaults to
+300 seconds.
 
 Check that `fission site serve --help` lists `--startup-timeout-seconds` before
 relying on a longer deadline. This checkout’s CLI also reads
@@ -38,8 +39,7 @@ For example:
 
 ```sh
 FISSION_TUTORIAL_BUILD_PARALLELISM=10 \
-FISSION_SERVING_STARTUP_TIMEOUT_SECONDS=3600 \
-fission site serve --project-dir docs2
+fission site serve --project-dir docs2 --startup-timeout-seconds 3600
 ```
 
 ## Tutorial authoring
