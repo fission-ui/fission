@@ -65,7 +65,7 @@ fission_component! {
                                         id: WidgetId::explicit("home-live-task-workspace"),
                                         url: _hero.preview_url.clone(),
                                         label: Some(cx.view.env().tr("home.demo_label")),
-                                        height: Some(360.0),
+                                        height: Some(520.0),
                                     ),
                                 ]),
                             ),

@@ -10,6 +10,7 @@ pub struct PlaygroundExample {
     pub description: String,
     pub source: String,
     pub preview_url: String,
+    pub preview_height: f32,
 }
 
 fission_component! {
@@ -86,7 +87,7 @@ fission_component! {
                                             id: preview_id,
                                             url: selected.preview_url.clone(),
                                             label: Some(selected.title.clone()),
-                                            height: Some(520.0),
+                                            height: Some(selected.preview_height),
                                         ),
                                     ]),
                                 ),

@@ -488,12 +488,6 @@ pub fn on_record_sale(state: &mut InventoryState, product_id: u32) {
     }
 }
 
-#[fission_reducer(ResetInventory)]
-pub fn on_reset_inventory(state: &mut InventoryState) {
-    state.products = sample_products();
-    state.feedback = "Sample inventory has been restored.".to_string();
-    state.feedback_is_error = false;
-}
 ```
 </TabItem>
 <TabItem label="src/app.rs">
@@ -711,22 +705,51 @@ Search for `MUG-104`, select “Needs reorder”, receive five units, and record
 
 A receiving form must not accept blank text, zero or a quantity that would overflow the stock counter. Add a quantity field and validate it when the person chooses a product. Keep the old stock value when validation fails, then explain what needs to change. This keeps the rule beside the action that depends on it.
 
-Search and filters also need a useful recovery path. If nothing matches, say which conditions are active and offer a one-click way back to the full catalogue. The reset action restores the sample stock as well, which makes it easy to try the tutorial again without refreshing the page.
+Search and filters also need a useful recovery path. If nothing matches, explain that the current search and stock filter produced no rows, then let the staff member return to the full catalogue. Clearing the view must not undo stock movements they already recorded.
 
-Product records live in `GlobalState`, so reducers can update stock and feedback in one place. Search text, the active filter and the receipt draft belong to the dashboard component because they are temporary choices for this screen. Nothing is persisted in this tutorial: reloading starts the sample catalogue again. In a production inventory site, load and save records through an asynchronous service, then let reducers publish loading, success or failure for the view to render.
+The finished screen keeps product records in `GlobalState`, so each reducer updates the stock and its feedback together. The search, active filter and receipt quantity stay local to the dashboard because they only affect this screen. The summary cards and reorder notice are derived from the same product records as the rows; after a receipt or sale, all three parts of the page agree. This tutorial keeps data in memory, so a reload restores the starting catalogue. A production inventory service can replace that boundary with asynchronous reads and writes while the screen keeps its loading, success and error states.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
-use crate::models::{
-    matches_inventory_filter, InventoryProduct,
-};
-use crate::state::{
-    on_receive_stock, on_record_sale, on_reset_inventory, InventoryState,
-    ReceiveStock, RecordSale, ResetInventory,
-};
+use crate::models::{matches_inventory_filter, InventoryProduct};
+use crate::state::{on_receive_stock, on_record_sale, InventoryState, ReceiveStock, RecordSale};
 use fission::prelude::*;
+
+fission_component! {
+    pub InventorySummaryCard<InventoryState> {
+        props {
+            label: String,
+            value: String,
+            detail: String,
+        }
+    }
+    view(card, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let identifier = format!(
+            "inventory-summary:{}",
+            card.label.to_lowercase().replace(' ', "-"),
+        );
+    } =>
+    SemanticsRegion(
+        identifier: Some(identifier),
+        label: Some(format!("{}: {}", card.label, card.value)),
+        child: Container(
+            Column(gap: tokens.spacing.s, children: [
+                Badge(text: card.label.clone()),
+                Text(card.value.clone())
+                    .weight(tokens.typography.font_weight_bold),
+                Text(card.detail.clone())
+                    .color(tokens.colors.text_secondary),
+            ]),
+        )
+        .padding_all(tokens.spacing.m)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.medium),
+    )
+}
 
 fission_component! {
     pub InventoryProductRow<InventoryState> {
@@ -735,65 +758,103 @@ fission_component! {
     }
     view(row, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let status = if row.product.stock == 0 {
+            "Out of stock"
+        } else if row.product.stock <= row.product.reorder_point {
+            "Reorder soon"
+        } else {
+            "In stock"
+        };
+        let status_color = if row.product.stock == 0 {
+            tokens.colors.error
+        } else {
+            tokens.colors.primary
+        };
+        let stock_capacity = row.product.reorder_point.saturating_mul(2).max(1);
+        let stock_fill = (row.product.stock.min(stock_capacity) as f32)
+            / stock_capacity as f32;
+        let label = format!("{} ({})", row.product.name, row.product.sku);
     } =>
-    Container(
-        Column(gap: tokens.spacing.s, children: [
-            Column(gap: tokens.spacing.xs, children: [
-                Text(row.product.name)
-                    .weight(tokens.typography.font_weight_semibold),
-                Text(format!("{} · {}", row.product.sku, row.product.category)),
-                Text(format!("{} · Bin {}", row.product.supplier, row.product.bin))
-                    .color(tokens.colors.text_secondary),
-                Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
-                    Text(format!("{} units", row.product.stock)),
-                    Text(format!("Reorder at {}", row.product.reorder_point))
-                        .color(tokens.colors.text_secondary),
-                    Text(if row.product.stock == 0 {
-                        "Out of stock"
-                    } else if row.product.stock <= row.product.reorder_point {
-                        "Reorder soon"
-                    } else {
-                        "In stock"
-                    }),
-                ]),
-                Text(format!("{} USD / unit", row.product.unit_cost)),
-            ]),
-            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                Button(
-                    child: Text(format!("Receive {} units", row.receive_quantity)),
-                    key: "receive-stock",
-                    disabled: row.receive_quantity == 0,
-                    on_press: with_reducer!(
-                        cx.build,
-                        ReceiveStock(row.product.id, row.receive_quantity),
-                        on_receive_stock,
-                    ),
-                ),
-                Button(
-                    child: Text("Record one sale"),
-                    key: "record-sale",
-                    variant: ButtonVariant::Outline,
-                    disabled: row.product.stock == 0,
-                    on_press: with_reducer!(
-                        cx.build,
-                        RecordSale(row.product.id),
-                        on_record_sale,
-                    ),
-                ),
-            ]),
-        ]),
+    SemanticsRegion(
+        identifier: Some(format!("inventory-product-{}", row.product.id)),
+        label: Some(label),
+        child: Container(
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                    GridTrack::Points(190.0),
+                    GridTrack::Fr(1.0),
+                ))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.l,
+                row_gap: tokens.spacing.m,
+                children: [
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(row.product.name)
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(format!("{} · {}", row.product.sku, row.product.category))
+                            .color(tokens.colors.text_secondary),
+                        Text(format!("Supplier: {}", row.product.supplier))
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                    Column(gap: tokens.spacing.xs, children: [
+                        Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                            Text(format!("{} units", row.product.stock))
+                                .weight(tokens.typography.font_weight_semibold),
+                            Text(status).color(status_color),
+                        ]),
+                        ProgressBar(
+                            value: stock_fill,
+                            label: format!("{} units in stock", row.product.stock),
+                        ),
+                        Text(format!("Reorder point: {} units", row.product.reorder_point))
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(format!("{} USD / unit", row.product.unit_cost))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(format!("Bin {} · Main warehouse", row.product.bin))
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                    Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                        Button(
+                            child: Text(format!("Receive {} units", row.receive_quantity)),
+                            key: format!("receive-stock-{}", row.product.id),
+                            disabled: row.receive_quantity == 0,
+                            on_press: with_reducer!(
+                                cx.build,
+                                ReceiveStock(row.product.id, row.receive_quantity),
+                                on_receive_stock,
+                            ),
+                        )
+                        .semantics_identifier(format!("receive-stock-{}", row.product.id)),
+                        Button(
+                            child: Text("Record one sale"),
+                            key: format!("record-sale-{}", row.product.id),
+                            variant: ButtonVariant::Outline,
+                            disabled: row.product.stock == 0,
+                            on_press: with_reducer!(
+                                cx.build,
+                                RecordSale(row.product.id),
+                                on_record_sale,
+                            ),
+                        )
+                        .semantics_identifier(format!("record-sale-{}", row.product.id)),
+                    ]),
+                ],
+            ),
+        )
+        .padding_all(tokens.spacing.m)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.medium),
     )
-    .padding_all(tokens.spacing.m)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.medium)
 }
 
 fission_component! {
     pub ProductInventoryDashboard<InventoryState> {
         state {
             search: String = String::new(),
-            filter: String = "All products".to_string(),
+            filter: String = "All stock".to_string(),
             receive_quantity: String = "5".to_string(),
         }
     }
@@ -804,6 +865,7 @@ fission_component! {
         let receive_quantity = dashboard.receive_quantity.trim().parse::<u32>()
             .ok()
             .filter(|quantity| *quantity > 0);
+        let product_count = state.products.len();
         let total_units: u32 = state.products.iter().map(|product| product.stock).sum();
         let reorder_count = state.products.iter()
             .filter(|product| product.stock <= product.reorder_point)
@@ -811,157 +873,219 @@ fission_component! {
         let visible_count = state.products.iter()
             .filter(|product| matches_inventory_filter(product, &query, filter))
             .count();
+        let product_label = if product_count == 1 { "product" } else { "products" };
+        let reorder_label = if reorder_count == 1 { "product needs" } else { "products need" };
     } =>
-    Container(
-        Column(gap: tokens.spacing.l, children: [
-            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Text("Harbour Supply").weight(tokens.typography.font_weight_bold),
-                    Text("Search the catalogue, check stock and record a movement.")
-                        .color(tokens.colors.text_secondary),
-                ]),
-                Spacer(flex_grow: 1.0),
-                Button(
-                    child: Text("Restore sample inventory"),
-                    key: "restore-sample-inventory",
-                    variant: ButtonVariant::Outline,
-                    on_press: with_reducer!(
-                        cx.build,
-                        ResetInventory,
-                        on_reset_inventory,
-                    ),
-                ),
-            ]),
-            Grid(
-                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-                    GridTrack::Points(180.0),
-                    GridTrack::Fr(1.0),
-                ))],
-                rows: vec![GridTrack::Auto],
-                column_gap: tokens.spacing.m,
-                row_gap: tokens.spacing.s,
-                children: [
-                    Column(children: [
-                        Text(format!(
-                            "{} product{}",
-                            state.products.len(),
-                            if state.products.len() == 1 { "" } else { "s" },
-                        )),
-                        Text("Active SKUs").color(tokens.colors.text_secondary),
-                    ]),
-                    Column(children: [
-                        Text(format!("{} units", total_units)),
-                        Text("Across all bins").color(tokens.colors.text_secondary),
-                    ]),
-                    Column(children: [
-                        Text(format!(
-                            "{} product{}",
-                            reorder_count,
-                            if reorder_count == 1 { "" } else { "s" },
-                        )),
-                        Text("At or below reorder point")
+    SemanticsRegion(
+        identifier: Some("inventory-dashboard".to_string()),
+        label: Some("Harbour Supply inventory dashboard".to_string()),
+        child: Container(
+            Column(gap: tokens.spacing.l, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text("Harbour Supply")
+                            .weight(tokens.typography.font_weight_bold),
+                        Text("Troutdale · Main warehouse")
                             .color(tokens.colors.text_secondary),
                     ]),
-                ],
-            ),
-            Column(gap: tokens.spacing.m, children: [
-                TextInput(
-                    label: Some("Search by name, SKU or supplier".into()),
-                    placeholder: Some("Try MUG-104 or Alpine".into()),
-                    bind: dashboard.search,
-                    semantics_identifier: "inventory.search".to_string(),
-                ),
-                TextInput(
-                    label: Some("Units to receive".into()),
-                    placeholder: Some("Enter a positive whole number".into()),
-                    bind: dashboard.receive_quantity,
-                    semantics_identifier: "inventory.receive-quantity".to_string(),
-                ),
-            ]),
-            if receive_quantity.is_none() {
-                Text("Enter a whole number greater than zero to enable receiving.")
-                    .color(tokens.colors.error)
-            },
-            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                Button(
-                    child: Text("All products"),
-                    key: "filter-all",
-                    variant: if dashboard.filter == "All products" {
-                        ButtonVariant::Primary
-                    } else {
-                        ButtonVariant::Outline
-                    },
-                    on_press: reduce { dashboard.filter = "All products".to_string(); },
-                ),
-                Button(
-                    child: Text("Needs reorder"),
-                    key: "filter-reorder",
-                    variant: if dashboard.filter == "Needs reorder" {
-                        ButtonVariant::Primary
-                    } else {
-                        ButtonVariant::Outline
-                    },
-                    on_press: reduce { dashboard.filter = "Needs reorder".to_string(); },
-                ),
-                Button(
-                    child: Text("Out of stock"),
-                    key: "filter-empty",
-                    variant: if dashboard.filter == "Out of stock" {
-                        ButtonVariant::Primary
-                    } else {
-                        ButtonVariant::Outline
-                    },
-                    on_press: reduce { dashboard.filter = "Out of stock".to_string(); },
-                ),
-            ]),
-            Text(format!(
-                "{} product{} shown",
-                visible_count,
-                if visible_count == 1 { "" } else { "s" },
-            )),
-            if visible_count == 0 {
-                Container(Column(gap: tokens.spacing.s, children: [
-                    Text("No products match these conditions.")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text("Clear the search and return to all products to continue.")
+                    Spacer(flex_grow: 1.0),
+                    Badge(text: "Inventory operations"),
+                ]),
+                Divider(),
+                Column(gap: tokens.spacing.xs, children: [
+                    Text("Inventory")
+                        .weight(tokens.typography.font_weight_bold),
+                    Text("Check availability, spot reorder risks and record stock movements.")
                         .color(tokens.colors.text_secondary),
-                    Button(
-                        child: Text("Show all products"),
-                        key: "clear-inventory-filter",
-                        on_press: reduce {
-                            dashboard.search.clear();
-                            dashboard.filter = "All products".to_string();
-                        },
-                    ),
-                ]))
-                .padding_all(tokens.spacing.l)
-                .bg(tokens.colors.surface)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium)
-            } else {
-                Column(gap: tokens.spacing.s, children: [
-                    for product in state.products.iter()
-                        .filter(|product| matches_inventory_filter(product, &query, filter))
-                    {
-                        InventoryProductRow(
-                            product.clone(),
-                            receive_quantity.unwrap_or(0),
-                            key: product.id,
+                ]),
+                Grid(
+                    columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                        GridTrack::Points(220.0),
+                        GridTrack::Fr(1.0),
+                    ))],
+                    rows: vec![GridTrack::Auto],
+                    column_gap: tokens.spacing.m,
+                    row_gap: tokens.spacing.m,
+                    children: [
+                        InventorySummaryCard(
+                            "ACTIVE PRODUCTS".to_string(),
+                            format!("{} {}", product_count, product_label),
+                            "Across the main warehouse".to_string(),
+                            key: "active-products",
+                        ),
+                        InventorySummaryCard(
+                            "UNITS ON HAND".to_string(),
+                            format!("{} units", total_units),
+                            "Across all storage bins".to_string(),
+                            key: "units-on-hand",
+                        ),
+                        InventorySummaryCard(
+                            "REORDER REVIEW".to_string(),
+                            format!("{} {}", reorder_count, reorder_label),
+                            "At or below the product threshold".to_string(),
+                            key: "reorder-review",
+                        ),
+                    ],
+                ),
+                if reorder_count > 0 {
+                    SemanticsRegion(
+                        identifier: Some("inventory-reorder-notice".to_string()),
+                        label: Some(format!("{} products need a reorder review", reorder_count)),
+                        child: Container(
+                            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, align_items: ir_op::AlignItems::Center, children: [
+                                Column(gap: tokens.spacing.xs, children: [
+                                    Badge(text: "Reorder attention"),
+                                    Text(format!(
+                                        "{} {} at or below the reorder point. Review the list before placing the next supplier order.",
+                                        reorder_count,
+                                        if reorder_count == 1 { "product is" } else { "products are" },
+                                    )),
+                                ]),
+                                Spacer(flex_grow: 1.0),
+                                Button(
+                                    child: Text("Show reorder items"),
+                                    key: "show-reorder-items",
+                                    variant: ButtonVariant::Outline,
+                                    on_press: reduce {
+                                        dashboard.search.clear();
+                                        dashboard.filter = "Needs reorder".to_string();
+                                    },
+                                ),
+                            ]),
                         )
-                    },
-                ])
-            },
-            Text(state.feedback.clone())
-                .color(if state.feedback_is_error {
-                    tokens.colors.error
+                        .padding_all(tokens.spacing.m)
+                        .bg(tokens.colors.surface)
+                        .border(tokens.colors.border, 1.0)
+                        .border_radius(tokens.radii.medium),
+                    )
+                },
+                Grid(
+                    columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                        GridTrack::Points(280.0),
+                        GridTrack::Fr(1.0),
+                    ))],
+                    rows: vec![GridTrack::Auto],
+                    column_gap: tokens.spacing.m,
+                    row_gap: tokens.spacing.m,
+                    children: [
+                        TextInput(
+                            label: Some("Find a product".into()),
+                            placeholder: Some("Search name, SKU or supplier".into()),
+                            bind: dashboard.search,
+                            semantics_identifier: "inventory.search".to_string(),
+                        ),
+                        TextInput(
+                            label: Some("Receipt quantity".into()),
+                            placeholder: Some("Enter a whole number, such as 5".into()),
+                            bind: dashboard.receive_quantity,
+                            semantics_identifier: "inventory.receive-quantity".to_string(),
+                        ),
+                    ],
+                ),
+                if receive_quantity.is_none() {
+                    Text("Enter a whole number greater than zero to enable receiving.")
+                        .color(tokens.colors.error)
+                },
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, align_items: ir_op::AlignItems::Center, children: [
+                    Button(
+                        child: Text("All stock"),
+                        key: "filter-all-stock",
+                        variant: if dashboard.filter == "All stock" {
+                            ButtonVariant::Primary
+                        } else {
+                            ButtonVariant::Outline
+                        },
+                        on_press: reduce { dashboard.filter = "All stock".to_string(); },
+                    ),
+                    Button(
+                        child: Text("Needs reorder"),
+                        key: "filter-needs-reorder",
+                        variant: if dashboard.filter == "Needs reorder" {
+                            ButtonVariant::Primary
+                        } else {
+                            ButtonVariant::Outline
+                        },
+                        on_press: reduce { dashboard.filter = "Needs reorder".to_string(); },
+                    ),
+                    Button(
+                        child: Text("Out of stock"),
+                        key: "filter-out-of-stock",
+                        variant: if dashboard.filter == "Out of stock" {
+                            ButtonVariant::Primary
+                        } else {
+                            ButtonVariant::Outline
+                        },
+                        on_press: reduce { dashboard.filter = "Out of stock".to_string(); },
+                    ),
+                    Spacer(flex_grow: 1.0),
+                    Text(format!("Showing {} of {} products", visible_count, product_count))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                if visible_count == 0 {
+                    SemanticsRegion(
+                        identifier: Some("inventory-empty-state".to_string()),
+                        label: Some("No matching inventory products".to_string()),
+                        child: Container(
+                            Column(gap: tokens.spacing.s, children: [
+                                Text("No products match this search and stock filter.")
+                                    .weight(tokens.typography.font_weight_semibold),
+                                Text("Clear the view to return to the full catalogue. Your stock movements are kept.")
+                                    .color(tokens.colors.text_secondary),
+                                Button(
+                                    child: Text("Show all products"),
+                                    key: "clear-inventory-view",
+                                    on_press: reduce {
+                                        dashboard.search.clear();
+                                        dashboard.filter = "All stock".to_string();
+                                    },
+                                ),
+                            ]),
+                        )
+                        .padding_all(tokens.spacing.l)
+                        .bg(tokens.colors.surface)
+                        .border(tokens.colors.border, 1.0)
+                        .border_radius(tokens.radii.medium),
+                    )
                 } else {
-                    tokens.colors.text_secondary
-                }),
-        ]),
+                    Column(gap: tokens.spacing.s, children: [
+                        for product in state.products.iter()
+                            .filter(|product| matches_inventory_filter(product, &query, filter))
+                        {
+                            InventoryProductRow(
+                                product.clone(),
+                                receive_quantity.unwrap_or(0),
+                                key: product.id,
+                            )
+                        },
+                    ])
+                },
+                SemanticsRegion(
+                    identifier: Some("inventory-stock-feedback".to_string()),
+                    label: Some("Latest stock movement".to_string()),
+                    child: Container(
+                        Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                            Icon::svg(material::content::inventory_2::regular())
+                                .size(tokens.spacing.m)
+                                .color(tokens.colors.primary),
+                            Text(state.feedback.clone()).color(if state.feedback_is_error {
+                                tokens.colors.error
+                            } else {
+                                tokens.colors.text_secondary
+                            }),
+                        ]),
+                    )
+                    .padding_all(tokens.spacing.m)
+                    .bg(tokens.colors.surface)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
+                ),
+            ]),
+        )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.background),
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.background)
 }
+
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
@@ -990,7 +1114,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Enter `0` as the receipt quantity and try to receive a product; its stock must not change. Then enter `3`, restore stock, search for a name that is not present, and use “Show all products” to recover.
+Enter `0` as the receipt quantity and confirm that receiving is disabled. Then enter `3`, receive stock for the trail mug and verify that its count and the summary cards update together. Search for a name that is not present, use “Show all products” to clear the view, and confirm that the new stock count is still there.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 

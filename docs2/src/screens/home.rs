@@ -1,8 +1,8 @@
 use crate::content::GoalMeta;
 use crate::state::DocsState;
 use crate::widgets::{
-    BrowserCta, ComposeSection, FeatureSection, GoalChooser, HomeHero, PlatformStrip, SiteFooter,
-    SiteHeader, TutorialGallery,
+    ComposeSection, FeatureSection, GoalChooser, HomeHero, PlatformStrip, PlaygroundCallout,
+    SiteFooter, SiteHeader, TutorialGallery,
 };
 use fission::prelude::*;
 
@@ -28,7 +28,7 @@ fission_component! {
                 FeatureSection(),
                 ComposeSection(),
                 TutorialGallery(home.tutorials.clone()),
-                BrowserCta(),
+                PlaygroundCallout(),
                 SiteFooter(),
             ]),
         )

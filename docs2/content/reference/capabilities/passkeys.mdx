@@ -34,11 +34,13 @@ This reference is for the exact API shape. If you are wiring the feature into an
 
 Register a `PasskeyHost` with `.with_passkey_host(...)`. Use `MemoryPasskeyHost` for reducer tests. A real provider only gathers credential data; the relying-party server must verify registration and authentication results before the app treats the user as signed in.
 
+The browser shell includes a WebAuthn provider. The native mobile shell exposes `.with_passkey_host(...)`, but its default is `UnsupportedPasskeyHost`; an Android or iOS app must register a platform-specific provider before native passkey requests can succeed. Declaring `passkeys` with `fission add-capability` records the app’s requirement, but it does not install Android Credential Manager or an Apple AuthenticationServices adapter. The [Android passkey tutorial](/blog/add-passkey-sign-in-to-an-android-app/) shows the shared Rust flow and identifies this native integration boundary.
+
 Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
 
 ## Platform configuration
 
-The CLI records the capability, but domain association is product-specific. Web needs a secure origin and relying-party id. iOS and macOS usually need associated domains such as `webcredentials:example.com`. Android usually needs Digital Asset Links. Fission cannot invent those because they must match the production domain and app identifiers.
+The CLI records the capability, but domain association is product-specific. Web needs a secure origin and relying-party id. iOS and macOS usually need associated domains such as `webcredentials:example.com`. Android usually needs Digital Asset Links. Follow Android’s official [Credential Manager prerequisites](https://developer.android.com/identity/credential-manager/prerequisites) and [passkey sign-in guide](https://developer.android.com/identity/passkeys/sign-in-with-passkeys). Fission cannot invent the domain or app identifiers because they must match the production deployment.
 
 When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
 

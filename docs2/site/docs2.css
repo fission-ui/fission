@@ -20,7 +20,6 @@ body {
   margin: 0;
   color: var(--ink);
   background: #fff;
-  font-family: var(--fs-font-sans);
   line-height: 1.6;
   text-rendering: optimizeLegibility;
 }
@@ -181,7 +180,7 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
 [data-fission-semantics="home-hero-preview"] iframe {
   display: block;
   width: 100% !important;
-  min-height: 360px;
+  min-height: 520px;
   border: 0;
   background: #fff;
 }
@@ -363,14 +362,10 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
 }
 [data-fission-semantics="home-browser"] > * {
   display: grid !important;
-  grid-template-columns: minmax(0, .75fr) minmax(0, 1.25fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 28px !important;
 }
-[data-fission-semantics="home-browser-demo"] { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
-[data-fission-semantics="home-browser-demo"] > * { display: grid !important; grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr); align-items: stretch; gap: 0 !important; }
-[data-fission-semantics="home-browser-demo"] iframe { display: block; width: 100% !important; min-height: 340px; border: 0; background: #fff; }
-[data-fission-semantics="home-browser-demo"] pre { min-height: 340px; }
 
 [data-fission-semantics="site-footer"] { padding: 36px var(--gutter); border-top: 1px solid var(--line); background: #102039; color: #eef4ff; }
 [data-fission-semantics="site-footer"] > * { width: min(100%, var(--max)); margin-inline: auto; }
@@ -650,7 +645,6 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
   [data-fission-semantics="home-browser"] > *,
   [data-fission-semantics="home-compose"] > * > :nth-child(2) { grid-template-columns: minmax(0, 1fr); }
   [data-fission-semantics="home-hero-demo"] > *,
-  [data-fission-semantics="home-browser-demo"] > * { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   [data-fission-semantics="home-features"] > * { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   [data-fission-semantics="home-features"] > * > :first-child { grid-column: 1 / -1; }
   [data-fission-semantics="home-tutorials"] > * > :nth-child(2) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -674,7 +668,6 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
   [data-fission-semantics="goal-shell"] > .fission-site-row > :last-child { display: none; }
   [data-fission-semantics="goal-main"] { padding-inline: var(--gutter); }
   [data-fission-semantics="home-hero-demo"] > *,
-  [data-fission-semantics="home-browser-demo"] > * { grid-template-columns: minmax(0, 1fr); }
   [data-fission-semantics="home-platforms"] > * { flex-wrap: wrap !important; }
   [data-fission-semantics="home-platforms"] > * > * { flex: 1 1 40%; border-right: 0; border-bottom: 1px solid var(--line); }
   [data-fission-semantics="home-goals"] > * > :nth-child(2),
@@ -688,7 +681,9 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
   [data-fission-semantics="home-features"] > * > :first-child { grid-column: auto; }
   [data-fission-semantics="home-hero"] { padding-top: 36px; }
   [data-fission-semantics="home-hero-preview"] iframe,
-  [data-fission-semantics="home-browser-demo"] iframe { min-height: 300px; }
+  [data-fission-semantics="playground-preview"] iframe[src*="/tutorials/rust-product-inventory/"] { height: 1440px !important; }
+  [data-fission-semantics="playground-preview"] iframe[src*="/tutorials/rust-admin-panel/"] { height: 1320px !important; }
+  [data-fission-semantics="playground-preview"] iframe[src*="/tutorials/single-page-web-app-rust/"] { height: 920px !important; }
   [data-fission-semantics="tutorial-pagination"] { align-items: stretch; flex-wrap: wrap; }
   [data-fission-semantics="site-navigation"] > .fission-site-row > :last-child {
     flex: 1 1 100%;

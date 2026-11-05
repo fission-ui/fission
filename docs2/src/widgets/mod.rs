@@ -24,7 +24,7 @@ mod tutorial_card;
 mod tutorial_gallery;
 mod tutorial_list_item;
 
-pub use browser_cta::BrowserCta;
+pub use browser_cta::PlaygroundCallout;
 pub use compose_section::ComposeSection;
 pub use feature_section::FeatureSection;
 pub use goal_chooser::GoalChooser;

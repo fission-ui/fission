@@ -24,16 +24,16 @@ pub fn site_app() -> Result<FissionSite> {
         .iter()
         .find(|goal| goal.meta.app == HOMEPAGE_PREVIEW_APP)
         .context("homepage preview tutorial is missing")?;
-    let home_preview = hero_tutorial
+    let home_showcase = hero_tutorial
         .steps
-        .first()
-        .context("homepage preview tutorial has no first step")?;
-    let hero_source = home_preview
+        .last()
+        .context("homepage showcase tutorial has no completed step")?;
+    let hero_source = home_showcase
         .files
         .get("src/app.rs")
-        .context("homepage preview step is missing src/app.rs")?
+        .context("homepage showcase step is missing src/app.rs")?
         .clone();
-    let hero_preview_url = home_preview.preview_url(&hero_tutorial.meta.app);
+    let hero_preview_url = home_showcase.preview_url(&hero_tutorial.meta.app);
     let products = product_routes();
     let mut site = FissionSite::new()
         .with_env(i18n::environment())
@@ -97,14 +97,19 @@ pub fn site_app() -> Result<FissionSite> {
         .iter()
         .filter_map(|app| {
             let goal = goals.iter().find(|goal| goal.meta.app == *app)?;
-            let first_step = goal.steps.first()?;
-            let source = first_step.files.get("src/app.rs")?.clone();
+            let finished_step = goal.steps.last()?;
+            let source = finished_step.files.get("src/app.rs")?.clone();
             Some(PlaygroundExample {
                 app: goal.meta.app.clone(),
                 title: goal.meta.title.clone(),
                 description: goal.meta.description.clone(),
                 source,
-                preview_url: first_step.preview_url(&goal.meta.app),
+                preview_url: finished_step.preview_url(&goal.meta.app),
+                preview_height: match goal.meta.app.as_str() {
+                    "rust-product-inventory" => 1040.0,
+                    "rust-admin-panel" => 960.0,
+                    _ => 520.0,
+                },
             })
         })
         .collect();
