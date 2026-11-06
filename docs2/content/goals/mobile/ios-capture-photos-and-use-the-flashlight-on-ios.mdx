@@ -1,348 +1,1366 @@
 ---
 layout: goal
-title: Capture photos and use the flashlight on iOS
-description: "Step-by-step Rust guide to capture photos and use the flashlight on iOS using Fission."
-goal: Configure camera privacy text and show capture, denial, cancellation and unavailable-device states.
+title: Capture iPhone photos and use the flashlight in a Rust app
+description: "Build an iOS nursery receiving screen with Rust and Fission. Request camera access, attach a real delivery photo, show flashlight controls only when supported, and keep a reviewable draft after errors."
+goal: "Inspect Riverbend Nursery shipment RCV-275 on an iPhone, attach a real photo of its damaged crates, and prepare a supplier review without pretending a browser sent a claim."
 path: /blog/capture-photos-and-use-the-flashlight-on-ios/
 order: 92
 difficulty: Beginner
-duration: 35 minutes
+duration: 45 minutes
 run_command: "fission run --target ios --project-dir ."
 app: ios-capture-photos-and-use-the-flashlight-on-ios
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the iOS workflow and follow physical-device checks when the task requires them
+  - Build a realistic iOS nursery receiving workflow with reusable Fission components
+  - Request camera permission after the receiving clerk chooses to capture evidence
+  - Read the returned photo stream asynchronously and display the actual image
+  - Offer flashlight control only when the camera reports a torch
+  - Preserve the receiving note when permission, capture, or image preparation fails
 ---
 
-## Create the project and add the target
+At Cedar Bay Nurseries, Morgan is checking in Riverbend Nursery’s olive sapling shipment, purchase order **RB-5684**. Two trays arrived with crushed crate corners. Before the plants are moved into the greenhouse, the receiving record needs a clear photograph and a note that tells the supplier what to inspect.
 
-Install the Fission command line, create the app, and add its native target.
+The screen will show the order, the affected quantity, the note, and the evidence status together. **Capture arrival photo** asks the active host for its camera. A successful response becomes a real image in the record; a denial or missing camera leaves the note in place. The flashlight control appears only when a camera reports that it has one.
 
+**Prepare supplier review** checks that a photo and note are present, then marks the record ready in app state. It does not send a claim. That distinction gives this example a useful end-to-end receiving flow while keeping server work outside the browser preview.
+
+## Create an iOS project and declare camera access
+
+Create a Rust app, add the iOS target, then declare the camera capability. Fission uses that declaration to add `NSCameraUsageDescription` to the generated `Info.plist`; replace the generated sentence with the reason a receiving clerk will understand.
+
+<Tabs>
+<TabItem label="Create the app">
 ```sh
 cargo install cargo-fission
-fission init ios-capture-photos-and-use-the-flashlight-on-ios
-cd ios-capture-photos-and-use-the-flashlight-on-ios
+fission init cedar-bay-receiving
+cd cedar-bay-receiving
+cargo add serde --features derive
 fission add-target ios --project-dir .
 fission add-capability camera --project-dir .
 ```
-
-## Files created by Fission
-
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/ios/`.
-
-```text
-ios-capture-photos-and-use-the-flashlight-on-ios/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
-├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
-└── platforms/
-    └── ios/                  # generated iOS host
-```
-
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated iOS host owns launch and packaging details; shared components describe the user task without importing iOS APIs.
-
-<!-- fission:step id="start-screen" -->
-## See where the browser stops
-
-A browser cannot reach the device provider for this feature, so this preview is intentionally read-only. It explains where the browser stops and where the native app takes over; it never claims that a permission prompt or hardware action succeeded. In the following steps, we will connect the user action to Fission’s capability request and handle the result returned by the target.
-
-<Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
-```rust
-use fission::prelude::*;
-
-fission_component! {
-    pub IosCameraCapture<()> {
-        props { title: String, step: String, goal: String, }
-    }
-    view(preview, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
-                    .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text("The browser and device boundary".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("This website cannot call the iOS host provider or reach device hardware. The preview shows the app context without pretending that the capability has run.".to_string()),
-                        Text("In the native app, the visible action starts the request. The platform host then returns the outcome that the app should explain to the user.".to_string()),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
-}
-```
 </TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    let preview = app::IosCameraCapture::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
+<TabItem label="Files in this tutorial">
+```text
+cedar-bay-receiving/
+├── Cargo.toml
+├── fission.toml
+├── src/
+│   ├── app.rs
+│   ├── app/
+│   │   └── widgets.rs
+│   ├── lib.rs
+│   └── main.rs
+└── platforms/
+    └── ios/
+        └── Info.plist
 ```
 </TabItem>
 </Tabs>
-<!-- fission:preview -->
 
-<!-- fission:checkpoint -->
-Use this read-only preview to identify the boundary between the website and the native app. No device request has been made. The next step follows the actual request path and shows how the app should handle a result from its platform provider.
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
+The shipment, note, hold status, and photo belong to the receiving record, so shared `GlobalState` owns them. Camera permission and capture are different: they are host operations that can take time or fail, so reducers request them after a button press and leave the screen responsive while Fission waits for the result.
 
-<!-- fission:step id="main-flow" -->
-## Connect the Camera provider to the user action
+<!-- fission:step id="receiving-flow" -->
+## Build the receiving screen and attach real evidence
 
-This is the real Fission request path for this feature. Keep permission and hardware work outside the component view: the component dispatches one intent, the reducer queues the request, and success or error reducers store the returned result.
+`DeliveryReceipt` describes the order that arrived. `ReceivingInspectionState` also keeps the local work in progress: the note, the actual photo bytes, whether a request is pending, and whether the record is ready for review. These fields stay together because they describe one active receipt.
 
-Start with task data and status in the app state. Keep a text-field draft, open flag or selected tab in the owning component instead of duplicating that temporary state here:
+The camera returns a Fission data-stream id rather than a large image vector. The app hands that stream to a registered job, which reads it asynchronously; `Image::memory` then displays the returned bytes. This keeps image preparation away from the UI thread, and the empty evidence card remains honest until that process succeeds.
 
+The component file is split by what the clerk sees. The order card identifies the shipment, the crate diagram marks the reported damage, the evidence card owns camera actions, and the decision card owns the note and receiving transitions. Every control dispatches an action; reusable widgets do not hold unrelated screen state in a helper function.
+
+<Tabs>
+<TabItem label="src/app.rs · state and effects">
+<!-- fission:file path="src/app.rs" -->
 ```rust
-#[derive(Debug, Default)]
-struct CameraDemoState {
-    // Add these fields to your existing app state.
-    profile_photo_stream: Option<DataStreamId>,
-    camera_error: Option<String>,
-    capturing: bool,
+use fission::core::{collect_data_stream, DataStreamId, JobCtx, JobRef, JobSpec};
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+pub mod widgets;
+pub use widgets::ReceivingInspectionApp;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DeliveryReceipt {
+    pub reference: String,
+    pub purchase_order: String,
+    pub supplier: String,
+    pub received_by: String,
+    pub vehicle: String,
+    pub product: String,
+    pub cultivar: String,
+    pub lot: String,
+    pub expected_trays: u32,
+    pub damaged_trays: u32,
+    pub arrival_time: String,
+    pub instruction: String,
 }
 
-impl GlobalState for CameraDemoState {}
-```
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ReceivingInspectionState {
+    pub receipt: Option<DeliveryReceipt>,
+    pub receiving_note: String,
+    pub affected_trays_on_hold: bool,
+    pub draft_saved: bool,
+    pub review_ready: bool,
+    pub photo_pending: bool,
+    pub photo_bytes: Option<Vec<u8>>,
+    pub photo_details: Option<String>,
+    pub camera_availability_checked: bool,
+    pub camera_availability_failed: bool,
+    pub flashlight_available: bool,
+    pub flashlight_pending: bool,
+    pub flashlight_on: bool,
+    pub notice: Option<String>,
+    pub error: Option<String>,
+}
 
-Handle successful and failed results separately so the screen can explain denied permission, cancellation, unsupported hardware and provider errors:
+impl GlobalState for ReceivingInspectionState {}
 
-```rust
-#[fission_reducer(PhotoCaptured)]
-fn on_photo_captured(state: &mut CameraDemoState, capture: CameraCapture) {
-    state.capturing = false;
-    state.profile_photo_stream = Some(capture.stream);
-    state.camera_error = None;
+impl ReceivingInspectionState {
+    pub fn tutorial_receipt() -> Self {
+        Self {
+            receipt: Some(DeliveryReceipt {
+                reference: "RCV-275".into(),
+                purchase_order: "RB-5684".into(),
+                supplier: "Riverbend Nursery".into(),
+                received_by: "Morgan Lee".into(),
+                vehicle: "RB · 2184".into(),
+                product: "Arbequina olive saplings".into(),
+                cultivar: "24 trays · 12 plants per tray".into(),
+                lot: "OL-2408".into(),
+                expected_trays: 24,
+                damaged_trays: 2,
+                arrival_time: "Today · 09:40".into(),
+                instruction: "Two trays near the pallet edge have crushed corners. Photograph them before moving the shipment, keep the affected plants shaded, and check their root balls before acceptance.".into(),
+            }),
+            receiving_note: "Two trays on the pallet’s right side have crushed corners. Keep those plants shaded and check the root balls before acceptance.".into(),
+            ..Default::default()
+        }
+    }
+}
+
+#[fission_reducer(CheckCameraAvailability)]
+pub fn on_check_camera_availability(
+    _state: &mut ReceivingInspectionState,
+    ctx: &mut ReducerContext<ReceivingInspectionState>,
+) {
+    let on_ok = ctx.effects.bind(
+        CameraAvailabilityReceived,
+        reduce_with!(on_camera_availability_received),
+    );
+    let on_err = ctx.effects.bind(
+        CameraAvailabilityFailed,
+        reduce_with!(on_camera_availability_failed),
+    );
+    ctx.effects
+        .camera()
+        .availability()
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+#[fission_reducer(CameraAvailabilityReceived)]
+pub fn on_camera_availability_received(
+    state: &mut ReceivingInspectionState,
+    ctx: &mut ReducerContext<ReceivingInspectionState>,
+) {
+    state.camera_availability_checked = true;
+    state.camera_availability_failed = false;
+    state.flashlight_available = ctx
+        .input
+        .capability_ok(GET_CAMERA_AVAILABILITY)
+        .map(|availability| {
+            availability
+                .devices
+                .iter()
+                .any(|device| device.has_flashlight)
+        })
+        .unwrap_or(false);
+}
+
+#[fission_reducer(CameraAvailabilityFailed)]
+pub fn on_camera_availability_failed(state: &mut ReceivingInspectionState) {
+    state.camera_availability_checked = true;
+    state.camera_availability_failed = true;
+    state.flashlight_available = false;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeliveryPhotoRequest {
+    pub stream: DataStreamId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeliveryPhoto {
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeliveryPhotoReadError {
+    pub message: String,
+}
+
+#[derive(Debug)]
+pub struct ReadDeliveryPhotoJob;
+
+impl JobSpec for ReadDeliveryPhotoJob {
+    type Request = DeliveryPhotoRequest;
+    type Ok = DeliveryPhoto;
+    type Err = DeliveryPhotoReadError;
+
+    const NAME: &'static str = "cedar-bay.receiving.read-delivery-photo";
+}
+
+pub const READ_DELIVERY_PHOTO_JOB: JobRef<ReadDeliveryPhotoJob> =
+    JobRef::new(ReadDeliveryPhotoJob::NAME);
+
+pub async fn read_delivery_photo(
+    request: DeliveryPhotoRequest,
+    ctx: JobCtx,
+) -> Result<DeliveryPhoto, DeliveryPhotoReadError> {
+    let stream = ctx
+        .open_data_stream(request.stream)
+        .map_err(|error| DeliveryPhotoReadError {
+            message: error.to_string(),
+        })?;
+    let bytes = collect_data_stream(stream)
+        .await
+        .map_err(|error| DeliveryPhotoReadError {
+            message: error.to_string(),
+        })?;
+    Ok(DeliveryPhoto {
+        bytes: bytes.to_vec(),
+    })
+}
+
+#[fission_reducer(ReceivingNoteChanged)]
+pub fn on_receiving_note_changed(
+    state: &mut ReceivingInspectionState,
+    ctx: &mut ReducerContext<ReceivingInspectionState>,
+) {
+    if let Some(change) = ctx.input.text_change() {
+        state.receiving_note = change.new_text.clone();
+        state.draft_saved = false;
+        state.review_ready = false;
+        state.notice = None;
+        state.error = None;
+    }
+}
+
+#[fission_reducer(SaveReceivingDraft)]
+pub fn on_save_receiving_draft(state: &mut ReceivingInspectionState) {
+    if state.receipt.is_none() {
+        state.error = Some("Open a receiving record before saving a draft.".into());
+        state.notice = None;
+        return;
+    }
+    if state.receiving_note.trim().is_empty() {
+        state.error = Some("Add what you observed before saving this receiving draft.".into());
+        state.notice = None;
+        return;
+    }
+    state.draft_saved = true;
+    state.error = None;
+    state.notice = Some(
+        "Receiving draft saved on this device for this session. No supplier request was sent."
+            .into(),
+    );
+}
+
+#[fission_reducer(SetAffectedTraysOnHold)]
+pub fn on_set_affected_trays_on_hold(state: &mut ReceivingInspectionState, held: bool) {
+    state.affected_trays_on_hold = held;
+    state.draft_saved = false;
+    state.review_ready = false;
+    state.error = None;
+    state.notice = Some(if held {
+        "Two trays are marked on hold in this receiving draft. Nothing was sent to the supplier."
+            .into()
+    } else {
+        "The affected trays are no longer marked on hold in this receiving draft.".into()
+    });
+}
+
+#[fission_reducer(PrepareSupplierReview)]
+pub fn on_prepare_supplier_review(state: &mut ReceivingInspectionState) {
+    if state.receipt.is_none() {
+        state.error = Some("Open a receiving record before preparing a supplier review.".into());
+        state.notice = None;
+        return;
+    }
+    if state.photo_bytes.is_none() {
+        state.error = Some("Attach a current photo of the crushed crate corner before preparing a supplier review.".into());
+        state.notice = None;
+        return;
+    }
+    if state.receiving_note.trim().is_empty() {
+        state.error =
+            Some("Add a note explaining the damage before preparing a supplier review.".into());
+        state.notice = None;
+        return;
+    }
+    state.review_ready = true;
+    state.draft_saved = true;
+    state.error = None;
+    state.notice = Some("The receiving record is ready for a supplier review. No claim was sent from this app session.".into());
+}
+
+#[fission_reducer(CaptureDeliveryPhoto)]
+pub fn on_capture_delivery_photo(
+    state: &mut ReceivingInspectionState,
+    ctx: &mut ReducerContext<ReceivingInspectionState>,
+) {
+    if state.photo_pending || state.flashlight_pending {
+        return;
+    }
+    if state.receipt.is_none() {
+        state.error = Some("Open a receiving record before attaching photo evidence.".into());
+        state.notice = None;
+        return;
+    }
+    state.photo_pending = true;
+    state.error = None;
+    state.notice = Some("Checking camera access…".into());
+    let on_ok = ctx.effects.bind(
+        CameraPermissionReceived,
+        reduce_with!(on_camera_permission_received),
+    );
+    let on_err = ctx.effects.bind(
+        CameraPermissionFailed,
+        reduce_with!(on_camera_permission_failed),
+    );
+    ctx.effects
+        .camera()
+        .request_permission(CameraPermissionRequest {
+            reason: Some(
+                "Photograph the damaged Riverbend Nursery crates for receiving record RCV-275"
+                    .into(),
+            ),
+        })
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+fn queue_photo_capture(
+    state: &mut ReceivingInspectionState,
+    ctx: &mut ReducerContext<ReceivingInspectionState>,
+) {
+    state.notice = Some("Opening the camera…".into());
+    let on_ok = ctx.effects.bind(
+        PhotoCaptureCompleted,
+        reduce_with!(on_photo_capture_completed),
+    );
+    let on_err = ctx
+        .effects
+        .bind(PhotoCaptureFailed, reduce_with!(on_photo_capture_failed));
+    ctx.effects
+        .camera()
+        .capture_photo(CameraCaptureRequest {
+            camera_id: None,
+            facing: CameraFacing::Back,
+            resolution: Some(CameraResolution {
+                width: 1600,
+                height: 1200,
+            }),
+            format: CameraImageFormat::Jpeg,
+            flash: CameraFlashMode::Auto,
+            quality: Some(88),
+        })
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+#[fission_reducer(CameraPermissionReceived)]
+pub fn on_camera_permission_received(
+    state: &mut ReceivingInspectionState,
+    ctx: &mut ReducerContext<ReceivingInspectionState>,
+) {
+    let Some(permission) = ctx.input.capability_ok(REQUEST_CAMERA_PERMISSION) else {
+        state.photo_pending = false;
+        state.notice = None;
+        state.error = Some("The camera did not return a permission result. The receiving record is still available without a photo.".into());
+        return;
+    };
+    match permission {
+        CameraPermission::Granted => queue_photo_capture(state, ctx),
+        CameraPermission::Denied | CameraPermission::Restricted => {
+            state.photo_pending = false;
+            state.notice = None;
+            state.error = Some("Camera access was not granted. Keep the receiving note and allow camera access in Settings when a photo is required.".into());
+        }
+        CameraPermission::Unknown => {
+            state.photo_pending = false;
+            state.notice = None;
+            state.error = Some("Camera permission is still unknown. Try the request again or save the receiving note as a draft.".into());
+        }
+    }
+}
+
+#[fission_reducer(CameraPermissionFailed)]
+pub fn on_camera_permission_failed(
+    state: &mut ReceivingInspectionState,
+    ctx: &mut ReducerContext<ReceivingInspectionState>,
+) {
+    state.photo_pending = false;
+    state.notice = None;
+    let Some(error) = ctx.input.capability_error(REQUEST_CAMERA_PERMISSION) else {
+        state.error = Some(
+            "The camera permission request failed. The receiving record remains available.".into(),
+        );
+        return;
+    };
+    state.error = Some(match error.code.as_str() {
+        "permission_denied" | "notallowederror" => "Camera access was denied. No photo was attached; allow access or continue with the receiving note.".into(),
+        "unsupported" | "unavailable" | "notfounderror" => "No usable camera is available on this host. The receiving note remains available without a photo.".into(),
+        "notreadableerror" => "Another app is using the camera. Close it before trying again, or continue with the receiving note.".into(),
+        _ => format!("The camera request failed: {}. No photo was attached; try again or save the receiving draft.", error.message),
+    });
+}
+
+#[fission_reducer(PhotoCaptureCompleted)]
+pub fn on_photo_capture_completed(
+    state: &mut ReceivingInspectionState,
+    ctx: &mut ReducerContext<ReceivingInspectionState>,
+) {
+    state.photo_pending = false;
+    let Some(capture) = ctx.input.capability_ok(CAPTURE_PHOTO) else {
+        state.notice = None;
+        state.error = Some("The camera returned no image. The receiving note is unchanged.".into());
+        return;
+    };
+    state.photo_details = Some(format!(
+        "{} × {} · {} · {} KiB",
+        capture.width,
+        capture.height,
+        capture.content_type,
+        capture.byte_len.unwrap_or_default() / 1024,
+    ));
+    state.photo_bytes = None;
+    state.draft_saved = false;
+    state.review_ready = false;
+    state.error = None;
+    state.notice = Some("Photo captured. Preparing the receiving evidence preview…".into());
+    let on_ok = ctx
+        .effects
+        .bind(PhotoBytesLoaded, reduce_with!(on_photo_bytes_loaded));
+    let on_err = ctx
+        .effects
+        .bind(PhotoBytesFailed, reduce_with!(on_photo_bytes_failed));
+    ctx.effects
+        .app(
+            READ_DELIVERY_PHOTO_JOB,
+            DeliveryPhotoRequest {
+                stream: capture.stream,
+            },
+        )
+        .on_ok(on_ok)
+        .on_err(on_err);
 }
 
 #[fission_reducer(PhotoCaptureFailed)]
-fn on_photo_capture_failed(state: &mut CameraDemoState, error: CameraError) {
-    state.capturing = false;
-    state.camera_error = Some(error.message);
+pub fn on_photo_capture_failed(
+    state: &mut ReceivingInspectionState,
+    ctx: &mut ReducerContext<ReceivingInspectionState>,
+) {
+    state.photo_pending = false;
+    state.notice = None;
+    let Some(error) = ctx.input.capability_error(CAPTURE_PHOTO) else {
+        state.error = Some("The camera did not return an image. No evidence was attached.".into());
+        return;
+    };
+    state.error = Some(match error.code.as_str() {
+        "permission_denied" | "notallowederror" => "Camera access was denied. No image was attached; allow access or continue with the written receiving note.".into(),
+        "cancelled" | "canceled" | "user_cancel" => "Photo capture was cancelled. No image was attached, and the receiving note is unchanged.".into(),
+        "unsupported" | "unavailable" | "notfounderror" => "This host has no usable camera. The receiving record remains available without evidence.".into(),
+        "notreadableerror" => "The camera is already in use by another app. Close it before trying again; no image was attached.".into(),
+        _ => format!("The photo could not be captured: {}. No image was attached; try again or save the receiving draft.", error.message),
+    });
 }
-```
 
-Queue the operation after the user presses the named control. The host completes asynchronously and dispatches the matching reducer:
+#[fission_reducer(PhotoBytesLoaded)]
+pub fn on_photo_bytes_loaded(
+    state: &mut ReceivingInspectionState,
+    ctx: &mut ReducerContext<ReceivingInspectionState>,
+) {
+    if let Some(photo) = ctx.input.job_ok(READ_DELIVERY_PHOTO_JOB) {
+        state.photo_bytes = Some(photo.bytes.clone());
+        state.draft_saved = false;
+        state.review_ready = false;
+        state.error = None;
+        state.notice =
+            Some("Photo attached to this receiving record. It has not been uploaded.".into());
+    }
+}
 
-```rust
-state.capturing = true;
-ctx.effects
-    .camera()
-    .capture_photo(CameraCaptureRequest {
-        facing: CameraFacing::Back,
-        resolution: Some(CameraResolution { width: 1280, height: 720 }),
-        format: CameraImageFormat::Jpeg,
-        flash: CameraFlashMode::Auto,
-        quality: Some(90),
-        ..Default::default()
-    })
-    .on_ok(ctx.effects.bind(
-        PhotoCaptured(CameraCapture::default()),
-        reduce_with!(on_photo_captured),
-    ))
-    .on_err(ctx.effects.bind(
-        PhotoCaptureFailed(CameraError::default()),
-        reduce_with!(on_photo_capture_failed),
+#[fission_reducer(PhotoBytesFailed)]
+pub fn on_photo_bytes_failed(
+    state: &mut ReceivingInspectionState,
+    ctx: &mut ReducerContext<ReceivingInspectionState>,
+) {
+    let message = ctx
+        .input
+        .job_err(READ_DELIVERY_PHOTO_JOB)
+        .map(|error| error.message.clone())
+        .or_else(|| {
+            ctx.input
+                .job_error_message(READ_DELIVERY_PHOTO_JOB)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "The captured image stream could not be read.".into());
+    state.error = Some(format!(
+        "The camera returned a photo, but its preview could not be prepared: {message}"
     ));
-```
+    state.notice = None;
+}
 
-Bind the user action from a reusable Fission component. Keep the visible label in the same control so it works with touch, keyboard and assistive technology:
-
-```rust
-fission_component!
-{
-    pub CaptureProfilePhotoButton<CameraDemoState> {
+#[fission_reducer(SetFlashlight)]
+pub fn on_set_flashlight(
+    state: &mut ReceivingInspectionState,
+    enabled: bool,
+    ctx: &mut ReducerContext<ReceivingInspectionState>,
+) {
+    if state.photo_pending || state.flashlight_pending {
+        return;
     }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<CameraDemoState>();
-                let run = with_reducer!(ctx, CaptureProfilePhoto, on_capture_profile_photo);
+    state.flashlight_pending = true;
+    state.error = None;
+    state.notice = Some(if enabled {
+        "Checking camera access before using the flashlight…".into()
+    } else {
+        "Turning the flashlight off…".into()
+    });
+    let on_ok = ctx.effects.bind(
+        FlashlightPermissionReceived(enabled),
+        reduce_with!(on_flashlight_permission_received),
+    );
+    let on_err = ctx.effects.bind(
+        FlashlightPermissionFailed(enabled),
+        reduce_with!(on_flashlight_permission_failed),
+    );
+    ctx.effects
+        .camera()
+        .request_permission(CameraPermissionRequest {
+            reason: Some(
+                "Photograph the damaged nursery crates for receiving record RCV-275".into(),
+            ),
+        })
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
 
-                Button::new("Take photo")
-                    .disabled(view.state().capturing)
-                    .on_press(run)
-                    .into()
+#[fission_reducer(FlashlightPermissionReceived)]
+pub fn on_flashlight_permission_received(
+    state: &mut ReceivingInspectionState,
+    enabled: bool,
+    ctx: &mut ReducerContext<ReceivingInspectionState>,
+) {
+    let Some(permission) = ctx.input.capability_ok(REQUEST_CAMERA_PERMISSION) else {
+        state.flashlight_pending = false;
+        state.notice = None;
+        state.error = Some(
+            "The camera did not return a permission result. The flashlight state is unchanged."
+                .into(),
+        );
+        return;
+    };
+    match permission {
+        CameraPermission::Granted => queue_flashlight_change(state, enabled, ctx),
+        CameraPermission::Denied | CameraPermission::Restricted | CameraPermission::Unknown => {
+            state.flashlight_pending = false;
+            state.notice = None;
+            state.error = Some("Camera access is required before this host can use a flashlight. The receiving record is unchanged.".into());
+        }
     }
 }
+
+fn queue_flashlight_change(
+    state: &mut ReceivingInspectionState,
+    enabled: bool,
+    ctx: &mut ReducerContext<ReceivingInspectionState>,
+) {
+    let on_ok = ctx.effects.bind(
+        FlashlightChanged(enabled),
+        reduce_with!(on_flashlight_changed),
+    );
+    let on_err = ctx.effects.bind(
+        FlashlightFailed(enabled),
+        reduce_with!(on_flashlight_failed),
+    );
+    ctx.effects
+        .camera()
+        .set_flashlight(CameraFlashlightRequest {
+            camera_id: None,
+            enabled,
+            intensity: None,
+        })
+        .on_ok(on_ok)
+        .on_err(on_err);
+    state.notice = Some(if enabled {
+        "Turning the flashlight on…".into()
+    } else {
+        "Turning the flashlight off…".into()
+    });
+}
+
+#[fission_reducer(FlashlightPermissionFailed)]
+pub fn on_flashlight_permission_failed(
+    state: &mut ReceivingInspectionState,
+    enabled: bool,
+    ctx: &mut ReducerContext<ReceivingInspectionState>,
+) {
+    state.flashlight_pending = false;
+    state.notice = None;
+    let requested_state = if enabled { "on" } else { "off" };
+    let Some(error) = ctx.input.capability_error(REQUEST_CAMERA_PERMISSION) else {
+        state.error =
+            Some("The camera did not confirm access. The flashlight state is unchanged.".into());
+        return;
+    };
+    state.error = Some(format!("Camera access could not be confirmed, so the flashlight could not be turned {requested_state}. The receiving record is unchanged: {}", error.message));
+}
+
+#[fission_reducer(FlashlightChanged)]
+pub fn on_flashlight_changed(
+    state: &mut ReceivingInspectionState,
+    enabled: bool,
+    ctx: &mut ReducerContext<ReceivingInspectionState>,
+) {
+    state.flashlight_pending = false;
+    if ctx.input.capability_ok(SET_CAMERA_FLASHLIGHT).is_some() {
+        state.flashlight_on = enabled;
+        state.error = None;
+        state.notice = Some(if enabled {
+            "Flashlight is on.".into()
+        } else {
+            "Flashlight is off.".into()
+        });
+    } else {
+        state.error = Some(
+            "The host did not confirm the flashlight change. Its previous state is unchanged."
+                .into(),
+        );
+        state.notice = None;
+    }
+}
+
+#[fission_reducer(FlashlightFailed)]
+pub fn on_flashlight_failed(
+    state: &mut ReceivingInspectionState,
+    _enabled: bool,
+    ctx: &mut ReducerContext<ReceivingInspectionState>,
+) {
+    state.flashlight_pending = false;
+    state.notice = None;
+    let Some(error) = ctx.input.capability_error(SET_CAMERA_FLASHLIGHT) else {
+        state.error = Some(
+            "The host did not confirm a flashlight change. The receiving record is unchanged."
+                .into(),
+        );
+        return;
+    };
+    state.error = Some(match error.code.as_str() {
+        "unsupported" | "unavailable" | "notfounderror" => "This camera does not provide a flashlight. Continue the receiving inspection without it.".into(),
+        "permission_denied" | "notallowederror" => "Camera access was denied, so the flashlight could not be used. The receiving record is unchanged.".into(),
+        _ => format!("The flashlight could not be changed: {}. Its previous state is unchanged; continue without it or try again.", error.message),
+    });
+}
 ```
-
-The [complete Camera guide](/docs/capabilities/camera/) explains configuration and expected platform behaviour. Test a successful memory-provider response and an unavailable or denied response before relying on the physical-device check below. The preview is read-only. The native target uses Fission’s provider to perform the request and report the result.
-
-Keep platform-only code behind the generated target boundary or a typed provider; the shared component should describe the user task rather than call an operating-system API directly.
-
-
-
-<Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
+</TabItem>
+<TabItem label="src/app/widgets.rs · receiving components">
+<!-- fission:file path="src/app/widgets.rs" -->
 ```rust
 use fission::prelude::*;
 
+use super::{
+    on_capture_delivery_photo, on_check_camera_availability, on_prepare_supplier_review,
+    on_receiving_note_changed, on_save_receiving_draft, on_set_affected_trays_on_hold,
+    on_set_flashlight, CaptureDeliveryPhoto, CheckCameraAvailability, PrepareSupplierReview,
+    ReceivingInspectionState, ReceivingNoteChanged, SaveReceivingDraft, SetAffectedTraysOnHold,
+    SetFlashlight,
+};
+
+const MOBILE_BREAKPOINT: f32 = 760.0;
+const DIAGRAM_BREAKPOINT: f32 = 420.0;
+
 fission_component! {
-    pub IosCameraCaptureResult<()> {
-        props { title: String, step: String, goal: String, }
-    }
-    view(preview, _state, cx) {
+    pub ReceivingInspectionApp<ReceivingInspectionState> {}
+    view(_app, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        cx.build.register::<CheckCameraAvailability, _>(reduce!(on_check_camera_availability));
+        let photo = with_reducer!(cx.build, CaptureDeliveryPhoto, on_capture_delivery_photo);
+        let flashlight = with_reducer!(cx.build, SetFlashlight(!state.flashlight_on), on_set_flashlight);
+        let save = with_reducer!(cx.build, SaveReceivingDraft, on_save_receiving_draft);
+        let hold = with_reducer!(cx.build, SetAffectedTraysOnHold(!state.affected_trays_on_hold), on_set_affected_trays_on_hold);
+        let prepare = with_reducer!(cx.build, PrepareSupplierReview, on_prepare_supplier_review);
+        let note_changed = with_reducer!(cx.build, ReceivingNoteChanged, on_receiving_note_changed);
+    } =>
+    SafeArea(
+        id: None,
+        child: Scroll(
+            child: Row(
+                children: [
+                    Spacer(flex_grow: 1.0),
+                    Container(
+                        Column(gap: tokens.spacing.m, children: [
+                            ReceivingTopBar,
+                            ReceivingPageHeader(state.clone()),
+                            if let Some(receipt) = &state.receipt {
+                                DeliveryReceiptCard(receipt.clone(), state.review_ready)
+                            } else {
+                                EmptyReceivingRecord
+                            },
+                            Responsive::new(ReceivingContentColumns::new(photo.clone(), flashlight.clone(), save.clone(), hold.clone(), prepare.clone(), note_changed.clone()))
+                                .case(ResponsiveCase::max_width(
+                                    MOBILE_BREAKPOINT,
+                                    ReceivingContentStack::new(photo, flashlight, save, hold, prepare, note_changed),
+                                )),
+                            if let Some(error) = &state.error {
+                                SemanticsRegion(
+                                    identifier: Some("receiving.error".to_string()),
+                                    label: Some("Receiving error".to_string()),
+                                    child: Text(error.clone()).color(tokens.colors.error),
+                                )
+                            },
+                            if let Some(notice) = &state.notice {
+                                SemanticsRegion(
+                                    identifier: Some("receiving.notice".to_string()),
+                                    label: Some("Receiving update".to_string()),
+                                    child: Text(notice.clone()).color(tokens.colors.text_secondary),
+                                )
+                            },
+                        ])
+                    )
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(1160.0),
+                    ))
+                    .padding_all(tokens.spacing.m)
+                    .bg(tokens.colors.background),
+                    Spacer(flex_grow: 1.0),
+                ],
+            ),
+            show_scrollbar: true,
+            flex_grow: 1.0,
+        ),
+    )
+}
+
+fission_component! {
+    pub ReceivingTopBar<()> {}
+    view(_bar, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+    Container(
+        Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+            Container(Text("C").weight(tokens.typography.font_weight_bold).color(tokens.colors.on_primary))
+                .size(36.0, 36.0)
+                .padding_all(tokens.spacing.s)
+                .bg(tokens.colors.primary)
+                .border_radius(tokens.radii.medium),
+            Column(gap: tokens.spacing.none, children: [
+                Text("Cedar Bay Nurseries").weight(tokens.typography.font_weight_bold),
+                Text("Receiving").color(tokens.colors.text_secondary),
+            ]),
+            Spacer(flex_grow: 1.0),
+            Text("Morning shift").color(tokens.colors.text_secondary),
+        ])
+    )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+
+fission_component! {
+    pub ReceivingPageHeader<ReceivingInspectionState> { props { state: ReceivingInspectionState } }
+    view(header, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let receipt = header.state.receipt.as_ref();
+    } =>
+    Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Start, wrap: ir_op::FlexWrap::Wrap, children: [
+        Column(gap: tokens.spacing.xs, children: [
+            Text(if let Some(receipt) = receipt { format!("Inbound shipment · {}", receipt.reference) } else { "Inbound shipment".into() })
+                .color(tokens.colors.primary),
+            Text("Inspect today’s delivery")
+                .size(tokens.typography.heading1_size)
+                .weight(tokens.typography.font_weight_bold),
+            Text("Record the arrival before these plants move into the nursery.")
+                .color(tokens.colors.text_secondary),
+        ]),
+        Spacer(flex_grow: 1.0),
+        if let Some(receipt) = receipt {
+            Container(Text(format!("Arrived · {}", receipt.arrival_time)))
+                .padding_all(tokens.spacing.s)
+                .bg(tokens.colors.primary_subtle)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.full)
+        },
+    ])
+}
+
+fission_component! {
+    pub DeliveryReceiptCard<ReceivingInspectionState> {
+        props { receipt: super::DeliveryReceipt, review_ready: bool }
+    }
+    view(card, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let receipt = &card.receipt;
+    } =>
+    Container(
+        Column(gap: tokens.spacing.m, children: [
+            Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, wrap: ir_op::FlexWrap::Wrap, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(format!("Purchase order {}", receipt.purchase_order))
+                        .weight(tokens.typography.font_weight_bold),
+                    Text(format!("{} · Delivery bay 2", receipt.supplier))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Spacer(flex_grow: 1.0),
+                Container(Text(if card.review_ready { "Ready for supplier review" } else { "Needs inspection" }))
+                    .padding_all(tokens.spacing.s)
+                    .bg(tokens.colors.surface_sunken)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.full),
+            ]),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                ReceivingMetric::new("Supplier".into(), receipt.supplier.clone()),
+                ReceivingMetric::new("Received by".into(), receipt.received_by.clone()),
+                ReceivingMetric::new("Vehicle".into(), receipt.vehicle.clone()),
+            ]),
+            Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, wrap: ir_op::FlexWrap::Wrap, children: [
+                NurseryPlantMark,
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(receipt.product.clone()).weight(tokens.typography.font_weight_bold),
+                    Text(format!("{} · lot {}", receipt.cultivar, receipt.lot))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Spacer(flex_grow: 1.0),
+                Container(Text(format!("{} trays affected", receipt.damaged_trays)))
+                    .padding_all(tokens.spacing.s)
+                    .bg(tokens.colors.surface_sunken)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
+            ]),
+        ])
+    )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+
+fission_component! {
+    pub ReceivingMetric<()> { props { label: String, value: String } }
+    view(metric, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(gap: tokens.spacing.xs, children: [
+            Text(metric.label.clone()).color(tokens.colors.text_secondary),
+            Text(metric.value.clone()).weight(tokens.typography.font_weight_semibold),
+        ])
+    )
+    .padding_all(tokens.spacing.s)
+    .bg(tokens.colors.background)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub NurseryPlantMark<()> {}
+    view(_mark, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(gap: tokens.spacing.xs, children: [
+            Row(gap: tokens.spacing.xs, children: [
+                Container(Text(" ")).size(18.0, 8.0).bg(tokens.colors.primary).border_radius(tokens.radii.full),
+                Container(Text(" ")).size(18.0, 8.0).bg(tokens.colors.primary).border_radius(tokens.radii.full),
+            ]),
+            Row(gap: tokens.spacing.xs, children: [
+                Container(Text(" ")).size(18.0, 8.0).bg(tokens.colors.primary).border_radius(tokens.radii.full),
+                Container(Text(" ")).size(18.0, 8.0).bg(tokens.colors.primary).border_radius(tokens.radii.full),
+            ]),
+            Container(Text(" ")).size(4.0, 20.0).bg(tokens.colors.primary),
+            Container(Text(" ")).size(34.0, 10.0).bg(tokens.colors.warning).border_radius(tokens.radii.small),
+        ])
+    )
+    .size(68.0, 68.0)
+    .padding_all(tokens.spacing.s)
+    .bg(tokens.colors.primary_subtle)
+    .border_radius(tokens.radii.large)
+}
+
+fission_component! {
+    pub ReceivingContentColumns<ReceivingInspectionState> {
+        props {
+            photo: ActionEnvelope,
+            flashlight: ActionEnvelope,
+            save: ActionEnvelope,
+            hold: ActionEnvelope,
+            prepare: ActionEnvelope,
+            note_changed: ActionEnvelope,
+        }
+    }
+    view(content, state, cx) {
+        let gap = cx.view.env().theme.tokens.spacing.m;
+    } =>
+    Grid(
+        columns: vec![GridTrack::Fr(1.2), GridTrack::Fr(0.8)],
+        column_gap: gap,
+        row_gap: gap,
+        children: [
+            GridItem::new(ArrivalEvidenceCard::new(content.photo.clone(), content.flashlight.clone())).cell(1, 1),
+            GridItem::new(ReceivingWorkflowColumn::new(content.save.clone(), content.hold.clone(), content.prepare.clone(), content.note_changed.clone())).cell(1, 2),
+        ],
+    )
+}
+
+fission_component! {
+    pub ReceivingContentStack<ReceivingInspectionState> {
+        props {
+            photo: ActionEnvelope,
+            flashlight: ActionEnvelope,
+            save: ActionEnvelope,
+            hold: ActionEnvelope,
+            prepare: ActionEnvelope,
+            note_changed: ActionEnvelope,
+        }
+    }
+    view(content, _state, cx) {
+        let gap = cx.view.env().theme.tokens.spacing.m;
+    } =>
+    Column(gap: gap, children: [
+        ArrivalEvidenceCard::new(content.photo.clone(), content.flashlight.clone()),
+        ReceivingWorkflowColumn::new(content.save.clone(), content.hold.clone(), content.prepare.clone(), content.note_changed.clone()),
+    ])
+}
+
+fission_component! {
+    pub CrateConditionCard<()> {}
+    view(_card, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let narrow = cx.view.viewport_size().width <= DIAGRAM_BREAKPOINT;
+    } =>
+    Container(
+        Column(gap: tokens.spacing.m, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text("Arrival condition").weight(tokens.typography.font_weight_bold),
+                Text("Reported damage on Riverbend Nursery’s pallet before it is moved.")
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
+            ]),
+            Container(
+                Column(gap: tokens.spacing.m, children: [
+                    Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                        Text("RB-5684 · OL-2408").weight(tokens.typography.font_weight_semibold),
+                        Spacer(flex_grow: 1.0),
+                        Text("24 trays").color(tokens.colors.text_secondary),
+                    ]),
+                    if narrow {
+                        Column(gap: tokens.spacing.s, children: [
+                            CratePackageDiagram,
+                            CrushedCornerCallout,
+                        ])
+                    } else {
+                        Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                            CratePackageDiagram,
+                            CrushedCornerCallout,
+                        ])
+                    },
+                ])
+            )
+            .padding_all(tokens.spacing.m)
+            .bg(tokens.colors.background)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.medium),
+            Text("Reference drawing only. The supplier review needs an actual camera photo.")
+                .color(tokens.colors.text_secondary),
+        ])
+    )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+
+fission_component! {
+    pub CratePackageDiagram<()> {}
+    view(_diagram, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(gap: tokens.spacing.xs, children: [
+            Text("RIVERBEND NURSERY").weight(tokens.typography.font_weight_bold),
+            Container(
+                Column(gap: tokens.spacing.xs, children: [
+                    Container(Text(" " )).size(132.0, 8.0).bg(tokens.colors.warning).border_radius(tokens.radii.small),
+                    Container(Text(" " )).size(132.0, 8.0).bg(tokens.colors.warning).border_radius(tokens.radii.small),
+                    Container(Text(" " )).size(132.0, 8.0).bg(tokens.colors.warning).border_radius(tokens.radii.small),
+                    Container(Text(" " )).size(132.0, 8.0).bg(tokens.colors.warning).border_radius(tokens.radii.small),
+                ])
+            )
+            .padding_all(tokens.spacing.s)
+            .bg(tokens.colors.surface_sunken)
+            .border(tokens.colors.border_strong, 1.0)
+            .border_radius(tokens.radii.medium),
+            Text("KEEP UPRIGHT · OLIVE SAPLINGS").color(tokens.colors.text_secondary),
+        ])
+    )
+    .padding_all(tokens.spacing.s)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub CrushedCornerCallout<()> {}
+    view(_callout, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(gap: tokens.spacing.xs, children: [
+            Text("2 TRAYS").weight(tokens.typography.font_weight_bold).color(tokens.colors.error),
+            Text("Crushed at the pallet edge").weight(tokens.typography.font_weight_semibold),
+            Text("Keep shaded and inspect root balls before acceptance.")
+                .color(tokens.colors.text_secondary),
+        ])
+    )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface_sunken)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub ArrivalEvidenceCard<ReceivingInspectionState> {
+        props {
+            photo: ActionEnvelope,
+            flashlight: ActionEnvelope,
+        }
+    }
+    view(card, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let image_width = (cx.view.viewport_size().width - 72.0).clamp(200.0, 580.0);
+    } =>
+    Container(
+        Column(gap: tokens.spacing.m, children: [
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text("Arrival evidence").weight(tokens.typography.font_weight_bold),
+                    Text("Photograph the crushed corner before moving the affected trays.")
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Spacer(flex_grow: 1.0),
+                Text(if state.photo_bytes.is_some() { "1 photo attached" } else { "No photo" })
+                    .color(tokens.colors.text_secondary),
+            ]),
+            if let Some(bytes) = &state.photo_bytes {
+                Column(gap: tokens.spacing.xs, children: [
+                    Image::memory(bytes.clone())
+                        .size(image_width, 280.0)
+                        .fit(ir_op::ImageFit::Cover)
+                        .semantic_label("Actual camera photo of the damaged Riverbend Nursery crate"),
+                    if let Some(details) = &state.photo_details {
+                        Text(details.clone()).color(tokens.colors.text_secondary)
+                    },
+                ])
+            } else {
                 Container(
                     Column(gap: tokens.spacing.s, children: [
-                        Text("Where the request result comes from".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("In the target app, Fission’s native host completes the request and reports its real outcome to shared Rust state. The browser cannot manufacture that outcome, so this preview stays read-only.".to_string()),
-                        Text("Handle success and errors as separate state transitions. Keep the surrounding screen usable if the user declines, cancels, or the device does not support the capability.".to_string()),
+                        CrateConditionCard,
+                        Text(if state.photo_pending { "Waiting for the camera…" } else { "Attach a photo from the active camera" })
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text("No sample image is substituted. If camera access is unavailable, keep the written note and continue the inspection.")
+                            .color(tokens.colors.text_secondary),
                     ])
                 )
                 .padding_all(tokens.spacing.m)
                 .bg(tokens.colors.background)
                 .border(tokens.colors.border, 1.0)
                 .border_radius(tokens.radii.medium),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+            },
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(
+                    child: Text(if state.photo_pending { "Opening camera…" } else if state.photo_bytes.is_some() { "Take another photo" } else { "Capture arrival photo" }),
+                    key: "capture-arrival-photo",
+                    variant: ButtonVariant::Primary,
+                    disabled: state.photo_pending || state.flashlight_pending,
+                    on_press: card.photo.clone(),
+                )
+                .semantics_identifier("receiving.capture-photo".to_string()),
+                if state.flashlight_available {
+                    Button(
+                        child: Text(if state.flashlight_pending { "Changing flashlight…" } else if state.flashlight_on { "Turn flashlight off" } else { "Turn flashlight on" }),
+                        key: "toggle-flashlight",
+                        variant: ButtonVariant::Outline,
+                        disabled: state.photo_pending || state.flashlight_pending,
+                        on_press: card.flashlight.clone(),
+                    )
+                    .semantics_identifier("receiving.toggle-flashlight".to_string())
+                },
+            ]),
+            if state.camera_availability_checked && state.camera_availability_failed {
+                Text("Camera features could not be checked. The flashlight control stays hidden; photo capture may still be available.")
+                    .color(tokens.colors.text_secondary)
+            } else if state.camera_availability_checked && !state.flashlight_available {
+                Text("This camera does not provide a flashlight. Photo capture remains available.")
+                    .color(tokens.colors.text_secondary)
+            } else if !state.camera_availability_checked {
+                Text("Checking whether this camera has a flashlight…")
+                    .color(tokens.colors.text_secondary)
+            },
+        ])
     )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+
+fission_component! {
+    pub ReceivingWorkflowColumn<ReceivingInspectionState> {
+        props {
+            save: ActionEnvelope,
+            hold: ActionEnvelope,
+            prepare: ActionEnvelope,
+            note_changed: ActionEnvelope,
+        }
+    }
+    view(workflow, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.m, children: [
+        ReceivingDecisionCard::new(workflow.save.clone(), workflow.hold.clone(), workflow.prepare.clone(), workflow.note_changed.clone()),
+        ReceivingProgressCard,
+    ])
+}
+
+fission_component! {
+    pub ReceivingDecisionCard<ReceivingInspectionState> {
+        props {
+            save: ActionEnvelope,
+            hold: ActionEnvelope,
+            prepare: ActionEnvelope,
+            note_changed: ActionEnvelope,
+        }
+    }
+    view(decision, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let can_prepare = state.photo_bytes.is_some() && !state.receiving_note.trim().is_empty();
+    } =>
+    Container(
+        Column(gap: tokens.spacing.m, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text("Receiving note").weight(tokens.typography.font_weight_bold),
+                Text("Keep the detail a supplier needs to review a damaged delivery.")
+                    .color(tokens.colors.text_secondary),
+            ]),
+            TextInput(
+                label: Some("Condition observed".into()),
+                placeholder: Some("Describe what is damaged and what the receiving team should check.".into()),
+                bind: state.receiving_note,
+                multiline: true,
+                helper_text: Some("Saved to this app session. No supplier request is sent from the preview.".into()),
+                on_input: decision.note_changed.clone(),
+                semantics_identifier: "receiving.note".to_string(),
+            ),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(
+                    child: Text(if state.draft_saved { "Draft saved" } else { "Save receiving draft" }),
+                    key: "save-receiving-draft",
+                    variant: ButtonVariant::Outline,
+                    disabled: state.draft_saved,
+                    on_press: decision.save.clone(),
+                )
+                .semantics_identifier("receiving.save-draft".to_string()),
+                Button(
+                    child: Text(if state.affected_trays_on_hold { "Release affected trays" } else { "Place affected trays on hold" }),
+                    key: "hold-affected-trays",
+                    variant: ButtonVariant::Outline,
+                    on_press: decision.hold.clone(),
+                )
+                .semantics_identifier("receiving.toggle-hold".to_string()),
+            ]),
+            Button(
+                child: Text(if state.review_ready { "Ready for supplier review" } else { "Prepare supplier review" }),
+                key: "prepare-supplier-review",
+                variant: ButtonVariant::Primary,
+                disabled: !can_prepare || state.review_ready,
+                on_press: decision.prepare.clone(),
+            )
+            .semantics_identifier("receiving.prepare-review".to_string()),
+            Text("This action checks that the photo and note are present, then marks the record ready in memory. A real app would send it to its receiving service.")
+                .color(tokens.colors.text_secondary),
+        ])
+    )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+
+fission_component! {
+    pub ReceivingProgressCard<ReceivingInspectionState> {}
+    view(_progress, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let receipt = state.receipt.as_ref();
+    } =>
+    Container(
+        Column(gap: tokens.spacing.m, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text("Receipt summary").weight(tokens.typography.font_weight_bold),
+                Text(if let Some(receipt) = receipt { format!("Purchase order {}", receipt.purchase_order) } else { "No purchase order selected".into() })
+                    .color(tokens.colors.text_secondary),
+            ]),
+            if let Some(receipt) = receipt {
+                Column(gap: tokens.spacing.xs, children: [
+                    ReceivingSummaryLine::new("Expected".into(), format!("{} trays", receipt.expected_trays)),
+                    ReceivingSummaryLine::new("Reported affected".into(), format!("{} trays", receipt.damaged_trays)),
+                    ReceivingSummaryLine::new("Evidence".into(), if state.photo_bytes.is_some() { "Photo attached".into() } else { "Needed".into() }),
+                    ReceivingSummaryLine::new("Receipt status".into(), if state.review_ready { "Ready for review".into() } else if state.affected_trays_on_hold { "Affected trays on hold".into() } else { "Inspection in progress".into() }),
+                ])
+            },
+        ])
+    )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+
+fission_component! {
+    pub ReceivingSummaryLine<()> { props { label: String, value: String } }
+    view(line, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Row(gap: tokens.spacing.s, children: [
+        Text(line.label.clone()).color(tokens.colors.text_secondary),
+        Spacer(flex_grow: 1.0),
+        Text(line.value.clone()).weight(tokens.typography.font_weight_semibold),
+    ])
+}
+
+fission_component! {
+    pub EmptyReceivingRecord<()> {}
+    view(_empty, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(gap: tokens.spacing.s, children: [
+            Text("No delivery selected").weight(tokens.typography.font_weight_bold),
+            Text("Open a purchase order from receiving to inspect an arriving shipment.")
+                .color(tokens.colors.text_secondary),
+        ])
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
 }
 ```
 </TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
+<TabItem label="src/lib.rs · iOS and web startup">
+<!-- fission:file path="src/lib.rs" -->
 ```rust
-mod app;
+pub mod app;
 
+use app::{
+    read_delivery_photo, ReceivingInspectionApp, ReceivingInspectionState, READ_DELIVERY_PHOTO_JOB,
+};
 use fission::prelude::*;
-use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+#[cfg(target_os = "ios")]
+fn mobile_app() -> MobileApp<ReceivingInspectionState, ReceivingInspectionApp> {
+    MobileApp::<ReceivingInspectionState, _>::new(ReceivingInspectionApp::new())
+        .with_title("Cedar Bay Receiving")
+        .with_state_init(|state| *state = ReceivingInspectionState::tutorial_receipt())
+        .with_startup_action(app::CheckCameraAvailability)
+        .with_async(|asyncs| {
+            asyncs.register_job(READ_DELIVERY_PHOTO_JOB, |request, ctx| async move {
+                read_delivery_photo(request, ctx).await
+            });
+        })
 }
 
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    let preview = app::IosCameraCaptureResult::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+#[cfg(target_os = "ios")]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn web_app() -> WebApp<ReceivingInspectionState, ReceivingInspectionApp> {
+    WebApp::<ReceivingInspectionState, _>::new(ReceivingInspectionApp::new())
+        .with_state_init(|state| *state = ReceivingInspectionState::tutorial_receipt())
+        .with_startup_action(app::CheckCameraAvailability)
+        .with_async(|asyncs| {
+            asyncs.register_job(READ_DELIVERY_PHOTO_JOB, |request, ctx| async move {
+                read_delivery_photo(request, ctx).await
+            });
+        })
+        .with_title("Cedar Bay nursery receiving")
         .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    web_app()
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/main.rs · iOS entry point">
+<!-- fission:file path="src/main.rs" -->
+```rust
+#[cfg(target_os = "ios")]
+fn main() -> anyhow::Result<()> {
+    cedar_bay_receiving::run_mobile()
+}
+
+#[cfg(not(target_os = "ios"))]
+fn main() {}
 ```
 </TabItem>
 </Tabs>
+
+A reducer starts the camera permission request only after **Capture arrival photo** is pressed. If permission is denied, the browser has no camera, the capture is cancelled, or the image stream cannot be read, the corresponding reducer clears the pending state and explains what happened. None of those paths removes Morgan’s note or reports that a supplier received a claim.
+
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-This preview is read-only: the actual result comes from the native host when you run the app on a supported target. Continue below to build and check that real request on a device or emulator.
+Open **Arrival evidence** and choose **Capture arrival photo**. On a browser with camera access, grant permission and frame a real damaged package; the returned image should replace the diagram and the receipt should show one attached photo. Deny access or use a browser without a camera, and check that the explanation is clear while the note and hold action remain usable. A flashlight button should appear only on a host whose camera advertises a torch.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Verify the native request on iOS
+<!-- fission:step id="verify-ios" -->
+## Test the permission and receiving decisions on iOS
 
-The website preview cannot exercise the native provider. Build and launch this target on a supported emulator or device, then use the feature action from the component above. Check the result the host actually returns, including denial, cancellation or unsupported hardware where those outcomes apply.
+The browser preview exercises the same Rust reducers through Fission’s web camera provider. It can request your browser’s real camera, but it cannot prove that the generated iOS privacy text is correct or that an iPhone’s flashlight works. Run the target app on an iOS Simulator to check layout and permission handling, then test the camera and torch on a physical iPhone.
 
-Repeat with the feature unavailable, denied or cancelled, as applicable. Confirm the screen preserves the user’s existing data and offers the right recovery step. Use a physical device when the behavior depends on real hardware or an operating-system prompt.
+Start by opening **RCV-275** and capturing the damaged corner. Confirm that the picture shown is the image returned by the camera. Edit the note and save it; the app should say that the draft is saved in this session without claiming that a supplier service received anything. Mark the two affected trays on hold, then prepare a supplier review. The review action should remain unavailable until both a photo and a non-empty note are present.
 
-### Run, test and build
+Next deny camera access in the system prompt or in iOS Settings and try again. No photo should be counted, the previous note should remain, and the app should explain how the clerk can continue. If the iPhone reports no flashlight, the flashlight control should stay out of the interface while photo capture still works.
 
-```sh
-cargo test
-fission doctor ios --project-dir .
-fission run --target ios --project-dir .
-fission test --target ios --project-dir .
-fission build --target ios --project-dir . --release
-```
-
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Xcode, simulator SDK or Rust targets, `fission run` launches an iOS Simulator, and `fission test` checks that the generated host can start. A release build checks the simulator package; it does not verify iPhone signing or physical-device behavior.
-
-
-### Simulator and device commands
-
-Fission’s run command discovers iOS simulators. Run these checks from the generated project root:
-
+<Tabs>
+<TabItem label="Run on an iPhone or Simulator">
 ```sh
 fission doctor ios --project-dir .
 fission devices --project-dir .
 fission run --target ios --project-dir .
 fission test --target ios --project-dir .
 ```
-
-
-To verify a hardware-dependent path on an iPhone, configure development signing and Developer Mode, create a signed release IPA, then install it through Xcode Devices and Simulators:
-
-```sh
-fission package --project-dir . --target ios --format ipa --release
+</TabItem>
+<TabItem label="Check the generated privacy reason">
+```text
+platforms/ios/Info.plist
+  NSCameraUsageDescription
 ```
+</TabItem>
+</Tabs>
 
-`fission run --target ios` remains simulator-only; it does not launch directly on a physical iPhone. A simulator preview cannot prove NFC, camera, biometrics or other physical capability behaviour.
+For a production receiving app, the next boundary would be the service that stores the photo stream and submits the supplier claim. Keep authentication, server authorization, and upload errors in that service flow; do not change the local review-ready state into a “claim sent” message until the server confirms it.
 
-
-### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
-- [Camera capability guide](/docs/capabilities/camera/)
-- [Camera capability reference](/reference/capabilities/camera/)
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
+The [Camera capability guide](/docs/capabilities/camera/) describes provider configuration and platform behavior. The [camera reference](/reference/capabilities/camera/) documents the typed availability, permission, capture, and flashlight requests used here.
 <!-- /fission:step -->
