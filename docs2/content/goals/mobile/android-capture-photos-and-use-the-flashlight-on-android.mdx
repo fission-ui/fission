@@ -61,9 +61,9 @@ northbank-field-report/
 <!-- fission:step id="field-inspection-report" -->
 ## Build the work order and capture real photo evidence
 
-The first time the page opens, the report contains one example work order so there is a useful task on screen. That order is tutorial data; the camera result is not. Only **Capture site photo** starts a camera request. The button first requests permission and calls `capture_photo` only after the host returns `Granted`.
+The first time the page opens, the report contains one example work order so there is a useful task on screen. That order is tutorial data; the camera result is not. On startup, the app asks the host which camera features are available. It only shows a flashlight control when a camera reports a torch, so the browser preview does not offer a hardware action it cannot perform. **Capture site photo** requests camera permission and calls `capture_photo` only after the host returns `Granted`.
 
-The app state keeps the current note, photo bytes, pending operations, and saved-draft status together because they all belong to this open work order. The camera returns a stream id rather than a large byte vector. A registered job reads the stream asynchronously, then the evidence component renders those actual bytes with `Image::memory`.
+The app state keeps the current note, photo bytes, capability availability, pending operations, and saved-draft status together because they all belong to this open work order. A startup action checks camera availability without blocking the first screen. The camera returns a stream id rather than a large byte vector. A registered job reads the stream asynchronously, then the evidence component renders those actual bytes with `Image::memory`.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -96,6 +96,8 @@ pub struct WorkOrderReportState {
     pub photo_pending: bool,
     pub photo_bytes: Option<Vec<u8>>,
     pub photo_details: Option<String>,
+    pub camera_availability_checked: bool,
+    pub flashlight_available: bool,
     pub flashlight_pending: bool,
     pub flashlight_on: bool,
     pub draft_saved: bool,
@@ -123,6 +125,44 @@ impl WorkOrderReportState {
             ..Default::default()
         }
     }
+}
+
+#[fission_reducer(CheckCameraAvailability)]
+pub fn on_check_camera_availability(
+    _state: &mut WorkOrderReportState,
+    ctx: &mut ReducerContext<WorkOrderReportState>,
+) {
+    let on_ok = ctx.effects.bind(
+        CameraAvailabilityReceived,
+        reduce_with!(on_camera_availability_received),
+    );
+    let on_err = ctx.effects.bind(
+        CameraAvailabilityFailed,
+        reduce_with!(on_camera_availability_failed),
+    );
+    ctx.effects.camera().availability().on_ok(on_ok).on_err(on_err);
+}
+
+#[fission_reducer(CameraAvailabilityReceived)]
+pub fn on_camera_availability_received(
+    state: &mut WorkOrderReportState,
+    ctx: &mut ReducerContext<WorkOrderReportState>,
+) {
+    state.camera_availability_checked = true;
+    state.flashlight_available = ctx
+        .input
+        .capability_ok(GET_CAMERA_AVAILABILITY)
+        .map(|availability| availability.devices.iter().any(|device| device.has_flashlight))
+        .unwrap_or(false);
+}
+
+#[fission_reducer(CameraAvailabilityFailed)]
+pub fn on_camera_availability_failed(
+    state: &mut WorkOrderReportState,
+    _ctx: &mut ReducerContext<WorkOrderReportState>,
+) {
+    state.camera_availability_checked = true;
+    state.flashlight_available = false;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -503,9 +543,11 @@ pub fn on_flashlight_failed(
 use fission::prelude::*;
 
 use super::{
-    on_capture_evidence_photo, on_inspection_note_changed, on_save_inspection_draft,
-    on_set_flashlight, WorkOrderReportState, CaptureEvidencePhoto, InspectionNoteChanged,
-    SaveInspectionDraft, SetFlashlight,
+    on_camera_availability_failed, on_camera_availability_received,
+    on_capture_evidence_photo, on_check_camera_availability, on_inspection_note_changed,
+    on_save_inspection_draft, on_set_flashlight, WorkOrderReportState,
+    CameraAvailabilityFailed, CameraAvailabilityReceived, CheckCameraAvailability,
+    CaptureEvidencePhoto, InspectionNoteChanged, SaveInspectionDraft, SetFlashlight,
 };
 
 const COMPACT_BREAKPOINT: f32 = 700.0;
@@ -515,6 +557,9 @@ fission_component! {
     pub WorkOrderReport<WorkOrderReportState> {}
     view(_report, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        cx.build.register::<CheckCameraAvailability, _>(reduce!(on_check_camera_availability));
+        cx.build.register::<CameraAvailabilityReceived, _>(reduce!(on_camera_availability_received));
+        cx.build.register::<CameraAvailabilityFailed, _>(reduce!(on_camera_availability_failed));
         let capture = with_reducer!(cx.build, CaptureEvidencePhoto, on_capture_evidence_photo);
         let flashlight = with_reducer!(cx.build, SetFlashlight(!state.flashlight_on), on_set_flashlight);
         let save = with_reducer!(cx.build, SaveInspectionDraft, on_save_inspection_draft);
@@ -847,17 +892,24 @@ fission_component! {
                     on_press: capture,
                 )
                 .semantics_identifier("work-order.capture-photo".to_string()),
-                Button(
-                    child: Text(if state.flashlight_pending { "Changing flashlight…" } else if state.flashlight_on { "Turn flashlight off" } else { "Turn flashlight on" }),
-                    key: "toggle-flashlight",
-                    variant: ButtonVariant::Outline,
-                    disabled: state.photo_pending || state.flashlight_pending,
-                    on_press: flashlight,
-                )
-                .semantics_identifier("work-order.toggle-flashlight".to_string()),
+                if state.flashlight_available {
+                    Button(
+                        child: Text(if state.flashlight_pending { "Changing flashlight…" } else if state.flashlight_on { "Turn flashlight off" } else { "Turn flashlight on" }),
+                        key: "toggle-flashlight",
+                        variant: ButtonVariant::Outline,
+                        disabled: state.photo_pending || state.flashlight_pending,
+                        on_press: flashlight,
+                    )
+                    .semantics_identifier("work-order.toggle-flashlight".to_string())
+                },
             ]),
-            Text("Both controls ask the active host to perform the real camera operation. A computer camera may have no torch; the app keeps the previous state and explains that result.")
-                .color(tokens.colors.text_secondary),
+            if state.camera_availability_checked && !state.flashlight_available {
+                Text("This camera does not provide a flashlight. Capture the inspection photo without it.")
+                    .color(tokens.colors.text_secondary)
+            } else if !state.camera_availability_checked {
+                Text("Checking whether this camera has a flashlight…")
+                    .color(tokens.colors.text_secondary)
+            },
             TextInput(
                 label: Some("Inspection note".into()),
                 placeholder: Some("Describe the damage and what the next technician should know.".into()),
@@ -889,6 +941,7 @@ fn mobile_app() -> MobileApp<WorkOrderReportState, WorkOrderReport> {
     MobileApp::<WorkOrderReportState, _>::new(WorkOrderReport::new())
         .with_title("Northbank Field Service")
         .with_state_init(|state| *state = WorkOrderReportState::tutorial_order())
+        .with_startup_action(app::CheckCameraAvailability)
         .with_async(|asyncs| {
             asyncs.register_job(READ_EVIDENCE_BYTES_JOB, |request, ctx| async move {
                 read_evidence_bytes(request, ctx).await
@@ -911,6 +964,7 @@ fn android_main(app_handle: AndroidApp) {
 fn web_app() -> WebApp<WorkOrderReportState, WorkOrderReport> {
     WebApp::<WorkOrderReportState, _>::new(WorkOrderReport::new())
         .with_state_init(|state| *state = WorkOrderReportState::tutorial_order())
+        .with_startup_action(app::CheckCameraAvailability)
         .with_async(|asyncs| {
             asyncs.register_job(READ_EVIDENCE_BYTES_JOB, |request, ctx| async move {
                 read_evidence_bytes(request, ctx).await
@@ -949,7 +1003,7 @@ The reference schematic helps the technician identify the asset, while the **0 p
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Use the note field to change what the repair team should know, then select **Save inspection draft** below the work order summary. The app reports that the draft is saved in this tutorial session; it does not claim to have uploaded it. Now choose **Capture site photo**. If this browser has a camera, allow access and confirm a real image appears in the evidence card. If the host has no camera, check that the error is clear and that the note is still present. Select the flashlight control only on a device with a torch; an unsupported camera should leave the flashlight off and the rest of the work order usable.
+Use the note field to change what the repair team should know, then select **Save inspection draft** below the work order summary. The app reports that the draft is saved in this tutorial session; it does not claim to have uploaded it. Now choose **Capture site photo**. If this browser has a camera, allow access and confirm a real image appears in the evidence card. If the host has no camera, check that the error is clear and that the note is still present. On a device with a torch, the startup availability check reveals the flashlight control; if no camera advertises a torch, the control stays hidden and photo capture remains available.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -958,7 +1012,7 @@ Use the note field to change what the repair team should know, then select **Sav
 
 A browser preview checks the shared Fission reducers against the browser camera provider. It cannot prove that Android has a camera, that the OS permission is configured correctly, or that a physical flashlight is available. Test the installed app on an Android emulator for layout and permission behavior, then use a physical device for the actual camera and torch.
 
-On the emulator or phone, open **WO-1048**, capture the damaged panel, and make sure the photo appears before saving the draft. Deny camera access and repeat: the report note should remain, no photo should be counted, and the screen should explain how to recover. Cancel a capture if the system UI offers cancellation. On hardware without a torch, try the flashlight action and confirm the app leaves its state off while continuing to allow photo evidence.
+On the emulator or phone, open **WO-1048**, wait for the availability check, capture the damaged panel, and make sure the photo appears before saving the draft. Deny camera access and repeat: the report note should remain, no photo should be counted, and the screen should explain how to recover. Cancel a capture if the system UI offers cancellation. On hardware without a torch, confirm no flashlight action is shown while photo evidence remains available.
 
 <Tabs>
 <TabItem label="Run and verify">
