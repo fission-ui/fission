@@ -208,7 +208,16 @@ fn prepare_preview_workspaces(
             }
             write_if_changed(
                 &stage_dir.join("Cargo.toml"),
-                tutorial_manifest(&package, workspace_root, include_charts).as_bytes(),
+                tutorial_manifest(
+                    &package,
+                    workspace_root,
+                    include_charts,
+                    preview
+                        .files
+                        .values()
+                        .any(|source| source.contains("serde")),
+                )
+                .as_bytes(),
             )?;
             let cache_key = preview_cache_key(&stage_dir, cache_context, &package)?;
             let cache_marker = project_dir
@@ -781,12 +790,22 @@ fn copy_dir(source: &Path, destination: &Path) -> Result<()> {
     Ok(())
 }
 
-fn tutorial_manifest(package: &str, workspace_root: &Path, include_charts: bool) -> String {
+fn tutorial_manifest(
+    package: &str,
+    workspace_root: &Path,
+    include_charts: bool,
+    include_serde: bool,
+) -> String {
     let fission = workspace_root.join("crates/authoring/fission");
     let fission_features = if include_charts {
         "\"web\", \"charts\""
     } else {
         "\"web\""
+    };
+    let serde_dependency = if include_serde {
+        "serde = { version = \"1\", features = [\"derive\"] }\n"
+    } else {
+        ""
     };
     format!(
         r#"[package]
@@ -801,7 +820,7 @@ crate-type = ["cdylib", "rlib"]
 anyhow = "1"
 console_error_panic_hook = "0.1"
 fission = {{ path = "{}", default-features = false, features = [{fission_features}] }}
-wasm-bindgen = "0.2"
+{serde_dependency}wasm-bindgen = "0.2"
 "#,
         fission.display()
     )
