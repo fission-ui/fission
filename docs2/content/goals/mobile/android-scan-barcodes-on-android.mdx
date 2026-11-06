@@ -20,7 +20,7 @@ At Greenway Market’s receiving dock, the morning shipment arrives against purc
 
 We will build the receiving screen around that job. A scan adds one unit only when its SKU belongs to the open order and the expected quantity has not already been reached. A permission denial, cancelled camera sheet, unknown SKU, or full line leaves the existing count intact and tells the clerk what to do next.
 
-The browser preview uses Fission’s memory barcode host to return one known Greenway SKU. That lets you try the same typed request and reducer path as the Android app without asking a browser for camera access. The installed Android app uses its configured camera provider.
+The browser preview does not return a canned barcode. It uses the manual SKU path so you can exercise the real purchase-order rules without a camera. The installed Android app shows a scan action that asks Fission’s configured camera provider to read the label.
 
 ## Create the Android project
 
@@ -43,6 +43,7 @@ greenway-receiving/
 ├── fission.toml
 ├── src/
 │   ├── app.rs
+│   ├── lib.rs
 │   └── app/
 │       ├── receiving.rs
 │       └── widgets.rs
@@ -60,7 +61,7 @@ greenway-receiving/
 
 Keep the order and received quantities in app state because the whole receiving screen needs to see them. The text in the manual SKU field belongs to one screen, so it stays in the `ReceivingDesk` component. Both input paths call the same `record_supplier_sku` rule: a camera result and a typed code therefore cannot disagree about whether a line is valid.
 
-The code is split into the app modules, the component, and the browser preview startup. Select a tab to follow one file at a time. The preview startup seeds one sample purchase order and installs a memory host that returns `GLV-204`; those sample values are not part of the production app’s default state.
+The code is split into the app modules, the component, and the shared startup. Select a tab to follow one file at a time. Both targets begin with the same sample purchase order so you can see the receiving rules immediately. The order is held in memory for this tutorial; a production receiving app would load an open order from its own storage or service.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -97,6 +98,30 @@ pub struct ReceivingState {
 }
 
 impl GlobalState for ReceivingState {}
+
+impl ReceivingState {
+    pub fn sample_purchase_order() -> Self {
+        Self {
+            order_reference: Some("PO-4807".into()),
+            supplier_name: Some("Harbor Foods · Harbor Street depot".into()),
+            lines: vec![
+                PurchaseOrderLine {
+                    sku: "GLV-204".into(),
+                    product_name: "Nitrile gloves · Large".into(),
+                    expected_units: 12,
+                    received_units: 3,
+                },
+                PurchaseOrderLine {
+                    sku: "TEA-112".into(),
+                    product_name: "Green tea · 20 sachets".into(),
+                    expected_units: 8,
+                    received_units: 0,
+                },
+            ],
+            ..Default::default()
+        }
+    }
+}
 
 /// Apply the same checks to a manually entered SKU and a decoded barcode.
 pub fn record_supplier_sku(state: &mut ReceivingState, value: &str) -> bool {
@@ -326,22 +351,27 @@ fission_component! {
                                 ])
                             },
                         ]),
-                        Column(gap: tokens.spacing.s, children: [
-                            Button(
-                                child: Text(if state.scanner_busy {
-                                    "Waiting for scanner…"
-                                } else {
-                                    "Scan supplier label"
-                                }),
-                                key: "scan-supplier-label",
-                                variant: ButtonVariant::Primary,
-                                disabled: state.scanner_busy || state.order_reference.is_none(),
-                                on_press: scan_label,
-                            )
-                            .semantics_identifier("receiving.scan-label".to_string()),
-                            Text("Scan one QR or Code 128 SKU. A successful read adds one unit to its matching order line.")
-                                .color(tokens.colors.text_secondary),
-                        ]),
+                        if !desk.browser_demo {
+                            Column(gap: tokens.spacing.s, children: [
+                                Button(
+                                    child: Text(if state.scanner_busy {
+                                        "Waiting for scanner…"
+                                    } else {
+                                        "Scan supplier label"
+                                    }),
+                                    key: "scan-supplier-label",
+                                    variant: ButtonVariant::Primary,
+                                    disabled: state.scanner_busy || state.order_reference.is_none(),
+                                    on_press: scan_label,
+                                )
+                                .semantics_identifier("receiving.scan-label".to_string()),
+                                Text("Scan one QR or Code 128 SKU. A successful read adds one unit to its matching order line.")
+                                    .color(tokens.colors.text_secondary),
+                            ])
+                        } else {
+                            Text("Live barcode scanning is available in the Android app. In this browser preview, enter the printed SKU below.")
+                                .color(tokens.colors.text_secondary)
+                        },
                         Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
                             TextInput(
                                 label: Some("Enter supplier SKU".into()),
@@ -377,10 +407,6 @@ fission_component! {
                         },
                         if let Some(notice) = &state.notice {
                             Text(notice.clone()).color(tokens.colors.text_secondary)
-                        },
-                        if desk.browser_demo {
-                            Text("Browser preview: a memory scanner returns GLV-204 so you can try the real result reducer without camera access.")
-                                .color(tokens.colors.text_secondary)
                         },
                     ])
                 )
@@ -452,66 +478,58 @@ fission_component! {
 }
 ```
 </TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
+<TabItem label="src/lib.rs · Android and browser startup">
+<!-- fission:file path="src/lib.rs" -->
 ```rust
-mod app;
+pub mod app;
 
-use app::{PurchaseOrderLine, ReceivingDesk, ReceivingState};
+use crate::app::{ReceivingDesk, ReceivingState};
 use fission::prelude::*;
-use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
+#[cfg(target_os = "android")]
+fn mobile_app() -> MobileApp<ReceivingState, ReceivingDesk> {
+    MobileApp::<ReceivingState, _>::new(ReceivingDesk::new(false))
+        .with_state_init(|state| *state = ReceivingState::sample_purchase_order())
+        .with_title("Greenway Market receiving")
+}
 
-    let preview_state = ReceivingState {
-        order_reference: Some("PO-4807".into()),
-        supplier_name: Some("Harbor Foods · Harbor Street depot".into()),
-        lines: vec![
-            PurchaseOrderLine {
-                sku: "GLV-204".into(),
-                product_name: "Nitrile gloves · Large".into(),
-                expected_units: 12,
-                received_units: 3,
-            },
-            PurchaseOrderLine {
-                sku: "TEA-112".into(),
-                product_name: "Green tea · 20 sachets".into(),
-                expected_units: 8,
-                received_units: 0,
-            },
-        ],
-        ..Default::default()
-    };
-    let scanner_result = BarcodeScanResults {
-        items: vec![BarcodeScanResult {
-            value: "GLV-204".into(),
-            format: BarcodeFormat::Code128,
-            raw_bytes: b"GLV-204".to_vec(),
-            bounds: Vec::new(),
-            symbology_identifier: None,
-        }],
-    };
+#[cfg(target_os = "android")]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
 
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+fn web_app() -> WebApp<ReceivingState, ReceivingDesk> {
     WebApp::<ReceivingState, _>::new(ReceivingDesk::new(true))
-        .with_state_init(move |state: &mut ReceivingState| *state = preview_state.clone())
-        .with_barcode_scanner_host(MemoryBarcodeScannerHost::new(scanner_result))
+        .with_state_init(|state| *state = ReceivingState::sample_purchase_order())
         .with_title("Greenway Market receiving")
         .mount("#fission-web-mount")
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    web_app()
         .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
 </Tabs>
 
-The scan reducer marks the camera operation as busy and queues one asynchronous request for Code 128 or QR data. Fission sends the provider response through the reducer context: the success reducer reads `ctx.input.capability_ok(SCAN_BARCODE)`, while the error reducer reads `ctx.input.capability_error(SCAN_BARCODE)`. The small `BarcodeLabelRead` and `BarcodeScanFailed` actions only route the response to the right reducer; they do not carry a made-up result in their payload. `on_barcode_label_read` then sends the decoded value through the same order-line check used by manual entry. The error reducer branches on the stable error code, so cancellation, denied camera access, an unsupported scanner, and a timeout all leave the quantities untouched.
+The scan reducer marks the camera operation as busy and queues one asynchronous request for Code 128 or QR data. Fission sends the provider response through the reducer context: the success reducer reads `ctx.input.capability_ok(SCAN_BARCODE)`, while the error reducer reads `ctx.input.capability_error(SCAN_BARCODE)`. The small `BarcodeLabelRead` and `BarcodeScanFailed` actions only route the response to the right reducer; they do not carry a made-up result in their payload. `on_barcode_label_read` then sends the decoded value through the same order-line check used by manual entry. The error reducer branches on the stable error code, so cancellation, denied camera access, an unsupported scanner, and a timeout all leave the quantities untouched. The web startup keeps the scan control out of its screen; the Android startup exposes it and lets the installed host perform a real scan.
 
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Choose **Scan supplier label** once. The browser memory host returns `GLV-204`; the glove line should move from 3 of 12 to 4 of 12. Then type `TEA-112` and record one unit. Finally enter `SKU-999`: the screen should explain that the code is not on this order, and neither count should change.
+In the browser, type `GLV-204` and choose **Record one unit**. The glove line should move from 3 of 12 to 4 of 12. Then type `TEA-112` and record one unit. Finally enter `SKU-999`: the screen should explain that the code is not on this order, and neither count should change. Receive the gloves until they reach 12 of 12 and try once more; the order must reject the extra unit.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
