@@ -97,6 +97,7 @@ pub struct WorkOrderReportState {
     pub photo_bytes: Option<Vec<u8>>,
     pub photo_details: Option<String>,
     pub camera_availability_checked: bool,
+    pub camera_availability_failed: bool,
     pub flashlight_available: bool,
     pub flashlight_pending: bool,
     pub flashlight_on: bool,
@@ -149,6 +150,7 @@ pub fn on_camera_availability_received(
     ctx: &mut ReducerContext<WorkOrderReportState>,
 ) {
     state.camera_availability_checked = true;
+    state.camera_availability_failed = false;
     state.flashlight_available = ctx
         .input
         .capability_ok(GET_CAMERA_AVAILABILITY)
@@ -162,6 +164,7 @@ pub fn on_camera_availability_failed(
     _ctx: &mut ReducerContext<WorkOrderReportState>,
 ) {
     state.camera_availability_checked = true;
+    state.camera_availability_failed = true;
     state.flashlight_available = false;
 }
 
@@ -543,10 +546,8 @@ pub fn on_flashlight_failed(
 use fission::prelude::*;
 
 use super::{
-    on_camera_availability_failed, on_camera_availability_received,
-    on_capture_evidence_photo, on_check_camera_availability, on_inspection_note_changed,
-    on_save_inspection_draft, on_set_flashlight, WorkOrderReportState,
-    CameraAvailabilityFailed, CameraAvailabilityReceived, CheckCameraAvailability,
+    on_check_camera_availability, on_capture_evidence_photo, on_inspection_note_changed,
+    on_save_inspection_draft, on_set_flashlight, WorkOrderReportState, CheckCameraAvailability,
     CaptureEvidencePhoto, InspectionNoteChanged, SaveInspectionDraft, SetFlashlight,
 };
 
@@ -558,8 +559,6 @@ fission_component! {
     view(_report, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         cx.build.register::<CheckCameraAvailability, _>(reduce!(on_check_camera_availability));
-        cx.build.register::<CameraAvailabilityReceived, _>(reduce!(on_camera_availability_received));
-        cx.build.register::<CameraAvailabilityFailed, _>(reduce!(on_camera_availability_failed));
         let capture = with_reducer!(cx.build, CaptureEvidencePhoto, on_capture_evidence_photo);
         let flashlight = with_reducer!(cx.build, SetFlashlight(!state.flashlight_on), on_set_flashlight);
         let save = with_reducer!(cx.build, SaveInspectionDraft, on_save_inspection_draft);
@@ -903,7 +902,10 @@ fission_component! {
                     .semantics_identifier("work-order.toggle-flashlight".to_string())
                 },
             ]),
-            if state.camera_availability_checked && !state.flashlight_available {
+            if state.camera_availability_checked && state.camera_availability_failed {
+                Text("Camera features could not be checked. The flashlight control stays hidden; photo capture may still be available.")
+                    .color(tokens.colors.text_secondary)
+            } else if state.camera_availability_checked && !state.flashlight_available {
                 Text("This camera does not provide a flashlight. Capture the inspection photo without it.")
                     .color(tokens.colors.text_secondary)
             } else if !state.camera_availability_checked {
