@@ -1,347 +1,558 @@
 ---
 layout: goal
-title: Scan barcodes on iOS
-description: "Step-by-step Rust guide to scan barcodes on iOS using Fission."
-goal: Implement a scan-and-confirm flow, explain camera permission and test with a physical camera-equipped device.
+title: Scan barcodes on iOS with Rust
+description: "Build an iOS barcode-scanning screen in Rust with Fission. Update a purchase-order count from QR or Code 128 labels and keep manual SKU entry available when the camera cannot scan."
+goal: "Receive a supplier delivery by scanning each product label, reconciling counts against the purchase order, and recovering safely when a scan fails."
 path: /blog/scan-barcodes-on-ios/
 order: 91
 difficulty: Beginner
-duration: 35 minutes
+duration: 40 minutes
 run_command: "fission run --target ios --project-dir ."
 app: ios-scan-barcodes-on-ios
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the iOS workflow and follow physical-device checks when the task requires them
+  - Add iOS barcode scanning with the Fission capability provider
+  - Increase a purchase-order line only when a decoded SKU is expected and still below its ordered quantity
+  - Keep manual SKU entry available when a camera permission, device, or scan is unavailable
+  - Verify cancellation, unknown labels, permission denial, and the completed receiving count
 ---
 
-## Create the project and add the target
+At Greenway Market’s receiving dock, the morning shipment arrives against purchase order **PO-4807**. A clerk checks each product label, and the screen keeps a running count beside the quantity the supplier promised. The handheld scanner reads either a QR code or a Code 128 label; a damaged label can still be entered from the keyboard.
 
-Install the Fission command line, create the app, and add its native target.
+We will build the receiving screen around that job. A scan adds one unit only when its SKU belongs to the open order and the expected quantity has not already been reached. A permission denial, cancelled camera sheet, unknown SKU, or full line leaves the existing count intact and tells the clerk what to do next.
 
+The browser preview does not return a canned barcode. It uses the manual SKU path so you can exercise the real purchase-order rules without a camera. The installed iOS app shows a scan action that asks Fission’s configured camera provider to read the label.
+
+## Create the iOS project
+
+Install the Fission CLI, create a shared Rust app, add iOS, then declare the scanner capability. The capability declaration lets Fission add the mobile camera configuration the generated host needs.
+
+<Tabs>
+<TabItem label="Create the project">
 ```sh
 cargo install cargo-fission
-fission init ios-scan-barcodes-on-ios
-cd ios-scan-barcodes-on-ios
+fission init greenway-receiving-ios
+cd greenway-receiving-ios
 fission add-target ios --project-dir .
 fission add-capability barcode-scanner --project-dir .
 ```
-
-## Files created by Fission
-
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/ios/`.
-
+</TabItem>
+<TabItem label="Files used in this guide">
 ```text
-ios-scan-barcodes-on-ios/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
+greenway-receiving-ios/
+├── Cargo.toml
+├── fission.toml
 ├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
+│   ├── app.rs
+│   ├── lib.rs
+│   └── app/
+│       ├── receiving.rs
+│       └── widgets.rs
 └── platforms/
-    └── ios/                  # generated iOS host
+    └── ios/
+        └── Info.plist
 ```
+</TabItem>
+</Tabs>
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated iOS host owns launch and packaging details; shared components describe the user task without importing iOS APIs.
+`receiving.rs` owns purchase-order data and scanner reducers. `widgets.rs` owns the screen and its short-lived SKU draft. The generated iOS host owns camera permission and packaging details; the shared app asks Fission’s provider to scan instead of calling an iOS API from a component.
 
-<!-- fission:step id="start-screen" -->
-## See where the browser stops
+<!-- fission:step id="receive-stock" -->
+## Build the receiving screen and connect the scanner
 
-A browser cannot reach the device provider for this feature, so this preview is intentionally read-only. It explains where the browser stops and where the native app takes over; it never claims that a permission prompt or hardware action succeeded. In the following steps, we will connect the user action to Fission’s capability request and handle the result returned by the target.
+Keep the order and received quantities in app state because the whole receiving screen needs to see them. The text in the manual SKU field belongs to one screen, so it stays in the `ReceivingDesk` component. Both input paths call the same `record_supplier_sku` rule: a camera result and a typed code therefore cannot disagree about whether a line is valid.
+
+The code is split into the app modules, the component, and the shared startup. Select a tab to follow one file at a time. The browser preview and iOS app begin with the same sample purchase order so you can see the receiving rules immediately. The order is held in memory for this tutorial; a production receiving app would load an open order from its own storage or service.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+pub mod receiving;
+pub mod widgets;
+
+pub use receiving::{PurchaseOrderLine, ReceivingState};
+pub use widgets::ReceivingDesk;
+```
+</TabItem>
+<TabItem label="src/app/receiving.rs">
+<!-- fission:file path="src/app/receiving.rs" -->
+```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub IosBarcodeScanner<()> {
-        props { title: String, step: String, goal: String, }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PurchaseOrderLine {
+    pub sku: String,
+    pub product_name: String,
+    pub expected_units: u32,
+    pub received_units: u32,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ReceivingState {
+    pub order_reference: Option<String>,
+    pub supplier_name: Option<String>,
+    pub lines: Vec<PurchaseOrderLine>,
+    pub scanner_busy: bool,
+    pub notice: Option<String>,
+    pub error: Option<String>,
+}
+
+impl GlobalState for ReceivingState {}
+
+impl ReceivingState {
+    pub fn sample_purchase_order() -> Self {
+        Self {
+            order_reference: Some("PO-4807".into()),
+            supplier_name: Some("Harbor Foods · Harbor Street depot".into()),
+            lines: vec![
+                PurchaseOrderLine {
+                    sku: "GLV-204".into(),
+                    product_name: "Nitrile gloves · Large".into(),
+                    expected_units: 12,
+                    received_units: 3,
+                },
+                PurchaseOrderLine {
+                    sku: "TEA-112".into(),
+                    product_name: "Green tea · 20 sachets".into(),
+                    expected_units: 8,
+                    received_units: 0,
+                },
+            ],
+            ..Default::default()
+        }
     }
-    view(preview, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
-                    .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text("The browser and device boundary".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("This website cannot call the iOS host provider or reach device hardware. The preview shows the app context without pretending that the capability has run.".to_string()),
-                        Text("In the native app, the visible action starts the request. The platform host then returns the outcome that the app should explain to the user.".to_string()),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
-}
-```
-</TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
 }
 
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    let preview = app::IosBarcodeScanner::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
+/// Apply the same checks to a manually entered SKU and a decoded barcode.
+pub fn record_supplier_sku(state: &mut ReceivingState, value: &str) -> bool {
+    let sku = value.trim().to_ascii_uppercase();
+    if sku.is_empty() {
+        state.error = Some("Enter the SKU printed on the product label.".to_string());
+        state.notice = None;
+        return false;
+    }
+
+    if state.order_reference.is_none() {
+        state.error = Some("Open a purchase order before receiving products.".to_string());
+        state.notice = None;
+        return false;
+    }
+
+    let Some(index) = state
+        .lines
+        .iter()
+        .position(|line| line.sku.eq_ignore_ascii_case(&sku))
+    else {
+        state.error = Some(format!(
+            "{sku} is not on this purchase order. Check the label or ask the receiving lead before counting it."
+        ));
+        state.notice = None;
+        return false;
+    };
+
+    let result = {
+        let line = &mut state.lines[index];
+        if line.received_units >= line.expected_units {
+            Err((line.product_name.clone(), line.expected_units))
+        } else {
+            line.received_units += 1;
+            Ok((
+                line.product_name.clone(),
+                line.received_units,
+                line.expected_units,
+            ))
+        }
+    };
+
+    let (product_name, received_units, expected_units) = match result {
+        Ok(received) => received,
+        Err((product_name, expected_units)) => {
+            state.error = Some(format!(
+                "{product_name} has already reached its ordered quantity of {expected_units} units. No extra unit was added."
+            ));
+            state.notice = None;
+            return false;
+        }
+    };
+
+    state.error = None;
+    state.notice = Some(format!(
+        "Recorded {product_name}: {received_units} of {expected_units} units received."
+    ));
+    true
 }
-```
-</TabItem>
-</Tabs>
-<!-- fission:preview -->
 
-<!-- fission:checkpoint -->
-Use this read-only preview to identify the boundary between the website and the native app. No device request has been made. The next step follows the actual request path and shows how the app should handle a result from its platform provider.
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
+#[fission_reducer(BarcodeLabelRead)]
+pub fn on_barcode_label_read(
+    state: &mut ReceivingState,
+    ctx: &mut ReducerContext<ReceivingState>,
+) {
+    state.scanner_busy = false;
 
-<!-- fission:step id="main-flow" -->
-## Connect the Barcode Scanner provider to the user action
+    let Some(results) = ctx.input.capability_ok(SCAN_BARCODE) else {
+        state.error = Some(
+            "The scanner returned no result. Try again or enter the SKU manually.".to_string(),
+        );
+        state.notice = None;
+        return;
+    };
 
-This is the real Fission request path for this feature. Keep permission and hardware work outside the component view: the component dispatches one intent, the reducer queues the request, and success or error reducers store the returned result.
+    let Some(label) = results.items.first() else {
+        state.error = Some(
+            "No product label was read. Try again with the bars inside the scan frame, or enter the SKU manually."
+                .to_string(),
+        );
+        state.notice = None;
+        return;
+    };
 
-Start with task data and status in the app state. Keep a text-field draft, open flag or selected tab in the owning component instead of duplicating that temporary state here:
-
-```rust
-#[derive(Debug, Default)]
-struct BarcodeScannerState {
-    // Add these fields to your existing app state.
-    last_barcode: Option<String>,
-    barcode_error: Option<String>,
-    scanning: bool,
-}
-
-impl GlobalState for BarcodeScannerState {}
-```
-
-Handle successful and failed results separately so the screen can explain denied permission, cancellation, unsupported hardware and provider errors:
-
-```rust
-#[fission_reducer(BarcodeScanned)]
-fn on_barcode_scanned(state: &mut BarcodeScannerState, results: BarcodeScanResults) {
-    state.scanning = false;
-    state.last_barcode = results.items.first().map(|item| item.value.clone());
-    state.barcode_error = None;
+    record_supplier_sku(state, &label.value);
 }
 
 #[fission_reducer(BarcodeScanFailed)]
-fn on_barcode_scan_failed(state: &mut BarcodeScannerState, error: BarcodeScannerError) {
-    state.scanning = false;
-    state.barcode_error = Some(error.message);
+pub fn on_barcode_scan_failed(
+    state: &mut ReceivingState,
+    ctx: &mut ReducerContext<ReceivingState>,
+) {
+    state.scanner_busy = false;
+    state.notice = None;
+
+    let Some(error) = ctx.input.capability_error(SCAN_BARCODE) else {
+        state.error = Some(
+            "The scanner failed before returning a result. The received counts are unchanged; enter the SKU manually or try again."
+                .to_string(),
+        );
+        return;
+    };
+
+    if error.code == "cancelled" {
+        state.error = None;
+        state.notice = Some(
+            "Scanning was cancelled. No purchase-order counts changed; you can scan again or enter a SKU."
+                .to_string(),
+        );
+        return;
+    }
+
+    state.error = Some(match error.code.as_str() {
+        "permission_denied" => {
+            "Camera access was denied. Allow camera access in iOS settings or enter the SKU manually.".to_string()
+        }
+        "unsupported" => {
+            "This device cannot scan a live barcode. Enter the SKU manually to keep receiving.".to_string()
+        }
+        "timeout" => {
+            "The scanner did not read a label in time. Move closer, improve the light, or enter the SKU manually.".to_string()
+        }
+        _ => {
+            "The scanner could not read this label. Try again or enter the SKU manually; the received count is unchanged.".to_string()
+        }
+    });
 }
-```
 
-Queue the operation after the user presses the named control. The host completes asynchronously and dispatches the matching reducer:
+#[fission_reducer(ScanSupplierLabel)]
+pub fn on_scan_supplier_label(
+    state: &mut ReceivingState,
+    ctx: &mut ReducerContext<ReceivingState>,
+) {
+    if state.scanner_busy || state.order_reference.is_none() {
+        return;
+    }
 
-```rust
-state.scanning = true;
-ctx.effects
-    .barcode_scanner()
-    .scan(BarcodeScanRequest {
-        formats: vec![BarcodeFormat::QrCode, BarcodeFormat::Code128],
-        prompt: Some("Scan the label".into()),
-        timeout_ms: Some(20_000),
-        allow_multiple: false,
-        ..Default::default()
-    })
-    .on_ok(ctx.effects.bind(
-        BarcodeScanned(BarcodeScanResults::default()),
-        reduce_with!(on_barcode_scanned),
-    ))
-    .on_err(ctx.effects.bind(
-        BarcodeScanFailed(BarcodeScannerError::default()),
+    state.scanner_busy = true;
+    state.error = None;
+    state.notice = Some("Opening the product scanner…".to_string());
+
+    let on_ok = ctx.effects.bind(
+        BarcodeLabelRead,
+        reduce_with!(on_barcode_label_read),
+    );
+    let on_err = ctx.effects.bind(
+        BarcodeScanFailed,
         reduce_with!(on_barcode_scan_failed),
-    ));
-```
+    );
 
-Bind the user action from a reusable Fission component. Keep the visible label in the same control so it works with touch, keyboard and assistive technology:
-
-```rust
-fission_component!
-{
-    pub ScanBarcodeButton<BarcodeScannerState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<BarcodeScannerState>();
-                let run = with_reducer!(ctx, ScanBarcode, on_scan_barcode);
-
-                Button::new("Scan barcode")
-                    .disabled(view.state().scanning)
-                    .on_press(run)
-                    .into()
-    }
+    ctx.effects
+        .barcode_scanner()
+        .scan(BarcodeScanRequest {
+            formats: vec![BarcodeFormat::Code128, BarcodeFormat::QrCode],
+            prompt: Some("Scan one product SKU".into()),
+            timeout_ms: Some(20_000),
+            allow_multiple: false,
+            ..Default::default()
+        })
+        .on_ok(on_ok)
+        .on_err(on_err);
 }
 ```
-
-The [complete Barcode Scanner guide](/docs/capabilities/barcode-scanner/) explains configuration and expected platform behaviour. Test a successful memory-provider response and an unavailable or denied response before relying on the physical-device check below. The preview is read-only. The native target uses Fission’s provider to perform the request and report the result.
-
-Keep platform-only code behind the generated target boundary or a typed provider; the shared component should describe the user task rather than call an operating-system API directly.
-
-
-
-<Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
+</TabItem>
+<TabItem label="src/app/widgets.rs">
+<!-- fission:file path="src/app/widgets.rs" -->
 ```rust
+pub mod purchase_order_line;
+
 use fission::prelude::*;
 
+use super::receiving::{
+    on_scan_supplier_label, record_supplier_sku, ReceivingState, ScanSupplierLabel,
+};
+use self::purchase_order_line::PurchaseOrderLineRow;
+
 fission_component! {
-    pub IosBarcodeScannerResult<()> {
-        props { title: String, step: String, goal: String, }
+    pub ReceivingDesk<ReceivingState> {
+        props {
+            browser_demo: bool,
+        }
+        state {
+            manual_sku: String = String::new(),
+        }
     }
-    view(preview, _state, cx) {
+    view(desk, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let order_reference = state.order_reference.clone().unwrap_or_else(|| {
+            "No purchase order selected".to_string()
+        });
+        let supplier_name = state.supplier_name.clone().unwrap_or_else(|| {
+            "Open an order to begin receiving.".to_string()
+        });
+        let expected_units: u32 = state.lines.iter().map(|line| line.expected_units).sum();
+        let received_units: u32 = state.lines.iter().map(|line| line.received_units).sum();
+        let scan_label = with_reducer!(cx.build, ScanSupplierLabel, on_scan_supplier_label);
     } =>
     SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("greenway-receiving-desk".to_string()),
+        label: Some("Greenway Market purchase-order receiving".to_string()),
         child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
-                    .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
+            Row(children: [
+                Spacer(flex_grow: 1.0),
                 Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text("Where the request result comes from".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("In the target app, Fission’s native host completes the request and reports its real outcome to shared Rust state. The browser cannot manufacture that outcome, so this preview stays read-only.".to_string()),
-                        Text("Handle success and errors as separate state transitions. Keep the surrounding screen usable if the user declines, cancels, or the device does not support the capability.".to_string()),
+                    Column(gap: tokens.spacing.m, children: [
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text("Greenway Market receiving")
+                                .weight(tokens.typography.font_weight_bold),
+                            Text(format!("{order_reference} · {supplier_name}"))
+                                .color(tokens.colors.text_secondary),
+                        ]),
+                        Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                            Text(format!("{} product lines", state.lines.len())),
+                            Text(format!("{received_units} of {expected_units} units checked in")),
+                        ]),
+                        Column(gap: tokens.spacing.s, children: [
+                            Text("Purchase-order lines")
+                                .weight(tokens.typography.font_weight_semibold),
+                            if state.lines.is_empty() {
+                                Text("Open a purchase order to see the expected products and quantities.")
+                                    .color(tokens.colors.text_secondary)
+                            } else {
+                                Column(gap: tokens.spacing.s, children: [
+                                    for line in state.lines.iter() {
+                                        PurchaseOrderLineRow(line.clone(), key: line.sku.clone())
+                                    }
+                                ])
+                            },
+                        ]),
+                        if !desk.browser_demo {
+                            Column(gap: tokens.spacing.s, children: [
+                                Button(
+                                    child: Text(if state.scanner_busy {
+                                        "Waiting for scanner…"
+                                    } else {
+                                        "Scan supplier label"
+                                    }),
+                                    key: "scan-supplier-label",
+                                    variant: ButtonVariant::Primary,
+                                    disabled: state.scanner_busy || state.order_reference.is_none(),
+                                    on_press: scan_label,
+                                )
+                                .semantics_identifier("receiving.scan-label".to_string()),
+                                Text("Scan one QR or Code 128 SKU. A successful read adds one unit to its matching order line.")
+                                    .color(tokens.colors.text_secondary),
+                            ])
+                        } else {
+                            Text("Live barcode scanning is available in the iOS app. In this browser preview, enter the printed SKU below.")
+                                .color(tokens.colors.text_secondary)
+                        },
+                        Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                            TextInput(
+                                label: Some("Enter supplier SKU".into()),
+                                placeholder: Some("For example, TEA-112".into()),
+                                bind: desk.manual_sku,
+                                enabled: !state.scanner_busy && state.order_reference.is_some(),
+                                helper_text: Some(
+                                    "Use this when a label is damaged or the camera is unavailable.".into(),
+                                ),
+                                semantics_identifier: "receiving.manual-sku".to_string(),
+                            ),
+                            Button(
+                                child: Text("Record one unit"),
+                                key: "record-manual-sku",
+                                variant: ButtonVariant::Outline,
+                                disabled: state.scanner_busy || state.order_reference.is_none(),
+                                on_press: reduce {
+                                    let sku = desk.manual_sku.trim().to_string();
+                                    if sku.is_empty() {
+                                        state.error = Some(
+                                            "Enter the SKU printed on the product label.".to_string(),
+                                        );
+                                        state.notice = None;
+                                    } else if record_supplier_sku(state, &sku) {
+                                        desk.manual_sku.clear();
+                                    }
+                                },
+                            )
+                            .semantics_identifier("receiving.record-manual-sku".to_string()),
+                        ]),
+                        if let Some(error) = &state.error {
+                            Text(error.clone()).color(tokens.colors.error)
+                        },
+                        if let Some(notice) = &state.notice {
+                            Text(notice.clone()).color(tokens.colors.text_secondary)
+                        },
                     ])
                 )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
+                .padding_all(tokens.spacing.l)
+                .width_length(Length::clamp(
+                    Length::points(0.0),
+                    Length::percent(100.0),
+                    Length::points(760.0),
+                ))
+                .bg(tokens.colors.surface)
                 .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-            ])
+                .border_radius(tokens.radii.large),
+                Spacer(flex_grow: 1.0),
+            ]),
         )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        .width_length(Length::percent(100.0)),
     )
 }
 ```
 </TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
+<TabItem label="src/app/widgets/purchase_order_line.rs">
+<!-- fission:file path="src/app/widgets/purchase_order_line.rs" -->
 ```rust
-mod app;
-
 use fission::prelude::*;
-use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+use crate::app::receiving::{PurchaseOrderLine, ReceivingState};
+
+fission_component! {
+    pub PurchaseOrderLineRow<ReceivingState> {
+        props {
+            line: PurchaseOrderLine,
+        }
+    }
+    view(row, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(
+        identifier: Some(format!(
+            "purchase-order-line.{}",
+            row.line.sku.to_ascii_lowercase(),
+        )),
+        label: Some(format!(
+            "{}: {} of {} units received",
+            row.line.product_name,
+            row.line.received_units,
+            row.line.expected_units,
+        )),
+        child: Container(
+            Row(gap: tokens.spacing.m, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(row.line.product_name.clone())
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text(row.line.sku.clone())
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Spacer(flex_grow: 1.0),
+                Text(format!(
+                    "{} / {} units",
+                    row.line.received_units,
+                    row.line.expected_units,
+                )),
+            ])
+        )
+        .padding_all(tokens.spacing.m)
+        .bg(tokens.colors.background)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.medium),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs · iOS and browser startup">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+
+use crate::app::{ReceivingDesk, ReceivingState};
+use fission::prelude::*;
+
+#[cfg(target_os = "ios")]
+fn mobile_app() -> MobileApp<ReceivingState, ReceivingDesk> {
+    MobileApp::<ReceivingState, _>::new(ReceivingDesk::new(false))
+        .with_state_init(|state| *state = ReceivingState::sample_purchase_order())
+        .with_title("Greenway Market receiving")
 }
 
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    let preview = app::IosBarcodeScannerResult::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+#[cfg(target_os = "ios")]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn web_app() -> WebApp<ReceivingState, ReceivingDesk> {
+    WebApp::<ReceivingState, _>::new(ReceivingDesk::new(true))
+        .with_state_init(|state| *state = ReceivingState::sample_purchase_order())
+        .with_title("Greenway Market receiving")
         .mount("#fission-web-mount")
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    web_app()
         .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
 </Tabs>
+
+The scan reducer marks the camera operation as busy and queues one asynchronous request for Code 128 or QR data. Fission sends the provider response through the reducer context: the success reducer reads `ctx.input.capability_ok(SCAN_BARCODE)`, while the error reducer reads `ctx.input.capability_error(SCAN_BARCODE)`. The small `BarcodeLabelRead` and `BarcodeScanFailed` actions only route the response to the right reducer; they do not carry a made-up result in their payload. `on_barcode_label_read` then sends the decoded value through the same order-line check used by manual entry. The error reducer branches on the stable error code, so cancellation, denied camera access, an unsupported scanner, and a timeout all leave the quantities untouched. The web startup keeps the scan control out of its screen; the iOS startup exposes it and lets the installed host perform a real scan.
+
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-This preview is read-only: the actual result comes from the native host when you run the app on a supported target. Continue below to build and check that real request on a device or emulator.
+In the browser, type `GLV-204` and choose **Record one unit**. The glove line should move from 3 of 12 to 4 of 12. Then type `TEA-112` and record one unit. Finally enter `SKU-999`: the screen should explain that the code is not on this order, and neither count should change. Receive the gloves until they reach 12 of 12 and try once more; the order must reject the extra unit.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Verify the native request on iOS
+<!-- fission:step id="verify-ios" -->
+## Verify the iOS camera and the recovery paths
 
-The website preview cannot exercise the native provider. Build and launch this target on a supported emulator or device, then use the feature action from the component above. Check the result the host actually returns, including denial, cancellation or unsupported hardware where those outcomes apply.
+Run the generated app in an iOS Simulator, then repeat the scan on an iPhone. A simulator can exercise the app flow, but only the phone can verify the camera, focus behavior, and the operating system’s real permission prompt.
 
-Repeat with the feature unavailable, denied or cancelled, as applicable. Confirm the screen preserves the user’s existing data and offers the right recovery step. Use a physical device when the behavior depends on real hardware or an operating-system prompt.
-
-### Run, test and build
-
-```sh
-cargo test
-fission doctor ios --project-dir .
-fission run --target ios --project-dir .
-fission test --target ios --project-dir .
-fission build --target ios --project-dir . --release
-```
-
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Xcode, simulator SDK or Rust targets, `fission run` launches an iOS Simulator, and `fission test` checks that the generated host can start. A release build checks the simulator package; it does not verify iPhone signing or physical-device behavior.
-
-
-### Simulator and device commands
-
-Fission’s run command discovers iOS simulators. Run these checks from the generated project root:
-
+<Tabs>
+<TabItem label="Prepare and run">
 ```sh
 fission doctor ios --project-dir .
-fission devices --project-dir .
 fission run --target ios --project-dir .
-fission test --target ios --project-dir .
 ```
-
-
-To verify a hardware-dependent path on an iPhone, configure development signing and Developer Mode, create a signed release IPA, then install it through Xcode Devices and Simulators:
-
-```sh
-fission package --project-dir . --target ios --format ipa --release
+</TabItem>
+<TabItem label="Check each receiving outcome">
+```text
+1. Open purchase order PO-4807 and scan a GLV-204 label. Check that one unit is added.
+2. Scan a TEA-112 label. Check that only the tea line changes.
+3. Deny camera access. Confirm the screen offers typed SKU entry and keeps both counts.
+4. Cancel the scanner, then run it again. Cancellation must not add a unit.
+5. Type SKU-999. The order must reject it without changing either line.
+6. Receive the ordered quantity for one line, then scan it again. The count must not exceed the order.
+7. Try a supported QR label as well as a Code 128 label.
 ```
+</TabItem>
+</Tabs>
 
-`fission run --target ios` remains simulator-only; it does not launch directly on a physical iPhone. A simulator preview cannot prove NFC, camera, biometrics or other physical capability behaviour.
+The capability declaration adds the camera usage description to the generated iOS project. If iOS does not show a prompt or the provider reports `permission_denied`, inspect `NSCameraUsageDescription` in `platforms/ios/Info.plist` and the app’s camera access in Settings. Replace generated privacy copy with the reason this app needs to scan product labels. If the provider reports `unsupported`, keep the manual SKU path available; a device without a working scanner is still a device where a clerk can finish receiving.
 
-
-### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
-- [Barcode Scanner capability guide](/docs/capabilities/barcode-scanner/)
-- [Barcode Scanner capability reference](/reference/capabilities/barcode-scanner/)
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
+For the typed provider contract and memory-host tests, continue with the [Barcode scanner capability guide](/docs/capabilities/barcode-scanner/) and the [Barcode scanner reference](/reference/capabilities/barcode-scanner/). The [mobile inventory workflow](/blog/build-a-mobile-inventory-workflow-with-camera-and-barcode-scanning/) extends this receiving task with camera capture and attachments.
 <!-- /fission:step -->
