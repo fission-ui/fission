@@ -20,7 +20,7 @@ At Cedar Ridge Outfitters, the closing count finds **17 Trail tarps** in bin **C
 
 This screen keeps those decisions separate. A fingerprint or device-credential response confirms the local user; it does not grant that person an inventory role. After a successful check, the adjustment is only marked **ready for server review**. The backend must still check the signed-in account and its permissions before changing the saved quantity. If the prompt is cancelled or the device cannot verify anyone, the proposed count remains intact and the lead can use account sign-in instead.
 
-The browser preview uses `MemoryBiometricHost` configured to report an enrolled fingerprint. It runs the same availability and authentication reducers as the Android app without opening an operating-system prompt.
+The browser cannot open Android’s biometric prompt, so this preview uses Fission’s real web behavior: standalone biometric authentication is unavailable. You can inspect the recovery message and confirm that the discrepancy stays unchanged. A successful prompt, cancellation, and enrollment check must be exercised in the Android app on an emulator or device.
 
 ## Create the Android app and declare biometrics
 
@@ -60,7 +60,7 @@ The adjustment is shared app data, so the app state owns its SKU, system quantit
 
 The first button asks the host what authentication methods are available. Only after a usable method is reported does the screen enable **Verify warehouse lead**. This makes an unavailable device a clear recovery path instead of a surprise after the manager has started the approval.
 
-Open the tabs from left to right. The app module separates adjustment state and capability reducers from the screen component. The final tab installs a memory provider for the browser example; that keeps this preview deterministic while exercising the same reducers as the native target.
+Open the tabs from left to right. The app module separates adjustment state and capability reducers from the screen component. The final tab starts the browser preview with one review waiting. It leaves the web host in place, so its unavailable result is the browser’s actual behavior rather than a pretend Android prompt.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -442,26 +442,10 @@ pub fn run() -> Result<(), JsValue> {
         }),
         ..Default::default()
     };
-    let preview_availability = BiometricAvailability {
-        supported: true,
-        enrolled: true,
-        strong: true,
-        weak: true,
-        device_credential: true,
-        kinds: vec![BiometricKind::Fingerprint],
-        reason: None,
-    };
-    let preview_result = BiometricAuthenticateResult {
-        verified: true,
-        kind: Some(BiometricKind::Fingerprint),
-        used_device_credential: false,
-    };
-
     WebApp::<StockApprovalState, _>::new(StockAdjustmentApproval)
         .with_state_init(move |state: &mut StockApprovalState| {
             *state = preview_state.clone();
         })
-        .with_biometric_host(MemoryBiometricHost::new(preview_availability, preview_result))
         .with_title("Cedar Ridge stock review")
         .mount("#fission-web-mount")
         .run()
@@ -476,14 +460,14 @@ Both capability responses arrive through `ReducerContext.input`: the availabilit
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Choose **Check this device**. The memory host reports an enrolled fingerprint and enables **Verify warehouse lead**. Select it; the preview should report local verification while keeping the discrepancy at 17 counted versus 18 in the system. It becomes ready for the inventory service, but this screen does not update the saved stock.
+In the browser preview, choose **Check this device**. The web host reports that standalone biometrics are unavailable, so **Verify warehouse lead** stays hidden and the screen directs the lead to account sign-in. The discrepancy remains at 17 counted versus 18 in the system. On Android, the native host can report enrollment and open the operating-system prompt; test that path on the emulator or device in the next section.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="test-android" -->
 ## Test the Android prompt and recovery paths
 
-The browser memory host confirms that the Rust reducers and screen respond to typed success results. It cannot show Android’s real biometric prompt or prove that a device has enrolled a fingerprint. Test the installed app on an Android emulator or handheld after declaring the capability.
+The browser preview exercises the unavailable-host recovery path. It cannot show Android’s real biometric prompt or prove that a device has enrolled a fingerprint. Test the installed app on an Android emulator or handheld after declaring the capability.
 
 On a supported device, check availability and approve the discrepancy with a fingerprint. Then cancel the prompt and verify that the adjustment remains a proposal. Try a device with no enrolled biometric or an older Android API; the screen should keep the count, explain why local verification is unavailable, and direct the lead to warehouse account sign-in. Android 10 (API level 29) or later is required by this Fission host’s availability check.
 

@@ -20,7 +20,7 @@ At the end of a busy shift, a store manager reviews a **$428.50 refund** for ord
 
 That device check is only one part of the decision. A successful biometric result means the host verified its current local user; it does not prove an account identity to a server or grant permission to issue money. The real refund API must still check the signed-in manager, their role, and the refund amount. This screen stops at **ready for server review** so it cannot suggest that a local check alone completed a refund.
 
-The browser example uses Fission’s `MemoryBiometricHost`. It runs the same typed availability and authentication reducers as the app, returning a predictable successful result so you can inspect the screen without a camera or an operating-system prompt.
+The browser cannot open Face ID or Touch ID. Its preview keeps Fission’s real web host, which reports that standalone biometric prompts are unavailable and points the manager to account sign-in. You can inspect that recovery state and confirm the refund remains unchanged. The iOS shell in this checkout also has no LocalAuthentication provider yet, so this guide makes that boundary explicit instead of showing a pretend successful prompt.
 
 ## Create the iOS app and declare the capability
 
@@ -62,7 +62,7 @@ The refund is application data, so the shared approval state owns it. A button d
 
 The screen asks the host whether authentication is available before enabling **Verify manager**. That avoids sending the user into a prompt the current device cannot complete. The request itself starts in a reducer after the manager presses the button; the reducer returns immediately while Fission waits for the host.
 
-Select each tab to see how the app state, screen, and browser host fit together. In a real app, the signed-in route would provide the selected refund. The preview seeds one review so you can try the interface; the empty default state does not contain production fixture data.
+Select each tab to see how the app state, screen, and browser host fit together. In a real app, the signed-in route would provide the selected refund. The preview seeds one review so you can try the interface; the empty default state does not contain production fixture data. The browser uses its normal unsupported-biometric response, which demonstrates recovery without claiming a Face ID check took place.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -463,7 +463,6 @@ pub fn run() -> Result<(), JsValue> {
         .with_state_init(move |state: &mut RefundApprovalState| {
             *state = preview_state.clone();
         })
-        .with_biometric_host(MemoryBiometricHost::default())
         .with_title("Refund review")
         .mount("#fission-web-mount")
         .run()
@@ -478,7 +477,7 @@ The availability response and authentication result arrive through `ReducerConte
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-In the interactive screen, select **Check this device**. The memory host reports an enrolled local method, which enables **Verify manager**. Select it and the host returns a successful face-recognition result. The screen should say the refund is ready for server review, and the displayed amount should remain **$428.50**. The preview stops before submitting anything.
+In the browser preview, select **Check this device**. The web host reports that it cannot open a standalone biometric prompt, so **Verify manager** stays unavailable and the screen directs the manager to account sign-in. Confirm that the review still shows **$428.50**. This is the browser’s actual recovery state; it does not claim that Face ID or Touch ID ran.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
