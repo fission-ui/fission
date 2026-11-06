@@ -82,7 +82,8 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
 }
 [data-fission-semantics="site-header-cta"] a .fission-site-text-run,
 [data-fission-semantics="home-primary-cta"] a .fission-site-text-run,
-[data-fission-semantics="home-secondary-cta"] a .fission-site-text-run {
+[data-fission-semantics="home-secondary-cta"] a .fission-site-text-run,
+[data-fission-semantics="home-browser-cta"] a .fission-site-text-run {
   color: inherit !important;
   text-decoration: none !important;
 }
