@@ -371,6 +371,8 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
 [data-fission-semantics="site-footer"] { padding: 36px var(--gutter); border-top: 1px solid var(--line); background: #102039; color: #eef4ff; }
 [data-fission-semantics="site-footer"] > * { width: min(100%, var(--max)); margin-inline: auto; }
 [data-fission-semantics="site-footer"] a { color: #eef4ff; }
+[data-fission-semantics="site-footer"] .fission-site-text-run { color: #eaf2ff !important; }
+[data-fission-semantics="site-footer"] a .fission-site-text-run { color: #fff !important; }
 
 /* Tutorial reading shell. The preview is an optional, full-width reading step. */
 .fission-site-root:has([data-fission-semantics="goal-shell"]) { overflow: visible !important; }

@@ -879,7 +879,11 @@ fission_component! {
     SemanticsRegion(
         identifier: Some("inventory-dashboard".to_string()),
         label: Some("Harbour Supply inventory dashboard".to_string()),
-        child: Container(
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            semantic_label: Some("Inventory products and stock actions".to_string()),
+            child: Container(
             Column(gap: tokens.spacing.l, children: [
                 Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
                     Column(gap: tokens.spacing.xs, children: [
@@ -1083,6 +1087,7 @@ fission_component! {
         )
         .padding_all(tokens.spacing.l)
         .bg(tokens.colors.background),
+        ),
     )
 }
 
