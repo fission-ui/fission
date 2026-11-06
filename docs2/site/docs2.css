@@ -797,7 +797,23 @@ details:not([open]) > :not(summary) { display: none !important; }
   [data-fission-semantics="goal-right-nav"] > .fission-site-column > .fission-site-box { display: none; }
   [data-fission-semantics="goal-right-nav"] > .fission-site-column::-webkit-scrollbar,
   [data-fission-semantics="goal-toc-primary"] > .fission-site-column::-webkit-scrollbar { display: none; }
-  [data-fission-semantics="goal-toc-primary"] { flex: 1 1 auto; min-width: 0; width: 100%; overflow: hidden; }
+  [data-fission-semantics="goal-toc-primary"] { position: relative; flex: 1 1 auto; min-width: 0; width: 100%; overflow: hidden; }
+  [data-fission-semantics="goal-toc-primary"]::after {
+    content: "›";
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    width: 34px;
+    height: 40px;
+    padding-right: 8px;
+    background: linear-gradient(90deg, rgb(255 255 255 / 0%), #fff 54%);
+    color: var(--muted);
+    pointer-events: none;
+  }
   [data-fission-semantics="goal-toc-primary"] > .fission-site-column {
     display: flex !important;
     flex-direction: row !important;
