@@ -1,104 +1,180 @@
 ---
 layout: goal
-title: Build a responsive mobile data dashboard
-description: "Step-by-step Rust guide to build a responsive mobile data dashboard using Fission."
-goal: Combine Fission Charts, loading, error and empty states, filters and adaptive navigation.
+title: Build a responsive solar energy dashboard in Rust
+description: "Build a responsive solar operations dashboard in Rust with Fission components, interactive generation charts, site health and layouts that adapt to phone and tablet widths."
+goal: Help a solar fleet operator compare generated energy with forecast and find the sites that need attention.
 path: /blog/build-a-responsive-mobile-data-dashboard/
 order: 114
 difficulty: Beginner
-duration: 35 minutes
+duration: 40 minutes
 run_command: "fission run --target android --project-dir ."
 app: mobile-build-a-responsive-mobile-data-dashboard
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify both target workflows and follow physical-device checks when the task requires them
+  - Build reusable solar fleet metrics and site health components
+  - Compare actual generation with forecast using a Fission chart and local range state
+  - Adapt the dashboard for phone and tablet widths with Responsive
 ---
 
-## Create the project and add the target
+## Create a shared Android and iOS project
 
-Install the Fission command line, create the app, and add its native target.
+The dashboard belongs in shared Rust code. Fission generates a small host for each platform; the screen, chart and layout rules stay in the same app module so both targets present the same information.
+
+Install the Fission CLI once, then create the project and add both mobile targets:
 
 ```sh
 cargo install cargo-fission
-fission init mobile-build-a-responsive-mobile-data-dashboard
-cd mobile-build-a-responsive-mobile-data-dashboard
-fission add-target android ios --project-dir .
+fission init cedar-peak-solar
+cd cedar-peak-solar
 ```
-
-## Files created by Fission
-
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in the generated Android and iOS hosts.
-
-```text
-mobile-build-a-responsive-mobile-data-dashboard/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
-├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
-└── platforms/
-    ├── android/              # generated Android host
-    └── ios/                  # generated iOS host
-```
-
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android and iOS hosts own launch and packaging details; shared components describe the user task without importing either platform API.
-
-<!-- fission:step id="start-screen" -->
-## Create the app screen
-
-Give the workflow a clear first screen before adding its platform-specific behavior. This version displays the user task and current step; the next section connects the feature and its outcome to Fission state.
 
 <Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
+<TabItem label="Android target">
+```sh
+fission add-target android --project-dir .
+fission run --target android --project-dir .
+```
+</TabItem>
+<TabItem label="iOS target">
+```sh
+fission add-target ios --project-dir .
+fission run --target ios --project-dir .
+```
+</TabItem>
+</Tabs>
+
+We will build a fleet overview for Cedar Peak Solar. An operator needs to compare generated energy with the expected forecast, see whether any site needs inspection, and change the time window without losing the summary. The numbers below are named sample records held in the preview; the controls update them in memory and make no network or hardware claims.
+
+<!-- fission:step id="fleet-summary" -->
+## Give each metric enough context to be useful
+
+A dashboard number needs a label and a comparison. “318” is hard to act on; “318 MWh generated against a 336 MWh forecast” tells the operator how the fleet is performing. We will make the metric and site-status rows reusable, then compose them into the first version of the fleet screen.
+
+The status text is part of the row, not just its colour. That keeps “Inspect” and “Telemetry delayed” understandable with assistive technology and when the screen is viewed in grayscale.
+
+<Tabs>
+<TabItem label="src/components.rs">
+<!-- fission:file path="src/components.rs" -->
 ```rust
 use fission::prelude::*;
 
 fission_component! {
-    pub MobileDashboard<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
+    pub SolarMetric<()> {
+        props { label: String, value: String, detail: String }
     }
-    view(screen, _state, cx) {
+    view(metric, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.xs, children: [
+        Text(metric.label.clone()).color(tokens.colors.text_secondary),
+        Text(metric.value.clone()).weight(tokens.typography.font_weight_bold),
+        Text(metric.detail.clone()).color(tokens.colors.text_secondary),
+    ]))
+        .padding_all(tokens.spacing.m)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub SolarSiteStatus<()> {
+        props { site: String, location: String, status: String, detail: String }
+    }
+    view(site, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
+        identifier: Some(format!("solar-site-{}", site.site.to_lowercase().replace(' ', "-"))),
+        label: Some(format!("{} at {}: {}. {}", site.site, site.location, site.status, site.detail)),
+        child: Container(Column(gap: tokens.spacing.xs, children: [
+            Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(site.site.clone()).weight(tokens.typography.font_weight_semibold),
+                    Text(site.location.clone()).color(tokens.colors.text_secondary),
                 ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
+                Spacer(flex_grow: 1.0),
+                Badge(text: site.status.clone()),
+            ]),
+            Text(site.detail.clone()).color(tokens.colors.text_secondary),
+        ]))
+            .padding_all(tokens.spacing.m)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.medium),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::components::{SolarMetric, SolarSiteStatus};
+
+fission_component! {
+    pub SolarFleetSummary<()> {}
+    view(_summary, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(
+        identifier: Some("cedar-peak-fleet-summary".to_string()),
+        label: Some("Cedar Peak Solar fleet summary".to_string()),
+        child: Container(Column(gap: tokens.spacing.l, children: [
+            Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text("Cedar Peak Solar").weight(tokens.typography.font_weight_bold),
+                    Text("Fleet operations · 3 sites").color(tokens.colors.text_secondary),
                 ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
-                        .color(tokens.colors.text_secondary),
-                ]),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+                Spacer(flex_grow: 1.0),
+                Badge(text: "Sample operations data".to_string()),
+            ]),
+            Text("Generation overview").weight(tokens.typography.font_weight_bold),
+            SolarMetric(
+                "Generated today".to_string(),
+                "4.8 MWh".to_string(),
+                "92% of today's forecast".to_string(),
+                key: "metric-generated-today",
+            ),
+            SolarMetric(
+                "Recent production".to_string(),
+                "318 MWh".to_string(),
+                "Against 336 MWh forecast · 7 days".to_string(),
+                key: "metric-recent-production",
+            ),
+            SolarMetric(
+                "Sites to inspect".to_string(),
+                "2 sites".to_string(),
+                "One inverter is below its expected output".to_string(),
+                key: "metric-sites-to-inspect",
+            ),
+            Column(gap: tokens.spacing.s, children: [
+                Text("Site health").weight(tokens.typography.font_weight_semibold),
+                SolarSiteStatus(
+                    "Cedar East".to_string(),
+                    "Inverter 3".to_string(),
+                    "Inspect".to_string(),
+                    "Producing 14% below nearby inverters.".to_string(),
+                    key: "site-cedar-east",
+                ),
+                SolarSiteStatus(
+                    "Lakeside".to_string(),
+                    "Array 2".to_string(),
+                    "Data delayed".to_string(),
+                    "Last telemetry arrived 8 minutes ago.".to_string(),
+                    key: "site-lakeside",
+                ),
+                SolarSiteStatus(
+                    "North Ridge".to_string(),
+                    "Main array".to_string(),
+                    "On target".to_string(),
+                    "Output is tracking the expected curve.".to_string(),
+                    key: "site-north-ridge",
+                ),
+            ]),
+        ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.background)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large),
     )
 }
 ```
@@ -107,23 +183,27 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod components;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fission_component! {
+    pub SolarFleetSummaryPage<()> {}
+    view(_page, _state, cx) =>
+    Scroll(
+        flex_grow: 1.0,
+        height: cx.view.viewport_size().height,
+        semantic_label: Some("Cedar Peak Solar fleet summary preview".to_string()),
+        child: Some(Widget::from(app::SolarFleetSummary)),
+    )
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::MobileDashboard::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(SolarFleetSummaryPage)
+        .with_title("Cedar Peak Solar fleet summary")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -132,88 +212,278 @@ pub fn run() -> Result<(), JsValue> {
 </TabItem>
 </Tabs>
 <!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Read each metric as a pair: the value says what happened, while its detail says whether that result is expected. The site rows use the same pattern so a lower-output inverter is not confused with a delay in telemetry.
+<!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="main-flow" -->
-## Build a responsive mobile data dashboard
+<!-- fission:step id="responsive-dashboard" -->
+## Add the generation trend and adapt the layout
 
-Use Responsive for width-driven layout branches and Length for dimensions that should clamp or scale; do not scatter viewport arithmetic across child components. Keep the primary action visible on a narrow phone, then let a wider layout use extra space for a second pane or inspector. Test portrait, landscape, split-screen or resized windows, and the largest supported text scale. Read the [responsive UI guide](/docs/learn/responsive-ui/) and verify the phone, tablet and fallback branches rather than relying on one screenshot.
+The operator can inspect the current week or zoom out to four weeks. Keep the generated and forecast series together in one chart: separate charts would make their differences harder to compare. The text summary is calculated from the same values, so the result remains clear without relying on bar height or colour.
 
-The component below is a browser-safe version of this screen. It uses Fission's retained component state and widgets to make the task visible; it does not call a native provider or operating-system API.
+`Responsive` changes the composition at 920 points. On a wider window, the trend and site health sit side by side. On a phone, they stack in reading order. The chart receives a width derived from the active viewport so its labels and bars fit inside either arrangement.
 
-<!-- fission:file path="src/app.rs" -->
+The 7-day and 30-day values are named in the component because this example has no service yet. When a service is added, keep the range selection in local UI state and send the selected period through an effect; do not start a request while converting a component.
+
+<Tabs>
+<TabItem label="src/analytics.rs">
+<!-- fission:file path="src/analytics.rs" -->
 ```rust
 use fission::prelude::*;
 use fission::charts::{Axis, BarSeries, Chart, Legend, Tooltip};
 
 fission_component! {
-    pub MobileResponsiveDataDashboard<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
+    pub SolarGenerationTrend<()> {
+        props { width: f32 }
+        state { thirty_days: bool = false }
     }
-    view(screen, _state, cx) {
+    view(trend, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let labels = if trend.thirty_days {
+            vec!["Week 1", "Week 2", "Week 3", "Week 4"]
+        } else {
+            vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        };
+        let generated = if trend.thirty_days {
+            vec![312.0, 328.0, 341.0, 359.0]
+        } else {
+            vec![42.0, 38.0, 51.0, 54.0, 49.0, 36.0, 48.0]
+        };
+        let forecast = if trend.thirty_days {
+            vec![340.0, 340.0, 360.0, 370.0]
+        } else {
+            vec![46.0, 45.0, 50.0, 52.0, 51.0, 42.0, 50.0]
+        };
+        let generated_total: u32 = generated.iter().map(|value| *value as u32).sum();
+        let forecast_total: u32 = forecast.iter().map(|value| *value as u32).sum();
+        let percent = (generated_total as f32 / forecast_total as f32 * 100.0).round() as u32;
+        let period = if trend.thirty_days { "30 days" } else { "7 days" };
         let chart: Widget = Chart::new()
-            .title("Weekly completed tasks")
-            .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
+            .width(trend.width)
+            .height(300.0)
+            .title("Generated energy and forecast")
+            .x_axis(Axis::category(labels))
             .y_axis(Axis::value())
             .legend(Legend::top_right())
             .tooltip(Tooltip::axis_trigger())
-            .series(vec![BarSeries::new("Completed")
-                .data(vec![3.0, 5.0, 4.0, 7.0, 6.0])
-                .into()])
+            .series(vec![
+                BarSeries::new("Generated").data(generated).into(),
+                BarSeries::new("Forecast").data(forecast).into(),
+            ])
             .into();
     } =>
     SemanticsRegion(
-        identifier: Some("chart-dashboard".to_string()),
-        label: Some(screen.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(screen.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(screen.goal.clone()),
-                Text("Five-day total: 25 completed tasks"),
-                chart,
-                Text("The summary remains readable without comparing bar colours."),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        identifier: Some("cedar-peak-generation-trend".to_string()),
+        label: Some("Cedar Peak Solar generated energy compared with forecast".to_string()),
+        child: Container(Column(gap: tokens.spacing.m, children: [
+            Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text("Generation trend").weight(tokens.typography.font_weight_semibold),
+                    Text(format!("Fleet output over {period}")).color(tokens.colors.text_secondary),
+                ]),
+                Spacer(flex_grow: 1.0),
+                Badge(text: format!("{percent}% of forecast")),
+            ]),
+            Row(gap: tokens.spacing.s, children: [
+                Button(
+                    child: Text("7 days"),
+                    key: "solar-range-seven-days",
+                    variant: if trend.thirty_days { ButtonVariant::Outline } else { ButtonVariant::Primary },
+                    on_press: reduce { trend.thirty_days = false; },
+                ),
+                Button(
+                    child: Text("30 days"),
+                    key: "solar-range-thirty-days",
+                    variant: if trend.thirty_days { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { trend.thirty_days = true; },
+                ),
+            ]),
+            chart,
+            Text(format!("{generated_total} MWh generated against a {forecast_total} MWh forecast across {period}."))
+                .color(tokens.colors.text_secondary),
+        ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large),
     )
 }
 ```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::analytics::SolarGenerationTrend;
+use crate::components::{SolarMetric, SolarSiteStatus};
 
-<!-- fission:preview -->
+fission_component! {
+    pub SolarMetricsWide<()> {}
+    view(_metrics, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SimpleGrid(
+        min_child_width: 180.0,
+        gap: Some(tokens.spacing.m),
+        children: [
+            SolarMetric(
+                "Generated today".to_string(),
+                "4.8 MWh".to_string(),
+                "92% of today's forecast".to_string(),
+                key: "metric-generated-today",
+            ),
+            SolarMetric(
+                "Forecast match".to_string(),
+                "95%".to_string(),
+                "318 of 336 MWh · last 7 days".to_string(),
+                key: "metric-forecast-match",
+            ),
+            SolarMetric(
+                "Sites to inspect".to_string(),
+                "2 sites".to_string(),
+                "One inverter is below target".to_string(),
+                key: "metric-sites-to-inspect",
+            ),
+        ],
+    )
+}
 
+fission_component! {
+    pub SolarFleetHealth<()> {
+        props { width: f32 }
+    }
+    view(health, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.s, children: [
+        Column(gap: tokens.spacing.xs, children: [
+            Text("Site health").weight(tokens.typography.font_weight_semibold),
+            Text("Find the site that needs a closer look.").color(tokens.colors.text_secondary),
+        ]),
+        SolarSiteStatus(
+            "Cedar East".to_string(),
+            "Inverter 3".to_string(),
+            "Inspect".to_string(),
+            "Producing 14% below nearby inverters.".to_string(),
+            key: "site-cedar-east",
+        ),
+        SolarSiteStatus(
+            "Lakeside".to_string(),
+            "Array 2".to_string(),
+            "Data delayed".to_string(),
+            "Last telemetry arrived 8 minutes ago.".to_string(),
+            key: "site-lakeside",
+        ),
+        SolarSiteStatus(
+            "North Ridge".to_string(),
+            "Main array".to_string(),
+            "On target".to_string(),
+            "Output is tracking the expected curve.".to_string(),
+            key: "site-north-ridge",
+        ),
+    ]))
+        .width(health.width)
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.background)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.large)
+}
 
-<Tabs>
+fission_component! {
+    pub SolarInsightsWide<()> {
+        props { chart_width: f32, health_width: f32 }
+    }
+    view(insights, _state, _cx) =>
+    Row(gap: 16.0, align_items: ir_op::AlignItems::Start, children: [
+        SolarGenerationTrend(insights.chart_width, key: "solar-trend"),
+        SolarFleetHealth(insights.health_width, key: "site-health"),
+    ])
+}
+
+fission_component! {
+    pub SolarInsightsCompact<()> {
+        props { chart_width: f32 }
+    }
+    view(insights, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.m, children: [
+        SolarGenerationTrend(insights.chart_width, key: "solar-trend"),
+        SolarFleetHealth(insights.chart_width, key: "site-health-compact"),
+    ])
+}
+
+fission_component! {
+    pub SolarFleetDashboard<()> {}
+    view(_dashboard, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let viewport_width = cx.view.env().viewport_size.width;
+        let inner_width = (viewport_width - tokens.spacing.l * 4.0).max(280.0);
+        let wide_chart_width = (inner_width * 0.60 - tokens.spacing.l * 2.0).max(260.0);
+        let wide_health_width = (inner_width * 0.32 - tokens.spacing.l * 2.0).max(220.0);
+    } =>
+    SemanticsRegion(
+        identifier: Some("cedar-peak-solar-dashboard".to_string()),
+        label: Some("Cedar Peak Solar fleet operations dashboard".to_string()),
+        child: Container(Column(gap: tokens.spacing.l, children: [
+            Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text("Cedar Peak Solar").weight(tokens.typography.font_weight_bold),
+                    Text("Fleet operations · 3 sites").color(tokens.colors.text_secondary),
+                ]),
+                Spacer(flex_grow: 1.0),
+                Badge(text: "Sample operations data".to_string()),
+            ]),
+            Column(gap: tokens.spacing.xs, children: [
+                Text("Generation overview").weight(tokens.typography.font_weight_bold),
+                Text("Compare site output with forecast, then investigate the exceptions.")
+                    .color(tokens.colors.text_secondary),
+            ]),
+            SolarMetricsWide(),
+            Responsive::new(SolarInsightsWide {
+                chart_width: wide_chart_width,
+                health_width: wide_health_width,
+            })
+                .id(WidgetId::explicit("cedar-peak.insights"))
+                .case(ResponsiveCase::max_width(
+                    920.0,
+                    SolarInsightsCompact { chart_width: inner_width },
+                )),
+        ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.background),
+    )
+}
+
+fission_component! {
+    pub SolarFleetDashboardPage<()> {}
+    view(_page, _state, cx) =>
+    Scroll(
+        flex_grow: 1.0,
+        height: cx.view.viewport_size().height,
+        semantic_label: Some("Cedar Peak Solar dashboard content".to_string()),
+        child: Some(Widget::from(SolarFleetDashboard)),
+    )
+}
+```
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod analytics;
+mod components;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::MobileResponsiveDataDashboard::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::SolarFleetDashboardPage)
+        .with_title("Cedar Peak Solar fleet dashboard")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -222,51 +492,46 @@ pub fn run() -> Result<(), JsValue> {
 </TabItem>
 </Tabs>
 
+`SolarGenerationTrend` owns the 7-day/30-day choice because no other part of the sample dashboard needs that state. Press each filter and confirm both the percentage badge and text summary change with the bars. The operator can compare forecast and actual output directly, while the summary supplies an exact total.
+
+<!-- fission:preview -->
+
 <!-- fission:checkpoint -->
-Read the summary before comparing the bars. The chart and summary show the same weekly totals; the device checks cover narrow layouts.
+At a wide window, the site-health panel sits beside the chart. Resize below 920 points: the same information moves into one column, and the chart recalculates its width. On a phone, scroll the app preview itself to reach the last site row; the page and preview have separate scroll regions.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Check the layout and system settings on Android and iOS
+<!-- fission:step id="verify-platforms" -->
+## Verify the dashboard on Android and iOS
 
-Run the same screen at a narrow phone width and a wider window. Resize or rotate while it is open, then change the system text size and appearance where this tutorial covers them. Content should reflow without clipping essential controls or status messages.
+The browser preview helps check the chart controls and responsive branches. It cannot prove that the app respects safe areas, that a platform text-size setting is handled well, or that a native host launches. Check both mobile targets because they share the Rust screen but use separate generated hosts.
 
-Use real platform insets for safe-area checks and let Fission’s responsive layout choose the arrangement. Avoid fixing a problem with device-specific padding that breaks the other sizes.
+First check that the project compiles, then run the app on an emulator or Simulator. Resize or rotate the device and inspect the header, metrics, chart labels and site rows at the largest supported text size.
 
-### Run, test and build
-
+<Tabs>
+<TabItem label="Android">
 ```sh
-cargo test
+cargo check
 fission doctor android --project-dir .
 fission run --target android --project-dir .
 fission test --target android --project-dir .
-fission build --target android --project-dir . --release
 ```
-
-`cargo test` runs Rust tests you add for reducer or stale-completion rules; the generated scaffold does not create those feature tests. `fission doctor` checks each target’s toolchain, `fission run` launches its emulator or Simulator, and `fission test` checks that the generated host can start. A release build validates packaging, not real hardware behavior.
-
-
-### Run the shared project on both mobile targets
-
-Run both target checks from the generated project root:
-
+</TabItem>
+<TabItem label="iOS">
 ```sh
-fission doctor android --project-dir .
-fission run --target android --project-dir .
+cargo check
 fission doctor ios --project-dir .
 fission run --target ios --project-dir .
-fission test --target android --project-dir .
 fission test --target ios --project-dir .
 ```
+</TabItem>
+</Tabs>
 
+`fission doctor` reports missing platform tools. `fission run` launches the selected emulator or Simulator, and `fission test` checks that the host can start. A successful build does not verify device safe areas or accessibility settings; those need a real target.
 
-### Current references
+### Read next
 
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
-- [Charts](/reference/charts/overview/)
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
+- [Responsive layouts](/reference/widgets/responsive/)
+- [Charts and data visualisation](/reference/charts/overview/)
+- [Retained state and reducers](/docs/guides/state-handles-and-providers/)
 <!-- /fission:step -->
