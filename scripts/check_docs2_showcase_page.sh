@@ -23,7 +23,7 @@ require() {
 
 require "$home_page" 'Try Fission in the browser'
 require "$showcase_page" '<title>Try Fission in your browser — Rust app showcase</title>'
-require "$showcase_page" 'src="/showcase-app/"'
+require "$showcase_page" 'src="/showcase-app/?fission_renderer=canvas2d-software"'
 require "$showcase_page" 'data-fission-semantics="site-showcase-frame"'
 require "$showcase_page" '"@type":"WebApplication"'
 require "$site_root/site.css" 'grid-template-columns: minmax(0, 1fr);'

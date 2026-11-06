@@ -18,7 +18,7 @@ fission_component! {
                     label: Some(label.clone()),
                     child: Some(WebView {
                         id: WidgetId::explicit("docs2.showcase.web-app"),
-                        url: "/showcase-app/".into(),
+                        url: "/showcase-app/?fission_renderer=canvas2d-software".into(),
                         user_agent: None,
                         label: Some(label),
                         width: None,
