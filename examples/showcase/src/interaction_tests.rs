@@ -8,17 +8,75 @@ use fission::prelude::{
 use fission_test::{SemanticMatch, TestDriver, TestHarness};
 
 fn driver(path: &str) -> TestDriver<ShowcaseState> {
+    driver_at(path, 1440.0, 960.0)
+}
+
+fn driver_at(path: &str, width: f32, height: f32) -> TestDriver<ShowcaseState> {
     let state = ShowcaseState {
         current_path: path.into(),
         ..ShowcaseState::default()
     };
     let mut harness = TestHarness::new(state).with_root_widget(ShowcaseApp);
     harness.env = create_env().expect("showcase environment");
-    harness.env.viewport_size = LayoutSize::new(1440.0, 960.0);
+    harness.env.viewport_size = LayoutSize::new(width, height);
     let mut driver = TestDriver::new(harness);
     driver.pump().expect("first showcase frame");
     driver.pump().expect("settled showcase frame");
     driver
+}
+
+#[test]
+fn compact_showcase_opens_the_example_then_returns_to_the_catalogue() {
+    let mut driver = driver_at("/", 390.0, 844.0);
+
+    assert!(
+        driver
+            .find_semantics_identifier("showcase.source.inbox")
+            .is_some(),
+        "the phone layout should open the real Inbox example on the default route"
+    );
+    assert!(
+        driver
+            .find_semantics_identifier("showcase.example.inbox")
+            .is_none(),
+        "the catalogue should stay collapsed while the example is open"
+    );
+
+    click_identifier(&mut driver, "showcase.nav.all_examples");
+    assert_eq!(
+        driver
+            .harness
+            .runtime
+            .get_global_state::<ShowcaseState>()
+            .expect("showcase state")
+            .current_path,
+        "/examples",
+        "the example back action should open the catalogue route"
+    );
+    assert!(
+        driver
+            .find_semantics_identifier("showcase.example.inbox")
+            .is_some(),
+        "the catalogue route should reveal the Inbox row"
+    );
+
+    click_identifier(&mut driver, "showcase.example.inbox");
+    assert_eq!(
+        driver
+            .harness
+            .runtime
+            .get_global_state::<ShowcaseState>()
+            .expect("showcase state")
+            .current_path,
+        "/examples/inbox",
+        "choosing Inbox should return to its example on a compact screen"
+    );
+    assert!(
+        driver
+            .find_semantics_identifier("showcase.source.inbox")
+            .is_some(),
+        "the chosen app should be visible again"
+    );
 }
 
 /// Real shells rebuild between pointer down and pointer up. Keeping the two

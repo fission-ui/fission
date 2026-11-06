@@ -15,6 +15,10 @@ fission_component! {
                     builder: Arc::new(|_, _, _| DiscoverPage::new().into()),
                 },
                 Route {
+                    path: "/examples".into(),
+                    builder: Arc::new(|_, _, _| DiscoverPage::new().into()),
+                },
+                Route {
                     path: "/examples/:slug".into(),
                     builder: Arc::new(|_, _, params| {
                         ExampleDetailPage::new(params.get("slug").cloned().unwrap_or_default()).into()

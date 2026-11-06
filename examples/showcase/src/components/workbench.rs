@@ -31,9 +31,8 @@ pub(crate) fn preview_pane_width(view: &ViewHandle<ShowcaseState>, window_width:
 fission_component! {
 /// The catalog beside the open example.
 ///
-/// Below the medium breakpoint there is no room for both panes, so the catalog
-/// and the example each take the whole window: the home route lists examples,
-/// and an example page has a way back to the list.
+/// Below the medium breakpoint there is no room for both panes, so the default
+/// route opens the Inbox example and its back action reveals the catalogue.
     #[derive(Clone, Copy, Debug)] pub(crate) Workbench<ShowcaseState> {
         example: ExampleDefinition,
     }
@@ -43,7 +42,7 @@ fission_component! {
     } =>
         if !compact {
             WorkbenchExpanded(component.example)
-        } else if state.current_path == "/" {
+        } else if state.current_path == "/examples" {
             CatalogPage(component.example.slug)
         } else {
             ExamplePage(component.example)
@@ -91,7 +90,7 @@ fission_component! {
     }
     view(component, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let back = with_reducer!(cx.build, Navigate("/".into()), on_navigate);
+        let back = with_reducer!(cx.build, Navigate("/examples".into()), on_navigate);
     } =>
         Column(
             children: [
