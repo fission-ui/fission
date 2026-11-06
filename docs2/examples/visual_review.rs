@@ -112,6 +112,12 @@ fn main() -> Result<()> {
                         command["y"].as_i64().context("missing y")?
                     ))?;
                 }
+                "ScrollPoint" => client.scroll(
+                    command["x"].as_f64().context("missing x")? as f32,
+                    command["y"].as_f64().context("missing y")? as f32,
+                    command["dx"].as_f64().unwrap_or_default() as f32,
+                    command["dy"].as_f64().context("missing dy")? as f32,
+                )?,
                 "SoftwarePreviews" => {
                     client.browser_evaluate_json(
                         "(document.querySelectorAll('iframe').forEach(frame => { const url = new URL(frame.src); url.searchParams.set('fission_renderer', 'canvas2d'); frame.src = url; }), true)",

@@ -15,9 +15,9 @@ outcomes:
   - Keep authentication and redirects on the server
 ---
 
-Build a Rust SSR sign-in flow with accessible fields, server-side validation, signed form actions, rotated sessions and safe return navigation. The preview checks input shape and shows success or failure states only. Keep credentials, session cookies, authorization and return redirects on the server.
+Build a Rust SSR sign-in flow with accessible fields, server-side validation, signed form actions, rotated sessions and safe return navigation. The browser preview uses one fixed sample account and keeps its signed-in state in memory. It never sends credentials; the SSR form action still needs to verify the account and create the session on the server.
 
-Build a server-rendered sign-in flow with email and password fields, validation feedback, a pending submit state and a safe return path after success.
+Harbour Supply warehouse staff arrive through links from shift alerts and order tasks. The sign-in route should return each teammate to that local destination after authentication, while a generic rejection message prevents the screen from confirming whether an email belongs to an account. The browser preview checks a fixed demo account in memory; credentials and session creation stay on the server.
 
 Install the Fission CLI and scaffold the SSR project:
 
@@ -46,14 +46,12 @@ harbour-auth/
 └── tests/                      # project-specific flow checks
 ```
 
-`fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs` and `src/app.rs`. Add the task modules in the tree as you build the feature. Keep data shared across routes in `GlobalState`, and keep retained interaction such as a disclosure or draft field in the owning `fission_component!`. Request database, filesystem, network and session work through a reducer effect, job or service; never run host work while a component view is being built.
-
-`preview/lib.rs` is a documentation harness. The page compiles each complete `src/app.rs` component into WebAssembly so you can use the same UI while reading. Its host results are deterministic preview states; the target-specific host work described in this tutorial runs in each target project code, not in the browser preview.
+Keep cookie handling in `auth/session.rs` and credential lookup in `server/login.rs`. The sign-in component owns only the values visible in this form. In production, the server checks a password hash, rotates the session after success, and sends the user only to a verified local return path.
 
 <!-- fission:step id="start-screen" -->
 ## Add labelled email and password fields
 
-Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
+Keep the first screen calm: warehouse staff should recognize which account to use and why the app needs them to sign in. Bind the visible fields to this component before wiring submission.
 
 Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
 
@@ -67,9 +65,10 @@ fission_component! {
         props {
             title: String,
             detail: String,
-            action: String,
-            success: String,
-            empty: String,
+        }
+        state {
+            email: String = String::new(),
+            password: String = String::new(),
         }
     }
     view(preview, _state, cx) {
@@ -81,14 +80,19 @@ fission_component! {
             children: [
                 Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
                 Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                TextInput(label: Some("Email address".into()),
-                    placeholder: Some("you@example.com".into())),
+                TextInput(label: Some("Work email".into()),
+                    placeholder: Some("you@example.com".into()),
+                    bind: preview.email,
+                    key: "login-email",
+                    semantics_identifier: "harbour.login.email".to_string()),
                 TextInput(label: Some("Password".into()),
                     placeholder: Some("Enter your password".into()),
-                    obscure_text: true),
-                Text(format!("Next action: {}",
-                        preview.action)),
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+                    obscure_text: true,
+                    bind: preview.password,
+                    key: "login-password",
+                    semantics_identifier: "harbour.login.password".to_string()),
+                Text("Next, connect these fields to the server-side sign-in action.")
+                    .color(tokens.colors.text_secondary),
             ]
         )
     )
@@ -111,11 +115,8 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     let preview = app::LoginForm::new(
-        "Sign in".to_string(),
-        "Enter your email address and password.".to_string(),
-        "Sign in securely".to_string(),
-        "Preview only: connect a server action to authenticate this sign-in.".to_string(),
-        "Enter your email address and password to continue.".to_string(),
+        "Sign in to Harbour Supply".to_string(),
+        "Use your work account to open the fulfilment shift.".to_string(),
     );
     WebApp::<(), _>::new(preview)
         .with_title("Build a server-rendered login page in Rust")
@@ -138,64 +139,139 @@ Add labelled email and password fields: Confirm the initial screen names the tas
 
 Keep credential checks on the server. Validate the submitted fields there, sign the action token, and rotate the session after a successful authentication. Return a clear field-level error for an invalid submission without echoing a password or telling an attacker which account exists.
 
-The source below makes the main task interactive using retained component state and explicit controls.
-This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+The sample account is demo@harbour.example with password CedarPeak-2026. Submit those values to open the warehouse shift screen; change either value to see the same generic rejection a server should return for unknown credentials. This deterministic check is local to the preview. In the SSR app, verify the password hash, rate-limit failures, rotate the session, and keep the return path on the server.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+
 fission_component! {
     pub LoginForm<()> {
         props {
             title: String,
             detail: String,
             action: String,
-            success: String,
-            empty: String,
         }
         state {
             email: String = String::new(),
             password: String = String::new(),
-            submitted: bool = false,
+            signed_in: bool = false,
             has_error: bool = false,
+            feedback: String = String::new(),
         }
     }
     view(preview, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                TextInput(label: Some("Email address".into()),
+    SemanticsRegion(
+        identifier: Some("harbour-supply-login".to_string()),
+        label: Some("Harbour Supply sign-in".to_string()),
+        child:
+        if preview.signed_in {
+            Container(Column(gap: tokens.spacing.l, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text("Harbour Supply").weight(tokens.typography.font_weight_bold),
+                        Text("Morning fulfilment shift").color(tokens.colors.text_secondary),
+                    ]),
+                    Spacer(flex_grow: 1.0),
+                    Badge(text: "Demo session".to_string()),
+                ]),
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(format!("Welcome, {}.", preview.email.clone()))
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text("Your warehouse shift is ready to continue.")
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Badge(text: "6 orders ready to pick".to_string()),
+                    Badge(text: "2 stock alerts to review".to_string()),
+                ]),
+                Text("Start with the six orders due before 10:00.")
+                    .color(tokens.colors.text_secondary),
+                Button(
+                    child: Text("Sign out"),
+                    key: "sign-out",
+                    on_press: reduce {
+                        preview.signed_in = false;
+                        preview.email.clear();
+                        preview.password.clear();
+                        preview.has_error = false;
+                        preview.feedback.clear();
+                    },
+                ),
+            ]))
+                .padding_all(tokens.spacing.l)
+                .bg(tokens.colors.surface)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.large)
+        } else {
+            Container(Column(gap: tokens.spacing.m, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text("Harbour Supply").weight(tokens.typography.font_weight_bold),
+                    Text(preview.title.clone()).weight(tokens.typography.font_weight_semibold),
+                    Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                ]),
+                TextInput(
+                    label: Some("Work email".into()),
                     placeholder: Some("you@example.com".into()),
+                    name: Some("email".into()),
+                    required: true,
                     bind: preview.email,
-                    semantics_identifier: "tutorial.login.email".to_string()),
-                TextInput(label: Some("Password".into()),
+                    key: "login-email",
+                    semantics_identifier: "harbour.login.email".to_string(),
+                ),
+                TextInput(
+                    label: Some("Password".into()),
                     placeholder: Some("Enter your password".into()),
-                    bind: preview.password,
+                    name: Some("password".into()),
+                    required: true,
                     obscure_text: true,
-                    semantics_identifier: "tutorial.login.password".to_string()),
-                Button(child: Text(preview.action.clone()),
+                    bind: preview.password,
+                    key: "login-password",
+                    semantics_identifier: "harbour.login.password".to_string(),
+                ),
+                if preview.has_error {
+                    SemanticsRegion(
+                        identifier: Some("harbour-login-error".to_string()),
+                        label: Some(preview.feedback.clone()),
+                        child: Text(preview.feedback.clone())
+                            .color(tokens.colors.text_secondary),
+                    )
+                } else {
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text("Preview account").weight(tokens.typography.font_weight_semibold),
+                        Text("demo@harbour.example · CedarPeak-2026")
+                            .color(tokens.colors.text_secondary),
+                    ])
+                },
+                Button(
+                    child: Text(preview.action.clone()),
                     key: "sign-in",
-                    disabled: preview.email.trim().is_empty() || !preview.email.contains('@') || preview.password.is_empty(),
-                    on_press: reduce { preview.submitted = true; }),
-                if preview.submitted { Text(preview.success.clone()) } else { Text(preview.empty.clone()) },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a rejected sign-in".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("The email or password was not accepted. Check both fields and try again.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+                    on_press: reduce {
+                        if preview.email.trim().eq_ignore_ascii_case("demo@harbour.example")
+                            && preview.password == "CedarPeak-2026"
+                        {
+                            preview.signed_in = true;
+                            preview.has_error = false;
+                            preview.feedback.clear();
+                        } else {
+                            preview.signed_in = false;
+                            preview.has_error = true;
+                            preview.feedback = "Email or password not recognized. Check the preview account details and try again.".to_string();
+                        }
+                    },
+                ),
+                Text("This preview checks one fixed account in memory. It does not send credentials to a server.")
+                    .color(tokens.colors.text_secondary),
+            ]))
+                .padding_all(tokens.spacing.l)
+                .bg(tokens.colors.surface)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.large)
+        },
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
 }
 ```
 </TabItem>
@@ -211,11 +287,9 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     let preview = app::LoginForm::new(
+        "Sign in to your warehouse".to_string(),
+        "Use the sample account to open the morning fulfilment dashboard.".to_string(),
         "Sign in".to_string(),
-        "Enter your email address and password.".to_string(),
-        "Sign in securely".to_string(),
-        "Preview only: connect a server action to authenticate this sign-in.".to_string(),
-        "Enter your email address and password to continue.".to_string(),
     );
     WebApp::<(), _>::new(preview)
         .with_title("Build a server-rendered login page in Rust")
@@ -229,7 +303,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Validate input and show submission state: Use the preview control and check that the result matches the action.
+Validate input and show submission state: Sign in with the sample account, then change one character and submit again. The successful action opens the shift overview; an invalid pair produces one generic recovery message.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -239,7 +313,7 @@ Validate input and show submission state: Use the preview control and check that
 Accept a return destination only when it is a local path on this application. Preserve the entered email after a recoverable validation error, but clear secrets. Test an invalid password, a missing field, a session rotation and a hostile external return URL.
 
 Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
-The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+The sign-in preview accepts only the displayed sample account and stores the result in component state. On the server, use the same generic rejection for an unknown email or incorrect password, and never send password values back in rendered HTML.
 
 Configure the server-managed session cookie in `fission.toml`:
 
@@ -258,57 +332,133 @@ Fission signs and protects the session cookie. Your authentication service still
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+
 fission_component! {
     pub LoginForm<()> {
         props {
             title: String,
             detail: String,
             action: String,
-            success: String,
-            empty: String,
         }
         state {
             email: String = String::new(),
             password: String = String::new(),
-            submitted: bool = false,
+            signed_in: bool = false,
             has_error: bool = false,
+            feedback: String = String::new(),
         }
     }
     view(preview, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                TextInput(label: Some("Email address".into()),
+    SemanticsRegion(
+        identifier: Some("harbour-supply-login".to_string()),
+        label: Some("Harbour Supply sign-in".to_string()),
+        child:
+        if preview.signed_in {
+            Container(Column(gap: tokens.spacing.l, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text("Harbour Supply").weight(tokens.typography.font_weight_bold),
+                        Text("Morning fulfilment shift").color(tokens.colors.text_secondary),
+                    ]),
+                    Spacer(flex_grow: 1.0),
+                    Badge(text: "Demo session".to_string()),
+                ]),
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(format!("Welcome, {}.", preview.email.clone()))
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text("Your warehouse shift is ready to continue.")
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Badge(text: "6 orders ready to pick".to_string()),
+                    Badge(text: "2 stock alerts to review".to_string()),
+                ]),
+                Text("Start with the six orders due before 10:00.")
+                    .color(tokens.colors.text_secondary),
+                Button(
+                    child: Text("Sign out"),
+                    key: "sign-out",
+                    on_press: reduce {
+                        preview.signed_in = false;
+                        preview.email.clear();
+                        preview.password.clear();
+                        preview.has_error = false;
+                        preview.feedback.clear();
+                    },
+                ),
+            ]))
+                .padding_all(tokens.spacing.l)
+                .bg(tokens.colors.surface)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.large)
+        } else {
+            Container(Column(gap: tokens.spacing.m, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text("Harbour Supply").weight(tokens.typography.font_weight_bold),
+                    Text(preview.title.clone()).weight(tokens.typography.font_weight_semibold),
+                    Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                ]),
+                TextInput(
+                    label: Some("Work email".into()),
                     placeholder: Some("you@example.com".into()),
+                    name: Some("email".into()),
+                    required: true,
                     bind: preview.email,
-                    semantics_identifier: "tutorial.login.email".to_string()),
-                TextInput(label: Some("Password".into()),
+                    key: "login-email",
+                    semantics_identifier: "harbour.login.email".to_string(),
+                ),
+                TextInput(
+                    label: Some("Password".into()),
                     placeholder: Some("Enter your password".into()),
-                    bind: preview.password,
+                    name: Some("password".into()),
+                    required: true,
                     obscure_text: true,
-                    semantics_identifier: "tutorial.login.password".to_string()),
-                Button(child: Text(preview.action.clone()),
+                    bind: preview.password,
+                    key: "login-password",
+                    semantics_identifier: "harbour.login.password".to_string(),
+                ),
+                if preview.has_error {
+                    SemanticsRegion(
+                        identifier: Some("harbour-login-error".to_string()),
+                        label: Some(preview.feedback.clone()),
+                        child: Text(preview.feedback.clone())
+                            .color(tokens.colors.text_secondary),
+                    )
+                } else {
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text("Preview account").weight(tokens.typography.font_weight_semibold),
+                        Text("demo@harbour.example · CedarPeak-2026")
+                            .color(tokens.colors.text_secondary),
+                    ])
+                },
+                Button(
+                    child: Text(preview.action.clone()),
                     key: "sign-in",
-                    disabled: preview.email.trim().is_empty() || !preview.email.contains('@') || preview.password.is_empty(),
-                    on_press: reduce { preview.submitted = true; }),
-                if preview.submitted { Text(preview.success.clone()) } else { Text(preview.empty.clone()) },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a rejected sign-in".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("The email or password was not accepted. Check both fields and try again.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+                    on_press: reduce {
+                        if preview.email.trim().eq_ignore_ascii_case("demo@harbour.example")
+                            && preview.password == "CedarPeak-2026"
+                        {
+                            preview.signed_in = true;
+                            preview.has_error = false;
+                            preview.feedback.clear();
+                        } else {
+                            preview.signed_in = false;
+                            preview.has_error = true;
+                            preview.feedback = "Email or password not recognized. Check the preview account details and try again.".to_string();
+                        }
+                    },
+                ),
+                Text("This preview checks one fixed account in memory. It does not send credentials to a server.")
+                    .color(tokens.colors.text_secondary),
+            ]))
+                .padding_all(tokens.spacing.l)
+                .bg(tokens.colors.surface)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.large)
+        },
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
 }
 ```
 </TabItem>
@@ -324,11 +474,9 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     let preview = app::LoginForm::new(
+        "Sign in to your warehouse".to_string(),
+        "Use the sample account to open the morning fulfilment dashboard.".to_string(),
         "Sign in".to_string(),
-        "Enter your email address and password.".to_string(),
-        "Sign in securely".to_string(),
-        "Preview only: connect a server action to authenticate this sign-in.".to_string(),
-        "Enter your email address and password to continue.".to_string(),
     );
     WebApp::<(), _>::new(preview)
         .with_title("Build a server-rendered login page in Rust")
@@ -342,7 +490,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Keep authentication and redirects on the server: Trigger the error preview and confirm a recovery action remains available.
+Keep authentication and redirects on the server: Submit an unknown account and confirm the message does not reveal whether the email exists. Then sign in with the sample account and sign out; the sign-out action clears the local password.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 

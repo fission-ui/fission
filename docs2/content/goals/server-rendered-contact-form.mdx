@@ -12,12 +12,10 @@ app: server-rendered-contact-form
 outcomes:
   - Create labelled contact fields
   - Validate and confirm a submission
-  - Recover from server failure without losing the draft
+  - Keep the draft after validation errors
 ---
 
-Build a progressively enhanced Rust contact form with native HTML submission, server-side validation, an async job and returned feedback. The preview simulates the submitted and rejected states. In the finished app, post the form to its owning SSR route and handle validation and delivery through asynchronous server work.
-
-Build a contact page whose form belongs to its route, validates on the server and returns the same page with clear success or correction feedback.
+Harbour Supply’s support team needs enough detail to investigate a delayed or damaged shipment without asking the customer to repeat the story. The form collects a reply address, a short subject, and an order-specific message. You will keep a draft when local validation finds a problem, then pass a valid request to a server delivery job. The browser preview stops before sending email, so you can try the full interaction safely.
 
 Install the Fission CLI and scaffold the SSR project:
 
@@ -46,14 +44,12 @@ harbour-contact/
 └── tests/                      # project-specific flow checks
 ```
 
-`fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs` and `src/app.rs`. Add the task modules in the tree as you build the feature. Keep data shared across routes in `GlobalState`, and keep retained interaction such as a disclosure or draft field in the owning `fission_component!`. Request database, filesystem, network and session work through a reducer effect, job or service; never run host work while a component view is being built.
-
-`preview/lib.rs` is a documentation harness. The page compiles each complete `src/app.rs` component into WebAssembly so you can use the same UI while reading. Its host results are deterministic preview states; the target-specific host work described in this tutorial runs in each target project code, not in the browser preview.
+Keep request validation in `server/contact.rs` and email delivery in the job under `effects/contact.rs`. The component owns the visible draft and correction messages. This preview validates and confirms in memory; the deployed SSR route must validate its signed form action again before queuing delivery.
 
 <!-- fission:step id="start-screen" -->
 ## Create labelled contact fields
 
-Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
+Ask for details support can act on: who is writing, where they can receive a reply, which shipment needs attention, and what went wrong. Keeping those answers separate lets validation point to the exact field that needs work.
 
 Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
 
@@ -67,9 +63,12 @@ fission_component! {
         props {
             title: String,
             detail: String,
-            action: String,
-            success: String,
-            empty: String,
+        }
+        state {
+            name: String = String::new(),
+            email: String = String::new(),
+            subject: String = String::new(),
+            message: String = String::new(),
         }
     }
     view(preview, _state, cx) {
@@ -82,12 +81,30 @@ fission_component! {
                 Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
                 Text(preview.detail.clone()).color(tokens.colors.text_secondary),
                 TextInput(label: Some("Your name".into()),
-                    placeholder: Some("Name".into())),
+                    placeholder: Some("Name".into()),
+                    bind: preview.name,
+                    key: "contact-name",
+                    semantics_identifier: "harbour.contact.name".to_string()),
                 TextInput(label: Some("Reply email".into()),
-                    placeholder: Some("you@example.com".into())),
-                Text(format!("Next action: {}",
-                        preview.action)),
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+                    placeholder: Some("you@example.com".into()),
+                    bind: preview.email,
+                    key: "contact-email",
+                    semantics_identifier: "harbour.contact.email".to_string()),
+                TextInput(label: Some("Subject".into()),
+                    placeholder: Some("Order or delivery issue".into()),
+                    bind: preview.subject,
+                    key: "contact-subject",
+                    semantics_identifier: "harbour.contact.subject".to_string()),
+                TextInput(label: Some("Message".into()),
+                    placeholder: Some("Include the order number and what you need help with.".into()),
+                    multiline: true,
+                    min_lines: Some(4),
+                    max_lines: Some(7),
+                    bind: preview.message,
+                    key: "contact-message",
+                    semantics_identifier: "harbour.contact.message".to_string()),
+                Text("Next, validate these details before the server queues a reply.")
+                    .color(tokens.colors.text_secondary),
             ]
         )
     )
@@ -110,11 +127,8 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     let preview = app::ContactForm::new(
-        "Contact Harbour".to_string(),
-        "Send a message to the team.".to_string(),
-        "Send a contact request".to_string(),
-        "Your message was accepted. The team can follow up by email.".to_string(),
-        "Add your email address and a short message before sending.".to_string(),
+        "Contact Harbour Supply".to_string(),
+        "For a delivery issue, include the order number and delivery date.".to_string(),
     );
     WebApp::<(), _>::new(preview)
         .with_title("Build a server-rendered contact form in Rust")
@@ -128,7 +142,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Create labelled contact fields: Confirm the initial screen names the task and its next action.
+Create labelled contact fields: Confirm the screen asks for the information support needs to investigate an order or delivery issue.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -137,63 +151,177 @@ Create labelled contact fields: Confirm the initial screen names the task and it
 
 Use labelled fields and native form submission. Validate the name, email and message on the server before requesting the send job. Keep submitted values that are safe to preserve when validation fails, and put the error next to the field it describes.
 
-The source below makes the main task interactive using retained component state and explicit controls.
-This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+The draft stays on the page when a field needs correction. That matters for a customer who has already looked up an order number and written a careful explanation. The preview applies the same basic checks in memory; in production, the signed SSR form action must validate again before the delivery job starts. The form can be taller than a phone viewport, so a vertical `Scroll` keeps the submit action reachable without shrinking the fields.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+
 fission_component! {
     pub ContactForm<()> {
         props {
             title: String,
             detail: String,
             action: String,
-            success: String,
-            empty: String,
         }
         state {
             name: String = String::new(),
             email: String = String::new(),
+            subject: String = String::new(),
+            message: String = String::new(),
             submitted: bool = false,
             has_error: bool = false,
+            error_field: String = String::new(),
+            feedback: String = String::new(),
         }
     }
-    view(preview, _state, cx) {
+    view(form, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                TextInput(label: Some("Your name".into()),
-                    placeholder: Some("Name".into()),
-                    bind: preview.name,
-                    semantics_identifier: "tutorial.contact.name".to_string()),
-                TextInput(label: Some("Reply email".into()),
-                    placeholder: Some("you@example.com".into()),
-                    bind: preview.email,
-                    semantics_identifier: "tutorial.contact.email".to_string()),
-                Button(child: Text(preview.action.clone()),
-                    key: "send-message",
-                    disabled: preview.name.trim().is_empty() || !preview.email.contains('@'),
-                    on_press: reduce { preview.submitted = true; }),
-                if preview.submitted { Text(preview.success.clone()) } else { Text(preview.empty.clone()) },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview delivery failure".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("The message could not be sent. Your draft is still here; try again.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+    Scroll(
+        id: Some(WidgetId::explicit("harbour-contact-scroll")),
+        flex_grow: 1.0,
+        height: cx.view.viewport_size().height,
+        semantic_label: Some("Harbour Supply contact request form".to_string()),
+        child: Container(Column(gap: tokens.spacing.m, children: [
+            Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text("Harbour Supply").weight(tokens.typography.font_weight_bold),
+                    Text("Customer care").color(tokens.colors.text_secondary),
+                ]),
+                Spacer(flex_grow: 1.0),
+                Badge(text: "Contact request".to_string()),
+            ]),
+            Column(gap: tokens.spacing.xs, children: [
+                Text(form.title.clone()).weight(tokens.typography.font_weight_semibold),
+                Text(form.detail.clone()).color(tokens.colors.text_secondary),
+            ]),
+            TextInput(
+                label: Some("Your name".into()),
+                placeholder: Some("Name".into()),
+                name: Some("name".into()),
+                bind: form.name,
+                key: "contact-name",
+                semantics_identifier: "harbour.contact.name".to_string(),
+                error_text: if form.error_field == "name" { Some(form.feedback.clone().into()) } else { None },
+            ),
+            TextInput(
+                label: Some("Reply email".into()),
+                placeholder: Some("you@example.com".into()),
+                name: Some("email".into()),
+                keyboard_type: TextInputType::EmailAddress,
+                bind: form.email,
+                key: "contact-email",
+                semantics_identifier: "harbour.contact.email".to_string(),
+                error_text: if form.error_field == "email" { Some(form.feedback.clone().into()) } else { None },
+            ),
+            TextInput(
+                label: Some("Subject".into()),
+                placeholder: Some("Order or delivery issue".into()),
+                name: Some("subject".into()),
+                bind: form.subject,
+                key: "contact-subject",
+                semantics_identifier: "harbour.contact.subject".to_string(),
+                error_text: if form.error_field == "subject" { Some(form.feedback.clone().into()) } else { None },
+            ),
+            TextInput(
+                label: Some("Message".into()),
+                placeholder: Some("Include the order number and what you need help with.".into()),
+                name: Some("message".into()),
+                multiline: true,
+                min_lines: Some(4),
+                max_lines: Some(7),
+                max_length: Some(2000),
+                bind: form.message,
+                key: "contact-message",
+                semantics_identifier: "harbour.contact.message".to_string(),
+                error_text: if form.error_field == "message" { Some(form.feedback.clone().into()) } else { None },
+            ),
+            if form.has_error || form.submitted {
+                SemanticsRegion(
+                    identifier: Some(if form.has_error {
+                        "harbour-contact-error".to_string()
+                    } else {
+                        "harbour-contact-success".to_string()
+                    }),
+                    label: Some(form.feedback.clone()),
+                    child: Text(if form.has_error {
+                        "Please correct the highlighted field and try again.".to_string()
+                    } else {
+                        form.feedback.clone()
+                    })
+                        .color(tokens.colors.text_secondary),
+                )
+            } else {
+                Text("We will reply to the email address you provide.")
+                    .color(tokens.colors.text_secondary)
+            },
+            if form.submitted {
+                Button(
+                    child: Text("Write another message"),
+                    key: "new-contact-message",
+                    variant: ButtonVariant::Outline,
+                    on_press: reduce {
+                        form.name.clear();
+                        form.email.clear();
+                        form.subject.clear();
+                        form.message.clear();
+                        form.submitted = false;
+                        form.has_error = false;
+                        form.error_field.clear();
+                        form.feedback.clear();
+                    },
+                )
+            } else {
+                Button(
+                    child: Text(form.action.clone()),
+                    key: "send-contact-message",
+                    on_press: reduce {
+                        let name = form.name.trim();
+                        let email = form.email.trim();
+                        let subject = form.subject.trim();
+                        let message = form.message.trim();
+
+                        if name.len() < 2 {
+                            form.feedback = "Enter your name so the support team knows who is writing.".to_string();
+                            form.error_field = "name".to_string();
+                            form.has_error = true;
+                            form.submitted = false;
+                        } else if !email.contains('@')
+                            || !email.split('@').last().unwrap_or("").contains('.')
+                        {
+                            form.feedback = "Enter a valid reply email address.".to_string();
+                            form.error_field = "email".to_string();
+                            form.has_error = true;
+                            form.submitted = false;
+                        } else if subject.len() < 5 {
+                            form.feedback = "Add a short subject, such as an order number or delivery issue.".to_string();
+                            form.error_field = "subject".to_string();
+                            form.has_error = true;
+                            form.submitted = false;
+                        } else if message.len() < 20 {
+                            form.feedback = "Add a little more detail so the team can investigate without asking you to repeat the story.".to_string();
+                            form.error_field = "message".to_string();
+                            form.has_error = true;
+                            form.submitted = false;
+                        } else {
+                            form.feedback = "Your request is ready for Harbour Supply customer care. This preview kept it in memory; no email was sent.".to_string();
+                            form.has_error = false;
+                            form.error_field.clear();
+                            form.submitted = true;
+                        }
+                    },
+                )
+            },
+            Text("The local preview validates the request before it would enter the server delivery job.")
+                .color(tokens.colors.text_secondary),
+        ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large),
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
 }
 ```
 </TabItem>
@@ -209,11 +337,9 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     let preview = app::ContactForm::new(
-        "Contact Harbour".to_string(),
-        "Send a message to the team.".to_string(),
-        "Send a contact request".to_string(),
-        "Your message was accepted. The team can follow up by email.".to_string(),
-        "Add your email address and a short message before sending.".to_string(),
+        "Tell us how we can help".to_string(),
+        "For a delivery issue, include the order number and delivery date. That gives the team enough context to check the right shipment.".to_string(),
+        "Send message".to_string(),
     );
     WebApp::<(), _>::new(preview)
         .with_title("Build a server-rendered contact form in Rust")
@@ -227,72 +353,187 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Validate and confirm a submission: Use the preview control and check that the result matches the action.
+Validate and confirm a submission: First try a short message or malformed email and read the correction. Then submit a delivery request with a valid reply address and useful order details; the preview confirms that it is ready while keeping the draft visible.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Recover from server failure without losing the draft
+## Keep the request available when validation fails
 
-Represent the job as pending, complete or failed, and never block the UI while it runs. The no-JavaScript submission must follow the same validation path and return a complete HTML response with a status message announced to assistive technology.
+After the SSR route accepts a valid request, represent delivery as pending, complete or failed, and never block the UI while the job runs. A no-JavaScript submission follows the same validation path and returns a complete HTML response with a status message announced to assistive technology.
 
 Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
-The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+The preview applies name, email, subject and message checks before accepting the request. The accepted result stays in memory, so no email is sent. In the deployed SSR route, return the submitted draft on validation errors, then dispatch valid messages to an asynchronous delivery job and report its real outcome.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+
 fission_component! {
     pub ContactForm<()> {
         props {
             title: String,
             detail: String,
             action: String,
-            success: String,
-            empty: String,
         }
         state {
             name: String = String::new(),
             email: String = String::new(),
+            subject: String = String::new(),
+            message: String = String::new(),
             submitted: bool = false,
             has_error: bool = false,
+            error_field: String = String::new(),
+            feedback: String = String::new(),
         }
     }
-    view(preview, _state, cx) {
+    view(form, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                TextInput(label: Some("Your name".into()),
-                    placeholder: Some("Name".into()),
-                    bind: preview.name,
-                    semantics_identifier: "tutorial.contact.name".to_string()),
-                TextInput(label: Some("Reply email".into()),
-                    placeholder: Some("you@example.com".into()),
-                    bind: preview.email,
-                    semantics_identifier: "tutorial.contact.email".to_string()),
-                Button(child: Text(preview.action.clone()),
-                    key: "send-message",
-                    disabled: preview.name.trim().is_empty() || !preview.email.contains('@'),
-                    on_press: reduce { preview.submitted = true; }),
-                if preview.submitted { Text(preview.success.clone()) } else { Text(preview.empty.clone()) },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview delivery failure".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("The message could not be sent. Your draft is still here; try again.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+    Scroll(
+        id: Some(WidgetId::explicit("harbour-contact-scroll")),
+        flex_grow: 1.0,
+        height: cx.view.viewport_size().height,
+        semantic_label: Some("Harbour Supply contact request form".to_string()),
+        child: Container(Column(gap: tokens.spacing.m, children: [
+            Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text("Harbour Supply").weight(tokens.typography.font_weight_bold),
+                    Text("Customer care").color(tokens.colors.text_secondary),
+                ]),
+                Spacer(flex_grow: 1.0),
+                Badge(text: "Contact request".to_string()),
+            ]),
+            Column(gap: tokens.spacing.xs, children: [
+                Text(form.title.clone()).weight(tokens.typography.font_weight_semibold),
+                Text(form.detail.clone()).color(tokens.colors.text_secondary),
+            ]),
+            TextInput(
+                label: Some("Your name".into()),
+                placeholder: Some("Name".into()),
+                name: Some("name".into()),
+                bind: form.name,
+                key: "contact-name",
+                semantics_identifier: "harbour.contact.name".to_string(),
+                error_text: if form.error_field == "name" { Some(form.feedback.clone().into()) } else { None },
+            ),
+            TextInput(
+                label: Some("Reply email".into()),
+                placeholder: Some("you@example.com".into()),
+                name: Some("email".into()),
+                keyboard_type: TextInputType::EmailAddress,
+                bind: form.email,
+                key: "contact-email",
+                semantics_identifier: "harbour.contact.email".to_string(),
+                error_text: if form.error_field == "email" { Some(form.feedback.clone().into()) } else { None },
+            ),
+            TextInput(
+                label: Some("Subject".into()),
+                placeholder: Some("Order or delivery issue".into()),
+                name: Some("subject".into()),
+                bind: form.subject,
+                key: "contact-subject",
+                semantics_identifier: "harbour.contact.subject".to_string(),
+                error_text: if form.error_field == "subject" { Some(form.feedback.clone().into()) } else { None },
+            ),
+            TextInput(
+                label: Some("Message".into()),
+                placeholder: Some("Include the order number and what you need help with.".into()),
+                name: Some("message".into()),
+                multiline: true,
+                min_lines: Some(4),
+                max_lines: Some(7),
+                max_length: Some(2000),
+                bind: form.message,
+                key: "contact-message",
+                semantics_identifier: "harbour.contact.message".to_string(),
+                error_text: if form.error_field == "message" { Some(form.feedback.clone().into()) } else { None },
+            ),
+            if form.has_error || form.submitted {
+                SemanticsRegion(
+                    identifier: Some(if form.has_error {
+                        "harbour-contact-error".to_string()
+                    } else {
+                        "harbour-contact-success".to_string()
+                    }),
+                    label: Some(form.feedback.clone()),
+                    child: Text(if form.has_error {
+                        "Please correct the highlighted field and try again.".to_string()
+                    } else {
+                        form.feedback.clone()
+                    })
+                        .color(tokens.colors.text_secondary),
+                )
+            } else {
+                Text("We will reply to the email address you provide.")
+                    .color(tokens.colors.text_secondary)
+            },
+            if form.submitted {
+                Button(
+                    child: Text("Write another message"),
+                    key: "new-contact-message",
+                    variant: ButtonVariant::Outline,
+                    on_press: reduce {
+                        form.name.clear();
+                        form.email.clear();
+                        form.subject.clear();
+                        form.message.clear();
+                        form.submitted = false;
+                        form.has_error = false;
+                        form.error_field.clear();
+                        form.feedback.clear();
+                    },
+                )
+            } else {
+                Button(
+                    child: Text(form.action.clone()),
+                    key: "send-contact-message",
+                    on_press: reduce {
+                        let name = form.name.trim();
+                        let email = form.email.trim();
+                        let subject = form.subject.trim();
+                        let message = form.message.trim();
+
+                        if name.len() < 2 {
+                            form.feedback = "Enter your name so the support team knows who is writing.".to_string();
+                            form.has_error = true;
+                            form.error_field = "name".to_string();
+                            form.submitted = false;
+                        } else if !email.contains('@')
+                            || !email.split('@').last().unwrap_or("").contains('.')
+                        {
+                            form.feedback = "Enter a valid reply email address.".to_string();
+                            form.has_error = true;
+                            form.error_field = "email".to_string();
+                            form.submitted = false;
+                        } else if subject.len() < 5 {
+                            form.feedback = "Add a short subject, such as an order number or delivery issue.".to_string();
+                            form.has_error = true;
+                            form.error_field = "subject".to_string();
+                            form.submitted = false;
+                        } else if message.len() < 20 {
+                            form.feedback = "Add a little more detail so the team can investigate without asking you to repeat the story.".to_string();
+                            form.has_error = true;
+                            form.error_field = "message".to_string();
+                            form.submitted = false;
+                        } else {
+                            form.feedback = "Your request is ready for Harbour Supply customer care. This preview kept it in memory; no email was sent.".to_string();
+                            form.has_error = false;
+                            form.error_field.clear();
+                            form.submitted = true;
+                        }
+                    },
+                )
+            },
+            Text("The local preview validates the request before it would enter the server delivery job.")
+                .color(tokens.colors.text_secondary),
+        ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large),
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
 }
 ```
 </TabItem>
@@ -308,11 +549,9 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     let preview = app::ContactForm::new(
-        "Contact Harbour".to_string(),
-        "Send a message to the team.".to_string(),
-        "Send a contact request".to_string(),
-        "Your message was accepted. The team can follow up by email.".to_string(),
-        "Add your email address and a short message before sending.".to_string(),
+        "Tell us how we can help".to_string(),
+        "For a delivery issue, include the order number and delivery date. That gives the team enough context to check the right shipment.".to_string(),
+        "Send message".to_string(),
     );
     WebApp::<(), _>::new(preview)
         .with_title("Build a server-rendered contact form in Rust")
@@ -326,7 +565,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Recover from server failure without losing the draft: Trigger the error preview and confirm a recovery action remains available.
+Keep the request available when validation fails: Remove the `@` from the reply address or shorten the message, submit again, and confirm the rest of the request remains in place. Correct the field and submit; the local preview records a ready state but does not send email.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
