@@ -41,61 +41,71 @@ fission_component! {
         label: Some(cx.view.env().tr("goal.path")),
         child: Column(gap: tokens.spacing.m, children: [
             copy("goal.path").weight(tokens.typography.font_weight_bold),
-            Link::to(cx.view.env().tr("goal.build_title"), "#what-you-will-build"),
-            Link::to(cx.view.env().tr("goal.finished_title"), "#finished-example"),
-            for (index, step) in toc.document.steps.iter().enumerate() {
-                SemanticsRegion(
-                    Link::to(format!("{}. {}", index + 1, step.title), format!("#{}", step.id)),
-                    identifier: Some(if index == 0 { "goal-toc-current".to_string() } else { "goal-toc-step".to_string() }),
-                    key: step.id.clone(),
-                )
-            },
-            Divider(),
-            copy("goal.files").weight(tokens.typography.font_weight_bold),
-            for (path, step_id) in &project_files {
-                SemanticsRegion(
-                    Link::to(path.clone(), format!("#{step_id}")),
-                    identifier: Some("goal-project-file".to_string()),
-                    key: path.clone(),
-                )
-            },
-            Divider(),
             SemanticsRegion(
-                identifier: Some("goal-target-card".to_string()),
+                identifier: Some("goal-toc-primary".to_string()),
                 child: Column(gap: tokens.spacing.s, children: [
-                    copy("goal.target_card").weight(tokens.typography.font_weight_bold),
-                    Row(gap: tokens.spacing.s, children: [
-                        Icon::svg(material::device::devices::regular()).size(tokens.spacing.m),
-                        Column(children: [copy("goal.project_target").weight(tokens.typography.font_weight_semibold), Text(target)]),
-                    ]),
+                    Link::to(cx.view.env().tr("goal.build_title"), "#what-you-will-build"),
+                    Link::to(cx.view.env().tr("goal.finished_title"), "#finished-example"),
+                    for (index, step) in toc.document.steps.iter().enumerate() {
+                        SemanticsRegion(
+                            Link::to(format!("{}. {}", index + 1, step.title), format!("#{}", step.id)),
+                            identifier: Some(if index == 0 { "goal-toc-current".to_string() } else { "goal-toc-step".to_string() }),
+                            key: step.id.clone(),
+                        )
+                    },
                 ]),
             ),
-            if let Some(previous) = previous {
-                SemanticsRegion(
-                    identifier: Some("goal-previous-card".to_string()),
-                    child: Column(gap: tokens.spacing.xs, children: [
-                        copy("goal.previous"),
-                        Link::to(previous.title.clone(), previous.path.clone()),
-                    ]),
-                )
-            },
-            if let Some(next) = next {
-                SemanticsRegion(
-                    identifier: Some("goal-next-card".to_string()),
-                    child: Column(gap: tokens.spacing.xs, children: [
-                        copy("goal.next"),
-                        Link::to(next.title.clone(), next.path.clone()),
-                    ]),
-                )
-            } else {
-                SemanticsRegion(
-                    identifier: Some("goal-next-card".to_string()),
-                    child: Column(gap: tokens.spacing.xs, children: [
-                        copy("goal.next"),
-                        Link::to(cx.view.env().tr("site.reference"), navigation::REFERENCE),
-                    ]),
-                )
-            },
+            SemanticsRegion(
+                identifier: Some("goal-toc-secondary".to_string()),
+                child: Column(gap: tokens.spacing.m, children: [
+                    Divider(),
+                    copy("goal.files").weight(tokens.typography.font_weight_bold),
+                    for (path, step_id) in &project_files {
+                        SemanticsRegion(
+                            Link::to(path.clone(), format!("#{step_id}")),
+                            identifier: Some("goal-project-file".to_string()),
+                            key: path.clone(),
+                        )
+                    },
+                    Divider(),
+                    SemanticsRegion(
+                        identifier: Some("goal-target-card".to_string()),
+                        child: Column(gap: tokens.spacing.s, children: [
+                            copy("goal.target_card").weight(tokens.typography.font_weight_bold),
+                            Row(gap: tokens.spacing.s, children: [
+                                Icon::svg(material::device::devices::regular()).size(tokens.spacing.m),
+                                Column(children: [copy("goal.project_target").weight(tokens.typography.font_weight_semibold), Text(target)]),
+                            ]),
+                        ]),
+                    ),
+                    if let Some(previous) = previous {
+                        SemanticsRegion(
+                            identifier: Some("goal-previous-card".to_string()),
+                            child: Column(gap: tokens.spacing.xs, children: [
+                                copy("goal.previous"),
+                                Link::to(previous.title.clone(), previous.path.clone()),
+                            ]),
+                        )
+                    },
+                    if let Some(next) = next {
+                        SemanticsRegion(
+                            identifier: Some("goal-next-card".to_string()),
+                            child: Column(gap: tokens.spacing.xs, children: [
+                                copy("goal.next"),
+                                Link::to(next.title.clone(), next.path.clone()),
+                            ]),
+                        )
+                    } else {
+                        SemanticsRegion(
+                            identifier: Some("goal-next-card".to_string()),
+                            child: Column(gap: tokens.spacing.xs, children: [
+                                copy("goal.next"),
+                                Link::to(cx.view.env().tr("site.reference"), navigation::REFERENCE),
+                            ]),
+                        )
+                    },
+                ]),
+            ),
         ]),
     )
 }

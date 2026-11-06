@@ -15,7 +15,7 @@ outcomes:
   - Retry sync and explain conflicts
 ---
 
-Persist Rust app state locally across native and Web targets, hydrate it once, reconcile concurrent writes and keep an offline workflow understandable. This tutorial takes you from project setup to a runnable result in three steps. Each step’s `src/app.rs` component is compiled into the WebAssembly preview shown beside its code, so you can try the same Fission component while you read. The preview demonstrates local queue and conflict states. The real app must persist changes locally, send sync work asynchronously and reconcile each result against the latest version.
+Persist Rust app state locally across native and Web targets, hydrate it once, reconcile concurrent writes and keep an offline workflow understandable. The preview demonstrates local queue and conflict states. The real app must persist changes locally, send sync work asynchronously and reconcile each result against the latest version.
 
 Build an offline-first task list that opens from local data, accepts edits without a connection and explains which changes are waiting to sync.
 

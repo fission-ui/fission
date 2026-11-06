@@ -39,6 +39,7 @@ impl GoalStep {
 pub struct GoalDocument {
     pub meta: GoalMeta,
     pub introduction: String,
+    pub project_setup: Option<String>,
     pub steps: Vec<GoalStep>,
 }
 
@@ -124,11 +125,77 @@ pub fn parse_goal(source: &str) -> Result<GoalDocument> {
     if steps[0].files.is_empty() {
         bail!("the first fission:step must contain the initial fission:file sources");
     }
+    let (introduction, project_setup) = extract_project_setup(introduction);
     Ok(GoalDocument {
         meta,
         introduction,
+        project_setup,
         steps,
     })
+}
+
+fn extract_project_setup(introduction: String) -> (String, Option<String>) {
+    fn is_setup_heading(line: &str) -> bool {
+        matches!(
+            line.trim().to_ascii_lowercase().as_str(),
+            "## create the project and add the target"
+                | "## files created by fission"
+                | "## project layout"
+                | "## create the android project"
+                | "## create an ios project"
+                | "## create an android project"
+                | "## create the web project and enable storage"
+                | "## create the server-rendered project"
+                | "## create the web project"
+                | "## add the target to your existing project"
+                | "## shared project and new target"
+                | "## create the android app and declare biometrics"
+                | "## create the android app"
+                | "## create the ios app and declare the capability"
+                | "## create the shared mobile project"
+        )
+    }
+
+    let lines: Vec<&str> = introduction.lines().collect();
+    let mut visible = Vec::new();
+    let mut setup_sections = Vec::new();
+    let mut index = 0;
+    let mut in_fence = false;
+
+    while index < lines.len() {
+        let line = lines[index];
+        if !in_fence && is_setup_heading(line) {
+            let start = index;
+            index += 1;
+            let mut section_in_fence = false;
+            while index < lines.len() {
+                let current = lines[index];
+                if current.trim_start().starts_with("```") {
+                    section_in_fence = !section_in_fence;
+                } else if !section_in_fence && current.starts_with('#') {
+                    break;
+                }
+                index += 1;
+            }
+            setup_sections.push(lines[start..index].join("\n").trim().to_string());
+            continue;
+        }
+
+        if line.trim_start().starts_with("```") {
+            in_fence = !in_fence;
+        }
+        visible.push(line);
+        index += 1;
+    }
+
+    let visible = visible.join("\n").trim().to_string();
+    let setup = setup_sections
+        .into_iter()
+        .filter(|section| !section.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    (visible, (!setup.is_empty()).then_some(setup))
 }
 
 fn split_frontmatter(source: &str) -> Result<(&str, &str)> {

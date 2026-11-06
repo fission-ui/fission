@@ -140,6 +140,7 @@
   "goal.latest": "Última versión estable",
   "goal.changelog": "Notas de Fission 0.15.1 →",
   "goal.build_title": "Lo que construirás",
+  "goal.project_setup": "Empezar desde un proyecto nuevo (opcional)",
   "goal.finished_title": "Ejecuta el ejemplo terminado",
   "goal.preview.show": "Mostrar la vista previa de la aplicación",
   "goal.preview.hide": "Ocultar la vista previa de la aplicación",

@@ -45,9 +45,9 @@ android-give-repeated-android-list-rows-stable-identity/
 Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android host owns launch and packaging details; shared components describe the user task without importing Android APIs.
 
 <!-- fission:step id="start-screen" -->
-## Try the browser-safe interaction
+## Create the app screen
 
-The preview is a compiled Fission component with two deliberately local simulations. Press **Simulate success** to inspect the normal result, then **Simulate unavailable** to see how the screen can explain that a capability cannot proceed. These actions change only preview state: they do not request permission, access a sensor or run the target app. In the main step, compare that state boundary with the feature-specific instructions.
+Give the workflow a clear first screen before adding its platform-specific behavior. This version displays the user task and current step; the next section connects the feature and its outcome to Fission state.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -62,59 +62,36 @@ fission_component! {
             step: String,
             goal: String,
         }
-        state {
-            simulated_success: bool = false,
-            simulated_unavailable: bool = false,
-        }
     }
-    view(preview, _state, cx) {
+    view(screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("tutorial-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("task-workspace".to_string()),
+        label: Some(screen.title.clone()),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
-                    .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Button(
-                    child: Text(if preview.simulated_success {
-                        "Reset success simulation".to_string()
-                    } else {
-                        "Simulate success".to_string()
-                    }),
-                    key: "tutorial-complete",
-                    on_press: reduce {
-                        preview.simulated_success = !preview.simulated_success;
-                        if preview.simulated_success { preview.simulated_unavailable = false; }
-                    },
-                ),
-                Text(if preview.simulated_success {
-                    format!("Simulated success for {}. Only browser-local state changed. Use the target steps below to verify the real behaviour.", preview.goal)
-                } else {
-                    "Ready: no native request has run. Choose a simulation to see how the screen state changes.".to_string()
-                }),
-                Button(
-                    child: Text(if preview.simulated_unavailable {
-                        "Clear unavailable simulation".to_string()
-                    } else {
-                        "Simulate unavailable".to_string()
-                    }),
-                    key: "tutorial-unavailable",
-                    on_press: reduce {
-                        preview.simulated_unavailable = !preview.simulated_unavailable;
-                        if preview.simulated_unavailable { preview.simulated_success = false; }
-                    },
-                ),
-                if preview.simulated_unavailable {
-                    Text(format!("Simulated unavailable result for {}. No native request ran; the target app should explain the real reason and recovery action.", preview.title))
-                } else {
-                    Text("No unavailable response is being simulated.".to_string())
-                },
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(screen.title.clone())
+                            .weight(tokens.typography.font_weight_bold),
+                        Text(screen.step.clone())
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                    Spacer(flex_grow: 1.0),
+                    Badge(text: "In progress".to_string()),
+                ]),
+                Divider(),
+                Column(gap: tokens.spacing.s, children: [
+                    Text("Current task")
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text(screen.goal.clone()),
+                ]),
+                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                    Badge(text: "Next".to_string()),
+                    Text("Connect this screen to the workflow in the next step.".to_string())
+                        .color(tokens.colors.text_secondary),
+                ]),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -154,10 +131,6 @@ pub fn run() -> Result<(), JsValue> {
 </TabItem>
 </Tabs>
 <!-- fission:preview -->
-
-<!-- fission:checkpoint -->
-Press **Simulate success** and check the visible status change. Then choose **Simulate unavailable** and check that the screen explains the unavailable outcome. Both actions change browser-local state only; they do not invoke the native capability.
-<!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->

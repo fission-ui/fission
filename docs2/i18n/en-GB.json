@@ -140,6 +140,7 @@
   "goal.latest": "Latest stable release",
   "goal.changelog": "Read 0.15.1 release notes →",
   "goal.build_title": "What you will build",
+  "goal.project_setup": "Start from a new project (optional)",
   "goal.finished_title": "Run the finished example",
   "goal.preview.show": "Show the app preview",
   "goal.preview.hide": "Hide the app preview",

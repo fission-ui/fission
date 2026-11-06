@@ -73,6 +73,21 @@ fission_component! {
                 MarkdownContent::new(document.introduction.clone()),
             ]),
         ),
+        if let Some(project_setup) = &document.project_setup {
+            SemanticsRegion(
+                identifier: Some("site-disclosure:goal-project-setup".to_string()),
+                child: Column(children: [
+                    SemanticsRegion(
+                        identifier: Some("site-disclosure-summary:goal-project-setup".to_string()),
+                        child: Some(copy("goal.project_setup").into()),
+                    ),
+                    SemanticsRegion(
+                        identifier: Some("goal-project-setup-content".to_string()),
+                        child: Some(MarkdownContent::new(project_setup.clone()).into()),
+                    ),
+                ]),
+            )
+        },
         SemanticsRegion(
             identifier: Some("site-section:finished-example".to_string()),
             child: Column(gap: tokens.spacing.m, children: [
@@ -81,7 +96,6 @@ fission_component! {
                         .weight(tokens.typography.font_weight_bold),
                     identifier: Some("site-heading-2:finished-example-heading".to_string()),
                 ),
-                Text(document.meta.goal.clone()).color(tokens.colors.text_secondary),
                 SemanticsRegion(
                     identifier: Some("goal-command".to_string()),
                     child: Some(MarkdownContent::new(run_command_block).into()),
