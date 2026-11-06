@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Build an Android dashboard with Fission Charts
-description: "Step-by-step Rust guide to build an Android dashboard with Fission Charts."
-goal: Render useful chart data on a narrow screen, adapt labels and test empty, loading and error states.
+description: Build an Android operations dashboard in Rust with Fission Charts, readable order metrics, a date filter and responsive layouts.
+goal: Help a warehouse lead spot late orders, compare completed picks and decide which shipment needs attention next.
 path: /blog/build-an-android-dashboard-with-fission-charts/
 order: 58
 difficulty: Beginner
@@ -45,9 +45,11 @@ android-build-an-android-dashboard-with-fission-charts/
 Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android host owns launch and packaging details; shared components describe the user task without importing Android APIs.
 
 <!-- fission:step id="start-screen" -->
-## Create the app screen
+## Give the warehouse team an operations home
 
-Start with a screen that gives this task a clear home. The first version keeps the user’s goal and current step visible; the following steps connect the screen to the state change or host capability the task needs.
+At 8:30 each morning, the warehouse lead needs three answers before opening an order: how much work is waiting, are shipments leaving on time, and which orders need a closer look? We will build that screen for Harbour Supply, a small outdoor retailer. The order and metric values are sample records held in memory, so the example stays focused on Fission components and layout rather than a backend.
+
+Start with the decisions the screen supports. The metric cards summarise today's workload and the review queue names the orders that need action. In the next step, a chart adds the trend behind those totals; the summary stays visible so a reader does not have to estimate the answer from bar heights.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -56,49 +58,86 @@ Start with a screen that gives this task a clear home. The first version keeps t
 use fission::prelude::*;
 
 fission_component! {
-    pub AndroidAnalyticsDashboard<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
+    pub OperationsMetric<()> {
+        props { label: String, value: String, detail: String }
     }
-    view(screen, _state, cx) {
+    view(metric, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
-                        .color(tokens.colors.text_secondary),
-                ]),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
+    Container(Column(gap: tokens.spacing.xs, children: [
+        Text(metric.label.clone()).color(tokens.colors.text_secondary),
+        Text(metric.value.clone()).weight(tokens.typography.font_weight_bold),
+        Text(metric.detail.clone()).color(tokens.colors.text_secondary),
+    ]))
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub OrderReviewRow<()> {
+        props { reference: String, customer: String, detail: String, status: String }
+    }
+    view(order, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.xs, children: [
+        Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+            Text(order.reference.clone()).weight(tokens.typography.font_weight_semibold),
+            Text(order.customer.clone()).color(tokens.colors.text_secondary),
+            Spacer(flex_grow: 1.0),
+            Badge(text: order.status.clone()),
+        ]),
+        Text(order.detail.clone()).color(tokens.colors.text_secondary),
+    ]))
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub OperationsSummary<()> {}
+    view(_summary, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.l, children: [
+        Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text("Harbour Supply").weight(tokens.typography.font_weight_bold),
+                Text("Fulfilment · Main warehouse").color(tokens.colors.text_secondary),
+            ]),
+            Spacer(flex_grow: 1.0),
+            Badge(text: "Morning shift".to_string()),
+        ]),
+        Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+            OperationsMetric("Orders today".to_string(), "42".to_string(), "11 need picking".to_string()),
+            OperationsMetric("On-time dispatch".to_string(), "96%".to_string(), "Up 3 points this week".to_string()),
+            OperationsMetric("Stock alerts".to_string(), "6 items".to_string(), "2 orders depend on them".to_string()),
+        ]),
+    ]))
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.background)
+}
+
+fission_component! {
+    pub OperationsDashboard<()> {}
+    view(_dashboard, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.m, children: [
+        OperationsSummary(),
+        Column(gap: tokens.spacing.s, children: [
+            Text("Orders to review").weight(tokens.typography.font_weight_semibold),
+            OrderReviewRow("HS-2048".to_string(), "Maya Chen".to_string(), "Trail stove · 2 items · dispatch by 9:15".to_string(), "Picking".to_string()),
+            OrderReviewRow("HS-2051".to_string(), "Elliot Park".to_string(), "Water filter · 1 item · waiting for stock".to_string(), "At risk".to_string()),
+        ]),
+    ]))
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
 }
 ```
 </TabItem>
@@ -110,17 +149,25 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fission_component! {
+    pub OperationsDashboardPage<()> {}
+    view(_page, _state, cx) =>
+    SemanticsRegion(
+        identifier: Some("harbour-operations-dashboard".to_string()),
+        label: Some("Harbour Supply operations dashboard".to_string()),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            semantic_label: Some("Harbour Supply dashboard content".to_string()),
+            child: Some(Widget::from(app::OperationsDashboard)),
+        ),
+    )
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidAnalyticsDashboard::new(tutorial_title(), tutorial_step(), tutorial_goal());
+    let preview = OperationsDashboardPage::new();
     WebApp::<(), _>::new(preview)
         .with_title("Fission tutorial preview")
         .mount("#fission-web-mount")
@@ -136,83 +183,124 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:step id="main-flow" -->
 ## Build an Android dashboard with Fission Charts
 
-Choose the chart type from the question the user needs to answer, then keep its data in typed Rust values close to the screen state. A chart is not a substitute for a readable summary: give the same result in a heading, label or table, and provide an empty state when there are no measurements. Keep filters in app state when multiple views share them; use local component state for an isolated open control. Test a one-point dataset, a large dataset, long axis labels, loading and error results at a narrow phone width and a wider tablet width. See the [Fission Charts examples](/reference/charts/overview/).
+Choose the chart from the decision it needs to support. The warehouse lead wants to compare completed picks over time, so a bar chart is a useful first view. The **7 days** and **30 days** controls change the selected window and update both the chart and its text summary using sample values held in the component.
 
-The component below is a browser-safe version of this screen. It uses Fission's retained component state and widgets to make the task visible; it does not call a native provider or operating-system API.
+Keeping the filter in this dashboard's local state is appropriate because no other screen reads it. When the app is connected to a service, the same button actions can dispatch a reducer effect to load the selected range; the component should still render the pending and no-data states described in the next section. Fission Charts supplies axis labels, a legend and tooltips, while the separate summary gives the total without asking someone to estimate bar heights. See the [Fission Charts reference](/reference/charts/overview/) for other chart types and interactions.
 
-<!-- fission:file path="src/app.rs" -->
+<Tabs>
+<TabItem label="src/analytics.rs">
+<!-- fission:file path="src/analytics.rs" -->
 ```rust
 use fission::prelude::*;
 use fission::charts::{Axis, BarSeries, Chart, Legend, Tooltip};
 
 fission_component! {
-    pub AndroidDashboardCharts<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
+    pub FulfilmentTrend<()> {
+        state { thirty_days: bool = false }
     }
-    view(screen, _state, cx) {
+    view(trend, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let labels = if trend.thirty_days {
+            vec!["Week 1", "Week 2", "Week 3", "Week 4"]
+        } else {
+            vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        };
+        let picks = if trend.thirty_days {
+            vec![118.0, 132.0, 126.0, 147.0]
+        } else {
+            vec![18.0, 24.0, 21.0, 31.0, 28.0, 16.0, 12.0]
+        };
+        let total: u32 = picks.iter().map(|count| *count as u32).sum();
+        let chart_width = (cx.view.env().viewport_size.width - tokens.spacing.l * 2.0).max(260.0);
         let chart: Widget = Chart::new()
-            .title("Weekly completed tasks")
-            .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
+            .width(chart_width)
+            .height(360.0)
+            .x_axis(Axis::category(labels))
             .y_axis(Axis::value())
             .legend(Legend::top_right())
             .tooltip(Tooltip::axis_trigger())
-            .series(vec![BarSeries::new("Completed")
-                .data(vec![3.0, 5.0, 4.0, 7.0, 6.0])
+            .series(vec![BarSeries::new("Orders picked")
+                .data(picks)
                 .into()])
             .into();
     } =>
     SemanticsRegion(
-        identifier: Some("chart-dashboard".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("fulfilment-trend".to_string()),
+        label: Some("Harbour Supply completed picks".to_string()),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(screen.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(screen.goal.clone()),
-                Text("Five-day total: 25 completed tasks"),
-                chart,
-                Text("The summary remains readable without comparing bar colours."),
-            ])
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text("Completed picks").weight(tokens.typography.font_weight_semibold),
+                        Text("Compare warehouse orders across the selected period.")
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                    Spacer(flex_grow: 1.0),
+                    Badge(text: format!("{total} orders")),
+                ]),
+                Row(gap: tokens.spacing.s, children: [
+                    Button(
+                        child: Text("7 days"),
+                        key: "range-seven-days",
+                        variant: if trend.thirty_days { ButtonVariant::Outline } else { ButtonVariant::Primary },
+                        on_press: reduce { trend.thirty_days = false; },
+                    ),
+                    Button(
+                        child: Text("30 days"),
+                        key: "range-thirty-days",
+                        variant: if trend.thirty_days { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                        on_press: reduce { trend.thirty_days = true; },
+                    ),
+                ]),
+                Row(gap: tokens.spacing.s, children: [chart]),
+                Text(format!("{total} orders were picked in this period. The summary stays readable without comparing bar heights."))
+                    .color(tokens.colors.text_secondary),
+            ]),
         )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large),
     )
 }
 ```
-
-<!-- fission:preview -->
-
-
-<Tabs>
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod analytics;
 
+use app::OperationsSummary;
+use analytics::FulfilmentTrend;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fission_component! {
+    pub FulfilmentDashboardPage<()> {}
+    view(_page, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(
+        identifier: Some("harbour-fulfilment-dashboard".to_string()),
+        label: Some("Harbour Supply fulfilment dashboard".to_string()),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            semantic_label: Some("Harbour Supply dashboard content".to_string()),
+            child: Column(gap: tokens.spacing.m, children: [
+                OperationsSummary(),
+                FulfilmentTrend(),
+            ]),
+        ),
+    )
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidDashboardCharts::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(FulfilmentDashboardPage::new())
+        .with_title("Harbour Supply fulfilment dashboard")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -220,46 +308,33 @@ pub fn run() -> Result<(), JsValue> {
 ```
 </TabItem>
 </Tabs>
+<!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Read the summary before comparing the bars. The chart and summary show the same weekly totals.
+Switch between seven and thirty days. Check that the chart labels and total change together, while the headline metrics keep the trend in context.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Verify the user task on Android
+## Verify the dashboard on Android
 
-On an Android emulator, repeat the feature path described above and check the expected result. If this task has an unavailable, denied or failure path, run that path too and confirm the screen offers a way to continue. The browser preview demonstrates component state only; the commands below verify the native host.
+Run the finished screen in an emulator at a narrow phone size, then rotate or resize it and repeat the same check. The summary should match the selected chart range, order details should wrap without hiding their status, and the chart should remain readable when its labels get longer. In the real app, also test the pending, empty and service-error states before replacing the sample values with warehouse data.
 
-Use LiveTest with the semantic identifiers shown in the component to confirm focus and action behavior. If this screen adapts to window size, repeat the flow at a narrow phone width and a wider display.
+The chart filter is local presentation state. Keep shared date filters in `GlobalState` only if another route reads them; when the range needs a server query, dispatch an effect and preserve the last successful summary while the new range loads.
 
-### Run, test and build
+From the generated project root, run the app and confirm the Android host starts before making a release build:
 
 ```sh
-cargo test
 fission doctor android --project-dir .
 fission run --target android --project-dir .
 fission test --target android --project-dir .
+cargo test
 fission build --target android --project-dir . --release
 ```
 
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
+`fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. These commands check the Rust app and Android package; they do not replace a visual check at each window size.
 
-
-### Emulator and connected-device commands
-
-Run these emulator checks from the generated project root:
-
-```sh
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
-```
-
-
-### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
+Use these references when you want to change the chart or move the selected range into shared app state:
 
 - [Charts](/reference/charts/overview/)
 - [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
