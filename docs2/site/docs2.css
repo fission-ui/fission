@@ -22,7 +22,13 @@ body {
   background: #fff;
   line-height: 1.6;
   text-rendering: optimizeLegibility;
+  font-family: sans-serif;
 }
+.fission-site-root,
+.fission-site-root * { font-family: inherit !important; }
+.fission-site-root .fission-site-text-run { font-size: revert !important; }
+.fission-site-root pre,
+.fission-site-root code { font-family: monospace !important; font-size: revert !important; }
 a { color: var(--blue-dark); text-underline-offset: .2em; }
 a:hover { color: var(--blue); }
 a:focus-visible, button:focus-visible, iframe:focus-visible {
