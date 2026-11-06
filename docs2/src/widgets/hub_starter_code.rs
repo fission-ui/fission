@@ -6,16 +6,16 @@ fission_component! {
     view(_panel, _state, cx) {
         let commands = "fission init my-app\ncd my-app\nfission run";
         let highlighted_commands = format!("```sh\n{commands}\n```");
+        let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
         identifier: Some("hub-starter-code".to_string()),
         child: Column(children: [
-            Row(children: [
-                SemanticsRegion(Text(cx.view.env().tr("hub.target.shell")), identifier: Some("hub-target-tab-selected".to_string())),
-                SemanticsRegion(Text(cx.view.env().tr("hub.target.desktop")), identifier: Some("hub-target-tab".to_string())),
-                SemanticsRegion(Text(cx.view.env().tr("hub.target.web")), identifier: Some("hub-target-tab".to_string())),
-                SemanticsRegion(Text(cx.view.env().tr("hub.target.mobile")), identifier: Some("hub-target-tab".to_string())),
-            ]),
+            SemanticsRegion(
+                Text(cx.view.env().tr("hub.target.shell"))
+                    .weight(tokens.typography.font_weight_semibold),
+                identifier: Some("hub-starter-label".to_string()),
+            ),
             MarkdownContent::new(highlighted_commands),
         ]),
     )

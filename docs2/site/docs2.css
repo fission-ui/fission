@@ -640,7 +640,10 @@ details:not([open]) > :not(summary) { display: none !important; }
 [data-fission-semantics="hub-path"] > * { display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: stretch; gap: 14px !important; }
 [data-fission-semantics="hub-start"] { padding: 28px; border-radius: 9px; background: #eaf1fb; }
 [data-fission-semantics="hub-start"] > * { display: grid !important; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: center; gap: 28px !important; }
-[data-fission-semantics="hub-start"] a { display: inline-flex; align-items: center; min-height: 48px; padding: 0 18px; border-radius: 6px; background: var(--blue-dark); color: #fff; text-decoration: none; }
+[data-fission-semantics="hub-start"] a { display: inline-flex; justify-self: start; align-items: center; width: fit-content; max-width: 100%; min-height: 48px; padding: 0 18px; border-radius: 6px; background: var(--blue-dark); color: #fff; text-decoration: none; }
+[data-fission-semantics="hub-start"] a .fission-site-text-run { color: inherit !important; text-decoration: none !important; }
+[data-fission-semantics="hub-starter-label"] { padding: 0 20px 8px; color: var(--muted); font-weight: 650; }
+[data-fission-semantics="hub-starter-label"] .fission-site-text-run { color: inherit !important; }
 [data-fission-semantics="hub-start"] pre { margin: 0; padding: 20px; overflow: auto; border-radius: 8px; background: var(--code) !important; color: #fff !important; }
 [data-fission-semantics="hub-cards"] > *,
 [data-fission-semantics="hub-guides"] > * { display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: stretch; gap: 14px !important; }
@@ -748,6 +751,7 @@ details:not([open]) > :not(summary) { display: none !important; }
   [data-fission-semantics="playground-workspace"] > * { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 700px) {
+  [data-fission-semantics="hub-shell"] > * { grid-template-columns: minmax(0, 1fr); }
   [data-fission-semantics="goal-shell"] > * { grid-template-columns: minmax(0, 1fr); }
   [data-fission-semantics="goal-left-nav"],
   [data-fission-semantics="hub-sidebar"] { display: none; }
@@ -807,6 +811,9 @@ details:not([open]) > :not(summary) { display: none !important; }
     height: 40px;
   }
   [data-fission-semantics="goal-toc-secondary"] { display: none; }
+  [data-fission-semantics="hub-path"] > *,
+  [data-fission-semantics="hub-cards"] > *,
+  [data-fission-semantics="hub-guides"] > * { grid-template-columns: minmax(0, 1fr); }
   [data-fission-semantics="goal-toc-primary"] a,
   [data-fission-semantics="goal-toc-primary"] [data-fission-semantics="goal-toc-current"] {
     display: inline-flex;
