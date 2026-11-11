@@ -1638,6 +1638,38 @@ impl Runtime {
             }
         }
 
+        // Declared shortcuts belong to the semantic focus chain, so resolve
+        // them before custom render objects and input controllers get a chance
+        // to consume the event. This lets an editor handle its own text keys
+        // while application shortcuts such as Ctrl+F still reach an ancestor.
+        // Tab remains reserved for tree-wide focus traversal.
+        if let InputEvent::Keyboard(KeyEvent::Down {
+            key_code,
+            modifiers,
+        }) = &event
+        {
+            if !matches!(key_code, KeyCode::Tab) {
+                if let Some((node_id, action)) = crate::hit_test::declared_key_action(
+                    ir,
+                    self.runtime_state.interaction.focused,
+                    key_code,
+                    *modifiers,
+                ) {
+                    let input = crate::input::scoped_action_input(ir, node_id, ActionInput::None);
+                    self.dispatch_node_with_input(
+                        ActionEnvelope {
+                            id: ActionId::from_u128(action.action_id),
+                            payload: action.payload_data.unwrap_or_default(),
+                        },
+                        node_id,
+                        &input,
+                    )?;
+                    self.update_focused_ime_state(ir, layout);
+                    return Ok(());
+                }
+            }
+        }
+
         if matches!(event, InputEvent::Pointer(_)) {
             let dispatched_actions = {
                 let mut ctx = ControllerContext {
@@ -2214,31 +2246,6 @@ impl Runtime {
                 key_code,
                 modifiers,
             }) => {
-                // A node that declared a key asked for it explicitly, so it is
-                // consulted before the framework's own handling of that key.
-                // Tab is excluded: focus traversal is a property of the whole
-                // tree rather than of any one node, and letting a widget claim
-                // it would let that widget trap focus for the entire app.
-                if !matches!(key_code, KeyCode::Tab) {
-                    if let Some((node_id, action)) = crate::hit_test::declared_key_action(
-                        ir,
-                        self.runtime_state.interaction.focused,
-                        &key_code,
-                        modifiers,
-                    ) {
-                        let input =
-                            crate::input::scoped_action_input(ir, node_id, ActionInput::None);
-                        self.dispatch_node_with_input(
-                            ActionEnvelope {
-                                id: ActionId::from_u128(action.action_id),
-                                payload: action.payload_data.unwrap_or_default(),
-                            },
-                            node_id,
-                            &input,
-                        )?;
-                        return Ok(());
-                    }
-                }
                 match key_code {
                     KeyCode::Tab => {
                         let reverse = (modifiers & 1) != 0;
