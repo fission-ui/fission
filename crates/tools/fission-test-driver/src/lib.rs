@@ -11,7 +11,7 @@
 //! in-page bridge driven through Chromium.
 
 #[cfg(not(target_arch = "wasm32"))]
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 #[cfg(not(target_arch = "wasm32"))]
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -1008,7 +1008,7 @@ impl LiveTestClient {
                 let response = request
                     .send_string(&body)
                     .map_err(|error| anyhow!("request failed: {error}"))?;
-                serde_json::from_str(&response.into_string()?)?
+                decode_http_response(response.into_reader())?
             }
             LiveTestTransport::Browser(controller) => controller
                 .lock()
@@ -1761,6 +1761,11 @@ impl LiveTestClient {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn decode_http_response(reader: impl std::io::Read) -> Result<TestResponse> {
+    serde_json::from_reader(reader).context("failed to decode LiveTest HTTP response")
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn screenshot_bytes(response: TestResponse) -> Result<Vec<u8>> {
     match response {
         TestResponse::Screenshot {
@@ -1784,8 +1789,8 @@ fn rectangles_intersect(left: Bounds, right: Bounds) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        Bounds, SemanticNode, TestCommand, TestPointerKind, TestPointerPhase, TestScrollDeltaMode,
-        VisibilityState,
+        decode_http_response, Bounds, SemanticNode, TestCommand, TestPointerKind, TestPointerPhase,
+        TestResponse, TestScrollDeltaMode, VisibilityState,
     };
 
     fn populated_semantic_node() -> SemanticNode {
@@ -1839,6 +1844,24 @@ mod tests {
             width: 100.0,
             height: 40.0,
         }
+    }
+
+    #[test]
+    fn large_semantic_tree_response_decodes_without_string_size_limit() {
+        let mut node = populated_semantic_node();
+        node.label = Some("x".repeat(11 * 1024 * 1024));
+        let encoded = serde_json::to_vec(&TestResponse::Tree { nodes: vec![node] }).unwrap();
+        assert!(encoded.len() > 10 * 1024 * 1024);
+
+        let decoded = decode_http_response(std::io::Cursor::new(encoded)).unwrap();
+        let TestResponse::Tree { nodes } = decoded else {
+            panic!("expected tree response");
+        };
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(
+            nodes[0].label.as_deref().map(str::len),
+            Some(11 * 1024 * 1024)
+        );
     }
 
     #[test]
