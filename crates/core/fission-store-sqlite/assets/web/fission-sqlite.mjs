@@ -23,8 +23,10 @@ function createBridge(applicationId) {
   let ownerId = null;
   let releaseOwnership = null;
   let closed = false;
+  let workerRestartCount = 0;
   const pending = new Map();
   const relays = new Map();
+  const waitingEnvelopes = [];
   const channel = coordinated ? new BroadcastChannel(channelName) : null;
   const ownershipAbort = coordinated ? new AbortController() : null;
 
@@ -33,7 +35,12 @@ function createBridge(applicationId) {
     if (!request) return;
     pending.delete(data.id);
     if (data.ok) request.resolve(data.value);
-    else request.reject(new Error(data.error || "SQLite worker request failed"));
+    else {
+      const error = new Error(data.message || data.error || "SQLite worker request failed");
+      if (data.code) error.code = data.code;
+      if (Number.isInteger(data.sqlite_code)) error.sqliteCode = data.sqlite_code;
+      request.reject(error);
+    }
   }
 
   function respond(recipient, data) {
@@ -46,9 +53,14 @@ function createBridge(applicationId) {
     const relayId = nextRelayId++;
     relays.set(relayId, {
       sender: envelope.sender,
-      clientId: envelope.clientId,
+      requestId: envelope.requestId,
+      transactional: envelope.request?.operation?.startsWith("sql_tx_") || false,
     });
-    worker.postMessage({ id: relayId, request: envelope.request });
+    worker.postMessage({
+      id: relayId,
+      clientId: envelope.sender,
+      request: envelope.request,
+    });
   }
 
   function sendPendingToOwner() {
@@ -59,7 +71,7 @@ function createBridge(applicationId) {
         type: "request",
         ownerId,
         sender: contextId,
-        clientId: request.id,
+        requestId: request.id,
         request: request.value,
       };
       if (ownerId === contextId) {
@@ -73,36 +85,58 @@ function createBridge(applicationId) {
     }
   }
 
+  function failDatabaseWorker(currentWorker, reason) {
+    if (worker !== currentWorker) return;
+    workerReady = false;
+    worker = null;
+    currentWorker.terminate();
+    for (const [relayId, relay] of relays) {
+      relays.delete(relayId);
+      respond(relay.sender, {
+        id: relay.requestId,
+        ok: false,
+        code: relay.transactional ? "transaction_lost" : "unavailable",
+        message: `SQLite worker stopped before replying: ${reason}`,
+      });
+    }
+    if (!closed && workerRestartCount < 3) {
+      workerRestartCount += 1;
+      setTimeout(() => {
+        if (!closed && !worker && ownerId === contextId) startDatabaseWorker();
+      }, workerRestartCount * 100);
+    }
+  }
+
   function startDatabaseWorker() {
+    if (closed || worker) return;
     ownerId = contextId;
-    worker = new Worker(workerUrl, {
+    const currentWorker = new Worker(workerUrl, {
       type: "module",
       name: `fission-sqlite:${applicationId}`,
     });
+    worker = currentWorker;
 
-    worker.addEventListener("message", ({ data }) => {
+    currentWorker.addEventListener("message", ({ data }) => {
+      if (worker !== currentWorker) return;
       if (data?.type === "ready") {
         workerReady = true;
+        workerRestartCount = 0;
         channel?.postMessage({ type: "owner-ready", ownerId });
+        for (const envelope of waitingEnvelopes.splice(0)) forward(envelope);
         sendPendingToOwner();
         return;
       }
       const relay = relays.get(data?.id);
       if (!relay) return;
       relays.delete(data.id);
-      respond(relay.sender, { ...data, id: relay.clientId });
+      respond(relay.sender, { ...data, id: relay.requestId });
     });
 
-    worker.addEventListener("error", (event) => {
-      const error = event.message || "SQLite worker failed";
-      for (const [relayId, relay] of relays) {
-        relays.delete(relayId);
-        respond(relay.sender, {
-          id: relay.clientId,
-          ok: false,
-          error,
-        });
-      }
+    currentWorker.addEventListener("error", (event) => {
+      failDatabaseWorker(currentWorker, event.message || "SQLite worker failed");
+    });
+    currentWorker.addEventListener("messageerror", () => {
+      failDatabaseWorker(currentWorker, "the worker returned an unreadable message");
     });
   }
 
@@ -114,7 +148,10 @@ function createBridge(applicationId) {
         ownerId = data.ownerId;
         sendPendingToOwner();
       } else if (data?.type === "request") {
-        if (workerReady && data.ownerId === ownerId) forward(data);
+        if (data.ownerId === ownerId) {
+          if (workerReady) forward(data);
+          else waitingEnvelopes.push(data);
+        }
       } else if (data?.type === "response" && data.recipient === contextId) {
         settle(data.data);
       }

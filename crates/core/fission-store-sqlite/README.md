@@ -26,6 +26,43 @@ Separate tabs use independent SQLite connections coordinated through Web Locks. 
 
 The provider implements both `StoreProvider` and `SqlStoreProvider`, so typed key/value operations, parameterised SQL, migrations and transactions use one database authority. Static-site builds have no runtime storage; SSR storage is server-side.
 
+### Worker-owned Web transactions
+
+For browser runtimes that need to keep one SQLite transaction open across
+several asynchronous steps, `WebSqliteStore::begin_transaction` returns an
+opaque handle bound to the browser tab that created it. Other tabs receive a
+typed `Busy` error while that handle is open. A dropped handle requests a
+rollback; call `commit` or `rollback` explicitly when possible.
+
+The Web-only API also exposes SQLite Session capture and changeset apply. A
+session can observe only the tables passed to `create_session`, and an
+authorizer policy plus transaction-scoped operation context can be installed
+when the transaction begins. This lets a browser adapter keep database access
+inside Fission's worker instead of opening another OPFS connection:
+
+```rust,ignore
+let mut transaction = store
+    .begin_transaction(WebSqliteTransactionOptions {
+        authorizer_policy: Some(policy),
+        operation_context: Some(WebSqliteOperationContext {
+            operation_id,
+            next_op_seq: 1,
+        }),
+    })
+    .await?;
+
+let session = transaction.create_session(["documents", "document_pages"]).await?;
+transaction.execute(insert_document).await?;
+let changeset = transaction.capture_changeset(&session).await?;
+transaction.commit().await?;
+```
+
+`pdb_current_operation_id()` and `pdb_next_op_seq()` are registered only while
+the operation context is active. The worker invalidates the handle and rolls
+back on statement, capture, or changeset-apply failure. A worker loss is
+reported as `SqlErrorKind::Transaction` with a transaction-lost message; quota,
+busy, unavailable-storage, and SQLite failures retain distinct error kinds.
+
 See the [storage and SQLite guide](https://fission.rs/docs/guides/storage-and-sqlite/) and the [`store-sqlite` example](https://github.com/fission-ui/fission/tree/main/examples/store-sqlite).
 
 ## Licence

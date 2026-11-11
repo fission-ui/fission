@@ -8,7 +8,11 @@ pub use native::SqliteStore;
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
 mod web;
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
-pub use web::WebSqliteStore;
+pub use web::{
+    WebSqliteAuthorizerAction, WebSqliteAuthorizerDecision, WebSqliteAuthorizerPolicy,
+    WebSqliteAuthorizerRule, WebSqliteChangesetConflictPolicy, WebSqliteOperationContext,
+    WebSqliteSession, WebSqliteStore, WebSqliteTransaction, WebSqliteTransactionOptions,
+};
 
 pub const FISSION_STORE_SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS fission (

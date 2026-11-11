@@ -398,6 +398,7 @@ fn map_store_error(error: rusqlite::Error) -> StoreError {
     let kind = match sql.kind {
         SqlErrorKind::Unavailable => StoreErrorKind::Unavailable,
         SqlErrorKind::Busy => StoreErrorKind::Busy,
+        SqlErrorKind::QuotaExceeded => StoreErrorKind::QuotaExceeded,
         SqlErrorKind::ReadOnly => StoreErrorKind::ReadOnly,
         SqlErrorKind::InvalidParameter | SqlErrorKind::InvalidSql => StoreErrorKind::InvalidRequest,
         _ => StoreErrorKind::Backend,
@@ -410,6 +411,7 @@ fn map_sql_error(error: rusqlite::Error) -> SqlError {
         rusqlite::Error::SqliteFailure(failure, _) => {
             let kind = match failure.code {
                 ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked => SqlErrorKind::Busy,
+                ErrorCode::DiskFull => SqlErrorKind::QuotaExceeded,
                 ErrorCode::ReadOnly => SqlErrorKind::ReadOnly,
                 ErrorCode::ConstraintViolation => SqlErrorKind::Constraint,
                 _ => SqlErrorKind::Backend,
@@ -431,6 +433,7 @@ fn sql_to_store_error(error: SqlError) -> StoreError {
     let kind = match error.kind {
         SqlErrorKind::Unavailable => StoreErrorKind::Unavailable,
         SqlErrorKind::Busy => StoreErrorKind::Busy,
+        SqlErrorKind::QuotaExceeded => StoreErrorKind::QuotaExceeded,
         SqlErrorKind::ReadOnly => StoreErrorKind::ReadOnly,
         SqlErrorKind::InvalidParameter | SqlErrorKind::InvalidSql => StoreErrorKind::InvalidRequest,
         _ => StoreErrorKind::Backend,

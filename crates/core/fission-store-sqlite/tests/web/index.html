@@ -12,16 +12,102 @@
       globalThis.__fissionSqliteRequest({ operation, request: value });
     const execute = (sql, parameters = "None") =>
       request("sql_execute", { sql, parameters });
+    const transactionStatement = (transactionId, operation, sql, parameters = "None") =>
+      request(operation, {
+        transaction_id: transactionId,
+        statement: { sql, parameters },
+      });
 
     try {
       const run = crypto.randomUUID();
       if (new URL(location.href).searchParams.has("peer")) {
         const peerRun = new URL(location.href).searchParams.get("run");
+        const transactionId = new URL(location.href).searchParams.get("transaction_id");
+        let ownerError;
+        try {
+          await transactionStatement(
+            transactionId,
+            "sql_tx_execute",
+            "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
+            { Positional: [{ Text: peerRun }, { Text: "intruder" }] },
+          );
+        } catch (error) {
+          ownerError = error.code;
+        }
+        let busyError;
+        try {
+          await execute(
+            "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
+            { Positional: [{ Text: peerRun }, { Text: "busy" }] },
+          );
+        } catch (error) {
+          busyError = error.code;
+        }
+        let beginError;
+        try {
+          await request("sql_tx_begin", {});
+        } catch (error) {
+          beginError = error.code;
+        }
+        if (
+          ownerError !== "transaction_owner_mismatch" ||
+          busyError !== "busy" ||
+          beginError !== "busy"
+        ) {
+          throw new Error(
+            `wrong tab received owner=${ownerError}, busy=${busyError}, begin=${beginError}`,
+          );
+        }
+        parent.postMessage(
+          { type: "fission-sqlite-owner-check", run: peerRun },
+          location.origin,
+        );
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("transaction release timed out")), 15000);
+          addEventListener("message", (event) => {
+            if (event.origin === location.origin && event.data?.type === "fission-sqlite-release") {
+              clearTimeout(timeout);
+              resolve();
+            }
+          });
+        });
+        let expiredError;
+        try {
+          await transactionStatement(
+            transactionId,
+            "sql_tx_query",
+            "SELECT 1",
+          );
+        } catch (error) {
+          expiredError = error.code;
+        }
+        if (expiredError !== "transaction_lost") {
+          throw new Error(`worker loss did not expire its transaction: ${expiredError}`);
+        }
+        const uncommitted = await request("sql_query", {
+          statement: {
+            sql: "SELECT count(*) AS count FROM browser_smoke WHERE run=?1 AND writer='uncommitted'",
+            parameters: { Positional: [{ Text: peerRun }] },
+          },
+        });
+        if (uncommitted.rows[0]?.values[0]?.Integer !== 0) {
+          throw new Error("worker loss left uncommitted data visible");
+        }
         await execute(
           "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
           { Positional: [{ Text: peerRun }, { Text: "peer" }] },
         );
-        parent.postMessage({ type: "fission-sqlite-peer-complete", run: peerRun }, location.origin);
+        const finalRows = await request("sql_query", {
+          statement: {
+            sql: "SELECT writer FROM browser_smoke WHERE run=?1 ORDER BY writer",
+            parameters: { Positional: [{ Text: peerRun }] },
+          },
+        });
+        const writers = finalRows.rows.map((row) => row.values[0].Text).join(",");
+        parent.postMessage(
+          { type: "fission-sqlite-peer-complete", run: peerRun, writers },
+          location.origin,
+        );
         globalThis.__FISSION_SQLITE_BRIDGE__.close();
       } else {
         await execute(
@@ -30,6 +116,136 @@
         await execute(
           "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
           { Positional: [{ Text: run }, { Text: "parent" }] },
+        );
+
+        await execute(
+          "CREATE TABLE IF NOT EXISTS browser_transaction_smoke(run TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        );
+        const transactionRun = crypto.randomUUID();
+        const transaction = await request("sql_tx_begin", {
+          operationContext: { operation_id: "browser-smoke-operation", next_op_seq: 1 },
+          authorizerPolicy: {
+            defaultDecision: "Deny",
+            rules: [
+              { action: "Read", decision: "Allow" },
+              {
+                action: "Insert",
+                decision: "Allow",
+                firstArgument: "browser_transaction_smoke",
+              },
+            ],
+          },
+        });
+        const transactionId = transaction.transaction_id;
+        const session = await request("sql_tx_session_create", {
+          transaction_id: transactionId,
+          tables: ["browser_transaction_smoke"],
+        });
+        await transactionStatement(
+          transactionId,
+          "sql_tx_execute",
+          "INSERT INTO browser_transaction_smoke(run, value) VALUES (?1, ?2)",
+          { Positional: [{ Text: transactionRun }, { Text: "saved by a changeset" }] },
+        );
+        const context = await transactionStatement(
+          transactionId,
+          "sql_tx_query",
+          "SELECT pdb_current_operation_id() AS operation_id, pdb_next_op_seq() AS sequence",
+        );
+        const contextValues = context.rows[0]?.values;
+        if (
+          contextValues?.[0]?.Text !== "browser-smoke-operation" ||
+          contextValues?.[1]?.Integer !== 1
+        ) {
+          throw new Error("transaction operation-context functions returned the wrong values");
+        }
+        const captured = await request("sql_tx_session_capture", {
+          transaction_id: transactionId,
+          session_id: session.session_id,
+        });
+        if (!captured.changeset.length) throw new Error("SQLite Session captured no changes");
+
+        let authorizerError;
+        try {
+          await transactionStatement(
+            transactionId,
+            "sql_tx_execute",
+            "DELETE FROM browser_smoke WHERE run=?1",
+            { Positional: [{ Text: run }] },
+          );
+        } catch (error) {
+          authorizerError = error.sqliteCode;
+        }
+        if (authorizerError !== 23) throw new Error("the transaction authorizer did not deny the write");
+        let expiredError;
+        try {
+          await transactionStatement(
+            transactionId,
+            "sql_tx_query",
+            "SELECT count(*) FROM browser_transaction_smoke",
+          );
+        } catch (error) {
+          expiredError = error.code;
+        }
+        if (expiredError !== "transaction_lost") {
+          throw new Error(`failed transaction handle was not expired: ${expiredError}`);
+        }
+        const rolledBack = await request("sql_query", {
+          statement: {
+            sql: "SELECT count(*) AS count FROM browser_transaction_smoke WHERE run=?1",
+            parameters: { Positional: [{ Text: transactionRun }] },
+          },
+        });
+        if (rolledBack.rows[0]?.values[0]?.Integer !== 0) {
+          throw new Error("authorizer failure did not roll back the open transaction");
+        }
+        let rollbackContextExpired = false;
+        try {
+          await request("sql_query", {
+            statement: { sql: "SELECT pdb_current_operation_id()" },
+          });
+        } catch (error) {
+          rollbackContextExpired = error.sqliteCode === 1;
+        }
+        if (!rollbackContextExpired) throw new Error("rollback left operation functions installed");
+
+        const apply = await request("sql_tx_begin", {});
+        await request("sql_tx_changeset_apply", {
+          transaction_id: apply.transaction_id,
+          changeset: captured.changeset,
+          conflict_policy: "Abort",
+        });
+        await request("sql_tx_commit", { transaction_id: apply.transaction_id });
+        const applied = await request("sql_query", {
+          statement: {
+            sql: "SELECT value FROM browser_transaction_smoke WHERE run=?1",
+            parameters: { Positional: [{ Text: transactionRun }] },
+          },
+        });
+        if (applied.rows[0]?.values[0]?.Text !== "saved by a changeset") {
+          throw new Error("SQLite changeset was not applied and committed");
+        }
+
+        const committedContext = await request("sql_tx_begin", {
+          operationContext: { operation_id: "committed-operation", next_op_seq: 1 },
+        });
+        await request("sql_tx_commit", { transaction_id: committedContext.transaction_id });
+        let commitContextExpired = false;
+        try {
+          await request("sql_query", {
+            statement: { sql: "SELECT pdb_current_operation_id()" },
+          });
+        } catch (error) {
+          commitContextExpired = error.sqliteCode === 1;
+        }
+        if (!commitContextExpired) throw new Error("commit left operation functions installed");
+
+        const held = await request("sql_tx_begin", {});
+        await transactionStatement(
+          held.transaction_id,
+          "sql_tx_execute",
+          "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
+          { Positional: [{ Text: run }, { Text: "uncommitted" }] },
         );
 
         const peerComplete = new Promise((resolve, reject) => {
@@ -41,7 +257,7 @@
               event.data?.run === run
             ) {
               clearTimeout(timeout);
-              resolve();
+              resolve(event.data.writers);
             }
           });
         });
@@ -50,17 +266,27 @@
         const peerUrl = new URL(location.href);
         peerUrl.searchParams.set("peer", "1");
         peerUrl.searchParams.set("run", run);
+        peerUrl.searchParams.set("transaction_id", held.transaction_id);
         iframe.src = peerUrl;
-        document.body.append(iframe);
-        await peerComplete;
-
-        const rows = await request("sql_query", {
-          statement: {
-            sql: "SELECT writer FROM browser_smoke WHERE run=?1 ORDER BY writer",
-            parameters: { Positional: [{ Text: run }] },
-          },
+        const ownershipCheck = new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("peer ownership check timed out")), 15000);
+          addEventListener("message", (event) => {
+            if (
+              event.origin === location.origin &&
+              event.data?.type === "fission-sqlite-owner-check" &&
+              event.data?.run === run
+            ) {
+              clearTimeout(timeout);
+              resolve();
+            }
+          });
         });
-        const writers = rows.rows.map((row) => row.values[0].Text).join(",");
+        document.body.append(iframe);
+        await ownershipCheck;
+        await transactionStatement(held.transaction_id, "sql_tx_query", "SELECT 1");
+        globalThis.__FISSION_SQLITE_BRIDGE__.close();
+        iframe.contentWindow.postMessage({ type: "fission-sqlite-release" }, location.origin);
+        const writers = await peerComplete;
         document.body.dataset.status = writers === "parent,peer" ? "passed" : "failed";
         document.body.textContent = writers;
         iframe.remove();
