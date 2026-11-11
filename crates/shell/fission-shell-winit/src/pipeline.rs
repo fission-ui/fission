@@ -108,6 +108,15 @@ impl InvalidationSet {
     }
 }
 
+pub(crate) fn software_frame_needs_raster(
+    frame_valid: bool,
+    invalidations: InvalidationSet,
+    paint_misses: usize,
+    has_dynamic_surfaces: bool,
+) -> bool {
+    !frame_valid || invalidations.any() || paint_misses > 0 || has_dynamic_surfaces
+}
+
 #[derive(Debug, Clone)]
 struct BoundaryCacheEntry {
     hash: u64,

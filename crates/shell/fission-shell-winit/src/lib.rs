@@ -5661,6 +5661,8 @@ where
             .unwrap_or(false);
         let mut frame_trace = FrameTraceState::new(frame_trace_enabled());
         let mut presented_frames: u64 = 0;
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut software_frame_valid = false;
         let mut next_text_trace_seq: u64 = 0;
         let mut pending_text_traces: VecDeque<PendingTextTrace> = VecDeque::new();
         #[cfg(target_arch = "wasm32")]
@@ -8418,6 +8420,7 @@ where
                                         );
                                     }
                                     render_state.target_texture_size = render_target_size;
+                                    software_frame_valid = false;
                                 }
                             }
 
@@ -9372,58 +9375,91 @@ where
                                                 }
                                             }
                                             MainRenderer::Software => {
-                                                let retained_scene = pipeline
-                                                    .retained_scene()
-                                                    .expect(
-                                                    "retained render scene missing before render",
-                                                );
-                                                let Ok(rgba) =
-                                                    fission_render_vello::cpu::render_to_rgba8(
-                                                        retained_scene,
-                                                        render_target_size.0,
-                                                        render_target_size.1,
-                                                        fission_render::Color {
-                                                            r: env.theme.tokens.colors.background.r,
-                                                            g: env.theme.tokens.colors.background.g,
-                                                            b: env.theme.tokens.colors.background.b,
-                                                            a: env.theme.tokens.colors.background.a,
-                                                        },
-                                                        scale_factor,
-                                                        measurer.clone(),
-                                                    )
-                                                    .inspect_err(|error| {
-                                                        report_frame_failure(
-                                                            "rasterize software frame",
-                                                            error,
+                                                let has_dynamic_surfaces = stats.video_surfaces > 0
+                                                    || !pipeline.web_surfaces.is_empty()
+                                                    || !pipeline.native_surfaces.is_empty();
+                                                if crate::pipeline::software_frame_needs_raster(
+                                                    software_frame_valid,
+                                                    invalidations,
+                                                    stats.paint_misses,
+                                                    has_dynamic_surfaces,
+                                                ) {
+                                                    let retained_scene = pipeline
+                                                        .retained_scene()
+                                                        .expect(
+                                                            "retained render scene missing before render",
+                                                        );
+                                                    let Ok(rgba) =
+                                                        fission_render_vello::cpu::render_to_rgba8(
+                                                            retained_scene,
+                                                            render_target_size.0,
+                                                            render_target_size.1,
+                                                            fission_render::Color {
+                                                                r: env
+                                                                    .theme
+                                                                    .tokens
+                                                                    .colors
+                                                                    .background
+                                                                    .r,
+                                                                g: env
+                                                                    .theme
+                                                                    .tokens
+                                                                    .colors
+                                                                    .background
+                                                                    .g,
+                                                                b: env
+                                                                    .theme
+                                                                    .tokens
+                                                                    .colors
+                                                                    .background
+                                                                    .b,
+                                                                a: env
+                                                                    .theme
+                                                                    .tokens
+                                                                    .colors
+                                                                    .background
+                                                                    .a,
+                                                            },
+                                                            scale_factor,
+                                                            measurer.clone(),
                                                         )
-                                                    })
-                                                else {
-                                                    diag::end_frame(diag::FrameStats::default());
-                                                    return;
-                                                };
-                                                device_handle.queue.write_texture(
-                                                    wgpu::TexelCopyTextureInfo {
-                                                        texture: &render_state
-                                                            .surface
-                                                            .target_texture,
-                                                        mip_level: 0,
-                                                        origin: wgpu::Origin3d::ZERO,
-                                                        aspect: wgpu::TextureAspect::All,
-                                                    },
-                                                    &rgba,
-                                                    wgpu::TexelCopyBufferLayout {
-                                                        offset: 0,
-                                                        bytes_per_row: Some(
-                                                            render_target_size.0 * 4,
-                                                        ),
-                                                        rows_per_image: Some(render_target_size.1),
-                                                    },
-                                                    wgpu::Extent3d {
-                                                        width: render_target_size.0,
-                                                        height: render_target_size.1,
-                                                        depth_or_array_layers: 1,
-                                                    },
-                                                );
+                                                        .inspect_err(|error| {
+                                                            report_frame_failure(
+                                                                "rasterize software frame",
+                                                                error,
+                                                            )
+                                                        })
+                                                    else {
+                                                        diag::end_frame(diag::FrameStats::default());
+                                                        return;
+                                                    };
+                                                    device_handle.queue.write_texture(
+                                                        wgpu::TexelCopyTextureInfo {
+                                                            texture: &render_state
+                                                                .surface
+                                                                .target_texture,
+                                                            mip_level: 0,
+                                                            origin: wgpu::Origin3d::ZERO,
+                                                            aspect: wgpu::TextureAspect::All,
+                                                        },
+                                                        &rgba,
+                                                        wgpu::TexelCopyBufferLayout {
+                                                            offset: 0,
+                                                            bytes_per_row: Some(
+                                                                render_target_size.0 * 4,
+                                                            ),
+                                                            rows_per_image: Some(
+                                                                render_target_size.1,
+                                                            ),
+                                                        },
+                                                        wgpu::Extent3d {
+                                                            width: render_target_size.0,
+                                                            height: render_target_size.1,
+                                                            depth_or_array_layers: 1,
+                                                        },
+                                                    );
+                                                    software_frame_valid = true;
+                                                }
                                             }
                                         }
 
@@ -10849,7 +10885,7 @@ mod tests {
         window_insets_from_safe_area_frames, windows_shell_execute_succeeded, windows_wide,
         BrowserDefaults, LiveResizeController, SurfaceAcquireRecovery, WindowViewportState,
     };
-    use crate::pipeline::CompositorTexturePlan;
+    use crate::pipeline::{software_frame_needs_raster, CompositorTexturePlan};
     use crate::InvalidationSet;
     use fission_core::event::{InputEvent, KeyCode, KeyEvent};
     use fission_core::{
@@ -11751,6 +11787,38 @@ mod tests {
             animation_redraw_interval(false, Some(repeat_frame), false, min_frame),
             Some(repeat_frame)
         );
+    }
+
+    #[test]
+    fn unchanged_software_frames_reuse_the_valid_render_target() {
+        assert!(!software_frame_needs_raster(
+            true,
+            InvalidationSet::default(),
+            0,
+            false,
+        ));
+        assert!(software_frame_needs_raster(
+            false,
+            InvalidationSet::default(),
+            0,
+            false,
+        ));
+
+        let mut invalidations = InvalidationSet::default();
+        invalidations.mark_composite();
+        assert!(software_frame_needs_raster(true, invalidations, 0, false,));
+        assert!(software_frame_needs_raster(
+            true,
+            InvalidationSet::default(),
+            1,
+            false,
+        ));
+        assert!(software_frame_needs_raster(
+            true,
+            InvalidationSet::default(),
+            0,
+            true,
+        ));
     }
 
     #[test]
