@@ -10,7 +10,7 @@ use fission_layout::{
     TextMeasurer,
 };
 use fission_render::TextStyle as RenderTextStyle;
-use parley::layout::{Affinity, Cursor, Layout, PositionedLayoutItem};
+use parley::layout::{Affinity, Cluster, Layout, PositionedLayoutItem};
 use parley::style::{
     FontFamily, FontFeatures, FontStyle as ParleyFontStyle, FontVariations, FontWeight, Language,
     LineHeight, OverflowWrap, StyleProperty, WordBreak,
@@ -124,6 +124,163 @@ pub(crate) fn typography_baseline_shift(
         }
     };
     baseline + leading
+}
+
+#[derive(Clone, Copy)]
+struct CaretCluster {
+    x: f32,
+    advance: f32,
+    block_min: f32,
+    block_max: f32,
+    is_rtl: bool,
+    is_end_of_line: bool,
+    is_soft_line_break: bool,
+    is_hard_line_break: bool,
+    previous_visual_start: Option<usize>,
+    next_visual_start: Option<usize>,
+}
+
+fn cursor_rect_from_clusters(
+    layout: &Layout<ParleyBrush>,
+    index: usize,
+    affinity: Affinity,
+    clusters_by_start: &HashMap<usize, CaretCluster>,
+    clusters_by_end: &HashMap<usize, CaretCluster>,
+) -> (f32, f32, f32) {
+    let downstream = clusters_by_start.get(&index).copied();
+    let upstream = clusters_by_end.get(&index).copied();
+    let affinity = if downstream.is_none() {
+        // Parley's byte-index constructor uses upstream affinity at the end of
+        // the text, regardless of the requested affinity.
+        Affinity::Upstream
+    } else if index == 0 {
+        // There is no upstream caret at the start of the text.
+        Affinity::Downstream
+    } else {
+        affinity
+    };
+
+    let (left, right) = match affinity {
+        Affinity::Upstream => {
+            if let Some(cluster) = upstream {
+                if cluster.is_rtl {
+                    (
+                        cluster
+                            .previous_visual_start
+                            .and_then(|start| clusters_by_start.get(&start).copied()),
+                        Some(cluster),
+                    )
+                } else {
+                    (
+                        Some(cluster),
+                        cluster
+                            .next_visual_start
+                            .and_then(|start| clusters_by_start.get(&start).copied()),
+                    )
+                }
+            } else if let Some(cluster) = downstream {
+                if cluster.is_rtl {
+                    (None, Some(cluster))
+                } else {
+                    (Some(cluster), None)
+                }
+            } else {
+                (None, None)
+            }
+        }
+        Affinity::Downstream => {
+            if let Some(cluster) = downstream {
+                if cluster.is_rtl {
+                    (
+                        Some(cluster),
+                        cluster
+                            .next_visual_start
+                            .and_then(|start| clusters_by_start.get(&start).copied()),
+                    )
+                } else {
+                    (
+                        cluster
+                            .previous_visual_start
+                            .and_then(|start| clusters_by_start.get(&start).copied()),
+                        Some(cluster),
+                    )
+                }
+            } else if let Some(cluster) = upstream {
+                if cluster.is_rtl {
+                    (None, Some(cluster))
+                } else {
+                    (Some(cluster), None)
+                }
+            } else {
+                (None, None)
+            }
+        }
+    };
+
+    match (left, right) {
+        (Some(left), Some(right)) => {
+            if left.is_end_of_line {
+                if left.is_soft_line_break {
+                    let (cluster, at_end) = if left.is_rtl && affinity == Affinity::Downstream
+                        || !left.is_rtl && affinity == Affinity::Upstream
+                    {
+                        (left, true)
+                    } else {
+                        (right, false)
+                    };
+                    cluster_cursor_rect(cluster, at_end)
+                } else {
+                    cluster_cursor_rect(right, false)
+                }
+            } else {
+                cluster_cursor_rect(left, true)
+            }
+        }
+        (Some(left), None) if left.is_hard_line_break => last_line_cursor_rect(layout),
+        (Some(left), _) => cluster_cursor_rect(left, true),
+        (_, Some(right)) => cluster_cursor_rect(right, false),
+        (None, None) => last_line_cursor_rect(layout),
+    }
+}
+
+fn cluster_cursor_rect(cluster: CaretCluster, at_end: bool) -> (f32, f32, f32) {
+    let x = cluster.x + if at_end { cluster.advance } else { 0.0 };
+    (x, cluster.block_min, cluster.block_max)
+}
+
+fn cache_caret_cluster(cluster: &Cluster<'_, ParleyBrush>) -> CaretCluster {
+    let line = cluster.line();
+    let metrics = line.metrics();
+    CaretCluster {
+        x: cluster.visual_offset().unwrap_or_default(),
+        advance: cluster.advance(),
+        block_min: metrics.block_min_coord,
+        block_max: metrics.block_max_coord,
+        is_rtl: cluster.is_rtl(),
+        is_end_of_line: cluster.is_end_of_line(),
+        is_soft_line_break: cluster.is_soft_line_break(),
+        is_hard_line_break: cluster.is_hard_line_break(),
+        previous_visual_start: cluster
+            .previous_visual()
+            .map(|neighbor| neighbor.text_range().start),
+        next_visual_start: cluster
+            .next_visual()
+            .map(|neighbor| neighbor.text_range().start),
+    }
+}
+
+fn last_line_cursor_rect(layout: &Layout<ParleyBrush>) -> (f32, f32, f32) {
+    layout
+        .get(layout.len().saturating_sub(1))
+        .map(|line| {
+            let metrics = line.metrics();
+            (
+                metrics.offset,
+                metrics.block_min_coord,
+                metrics.block_max_coord,
+            )
+        })
+        .unwrap_or_default()
 }
 
 pub struct VelloTextMeasurer {
@@ -935,6 +1092,8 @@ impl TextMeasurer for VelloTextMeasurer {
         let mut clusters = Vec::new();
         let mut glyphs = Vec::new();
         let mut selection_boxes = Vec::new();
+        let mut clusters_by_start = HashMap::new();
+        let mut clusters_by_end = HashMap::new();
         let mut caret_indices = vec![0, rich.text.len()];
         for (line_index, line) in layout.lines().enumerate() {
             let metrics = line.metrics();
@@ -967,6 +1126,9 @@ impl TextMeasurer for VelloTextMeasurer {
                 );
                 for cluster in run.visual_clusters() {
                     let range = cluster.text_range();
+                    let caret_cluster = cache_caret_cluster(&cluster);
+                    clusters_by_start.insert(range.start, caret_cluster);
+                    clusters_by_end.insert(range.end, caret_cluster);
                     let cluster_index = clusters.len();
                     let cluster_x = cluster.visual_offset().unwrap_or(metrics.offset);
                     let cluster_rect = LayoutRect::new(
@@ -1024,7 +1186,13 @@ impl TextMeasurer for VelloTextMeasurer {
         for index in caret_indices {
             for (upstream, affinity) in [(false, Affinity::Downstream), (true, Affinity::Upstream)]
             {
-                let rect = Cursor::from_byte_index(&layout, index, affinity).geometry(&layout, 0.0);
+                let (caret_x, caret_y, caret_bottom) = cursor_rect_from_clusters(
+                    &layout,
+                    index,
+                    affinity,
+                    &clusters_by_start,
+                    &clusters_by_end,
+                );
                 let baseline_shift = rich
                     .styles
                     .iter()
@@ -1050,8 +1218,8 @@ impl TextMeasurer for VelloTextMeasurer {
                 caret_stops.push(ParagraphCaretStop {
                     index,
                     upstream,
-                    position: LayoutPoint::new(rect.x0 as f32, rect.y0 as f32 + baseline_shift),
-                    height: (rect.y1 - rect.y0) as f32,
+                    position: LayoutPoint::new(caret_x, caret_y + baseline_shift),
+                    height: caret_bottom - caret_y,
                 });
             }
         }
@@ -1272,6 +1440,7 @@ mod tests {
     use super::*;
     use fission_ir::op::{encode_inline_widget_marker, Color, FontStyle, TextStyle};
     use fission_layout::TextMeasurer;
+    use parley::layout::Cursor;
 
     fn measurer() -> VelloTextMeasurer {
         VelloTextMeasurer::new(Arc::new(Mutex::new(FontContext::new())))
@@ -1412,6 +1581,60 @@ mod tests {
             assert!(text.is_char_boundary(line.end_index));
             assert!(line.start_index <= line.end_index);
             assert!(line.height > 0.0);
+        }
+    }
+
+    #[test]
+    fn fast_rich_text_caret_geometry_matches_parley_for_wrapped_unicode() {
+        let measurer = measurer();
+        let text = "A paragraph wraps here; cafe\u{301} 👩🏽‍💻\nمرحبا بالعالم; עברית";
+        let rich = VelloTextMeasurer::rich_layout_input_from_ir_runs(&[text_run(text, 18.0, 24.0)]);
+        let layout = measurer.layout_rich(
+            &rich.text,
+            rich.base_size,
+            rich.base_color,
+            &rich.styles,
+            &rich.inline_boxes,
+            Some(110.0),
+        );
+        let mut clusters_by_start = HashMap::new();
+        let mut clusters_by_end = HashMap::new();
+        let mut caret_indices = vec![0, text.len()];
+        for line in layout.lines() {
+            for run in line.runs() {
+                for cluster in run.visual_clusters() {
+                    let range = cluster.text_range();
+                    caret_indices.extend([range.start, range.end]);
+                    let caret_cluster = cache_caret_cluster(&cluster);
+                    clusters_by_start.insert(range.start, caret_cluster);
+                    clusters_by_end.insert(range.end, caret_cluster);
+                }
+            }
+        }
+        caret_indices.sort_unstable();
+        caret_indices.dedup();
+
+        for index in caret_indices {
+            for affinity in [Affinity::Downstream, Affinity::Upstream] {
+                let actual = cursor_rect_from_clusters(
+                    &layout,
+                    index,
+                    affinity,
+                    &clusters_by_start,
+                    &clusters_by_end,
+                );
+                let expected =
+                    Cursor::from_byte_index(&layout, index, affinity).geometry(&layout, 0.0);
+                assert!(
+                    (actual.0 - expected.x0 as f32).abs() < 0.01
+                        && (actual.1 - expected.y0 as f32).abs() < 0.01
+                        && (actual.2 - expected.y1 as f32).abs() < 0.01,
+                    "caret geometry differs at byte {index} with {affinity:?}: fast={actual:?}, Parley=({}, {}, {})",
+                    expected.x0,
+                    expected.y0,
+                    expected.y1,
+                );
+            }
         }
     }
 
