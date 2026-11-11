@@ -180,7 +180,7 @@ fn webgpu_renderer_resizes_without_recreating_mapped_config_buffer() -> anyhow::
 
     let initial = observe(&client)?;
     assert_eq!(initial["frame"]["phase"], "submitted");
-    for width in [390, 1280, 390] {
+    for (step, width) in [390, 1280, 390].into_iter().enumerate() {
         client.simulate_resize(width, 900)?;
         let resized = observe(&client)?;
         assert_eq!(resized["width"], width);
@@ -188,6 +188,7 @@ fn webgpu_renderer_resizes_without_recreating_mapped_config_buffer() -> anyhow::
         assert_eq!(resized["canvas"]["pixel_width"], width);
         assert_eq!(resized["canvas"]["pixel_height"], 900);
         assert_eq!(resized["frame"]["phase"], "submitted");
+        capture(&client, &format!("webgpu-step-{step}"), width)?;
     }
     Ok(())
 }
