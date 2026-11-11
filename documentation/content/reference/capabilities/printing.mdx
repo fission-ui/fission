@@ -23,6 +23,8 @@ ctx.effects.print_pdf(request)
 
 `FileWriteSource::Stream` is one-shot. Current providers buffer the stream before handing the PDF to the platform print API, so large PDFs still use memory proportional to their size.
 
+An app job that generates a large PDF can register its output with `JobCtx::register_data_stream(...)` and return the handle. A reducer can pass that handle to `PrintPdfRequest` as `FileWriteSource::Stream`. On Web, keep the Print action separate from asynchronous PDF generation: the browser must open its print window during the user action, before the provider awaits the stream. Generate or load the PDF first, then let the user press Print.
+
 ## Outcomes
 
 | Outcome | Meaning |
