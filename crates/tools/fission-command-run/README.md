@@ -10,6 +10,7 @@ Run, build, test, logs, devices, and doctor workflows for the `fission` command.
 - `fission devices` detects runnable macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, SSR, and other configured targets where the command has a host workflow.
 - `fission run` builds, launches, and attaches to app output where the platform supports it.
 - `fission run --target web` prints the renderer selected by the browser runtime, for example `webgpu-vello` or the `canvas2d-software` fallback with its fallback reason.
+- Local Web readiness checks allow 64 MiB per required asset by default. Set `FISSION_SERVING_MAX_ASSET_BYTES` to a positive byte count when a debug WebAssembly bundle exceeds that size.
 - Web `run`, `build`, and `test` commands forward explicit `--features` and `--no-default-features` selections to `wasm-pack`.
 - `fission build`, `fission test`, and `fission logs` shared execution helpers.
 
