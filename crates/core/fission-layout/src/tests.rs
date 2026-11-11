@@ -163,6 +163,22 @@ fn matches_input_nodes_rejects_reordered_flattened_inputs() {
 }
 
 #[test]
+fn matches_input_nodes_detects_changed_rich_text_without_formatting_nodes() {
+    let root = WidgetId::from_u128(20);
+    let mut original = box_node(root, None, vec![]);
+    original.rich_text = Some(vec![text_run(
+        "A long paragraph that is retained by layout.",
+    )]);
+    let state = LayoutGraphState::from_input_nodes(&[original.clone()], 1);
+
+    assert!(state.matches_input_nodes(&[original.clone()]));
+
+    let mut changed = original;
+    changed.rich_text = Some(vec![text_run("A long paragraph with edited content.")]);
+    assert!(!state.matches_input_nodes(&[changed]));
+}
+
+#[test]
 fn update_refreshes_node_order_for_reordered_flattened_inputs() {
     let root = WidgetId::from_u128(10);
     let first = WidgetId::from_u128(11);

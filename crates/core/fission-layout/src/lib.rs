@@ -33,9 +33,7 @@ use fission_diagnostics::prelude as diag;
 use fission_ir::op::{BoxStyle, Length, RichTextAnnotation, TextParagraphStyle, TextRun};
 use fission_ir::{FlexDirection as IrFlexDirection, FlexWrap as IrFlexWrap, WidgetId};
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 
 mod geometry;
@@ -615,7 +613,6 @@ struct LayoutGraphState {
     graph_version: u64,
     last_layout_version: Option<u64>,
     node_order: Vec<WidgetId>,
-    node_fingerprints: HashMap<WidgetId, u64>,
     nodes: HashMap<WidgetId, LayoutInputNode>,
     parents: HashMap<WidgetId, Option<WidgetId>>,
     children: HashMap<WidgetId, Vec<WidgetId>>,
@@ -647,10 +644,10 @@ impl LayoutGraphState {
             if *expected_id != node.id {
                 return false;
             }
-            let Some(existing) = self.node_fingerprints.get(&node.id) else {
+            let Some(existing) = self.nodes.get(&node.id) else {
                 return false;
             };
-            if *existing != layout_input_fingerprint(node) {
+            if existing != node {
                 return false;
             }
         }
@@ -669,7 +666,6 @@ impl LayoutGraphState {
 
     fn replace_all_nodes(&mut self, input_nodes: &[LayoutInputNode]) {
         self.node_order.clear();
-        self.node_fingerprints.clear();
         self.nodes.clear();
         self.last_layout_version = None;
 
@@ -681,8 +677,6 @@ impl LayoutGraphState {
             } else {
                 self.node_order.push(node.id);
             }
-            self.node_fingerprints
-                .insert(node.id, layout_input_fingerprint(node));
             self.nodes.insert(node.id, node.clone());
         }
 
@@ -693,7 +687,6 @@ impl LayoutGraphState {
         let mut validation = LayoutGraphValidationState::default();
         let mut seen = HashSet::new();
         let mut next_order = Vec::with_capacity(input_nodes.len());
-        let mut next_fingerprints = HashMap::with_capacity(input_nodes.len());
         let mut next_nodes = HashMap::with_capacity(input_nodes.len());
 
         for node in input_nodes {
@@ -702,12 +695,10 @@ impl LayoutGraphState {
                 continue;
             }
             next_order.push(node.id);
-            next_fingerprints.insert(node.id, layout_input_fingerprint(node));
             next_nodes.insert(node.id, node.clone());
         }
 
         self.node_order = next_order;
-        self.node_fingerprints = next_fingerprints;
         self.nodes = next_nodes;
         self.last_layout_version = None;
         self.rebuild_topology(validation);
@@ -821,12 +812,6 @@ impl LayoutGraphState {
 
 #[cfg(test)]
 mod tests;
-
-fn layout_input_fingerprint(node: &LayoutInputNode) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    format!("{node:?}").hash(&mut hasher);
-    hasher.finish()
-}
 
 /// An axis-aligned rectangle: an origin point plus a size.
 ///
@@ -1002,7 +987,7 @@ impl LayoutSnapshot {
 ///
 /// The layout engine operates on `&[LayoutInputNode]` rather than traversing the
 /// IR directly, which keeps the engine decoupled from the IR's internal structure.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LayoutInputNode {
     /// The unique identity of this node.
     pub id: WidgetId,
