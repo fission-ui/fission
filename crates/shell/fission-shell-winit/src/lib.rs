@@ -790,8 +790,17 @@ impl WebCanvasPresenter {
         height: u32,
         scale_factor: f64,
     ) -> anyhow::Result<()> {
-        self.canvas.set_width(width.max(1));
-        self.canvas.set_height(height.max(1));
+        let width = width.max(1);
+        let height = height.max(1);
+        // Assigning either canvas dimension clears its backing store and resets the
+        // rendering context, even when the value did not change. Avoid reallocating
+        // the full software surface on every frame.
+        if self.canvas.width() != width {
+            self.canvas.set_width(width);
+        }
+        if self.canvas.height() != height {
+            self.canvas.set_height(height);
+        }
         self.report.width = width.max(1);
         self.report.height = height.max(1);
         self.report.scale_factor = scale_factor;
@@ -1760,6 +1769,8 @@ struct WebFrameStagePerf<'a> {
     post_layout_ms: f64,
     prepare_ms: f64,
     render_present_ms: f64,
+    software_render_ms: f64,
+    canvas_upload_ms: f64,
     total_ms: f64,
     rebuilt: bool,
     nodes: u32,
@@ -8845,6 +8856,10 @@ where
                                         prepare_started.elapsed().as_secs_f64() * 1000.0;
                                     let render_started = Instant::now();
                                     #[cfg(target_arch = "wasm32")]
+                                    let mut software_render_ms = 0.0;
+                                    #[cfg(target_arch = "wasm32")]
+                                    let mut canvas_upload_ms = 0.0;
+                                    #[cfg(target_arch = "wasm32")]
                                     {
                                         let Some(renderer) = web_renderer.as_mut() else {
                                             eprintln!("web renderer is unavailable");
@@ -8862,6 +8877,7 @@ where
                                                     .expect(
                                                     "retained render scene missing before render",
                                                 );
+                                                let software_render_started = Instant::now();
                                                 let Ok(rgba) = presenter
                                                     .cpu_renderer
                                                     .render_to_rgba8(
@@ -8887,7 +8903,11 @@ where
                                                     diag::end_frame(diag::FrameStats::default());
                                                     return;
                                                 };
+                                                software_render_ms =
+                                                    software_render_started.elapsed().as_secs_f64()
+                                                        * 1000.0;
 
+                                                let canvas_upload_started = Instant::now();
                                                 if let Err(err) = presenter.present(
                                                     &rgba,
                                                     render_target_size.0,
@@ -8900,6 +8920,9 @@ where
                                                     diag::end_frame(diag::FrameStats::default());
                                                     return;
                                                 }
+                                                canvas_upload_ms =
+                                                    canvas_upload_started.elapsed().as_secs_f64()
+                                                        * 1000.0;
                                             }
                                             WebRenderer::WebGpu(presenter) => {
                                                 if swapchain_size.width
@@ -9177,6 +9200,8 @@ where
                                                 .elapsed()
                                                 .as_secs_f64()
                                                 * 1000.0,
+                                            software_render_ms,
+                                            canvas_upload_ms,
                                             total_ms,
                                             rebuilt,
                                             nodes: pipeline
