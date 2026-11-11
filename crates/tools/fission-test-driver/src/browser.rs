@@ -237,6 +237,7 @@ impl BrowserController {
         let deadline = Instant::now() + Duration::from_millis(options.timeout_ms);
         let mut last_status = None;
         let mut last_viewport = Value::Null;
+        let mut last_context_error = None;
         while Instant::now() < deadline {
             client.drain_events(Duration::from_millis(25))?;
             if !client.errors.is_empty() {
@@ -245,8 +246,24 @@ impl BrowserController {
                     client.errors.join("\n")
                 ));
             }
-            let status = read_runtime_status(&mut client)?;
-            let measured = viewport::read(&mut client)?;
+            let status = match read_runtime_status(&mut client) {
+                Ok(status) => status,
+                Err(error) if is_transient_execution_context_error(&error) => {
+                    last_context_error = Some(error.to_string());
+                    std::thread::sleep(Duration::from_millis(25));
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            let measured = match viewport::read(&mut client) {
+                Ok(measured) => measured,
+                Err(error) if is_transient_execution_context_error(&error) => {
+                    last_context_error = Some(error.to_string());
+                    std::thread::sleep(Duration::from_millis(25));
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             let ready = browser_is_ready(&status, options.mode, require_live_control)
                 && viewport::acknowledged(&measured, &options, require_live_control, None);
             if ready {
@@ -273,14 +290,15 @@ impl BrowserController {
             std::thread::sleep(Duration::from_millis(100));
         }
         Err(anyhow!(
-            "browser{} test timed out for {}; last viewport: {last_viewport}; last status: {:?}",
+            "browser{} test timed out for {}; last viewport: {last_viewport}; last status: {:?}; last transient context error: {:?}",
             if require_live_control {
                 " live-control"
             } else {
                 " smoke"
             },
             options.url,
-            last_status
+            last_status,
+            last_context_error
         ))
     }
 
@@ -996,6 +1014,19 @@ fn browser_is_ready(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn is_transient_execution_context_error(error: &anyhow::Error) -> bool {
+    let message = format!("{error:#}").to_ascii_lowercase();
+    [
+        "cannot find default execution context",
+        "no default execution context found",
+        "cannot find context with specified id",
+        "execution context was destroyed",
+    ]
+    .iter()
+    .any(|phrase| message.contains(phrase))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn read_runtime_status(client: &mut CdpClient) -> Result<RuntimeStatus> {
     let expression = r#"(() => {
       const body = document.body;
@@ -1553,6 +1584,32 @@ mod tests {
 
         assert!(status.test_bridge_ready);
         assert_eq!(status.renderer.as_deref(), Some("webgpu-vello"));
+    }
+
+    #[test]
+    fn only_transient_missing_execution_context_errors_are_retried() {
+        for message in [
+            "Runtime.evaluate: {\"code\":-32000,\"message\":\"Cannot find default execution context\"}",
+            "Cannot find context with specified id",
+            "Execution context was destroyed, most likely because of a navigation.",
+            "No default execution context found",
+        ] {
+            assert!(
+                is_transient_execution_context_error(&anyhow!(message)),
+                "expected transient context error: {message}"
+            );
+        }
+
+        for message in [
+            "Runtime.evaluate: target closed",
+            "CDP command timed out: Runtime.evaluate",
+            "browser runtime evaluation failed: TypeError: app crashed",
+        ] {
+            assert!(
+                !is_transient_execution_context_error(&anyhow!(message)),
+                "unexpectedly treated permanent error as transient: {message}"
+            );
+        }
     }
 
     #[test]
