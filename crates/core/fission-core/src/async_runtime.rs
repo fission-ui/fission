@@ -273,6 +273,15 @@ impl JobCtx {
         }
     }
 
+    /// Registers a one-shot stream produced by this job.
+    ///
+    /// Return the resulting [`DataStreamId`] from the job, then pass it to a
+    /// capability or another job that consumes the stream. This keeps large
+    /// generated outputs out of serialized job results and action payloads.
+    pub fn register_data_stream(&self, stream: BoxFissionDataStream) -> DataStreamId {
+        self.data_streams.register(stream)
+    }
+
     /// Opens a runtime-owned data stream for this job.
     ///
     /// Streams are one-shot by default; opening consumes the stream handle.
@@ -286,6 +295,23 @@ impl JobCtx {
     /// Releases a stream without consuming it.
     pub fn release_data_stream(&self, id: DataStreamId) -> bool {
         self.data_streams.release(id)
+    }
+}
+
+#[cfg(test)]
+mod job_context_tests {
+    use super::JobCtx;
+    use crate::data_stream::{empty_data_stream, DataStreamRegistry};
+
+    #[test]
+    fn job_can_register_a_stream_for_a_later_capability() {
+        let streams = DataStreamRegistry::new();
+        let job = JobCtx::new_runtime(1, streams.clone());
+        let stream_id = job.register_data_stream(empty_data_stream());
+
+        let capability = JobCtx::new_runtime(2, streams);
+        assert!(capability.open_data_stream(stream_id).is_ok());
+        assert!(capability.open_data_stream(stream_id).is_err());
     }
 }
 

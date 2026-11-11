@@ -525,6 +525,9 @@ impl<S: GlobalState> TestHarness<S> {
                 &|id| self.runtime.runtime_state.scroll.get_offset(id),
             )?;
             self.last_snapshot = Some(snapshot);
+            if let (Some(ir), Some(layout)) = (&self.last_ir, &self.last_snapshot) {
+                self.runtime.reconcile_focus_with_layout(ir, layout)?;
+            }
             if trace {
                 eprintln!("[test-trace] layout done");
             }

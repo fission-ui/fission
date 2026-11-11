@@ -3,9 +3,10 @@ use fission_core::env::{Env, RuntimeState};
 use fission_core::internal::build_layout_tree;
 use fission_core::ui::widgets::text::{InlineWidgetSpan, RichTextChild, RichTextSpan};
 use fission_core::ui::{
-    Button, ButtonVariant, Checkbox, Container, Radio, RichText, Row, Slider, Spacer, Text, Widget,
+    Button, ButtonVariant, Checkbox, Container, LazyColumn, LazyColumnBuilder, Positioned, Radio,
+    RichText, Row, Scroll, SemanticsRegion, Slider, Spacer, Text, Widget, ZStack,
 };
-use fission_ir::op::Length;
+use fission_ir::op::{FlexDirection, Length};
 use fission_ir::{CoreIR, LayoutOp, Op, Role, WidgetId};
 use fission_layout::{
     LayoutEngine, LayoutSize, RichTextInlineBox, RichTextLayoutInfo, TextMeasurer,
@@ -473,5 +474,215 @@ fn slider_semantics_fill_a_clamped_typed_width_inside_a_row() {
     assert!(
         approx_eq(slider_rect.width(), 420.0),
         "slider should fill the clamped typed width: {slider_rect:?}"
+    );
+}
+
+#[test]
+fn slider_semantics_include_an_accessible_name_and_label_relation() {
+    let slider_id = WidgetId::explicit("alignment.named-slider");
+    let label_id = WidgetId::explicit("alignment.zoom-label");
+    let slider = Slider {
+        id: Some(slider_id),
+        label: Some("Zoom level".into()),
+        labelled_by: vec![label_id],
+        ..Default::default()
+    };
+
+    let (ir, _) = layout_from_widget(slider.into());
+    let semantics = match &ir.nodes.get(&slider_id).expect("slider semantics").op {
+        Op::Semantics(semantics) => semantics,
+        other => panic!("expected slider semantics, got {other:?}"),
+    };
+    assert_eq!(semantics.label.as_deref(), Some("Zoom level"));
+    assert_eq!(semantics.labelled_by, [label_id]);
+}
+
+#[test]
+fn lazy_column_builds_only_visible_rows_from_a_large_data_set() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let built_rows = Arc::new(AtomicUsize::new(0));
+    let build_counter = built_rows.clone();
+    let list = LazyColumn::with_item_builder(26_000, 24.0, move |index| {
+        build_counter.fetch_add(1, Ordering::Relaxed);
+        Text::new(format!("Row {index}")).into()
+    });
+
+    let _ = layout_from_widget_at_size(
+        list.into(),
+        Arc::new(SimpleMeasurer),
+        LayoutSize::new(400.0, 120.0),
+    );
+
+    let built = built_rows.load(Ordering::Relaxed);
+    assert!(
+        built < 100,
+        "expected a viewport-sized build, got {built} rows"
+    );
+    assert!(built < 26_000);
+}
+
+#[test]
+fn keyed_lazy_column_rows_keep_their_widget_identity_when_reordered() {
+    let list_id = WidgetId::explicit("alignment.keyed-lazy-list");
+    let build = |rows: Vec<(&'static str, &'static str)>| {
+        LazyColumn::with_keyed_item_builder(rows.len(), 24.0, move |index| {
+            let (key, label) = rows[index];
+            (WidgetId::explicit(key), Text::new(label).into())
+        })
+        .id(list_id)
+    };
+    let paint_id = |list: LazyColumnBuilder| {
+        let (ir, _) = layout_from_widget(list.into());
+        ir.nodes
+            .values()
+            .find_map(|node| match &node.op {
+                Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) if text == "A" => {
+                    Some(node.id)
+                }
+                Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. })
+                    if runs.iter().any(|run| run.text == "A") =>
+                {
+                    Some(node.id)
+                }
+                _ => None,
+            })
+            .expect("row A text node")
+    };
+
+    assert_eq!(
+        paint_id(build(vec![("row-a", "A"), ("row-b", "B")])),
+        paint_id(build(vec![("row-b", "B"), ("row-a", "A")]))
+    );
+}
+
+#[test]
+fn lazy_column_keeps_wide_content_inside_a_horizontal_scroller() {
+    let outer_scroll_id = WidgetId::explicit("alignment.outer-horizontal-scroll");
+    let list_id = WidgetId::explicit("alignment.wide-lazy-list");
+    let list = LazyColumn::with_item_builder(1, 24.0, |_| {
+        Container::new(Text::new("Wide row"))
+            .width(720.0)
+            .height(24.0)
+            .into()
+    })
+    .id(list_id);
+    let outer = Scroll {
+        id: Some(outer_scroll_id),
+        direction: FlexDirection::Row,
+        width: Some(320.0),
+        height: Some(100.0),
+        show_scrollbar: false,
+        child: Some(list.into()),
+        ..Default::default()
+    };
+
+    let (_, snapshot) = layout_from_widget_at_size(
+        outer.into(),
+        Arc::new(SimpleMeasurer),
+        LayoutSize::new(1000.0, 500.0),
+    );
+    let viewport = snapshot
+        .get_node_geometry(outer_scroll_id)
+        .expect("horizontal viewport")
+        .rect;
+    let list_content = snapshot
+        .get_node_geometry(list_id)
+        .expect("lazy list viewport")
+        .rect;
+
+    assert!(approx_eq(viewport.width(), 320.0));
+    assert!(
+        list_content.width() >= 700.0,
+        "wide list content should extend beyond the horizontal viewport: {list_content:?}"
+    );
+}
+
+#[test]
+fn overlay_backdrop_passes_pointer_input_to_registered_anchor() {
+    let anchor_id = WidgetId::explicit("alignment.popover-sibling-trigger");
+    let backdrop_id = WidgetId::explicit("alignment.popover-backdrop");
+    let anchor = Button {
+        id: Some(anchor_id),
+        child: Some(Text::new("Font size").into()),
+        on_press: Some(fission_core::ActionEnvelope {
+            id: fission_core::ActionId::from_u128(3),
+            payload: Vec::new(),
+        }),
+        semantics: Some(fission_ir::Semantics {
+            role: Role::Button,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let backdrop = SemanticsRegion {
+        id: Some(backdrop_id),
+        pointer_passthrough: vec![anchor_id],
+        actions: fission_ir::ActionSet {
+            entries: vec![fission_ir::ActionEntry {
+                trigger: fission_ir::ActionTrigger::Default,
+                action_id: 7,
+                payload_data: Some(Vec::new()),
+            }],
+        },
+        child: Some(
+            Container::new(Spacer::default())
+                .width(300.0)
+                .height(100.0)
+                .into(),
+        ),
+        ..Default::default()
+    };
+    let overlay = Positioned {
+        left: Some(0.0),
+        top: Some(0.0),
+        right: Some(0.0),
+        bottom: Some(0.0),
+        child: Some(backdrop.into()),
+        ..Default::default()
+    };
+    let root = Container::new(ZStack {
+        children: vec![anchor.into(), overlay.into()],
+        ..Default::default()
+    })
+    .width(300.0)
+    .height(100.0);
+    let (ir, snapshot) = layout_from_widget_at_size(
+        root.into(),
+        Arc::new(SimpleMeasurer),
+        LayoutSize::new(300.0, 100.0),
+    );
+    let anchor_rect = snapshot
+        .get_node_geometry(anchor_id)
+        .expect("anchor geometry")
+        .rect;
+    let (x, y) = rect_center(anchor_rect);
+    let scroll_map = RuntimeState::default().scroll;
+
+    let hit = fission_core::hit_test::hit_test(
+        &ir,
+        &snapshot,
+        &scroll_map,
+        fission_layout::LayoutPoint::new(x, y),
+    )
+    .expect("pointer hit");
+    let parents = parent_map(&ir);
+    let mut node_id = Some(hit);
+    let mut action_owner = None;
+    while let Some(id) = node_id {
+        if matches!(
+            ir.nodes.get(&id).map(|node| &node.op),
+            Some(Op::Semantics(semantics)) if !semantics.actions.entries.is_empty()
+        ) {
+            action_owner = Some(id);
+            break;
+        }
+        node_id = parents.get(&id).copied();
+    }
+    assert_eq!(
+        action_owner,
+        Some(anchor_id),
+        "tap should reach the registered trigger action; direct hit={hit:?}, op={:?}",
+        ir.nodes.get(&hit).map(|node| &node.op)
     );
 }

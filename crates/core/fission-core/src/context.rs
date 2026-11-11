@@ -46,10 +46,11 @@ use crate::platform_clipboard::{
 };
 use crate::platform_filesystem::{
     CreateDirectoryRequest, DirectoryPermissionRequest, ForgetDirectoryRequest,
-    ListDirectoryRequest, PickDirectoryRequest, ReadFileRequest, ReleaseDirectoryRequest,
-    RemoveEntryRequest, RestoreDirectoryRequest, StatEntryRequest, WriteFileRequest,
-    CREATE_DIRECTORY, DIRECTORY_PERMISSION, FORGET_DIRECTORY, LIST_DIRECTORY, PICK_DIRECTORY,
-    READ_FILE, RELEASE_DIRECTORY, REMOVE_ENTRY, RESTORE_DIRECTORY, STAT_ENTRY, WRITE_FILE,
+    ListDirectoryRequest, PickDirectoryRequest, PickSaveFileRequest, ReadFileRequest,
+    ReleaseDirectoryRequest, RemoveEntryRequest, RestoreDirectoryRequest, StatEntryRequest,
+    WriteFileRequest, WritePickedFileRequest, CREATE_DIRECTORY, DIRECTORY_PERMISSION,
+    FORGET_DIRECTORY, LIST_DIRECTORY, PICK_DIRECTORY, PICK_SAVE_FILE, READ_FILE, RELEASE_DIRECTORY,
+    REMOVE_ENTRY, RESTORE_DIRECTORY, STAT_ENTRY, WRITE_FILE, WRITE_PICKED_FILE,
 };
 use crate::platform_geolocation::{
     GeolocationPermissionRequest, GeolocationPositionRequest, GET_CURRENT_POSITION,
@@ -71,6 +72,7 @@ use crate::platform_passkey::{
     PasskeyAuthenticationRequest, PasskeyRegistrationRequest, AUTHENTICATE_PASSKEY,
     CANCEL_PASSKEY_OPERATION, GET_PASSKEY_AVAILABILITY, REGISTER_PASSKEY,
 };
+use crate::platform_print::{PrintPdfRequest, PRINT_PDF};
 use crate::platform_volume::{
     VolumeAdjustRequest, VolumeSetRequest, VolumeStream, ADJUST_VOLUME_LEVEL, GET_VOLUME_LEVEL,
     SET_VOLUME_LEVEL,
@@ -347,6 +349,16 @@ impl<'a, S: GlobalState> Effects<'a, S> {
     /// from a user action on hosts that expose files through opaque handles.
     pub fn file_system(&mut self) -> FileSystemEffects<'_, 'a, S> {
         FileSystemEffects { effects: self }
+    }
+
+    /// Submits a generated PDF to the active host's print service.
+    ///
+    /// Call this from a user action. The request may carry PDF bytes or a
+    /// one-shot data stream. The host result reports submission, presentation
+    /// of a print surface, or cancellation; it never claims that printing has
+    /// physically completed.
+    pub fn print_pdf(&mut self, request: PrintPdfRequest) -> EffectBuilder<'_, 'a, S> {
+        self.capability(PRINT_PDF, request)
     }
 
     /// Accesses the typed persistent store configured by the active shell.
@@ -1095,6 +1107,12 @@ impl<'a, 'b, S: GlobalState> FileSystemEffects<'a, 'b, S> {
         self.effects.capability(PICK_DIRECTORY, request)
     }
 
+    /// Opens a host save dialog and returns the user-selected destination.
+    /// The destination is `None` when the user cancels.
+    pub fn pick_save_file(self, request: PickSaveFileRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(PICK_SAVE_FILE, request)
+    }
+
     pub fn restore_directory(self, request: RestoreDirectoryRequest) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(RESTORE_DIRECTORY, request)
     }
@@ -1121,6 +1139,11 @@ impl<'a, 'b, S: GlobalState> FileSystemEffects<'a, 'b, S> {
 
     pub fn write(self, request: WriteFileRequest) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(WRITE_FILE, request)
+    }
+
+    /// Writes bytes or a stream to a writable file selected by `pick_save_file`.
+    pub fn write_picked_file(self, request: WritePickedFileRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(WRITE_PICKED_FILE, request)
     }
 
     pub fn create_directory(self, request: CreateDirectoryRequest) -> EffectBuilder<'a, 'b, S> {

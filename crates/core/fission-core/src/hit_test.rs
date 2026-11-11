@@ -17,6 +17,57 @@ pub enum FocusDirection {
     Right,
 }
 
+/// Returns the direct child selected by a responsive layout node in the last
+/// completed layout pass.
+pub fn active_responsive_child(
+    ir: &CoreIR,
+    layout: &LayoutSnapshot,
+    responsive_id: WidgetId,
+) -> Option<WidgetId> {
+    let node = ir.nodes.get(&responsive_id)?;
+    if !matches!(node.op, Op::Layout(LayoutOp::Responsive { .. })) {
+        return None;
+    }
+    node.children
+        .iter()
+        .copied()
+        .find(|child| subtree_has_layout_geometry(ir, layout, *child))
+}
+
+/// Returns whether `node_id` belongs to the branch selected at every
+/// responsive ancestor in the last completed layout pass.
+pub fn is_in_active_responsive_branch(
+    ir: &CoreIR,
+    layout: &LayoutSnapshot,
+    node_id: WidgetId,
+) -> bool {
+    let mut child = node_id;
+    let mut current = ir.nodes.get(&child).and_then(|node| node.parent);
+    while let Some(parent_id) = current {
+        if matches!(
+            ir.nodes.get(&parent_id).map(|node| &node.op),
+            Some(Op::Layout(LayoutOp::Responsive { .. }))
+        ) && active_responsive_child(ir, layout, parent_id) != Some(child)
+        {
+            return false;
+        }
+        child = parent_id;
+        current = ir.nodes.get(&parent_id).and_then(|node| node.parent);
+    }
+    true
+}
+
+fn subtree_has_layout_geometry(ir: &CoreIR, layout: &LayoutSnapshot, node_id: WidgetId) -> bool {
+    if layout.get_node_geometry(node_id).is_some() {
+        return true;
+    }
+    ir.nodes.get(&node_id).is_some_and(|node| {
+        node.children
+            .iter()
+            .any(|child| subtree_has_layout_geometry(ir, layout, *child))
+    })
+}
+
 /// Result of applying a semantic composite's keyboard-navigation contract.
 ///
 /// `Handled(None)` means the key belongs to the composite, but there is no
@@ -401,6 +452,17 @@ fn hit_test_recursive(
 ) -> Option<WidgetId> {
     let node = ir.nodes.get(&node_id)?;
     let geom = layout.get_node_geometry(node_id)?;
+
+    if let Op::Semantics(semantics) = &node.op {
+        let pointer_is_passthrough = semantics.pointer_passthrough.iter().any(|target| {
+            layout
+                .get_node_geometry(*target)
+                .map_or(false, |target_geom| target_geom.rect.contains(point))
+        });
+        if pointer_is_passthrough {
+            return None;
+        }
+    }
 
     if matches!(
         &node.op,

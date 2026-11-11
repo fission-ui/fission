@@ -6,7 +6,7 @@ mod text_focus;
 use crate::action::{Action, ActionEnvelope, ActionId, GlobalState};
 use crate::async_runtime::ServiceStopPayload;
 use crate::effect::{
-    ActionInput, Effect, EffectEnvelope, RuntimeEffect, ScrollAlignment, ScrollAxis,
+    ActionInput, Effect, EffectEnvelope, KeyPressInput, RuntimeEffect, ScrollAlignment, ScrollAxis,
     ScrollBehavior, ScrollIntoViewRequest,
 };
 use crate::env::{RuntimeState, VideoStatus};
@@ -71,6 +71,48 @@ struct PendingScrollIntoView {
 struct FocusBarrierFrame {
     id: WidgetId,
     restore_target: Option<WidgetId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FocusSemanticAnchor {
+    role: fission_ir::Role,
+    identifier: String,
+}
+
+fn focus_semantic_anchor(ir: &CoreIR, node_id: WidgetId) -> Option<FocusSemanticAnchor> {
+    let Some(Op::Semantics(semantics)) = ir.nodes.get(&node_id).map(|node| &node.op) else {
+        return None;
+    };
+    (semantics.focusable && !semantics.disabled).then(|| {
+        semantics
+            .identifier
+            .as_ref()
+            .map(|identifier| FocusSemanticAnchor {
+                role: semantics.role,
+                identifier: identifier.clone(),
+            })
+    })?
+}
+
+fn focus_candidates(
+    ir: &CoreIR,
+    anchor: &FocusSemanticAnchor,
+    layout: Option<&LayoutSnapshot>,
+) -> Vec<WidgetId> {
+    crate::hit_test::get_all_focusable_nodes(ir)
+        .into_iter()
+        .filter(|id| layout.is_none_or(|layout| layout.get_node_geometry(*id).is_some()))
+        .filter(|id| {
+            matches!(
+                ir.nodes.get(id).map(|node| &node.op),
+                Some(Op::Semantics(semantics))
+                    if semantics.focusable
+                        && !semantics.disabled
+                        && semantics.role == anchor.role
+                        && semantics.identifier.as_deref() == Some(anchor.identifier.as_str())
+            )
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,6 +197,9 @@ pub struct Runtime {
     pending_text_form_validation: Vec<String>,
     /// Active focus barriers and the targets restored as each barrier closes.
     focus_barriers: Vec<FocusBarrierFrame>,
+    /// Semantic identity used to restore focus when a responsive rebuild
+    /// replaces the focused widget with another widget serving the same role.
+    focus_semantic_anchor: Option<FocusSemanticAnchor>,
     /// Monotonically increasing counter for deterministic request id generation.
     pub next_req_id: u64,
     /// Declarative runtime resources that currently exist.
@@ -185,6 +230,7 @@ impl Default for Runtime {
             pending_text_scroll: Vec::new(),
             pending_text_form_validation: Vec::new(),
             focus_barriers: Vec::new(),
+            focus_semantic_anchor: None,
             next_req_id: 0,
             active_resources: HashMap::new(),
             next_resource_generation: 1,
@@ -229,6 +275,29 @@ impl Runtime {
             focus_barriers_in_tree_order, get_all_focusable_nodes, is_descendant_or_self,
             is_enabled_focus_node, preferred_focus_node_in_scope,
         };
+
+        let mut focus_changed = false;
+        if let Some(focused) = self.runtime_state.interaction.focused {
+            if let Some(anchor) = focus_semantic_anchor(ir, focused) {
+                self.focus_semantic_anchor = Some(anchor);
+            } else if !ir.nodes.contains_key(&focused) {
+                if let Some(anchor) = self.focus_semantic_anchor.clone() {
+                    let candidates = focus_candidates(ir, &anchor, None);
+                    let replacement = (candidates.len() == 1)
+                        .then(|| candidates.first().copied())
+                        .flatten();
+                    let pending_anchor = (candidates.len() > 1).then_some(anchor);
+                    focus_changed |= self.set_focused_widget(
+                        ir,
+                        replacement,
+                        crate::TextEditSource::Programmatic,
+                    )?;
+                    self.focus_semantic_anchor = pending_anchor.or_else(|| {
+                        replacement.and_then(|replacement| focus_semantic_anchor(ir, replacement))
+                    });
+                }
+            }
+        }
 
         let focused = self.runtime_state.interaction.focused;
         self.runtime_state
@@ -323,10 +392,44 @@ impl Runtime {
         };
 
         if current == next {
-            return Ok(false);
+            return Ok(focus_changed);
         }
 
-        self.set_focused_widget(ir, next, crate::TextEditSource::Programmatic)
+        focus_changed |= self.set_focused_widget(ir, next, crate::TextEditSource::Programmatic)?;
+        Ok(focus_changed)
+    }
+
+    /// Reconciles focus after layout so only focus targets in the active
+    /// responsive branches can retain keyboard focus.
+    pub fn reconcile_focus_with_layout(
+        &mut self,
+        ir: &CoreIR,
+        layout: &LayoutSnapshot,
+    ) -> Result<bool> {
+        let current = self.runtime_state.interaction.focused;
+        if let Some(current) = current {
+            if let Some(anchor) = focus_semantic_anchor(ir, current) {
+                self.focus_semantic_anchor = Some(anchor);
+            }
+        }
+
+        let current_is_active = current.is_some_and(|id| layout.get_node_geometry(id).is_some());
+        let mut changed = false;
+        if !current_is_active {
+            if let Some(anchor) = self.focus_semantic_anchor.clone() {
+                let candidates = focus_candidates(ir, &anchor, Some(layout));
+                let replacement = (candidates.len() == 1)
+                    .then(|| candidates.first().copied())
+                    .flatten();
+                changed |=
+                    self.set_focused_widget(ir, replacement, crate::TextEditSource::Programmatic)?;
+                self.focus_semantic_anchor =
+                    replacement.and_then(|replacement| focus_semantic_anchor(ir, replacement));
+            }
+        }
+
+        changed |= self.reconcile_focus(ir)?;
+        Ok(changed)
     }
 
     pub fn caret_from_point_in_text(
@@ -998,11 +1101,14 @@ impl Runtime {
         };
 
         let Some(container_id) = self.resolve_scroll_container(request, ir, layout) else {
+            Self::emit_scroll_container_chain_diag(request, ir, layout);
             Self::emit_scroll_into_view_diag("missing_container", request, None);
             return ScrollIntoViewOutcome::Retry;
         };
 
-        if !Self::is_descendant_or_self(ir, request.target, container_id) {
+        if !Self::is_descendant_or_self(ir, request.target, container_id)
+            && !Self::is_descendant_via_children(ir, request.target, container_id)
+        {
             Self::emit_scroll_into_view_diag("target_not_descendant", request, Some(container_id));
             return ScrollIntoViewOutcome::Ignored;
         }
@@ -1096,6 +1202,66 @@ impl Runtime {
             current = ir.nodes.get(&node_id).and_then(|node| node.parent);
         }
 
+        // Responsive alternatives can share a logical widget identity. CoreIR
+        // keeps a single parent pointer for that identity, so the pointer can
+        // refer to an unmeasured alternative even though another parent path
+        // in the active tree contains the measured scroll node. Recover that
+        // path from the root's child edges when the fast parent walk fails.
+        Self::resolve_scroll_container_from_children(request, ir, layout)
+    }
+
+    fn resolve_scroll_container_from_children(
+        request: &ScrollIntoViewRequest,
+        ir: &CoreIR,
+        layout: &LayoutSnapshot,
+    ) -> Option<WidgetId> {
+        let root = ir.root?;
+        let mut parents: HashMap<WidgetId, Vec<WidgetId>> = HashMap::new();
+        let mut reachable = HashSet::new();
+        let mut pending = vec![root];
+
+        while let Some(parent_id) = pending.pop() {
+            if !reachable.insert(parent_id) {
+                continue;
+            }
+            let Some(parent) = ir.nodes.get(&parent_id) else {
+                continue;
+            };
+            for child_id in &parent.children {
+                parents.entry(*child_id).or_default().push(parent_id);
+                pending.push(*child_id);
+            }
+        }
+
+        // Walk upward by distance so a measured inner scroll is selected
+        // before an outer one. Sorting makes shared-parent trees deterministic.
+        let mut frontier = vec![request.target];
+        let mut visited = HashSet::new();
+        visited.insert(request.target);
+        while !frontier.is_empty() {
+            frontier.sort_unstable_by_key(|id| id.as_u128());
+            let mut next = Vec::new();
+            for child_id in frontier {
+                let Some(ancestor_ids) = parents.get(&child_id) else {
+                    continue;
+                };
+                for ancestor_id in ancestor_ids {
+                    if !visited.insert(*ancestor_id) {
+                        continue;
+                    }
+                    if let Some(direction) = Self::scroll_direction(ir, *ancestor_id) {
+                        if Self::axis_matches(request.axis, direction)
+                            && layout.get_node_geometry(*ancestor_id).is_some()
+                        {
+                            return Some(*ancestor_id);
+                        }
+                    }
+                    next.push(*ancestor_id);
+                }
+            }
+            frontier = next;
+        }
+
         None
     }
 
@@ -1122,6 +1288,23 @@ impl Runtime {
                 return true;
             }
             current = ir.nodes.get(&node_id).and_then(|node| node.parent);
+        }
+        false
+    }
+
+    fn is_descendant_via_children(ir: &CoreIR, target: WidgetId, ancestor: WidgetId) -> bool {
+        let mut pending = vec![ancestor];
+        let mut visited = HashSet::new();
+        while let Some(node_id) = pending.pop() {
+            if node_id == target {
+                return true;
+            }
+            if !visited.insert(node_id) {
+                continue;
+            }
+            if let Some(node) = ir.nodes.get(&node_id) {
+                pending.extend(node.children.iter().copied());
+            }
         }
         false
     }
@@ -1209,6 +1392,48 @@ impl Runtime {
                     "scroll_into_view:{kind}:target={:?}:container={:?}",
                     request.target,
                     container.or(request.container)
+                ),
+                target: Some(request.target.as_u128()),
+                position: None,
+            },
+        );
+    }
+
+    fn emit_scroll_container_chain_diag(
+        request: &ScrollIntoViewRequest,
+        ir: &CoreIR,
+        layout: &LayoutSnapshot,
+    ) {
+        let mut ancestors = Vec::new();
+        let mut current = ir.nodes.get(&request.target).and_then(|node| node.parent);
+        while let Some(node_id) = current {
+            let Some(node) = ir.nodes.get(&node_id) else {
+                ancestors.push(format!("{node_id:?}:missing_ir_node"));
+                break;
+            };
+            let op = match &node.op {
+                Op::Layout(LayoutOp::Scroll { direction, .. }) => {
+                    format!("Scroll({direction:?})")
+                }
+                Op::Layout(LayoutOp::Responsive { .. }) => "Responsive".to_string(),
+                Op::Layout(_) => "Layout".to_string(),
+                Op::Semantics(_) => "Semantics".to_string(),
+                Op::Structural(_) => "Structural".to_string(),
+                Op::Paint(_) => "Paint".to_string(),
+            };
+            let measured = layout.get_node_geometry(node_id).is_some();
+            ancestors.push(format!("{node_id:?}:{op}:measured={measured}"));
+            current = node.parent;
+        }
+        diag::emit(
+            diag::DiagCategory::Input,
+            diag::DiagLevel::Debug,
+            diag::DiagEventKind::InputEvent {
+                kind: format!(
+                    "scroll_into_view:container_search:target={:?}:axis={:?}:ancestors=[{}]",
+                    request.target,
+                    request.axis,
+                    ancestors.join(" -> ")
                 ),
                 target: Some(request.target.as_u128()),
                 position: None,
@@ -1615,7 +1840,7 @@ impl Runtime {
         use crate::scrollbar::scrollbar_hit_test;
         use crate::ui::custom_render::downcast_render_object;
 
-        self.reconcile_focus(ir)?;
+        self.reconcile_focus_with_layout(ir, layout)?;
         crate::input::update_focus_modality(&mut self.runtime_state.interaction, &event);
         let cancelled_pointer_sequence = crate::input::gesture::cancel_unavailable_pointer_sequence(
             ir,
@@ -1635,6 +1860,54 @@ impl Runtime {
                     Some(autofocus_id),
                     crate::TextEditSource::Programmatic,
                 )?;
+            }
+        }
+
+        // Declared shortcuts belong to the semantic focus chain, so resolve
+        // them before custom render objects and input controllers get a chance
+        // to consume the event. This lets an editor handle its own text keys
+        // while application shortcuts such as Ctrl+F still reach an ancestor.
+        // Tab remains reserved for tree-wide focus traversal.
+        let declared_key = match &event {
+            InputEvent::Keyboard(KeyEvent::Down {
+                key_code,
+                modifiers,
+            }) => Some((key_code, *modifiers, None)),
+            InputEvent::Keyboard(KeyEvent::DownWithText {
+                key_code,
+                modifiers,
+                text,
+            }) => Some((key_code, *modifiers, Some(text.as_str()))),
+            _ => None,
+        };
+        if let Some((key_code, modifiers, text)) = declared_key {
+            if !matches!(key_code, KeyCode::Tab) {
+                if let Some((node_id, action)) = crate::hit_test::declared_key_action(
+                    ir,
+                    self.runtime_state.interaction.focused,
+                    key_code,
+                    modifiers,
+                ) {
+                    let input = crate::input::scoped_action_input(
+                        ir,
+                        node_id,
+                        ActionInput::KeyPress(KeyPressInput {
+                            key_code: key_code.clone(),
+                            modifiers,
+                            text: text.map(str::to_owned),
+                        }),
+                    );
+                    self.dispatch_node_with_input(
+                        ActionEnvelope {
+                            id: ActionId::from_u128(action.action_id),
+                            payload: action.payload_data.unwrap_or_default(),
+                        },
+                        node_id,
+                        &input,
+                    )?;
+                    self.update_focused_ime_state(ir, layout);
+                    return Ok(());
+                }
             }
         }
 
@@ -2214,31 +2487,6 @@ impl Runtime {
                 key_code,
                 modifiers,
             }) => {
-                // A node that declared a key asked for it explicitly, so it is
-                // consulted before the framework's own handling of that key.
-                // Tab is excluded: focus traversal is a property of the whole
-                // tree rather than of any one node, and letting a widget claim
-                // it would let that widget trap focus for the entire app.
-                if !matches!(key_code, KeyCode::Tab) {
-                    if let Some((node_id, action)) = crate::hit_test::declared_key_action(
-                        ir,
-                        self.runtime_state.interaction.focused,
-                        &key_code,
-                        modifiers,
-                    ) {
-                        let input =
-                            crate::input::scoped_action_input(ir, node_id, ActionInput::None);
-                        self.dispatch_node_with_input(
-                            ActionEnvelope {
-                                id: ActionId::from_u128(action.action_id),
-                                payload: action.payload_data.unwrap_or_default(),
-                            },
-                            node_id,
-                            &input,
-                        )?;
-                        return Ok(());
-                    }
-                }
                 match key_code {
                     KeyCode::Tab => {
                         let reverse = (modifiers & 1) != 0;
@@ -2918,6 +3166,7 @@ impl Runtime {
         }
 
         self.runtime_state.interaction.set_focused(next);
+        self.focus_semantic_anchor = next.and_then(|node_id| focus_semantic_anchor(ir, node_id));
         // Focus rings follow the way focus moved: keyboard navigation shows them, a click hides
         // them, and programmatic focus keeps whichever the user was last using.
         match source {

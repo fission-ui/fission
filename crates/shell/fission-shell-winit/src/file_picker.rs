@@ -1,6 +1,9 @@
 use fission_core::{
-    Bytes, CapabilityCtx, FissionDataStreamError, FissionDataStreamErrorKind, PickOpenFilesError,
-    PickOpenFilesRequest, PickOpenFilesResult, PickedFile, PICK_OPEN_FILES,
+    Bytes, CapabilityCtx, FileSystemError, FileSystemLocation, FissionDataStreamError,
+    FissionDataStreamErrorKind, PickOpenFilesError, PickOpenFilesRequest, PickOpenFilesResult,
+    PickSaveFileRequest, PickSaveFileResult, PickedFile, SaveFileDestination,
+    WritePickedFileRequest, WritePickedFileResult, PICK_OPEN_FILES, PICK_SAVE_FILE,
+    WRITE_PICKED_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
 use futures_core::Stream;
@@ -21,6 +24,44 @@ pub fn register_file_picker_capability(async_registry: &mut AsyncRegistry) {
             Ok::<_, PickOpenFilesError>(PickOpenFilesResult { files })
         },
     );
+    async_registry.register_operation_capability(
+        PICK_SAVE_FILE,
+        |request: PickSaveFileRequest, _| async move {
+            pick_save_file_with(request, show_native_save_dialog)
+        },
+    );
+    async_registry.register_operation_capability(
+        WRITE_PICKED_FILE,
+        |_request: WritePickedFileRequest, _| async move {
+            Err::<WritePickedFileResult, _>(FileSystemError::unsupported("write_picked_file"))
+        },
+    );
+}
+
+fn show_native_save_dialog(
+    request: &PickSaveFileRequest,
+) -> Result<Option<PathBuf>, FileSystemError> {
+    let mut dialog = rfd::FileDialog::new();
+    if !request.suggested_name.trim().is_empty() {
+        dialog = dialog.set_file_name(request.suggested_name.trim());
+    }
+    let extensions = normalized_extensions(&request.extensions, &request.mime_types);
+    if !extensions.is_empty() {
+        dialog = dialog.add_filter("Allowed files", &extensions);
+    }
+    Ok(dialog.save_file())
+}
+
+fn pick_save_file_with(
+    request: PickSaveFileRequest,
+    select_destination: impl FnOnce(&PickSaveFileRequest) -> Result<Option<PathBuf>, FileSystemError>,
+) -> Result<PickSaveFileResult, FileSystemError> {
+    let destination = select_destination(&request)?.map(|path| {
+        SaveFileDestination::Location(FileSystemLocation::path(
+            path.to_string_lossy().into_owned(),
+        ))
+    });
+    Ok(PickSaveFileResult { destination })
 }
 
 fn pick_open_files(
@@ -34,7 +75,7 @@ fn pick_open_files(
         .unwrap_or(DEFAULT_FILE_STREAM_CHUNK_SIZE);
     let chunk_size = chunk_size.min(MAX_FILE_STREAM_CHUNK_SIZE);
     let mut dialog = rfd::FileDialog::new();
-    let extensions = normalized_extensions(&request);
+    let extensions = normalized_extensions(&request.extensions, &request.mime_types);
     if !extensions.is_empty() {
         dialog = dialog.add_filter("Allowed files", &extensions);
     }
@@ -88,15 +129,15 @@ fn picked_file_from_path(
     })
 }
 
-fn normalized_extensions(request: &PickOpenFilesRequest) -> Vec<String> {
+fn normalized_extensions(extensions: &[String], mime_types: &[String]) -> Vec<String> {
     let mut out = Vec::new();
-    for extension in &request.extensions {
+    for extension in extensions {
         let extension = extension.trim().trim_start_matches('.');
         if !extension.is_empty() {
             out.push(extension.to_string());
         }
     }
-    for mime_type in &request.mime_types {
+    for mime_type in mime_types {
         out.extend(extensions_for_mime_type(mime_type).map(str::to_string));
     }
     out.sort();
@@ -230,6 +271,56 @@ mod tests {
 
     impl Wake for NoopWaker {
         fn wake(self: Arc<Self>) {}
+    }
+
+    #[test]
+    fn save_picker_returns_selected_path_and_passes_request_to_provider() {
+        let request = PickSaveFileRequest {
+            suggested_name: "report.pdf".into(),
+            extensions: vec!["pdf".into()],
+            ..Default::default()
+        };
+        let result = pick_save_file_with(request, |request| {
+            assert_eq!(request.suggested_name, "report.pdf");
+            assert_eq!(request.extensions, ["pdf"]);
+            Ok(Some(PathBuf::from("/tmp/report.pdf")))
+        })
+        .unwrap();
+
+        assert_eq!(
+            result.destination,
+            Some(SaveFileDestination::Location(FileSystemLocation::path(
+                "/tmp/report.pdf",
+            )))
+        );
+    }
+
+    #[test]
+    fn save_picker_represents_cancellation_as_no_destination() {
+        let result = pick_save_file_with(PickSaveFileRequest::default(), |_| Ok(None)).unwrap();
+        assert_eq!(result.destination, None);
+    }
+
+    #[test]
+    fn save_picker_preserves_typed_unsupported_provider_errors() {
+        let error = pick_save_file_with(PickSaveFileRequest::default(), |_| {
+            Err(FileSystemError::unsupported("pick_save_file"))
+        })
+        .unwrap_err();
+
+        assert_eq!(error.code, "unsupported");
+        assert!(error.message.contains("pick_save_file"));
+    }
+
+    #[test]
+    fn save_picker_filters_normalize_extensions_and_mime_types() {
+        assert_eq!(
+            normalized_extensions(
+                &[".pdf".into(), " md ".into(), "".into()],
+                &["text/csv".into(), "application/pdf".into()],
+            ),
+            vec!["csv", "md", "pdf"]
+        );
     }
 
     #[test]

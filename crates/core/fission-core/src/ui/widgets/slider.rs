@@ -37,6 +37,12 @@ pub struct Slider {
     /// Stable identifier exposed on the slider's interactive semantics node.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub semantics_identifier: Option<String>,
+    /// Accessible name announced by assistive technology.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Semantic label nodes that name this slider.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labelled_by: Vec<WidgetId>,
     /// Current value (clamped to `[min, max]`).
     pub value: f32,
     /// Minimum value (default: 0.0).
@@ -81,6 +87,18 @@ impl Slider {
         self
     }
 
+    /// Sets the accessible name announced for this slider.
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Associates this slider with one or more semantic label nodes.
+    pub fn labelled_by(mut self, labelled_by: impl IntoIterator<Item = WidgetId>) -> Self {
+        self.labelled_by = labelled_by.into_iter().collect();
+        self
+    }
+
     /// Sets the positive increment used for snapping and keyboard adjustment.
     pub fn step(mut self, step: f32) -> Self {
         self.step = Some(step);
@@ -93,6 +111,8 @@ impl Default for Slider {
         Self {
             id: None,
             semantics_identifier: None,
+            label: None,
+            labelled_by: Vec::new(),
             value: 0.0,
             min: 0.0,
             max: 1.0,
@@ -396,6 +416,8 @@ impl Lower for Slider {
         let mut semantics = fission_ir::Semantics {
             role: fission_ir::Role::Slider,
             identifier: self.semantics_identifier.clone(),
+            label: self.label.clone(),
+            labelled_by: self.labelled_by.clone(),
             value: Some(format!("{value:.2}")),
             focusable: true,
             draggable: true,

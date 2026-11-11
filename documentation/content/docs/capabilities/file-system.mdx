@@ -46,6 +46,50 @@ ctx.effects
 
 `PickDirectoryResult::directory` is `None` when the user cancels. Store the returned handle in app state for the current runtime. A handle is host-owned and can become invalid or lose permission, so handle `invalid_handle` and `permission_denied` as normal outcomes.
 
+## Ask where to save a file
+
+Desktop applications can use the native Save dialog when the destination should
+belong to the user. Start the request from the Save button's reducer and
+provide a useful default name and file filter:
+
+```rust
+ctx.effects
+    .file_system()
+    .pick_save_file(PickSaveFileRequest {
+        suggested_name: "quarterly-report.pdf".into(),
+        extensions: vec!["pdf".into()],
+        mime_types: vec!["application/pdf".into()],
+    })
+    .on_ok(ctx.effects.bind(SaveDestinationPicked, reduce_with!(on_save_destination_picked)))
+    .on_err(ctx.effects.bind(SaveDestinationFailed, reduce_with!(on_save_destination_failed)));
+```
+
+The successful result contains `destination: None` if the user cancels. The
+native picker on macOS, Windows, and Linux returns a
+`SaveFileDestination::Location`, which can be passed to `write`. The Web picker
+returns a `SaveFileDestination::WritableFile`; its opaque browser handle is
+written with `write_picked_file` rather than treated as a filesystem path.
+Browsers without `showSaveFilePicker`, Android, and iOS return a typed
+`unsupported` error. A cancelled dialog is not an error.
+
+```rust
+if let Some(SaveFileDestination::WritableFile(file)) = result.destination {
+    ctx.effects
+        .file_system()
+        .write_picked_file(WritePickedFileRequest {
+            file,
+            source: FileWriteSource::Bytes(report_bytes),
+        })
+        .on_ok(ctx.effects.bind(ReportWritten, reduce_with!(on_report_written)))
+        .on_err(ctx.effects.bind(ReportWriteFailed, reduce_with!(on_report_write_failed)));
+}
+```
+
+For a native `Location`, use `WriteFileRequest` and set `overwrite: true` only
+when replacing an existing file is intended. For large browser exports,
+`WritePickedFileRequest::source` can be `FileWriteSource::Stream` to keep memory
+use bounded while data is written.
+
 ## Work with a directory handle
 
 Use a handle-backed location after the picker succeeds:
@@ -88,6 +132,6 @@ Call `forget_directory` to delete a persisted browser handle, and `release` when
 
 ## Error handling
 
-All operations return `FileSystemError { code, message }`. Treat cancellation separately from failure: picker cancellation is a successful result with no directory. Common error codes include `unsupported`, `unsupported_path_namespace`, `permission_denied`, `invalid_handle`, `invalid_path`, `not_found`, `not_a_file`, and operation-specific I/O failures.
+All operations return `FileSystemError { code, message }`. Treat cancellation separately from failure: picker cancellation is a successful result with no directory or location. Common error codes include `unsupported`, `unsupported_path_namespace`, `permission_denied`, `invalid_handle`, `invalid_path`, `not_found`, `not_a_file`, and operation-specific I/O failures.
 
 For the complete type and operation list, see the [File system reference](/reference/capabilities/file-system/) and [capability matrix](/docs/capabilities/matrix/).

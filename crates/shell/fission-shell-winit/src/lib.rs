@@ -138,6 +138,8 @@ mod web_file_system;
 mod web_input;
 #[cfg(target_arch = "wasm32")]
 mod web_links;
+#[cfg(target_arch = "wasm32")]
+mod web_print;
 use native_surface::NativeSurfaceRegistry;
 mod navigation;
 pub use navigation::{WebNavigationConfig, WebRouteStrategy};
@@ -157,6 +159,8 @@ mod file_picker;
 ))]
 mod file_system;
 mod geolocation;
+#[cfg(not(target_arch = "wasm32"))]
+mod native_print;
 pub use geolocation::{GeolocationHost, MemoryGeolocationHost, UnsupportedGeolocationHost};
 mod haptics;
 pub use haptics::{HapticHost, MemoryHapticHost, UnsupportedHapticHost};
@@ -196,14 +200,22 @@ mod volume;
 pub use volume::{MemoryVolumeHost, UnsupportedVolumeHost, VolumeHost};
 #[cfg(target_os = "android")]
 mod android_capabilities;
+#[cfg(target_os = "android")]
+mod android_file_picker;
 #[cfg(all(target_os = "android", feature = "filesystem"))]
 mod android_file_system;
+#[cfg(target_os = "android")]
+mod android_print;
 #[cfg(target_os = "android")]
 mod android_text_input;
 #[cfg(target_os = "ios")]
 mod ios_capabilities;
+#[cfg(target_os = "ios")]
+mod ios_file_picker;
 #[cfg(all(target_os = "ios", feature = "filesystem"))]
 mod ios_file_system;
+#[cfg(target_os = "ios")]
+mod ios_print;
 #[cfg(target_os = "macos")]
 mod macos_capabilities;
 #[cfg(target_arch = "wasm32")]
@@ -311,12 +323,14 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
     {
         web_capabilities::register_web_operation_capabilities(async_registry);
         web_file_picker::register_web_file_picker(async_registry);
+        web_print::register_web_print_capability(async_registry);
         #[cfg(feature = "filesystem")]
         web_file_system::register_web_file_system_capabilities(async_registry);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     {
+        native_print::register_native_print_capability(async_registry);
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         file_picker::register_file_picker_capability(async_registry);
         #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -376,6 +390,22 @@ fn register_unsupported_file_picker_capability(async_registry: &mut AsyncRegistr
         |_request: fission_core::PickOpenFilesRequest, _| async move {
             Err::<fission_core::PickOpenFilesResult, _>(
                 fission_core::PickOpenFilesError::unsupported("pick_open_files"),
+            )
+        },
+    );
+    async_registry.register_operation_capability(
+        fission_core::PICK_SAVE_FILE,
+        |_request: fission_core::PickSaveFileRequest, _| async move {
+            Err::<fission_core::PickSaveFileResult, _>(fission_core::FileSystemError::unsupported(
+                "pick_save_file",
+            ))
+        },
+    );
+    async_registry.register_operation_capability(
+        fission_core::WRITE_PICKED_FILE,
+        |_request: fission_core::WritePickedFileRequest, _| async move {
+            Err::<fission_core::WritePickedFileResult, _>(
+                fission_core::FileSystemError::unsupported("write_picked_file"),
             )
         },
     );
@@ -2287,6 +2317,46 @@ fn pending_work_redraw_interval(
     }
 }
 
+fn text_input_blink_enabled(
+    override_setting: Option<&str>,
+    software_renderer_active: bool,
+) -> bool {
+    override_setting
+        .map(|value| !matches!(value.to_ascii_lowercase().as_str(), "0" | "false" | "no"))
+        .unwrap_or(!software_renderer_active)
+}
+
+#[derive(Clone, Copy, Default)]
+struct TestPumpState {
+    has_current_frame: bool,
+    invalidations: InvalidationSet,
+    resize_unsettled: bool,
+    capture_settle_pending: bool,
+    redraw_pending: bool,
+    active_animation: bool,
+    playing_video: bool,
+    has_dynamic_surfaces: bool,
+    frame_hook_registered: bool,
+    pending_effects: bool,
+    pending_screenshot: bool,
+    pending_image_cache: bool,
+}
+
+fn test_pump_can_ack_current_frame(state: TestPumpState) -> bool {
+    state.has_current_frame
+        && !state.invalidations.any()
+        && !state.resize_unsettled
+        && !state.capture_settle_pending
+        && !state.redraw_pending
+        && !state.active_animation
+        && !state.playing_video
+        && !state.has_dynamic_surfaces
+        && !state.frame_hook_registered
+        && !state.pending_effects
+        && !state.pending_screenshot
+        && !state.pending_image_cache
+}
+
 fn resize_is_unsettled(pending_resize: bool, needs_settled_frame: bool, live_resize: bool) -> bool {
     pending_resize || needs_settled_frame || live_resize
 }
@@ -4161,23 +4231,30 @@ fn handle_scroll_into_view_selector(
     query: &fission_test_driver::SelectorQuery,
     runtime: &mut Runtime,
     pipeline: &Pipeline,
-) -> fission_test_driver::TestResponse {
+) -> (fission_test_driver::TestResponse, bool) {
     let mut hidden_query = query.clone();
     hidden_query.include_hidden = true;
     match resolve_selector_record(pipeline, &runtime.runtime_state.scroll, &hidden_query) {
         Ok(record) => {
-            runtime.queue_scroll_into_view(ScrollIntoViewRequest {
-                container: None,
-                target: record.id,
-                axis: ScrollAxis::Both,
-                alignment: ScrollAlignment::Nearest,
-                padding: [8.0, 8.0, 8.0, 8.0],
-                behavior: ScrollBehavior::Instant,
-                if_needed: true,
-            });
-            fission_test_driver::TestResponse::SelectorResolved { node: record.node }
+            let needs_scroll =
+                record.node.visibility != fission_test_driver::VisibilityState::FullyVisible;
+            if needs_scroll {
+                runtime.queue_scroll_into_view(ScrollIntoViewRequest {
+                    container: None,
+                    target: record.id,
+                    axis: ScrollAxis::Both,
+                    alignment: ScrollAlignment::Nearest,
+                    padding: [8.0, 8.0, 8.0, 8.0],
+                    behavior: ScrollBehavior::Instant,
+                    if_needed: true,
+                });
+            }
+            (
+                fission_test_driver::TestResponse::SelectorResolved { node: record.node },
+                needs_scroll,
+            )
         }
-        Err(error) => error,
+        Err(error) => (error, false),
     }
 }
 
@@ -5614,9 +5691,7 @@ where
         let mut last_frame_time = Instant::now();
         let mut test_animations_paused = false;
         let mut pending_test_clock_advance_ms: Option<u64> = None;
-        let blink_enabled = std::env::var("FISSION_TEXTINPUT_BLINK")
-            .map(|v| !matches!(v.to_ascii_lowercase().as_str(), "0" | "false" | "no"))
-            .unwrap_or(true);
+        let blink_override = std::env::var("FISSION_TEXTINPUT_BLINK").ok();
         let blink_period = Duration::from_millis(
             std::env::var("FISSION_TEXTINPUT_BLINK_MS")
                 .ok()
@@ -5631,6 +5706,8 @@ where
             .unwrap_or(false);
         let mut frame_trace = FrameTraceState::new(frame_trace_enabled());
         let mut presented_frames: u64 = 0;
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut software_frame_valid = false;
         let mut next_text_trace_seq: u64 = 0;
         let mut pending_text_traces: VecDeque<PendingTextTrace> = VecDeque::new();
         #[cfg(target_arch = "wasm32")]
@@ -6495,24 +6572,23 @@ where
                             });
                             return;
                         };
-                        let resp =
+                        let (resp, needs_scroll) =
                             handle_scroll_into_view_selector(&query, &mut runtime, &pipeline);
-                        if matches!(
-                            resp,
-                            fission_test_driver::TestResponse::SelectorResolved { .. }
-                        ) {
+                        if needs_scroll {
                             invalidations.mark_build();
                         }
                         let _ = response_tx.send(resp);
-                        request_redraw_logged(
-                            window,
-                            elwt,
-                            &mut last_redraw_at,
-                            min_frame,
-                            &mut redraw_pending,
-                            &mut frame_trace,
-                            "test_scroll_into_view",
-                        );
+                        if needs_scroll {
+                            request_redraw_logged(
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "test_scroll_into_view",
+                            );
+                        }
                     }
                     TestEvent::TapSelector { query, response_tx } => {
                         let Some(window) = platform_window.active_window() else {
@@ -6916,14 +6992,53 @@ where
                                 invalidations.mark_build();
                             }
                         }
-                        pending_screenshot_path = Some("__pump__".into());
-                        pending_screenshot_response_tx = Some(response_tx);
-                        pending_capture_settle = resize_is_unsettled(
-                            pending_resize.is_some(),
-                            resize_needs_settled_frame,
-                            live_resize.is_live(Instant::now()),
-                        );
-                        window.request_redraw();
+                        let renderer_ready = {
+                            #[cfg(not(target_arch = "wasm32"))]
+                            {
+                                render_state.is_some()
+                            }
+                            #[cfg(target_arch = "wasm32")]
+                            {
+                                web_renderer.is_some()
+                            }
+                        };
+                        let pump_state = TestPumpState {
+                            has_current_frame: pipeline.prev_ir.is_some() && renderer_ready,
+                            invalidations,
+                            resize_unsettled: resize_is_unsettled(
+                                pending_resize.is_some(),
+                                resize_needs_settled_frame,
+                                live_resize.is_live(Instant::now()),
+                            ),
+                            capture_settle_pending: pending_capture_settle,
+                            redraw_pending,
+                            active_animation: !runtime.runtime_state.motion.active.is_empty(),
+                            playing_video: runtime
+                                .runtime_state
+                                .video
+                                .states
+                                .values()
+                                .any(|state| state.status == VideoStatus::Playing),
+                            has_dynamic_surfaces: !pipeline.video_surfaces.is_empty()
+                                || !pipeline.web_surfaces.is_empty()
+                                || !pipeline.native_surfaces.is_empty(),
+                            frame_hook_registered: self.frame_hook.is_some(),
+                            pending_effects: !runtime.pending_effects.is_empty(),
+                            pending_screenshot: pending_screenshot_path.is_some(),
+                            pending_image_cache: fission_render_vello::image_cache_has_pending(),
+                        };
+                        if test_pump_can_ack_current_frame(pump_state) {
+                            let _ = response_tx.send(fission_test_driver::TestResponse::Ok {});
+                        } else {
+                            pending_screenshot_path = Some("__pump__".into());
+                            pending_screenshot_response_tx = Some(response_tx);
+                            pending_capture_settle = resize_is_unsettled(
+                                pending_resize.is_some(),
+                                resize_needs_settled_frame,
+                                live_resize.is_live(Instant::now()),
+                            );
+                            window.request_redraw();
+                        }
                     }
                     // Mapped to a redraw before dispatch.
                     TestEvent::HeadlessFrame => {}
@@ -7575,7 +7690,27 @@ where
                         }
                     }
 
-                    // Cursor blink: toggle visibility and request a redraw.
+                    let software_renderer_active = {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            render_state.as_ref().is_some_and(|state| {
+                                matches!(&state.main_renderer, MainRenderer::Software)
+                            })
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            web_renderer.as_ref().is_some_and(|renderer| {
+                                matches!(renderer, WebRenderer::Canvas2d(_))
+                            })
+                        }
+                    };
+                    let blink_enabled = text_input_blink_enabled(
+                        blink_override.as_deref(),
+                        software_renderer_active,
+                    );
+
+                    // Keep the caret visible on CPU renderers. Blinking it would invalidate and
+                    // rerasterize the entire retained frame every half-second.
                     if blink_enabled {
                         if let Some(id) = blink_focus_id {
                             if now.duration_since(last_blink_toggle) >= blink_period {
@@ -8388,6 +8523,7 @@ where
                                         );
                                     }
                                     render_state.target_texture_size = render_target_size;
+                                    software_frame_valid = false;
                                 }
                             }
 
@@ -8430,9 +8566,7 @@ where
                                 applied_window_title = desired_window_title.to_string();
                             }
 
-                            #[cfg(target_arch = "wasm32")]
                             let update_ms = now.elapsed().as_secs_f64() * 1000.0;
-                            #[cfg(target_arch = "wasm32")]
                             let build_started = Instant::now();
                             let rebuilt = invalidations.build || pipeline.prev_ir.is_none();
                             if rebuilt {
@@ -8612,14 +8746,12 @@ where
                                 invalidations.merge(pipeline_invalidations);
                                 last_built_viewport = Some(build_viewport);
                             }
-                            #[cfg(target_arch = "wasm32")]
                             let build_ms = build_started.elapsed().as_secs_f64() * 1000.0;
 
                             if let Some(ir) = pipeline.prev_ir.as_ref() {
                                 runtime.reconcile_ir(ir);
                             }
 
-                            #[cfg(target_arch = "wasm32")]
                             let layout_started = Instant::now();
                             let layout_updates = match pipeline.ensure_layout(
                                 LayoutRect::new(
@@ -8638,11 +8770,22 @@ where
                                     return;
                                 }
                             };
-                            #[cfg(target_arch = "wasm32")]
                             let layout_ms = layout_started.elapsed().as_secs_f64() * 1000.0;
 
-                            #[cfg(target_arch = "wasm32")]
                             let post_layout_started = Instant::now();
+                            if let (Some(ir), Some(layout)) =
+                                (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref())
+                            {
+                                match runtime.reconcile_focus_with_layout(ir, layout) {
+                                    Ok(true) => invalidations.mark_build(),
+                                    Ok(false) => {}
+                                    Err(err) => {
+                                        eprintln!(
+                                            "Runtime post-layout focus reconciliation error: {err:?}"
+                                        );
+                                    }
+                                }
+                            }
                             let refresh_hover = invalidations.build
                                 || layout_updates > 0
                                 || pipeline.scroll_offsets_changed(&runtime.runtime_state.scroll);
@@ -8680,11 +8823,9 @@ where
                                     scale_factor,
                                 );
                             }
-                            #[cfg(target_arch = "wasm32")]
                             let post_layout_ms =
                                 post_layout_started.elapsed().as_secs_f64() * 1000.0;
 
-                            #[cfg(target_arch = "wasm32")]
                             let prepare_started = Instant::now();
                             match pipeline.prepare_current(
                                 target_viewport,
@@ -8696,12 +8837,8 @@ where
                                 &runtime.runtime_state.web,
                             ) {
                                 Ok(stats) => {
-                                    #[cfg(not(target_arch = "wasm32"))]
-                                    let _ = (&stats, layout_updates);
-                                    #[cfg(target_arch = "wasm32")]
                                     let prepare_ms =
                                         prepare_started.elapsed().as_secs_f64() * 1000.0;
-                                    #[cfg(target_arch = "wasm32")]
                                     let render_started = Instant::now();
                                     #[cfg(target_arch = "wasm32")]
                                     {
@@ -9341,58 +9478,91 @@ where
                                                 }
                                             }
                                             MainRenderer::Software => {
-                                                let retained_scene = pipeline
-                                                    .retained_scene()
-                                                    .expect(
-                                                    "retained render scene missing before render",
-                                                );
-                                                let Ok(rgba) =
-                                                    fission_render_vello::cpu::render_to_rgba8(
-                                                        retained_scene,
-                                                        render_target_size.0,
-                                                        render_target_size.1,
-                                                        fission_render::Color {
-                                                            r: env.theme.tokens.colors.background.r,
-                                                            g: env.theme.tokens.colors.background.g,
-                                                            b: env.theme.tokens.colors.background.b,
-                                                            a: env.theme.tokens.colors.background.a,
-                                                        },
-                                                        scale_factor,
-                                                        measurer.clone(),
-                                                    )
-                                                    .inspect_err(|error| {
-                                                        report_frame_failure(
-                                                            "rasterize software frame",
-                                                            error,
+                                                let has_dynamic_surfaces = stats.video_surfaces > 0
+                                                    || !pipeline.web_surfaces.is_empty()
+                                                    || !pipeline.native_surfaces.is_empty();
+                                                if crate::pipeline::software_frame_needs_raster(
+                                                    software_frame_valid,
+                                                    invalidations,
+                                                    stats.paint_misses,
+                                                    has_dynamic_surfaces,
+                                                ) {
+                                                    let retained_scene = pipeline
+                                                        .retained_scene()
+                                                        .expect(
+                                                            "retained render scene missing before render",
+                                                        );
+                                                    let Ok(rgba) =
+                                                        fission_render_vello::cpu::render_to_rgba8(
+                                                            retained_scene,
+                                                            render_target_size.0,
+                                                            render_target_size.1,
+                                                            fission_render::Color {
+                                                                r: env
+                                                                    .theme
+                                                                    .tokens
+                                                                    .colors
+                                                                    .background
+                                                                    .r,
+                                                                g: env
+                                                                    .theme
+                                                                    .tokens
+                                                                    .colors
+                                                                    .background
+                                                                    .g,
+                                                                b: env
+                                                                    .theme
+                                                                    .tokens
+                                                                    .colors
+                                                                    .background
+                                                                    .b,
+                                                                a: env
+                                                                    .theme
+                                                                    .tokens
+                                                                    .colors
+                                                                    .background
+                                                                    .a,
+                                                            },
+                                                            scale_factor,
+                                                            measurer.clone(),
                                                         )
-                                                    })
-                                                else {
-                                                    diag::end_frame(diag::FrameStats::default());
-                                                    return;
-                                                };
-                                                device_handle.queue.write_texture(
-                                                    wgpu::TexelCopyTextureInfo {
-                                                        texture: &render_state
-                                                            .surface
-                                                            .target_texture,
-                                                        mip_level: 0,
-                                                        origin: wgpu::Origin3d::ZERO,
-                                                        aspect: wgpu::TextureAspect::All,
-                                                    },
-                                                    &rgba,
-                                                    wgpu::TexelCopyBufferLayout {
-                                                        offset: 0,
-                                                        bytes_per_row: Some(
-                                                            render_target_size.0 * 4,
-                                                        ),
-                                                        rows_per_image: Some(render_target_size.1),
-                                                    },
-                                                    wgpu::Extent3d {
-                                                        width: render_target_size.0,
-                                                        height: render_target_size.1,
-                                                        depth_or_array_layers: 1,
-                                                    },
-                                                );
+                                                        .inspect_err(|error| {
+                                                            report_frame_failure(
+                                                                "rasterize software frame",
+                                                                error,
+                                                            )
+                                                        })
+                                                    else {
+                                                        diag::end_frame(diag::FrameStats::default());
+                                                        return;
+                                                    };
+                                                    device_handle.queue.write_texture(
+                                                        wgpu::TexelCopyTextureInfo {
+                                                            texture: &render_state
+                                                                .surface
+                                                                .target_texture,
+                                                            mip_level: 0,
+                                                            origin: wgpu::Origin3d::ZERO,
+                                                            aspect: wgpu::TextureAspect::All,
+                                                        },
+                                                        &rgba,
+                                                        wgpu::TexelCopyBufferLayout {
+                                                            offset: 0,
+                                                            bytes_per_row: Some(
+                                                                render_target_size.0 * 4,
+                                                            ),
+                                                            rows_per_image: Some(
+                                                                render_target_size.1,
+                                                            ),
+                                                        },
+                                                        wgpu::Extent3d {
+                                                            width: render_target_size.0,
+                                                            height: render_target_size.1,
+                                                            depth_or_array_layers: 1,
+                                                        },
+                                                    );
+                                                    software_frame_valid = true;
+                                                }
                                             }
                                         }
 
@@ -9490,6 +9660,34 @@ where
                                                     .active
                                                     .clone(),
                                                 total_ms: now.elapsed().as_secs_f64() * 1000.0,
+                                            },
+                                        );
+                                        diag::emit(
+                                            diag::DiagCategory::Frame,
+                                            diag::DiagLevel::Debug,
+                                            diag::DiagEventKind::FrameStagePerformance {
+                                                renderer: render_state
+                                                    .renderer_report
+                                                    .active
+                                                    .clone(),
+                                                update_ms,
+                                                build_ms,
+                                                layout_ms,
+                                                post_layout_ms,
+                                                prepare_ms,
+                                                render_present_ms: render_started
+                                                    .elapsed()
+                                                    .as_secs_f64()
+                                                    * 1000.0,
+                                                total_ms: now.elapsed().as_secs_f64() * 1000.0,
+                                                rebuilt,
+                                                nodes: pipeline
+                                                    .prev_ir
+                                                    .as_ref()
+                                                    .map_or(0, |ir| ir.nodes.len() as u32),
+                                                layout_updates: layout_updates as u32,
+                                                paint_hits: stats.paint_hits as u32,
+                                                paint_misses: stats.paint_misses as u32,
                                             },
                                         );
                                         diag::end_frame(diag::FrameStats::default());
@@ -10786,11 +10984,12 @@ mod tests {
         rect_visible_in_scroll_ancestors, repeating_animation_redraw_interval, resize_is_unsettled,
         resolve_build_viewport, resolve_selector_record, should_present_startup_clear_frame,
         surface_acquire_recovery, sync_tracked_target_texture_size_to_surface,
-        texture_plans_fit_device_limits, visual_rect_for_node, web_effective_render_scale,
-        window_insets_from_safe_area_frames, windows_shell_execute_succeeded, windows_wide,
-        BrowserDefaults, LiveResizeController, SurfaceAcquireRecovery, WindowViewportState,
+        test_pump_can_ack_current_frame, text_input_blink_enabled, texture_plans_fit_device_limits,
+        visual_rect_for_node, web_effective_render_scale, window_insets_from_safe_area_frames,
+        windows_shell_execute_succeeded, windows_wide, BrowserDefaults, LiveResizeController,
+        SurfaceAcquireRecovery, TestPumpState, WindowViewportState,
     };
-    use crate::pipeline::CompositorTexturePlan;
+    use crate::pipeline::{software_frame_needs_raster, CompositorTexturePlan};
     use crate::InvalidationSet;
     use fission_core::event::{InputEvent, KeyCode, KeyEvent};
     use fission_core::{
@@ -10804,6 +11003,43 @@ mod tests {
     use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
     use fission_test_driver::{TestPointerKind, TestPointerPhase, TestScrollDeltaMode};
     use wgpu::PresentMode;
+
+    #[test]
+    fn software_renderer_keeps_the_caret_static_unless_blink_is_explicitly_enabled() {
+        assert!(!text_input_blink_enabled(None, true));
+        assert!(text_input_blink_enabled(None, false));
+        assert!(text_input_blink_enabled(Some("1"), true));
+        assert!(text_input_blink_enabled(Some("true"), true));
+        assert!(!text_input_blink_enabled(Some("0"), false));
+        assert!(!text_input_blink_enabled(Some("false"), false));
+    }
+
+    #[test]
+    fn live_test_pump_reuses_the_current_frame_when_idle() {
+        let idle = TestPumpState {
+            has_current_frame: true,
+            ..Default::default()
+        };
+        assert!(test_pump_can_ack_current_frame(idle));
+
+        let mut pending = idle;
+        pending.invalidations.mark_build();
+        assert!(!test_pump_can_ack_current_frame(pending));
+
+        let mut pending = idle;
+        pending.resize_unsettled = true;
+        assert!(!test_pump_can_ack_current_frame(pending));
+
+        let mut pending = idle;
+        pending.active_animation = true;
+        assert!(!test_pump_can_ack_current_frame(pending));
+
+        let mut pending = idle;
+        pending.pending_screenshot = true;
+        assert!(!test_pump_can_ack_current_frame(pending));
+
+        assert!(!test_pump_can_ack_current_frame(TestPumpState::default()));
+    }
 
     #[test]
     fn key_down_preserves_produced_text_independently_of_logical_key() {
@@ -11269,6 +11505,79 @@ mod tests {
     }
 
     #[test]
+    fn get_tree_excludes_semantics_from_inactive_responsive_branches() {
+        let root = WidgetId::explicit("responsive-root");
+        let compact_branch = WidgetId::explicit("compact-branch");
+        let compact_input = WidgetId::explicit("compact-input");
+        let expanded_branch = WidgetId::explicit("expanded-branch");
+        let expanded_input = WidgetId::explicit("expanded-input");
+        let input_semantics = || {
+            Op::Semantics(Semantics {
+                role: Role::TextInput,
+                identifier: Some("slide.text.input".into()),
+                focusable: true,
+                value: Some("Draft".into()),
+                ..Semantics::default()
+            })
+        };
+        let box_op = || {
+            Op::Layout(LayoutOp::Box {
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            })
+        };
+
+        let mut ir = CoreIR::new();
+        ir.add_node(compact_input, input_semantics(), Vec::new());
+        ir.add_node(compact_branch, box_op(), vec![compact_input]);
+        ir.add_node(expanded_input, input_semantics(), Vec::new());
+        ir.add_node(expanded_branch, box_op(), vec![expanded_input]);
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::Responsive {
+                query: fission_ir::op::ResponsiveQuery::Viewport,
+                cases: vec![fission_ir::op::ResponsiveCondition {
+                    min_width: None,
+                    max_width: Some(600.0),
+                }],
+            }),
+            vec![compact_branch, expanded_branch],
+        );
+        ir.set_root(root);
+
+        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(1_100.0, 700.0));
+        for (id, rect) in [
+            (root, LayoutRect::new(0.0, 0.0, 1_100.0, 700.0)),
+            (expanded_branch, LayoutRect::new(0.0, 0.0, 1_100.0, 700.0)),
+            (expanded_input, LayoutRect::new(20.0, 20.0, 320.0, 36.0)),
+        ] {
+            snapshot.nodes.insert(
+                id,
+                LayoutNodeGeometry {
+                    rect,
+                    content_size: LayoutSize::new(rect.width(), rect.height()),
+                },
+            );
+        }
+
+        let records = collect_semantic_records(&ir, &snapshot, &ScrollStateMap::default());
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id, expanded_input);
+        assert_eq!(
+            records[0].node.identifier.as_deref(),
+            Some("slide.text.input")
+        );
+    }
+
+    #[test]
     fn get_tree_reports_effective_sequential_focusability() {
         let input = WidgetId::from_u128(10);
         let mut ir = CoreIR::new();
@@ -11520,6 +11829,15 @@ mod tests {
         let record = resolve_selector_record(&pipeline, &ScrollStateMap::default(), &query)
             .expect("scoped selector should resolve");
         assert_eq!(record.node.identifier.as_deref(), Some("app.open"));
+        assert_eq!(record.node.children, Vec::<String>::new());
+
+        let app_record = resolve_selector_record(
+            &pipeline,
+            &ScrollStateMap::default(),
+            &fission_test_driver::SelectorQuery::semantic_identifier("mounted.app"),
+        )
+        .expect("semantic parent should resolve");
+        assert_eq!(app_record.node.children, vec![app_open.to_string()]);
     }
 
     #[test]
@@ -11610,6 +11928,38 @@ mod tests {
             animation_redraw_interval(false, Some(repeat_frame), false, min_frame),
             Some(repeat_frame)
         );
+    }
+
+    #[test]
+    fn unchanged_software_frames_reuse_the_valid_render_target() {
+        assert!(!software_frame_needs_raster(
+            true,
+            InvalidationSet::default(),
+            0,
+            false,
+        ));
+        assert!(software_frame_needs_raster(
+            false,
+            InvalidationSet::default(),
+            0,
+            false,
+        ));
+
+        let mut invalidations = InvalidationSet::default();
+        invalidations.mark_composite();
+        assert!(software_frame_needs_raster(true, invalidations, 0, false,));
+        assert!(software_frame_needs_raster(
+            true,
+            InvalidationSet::default(),
+            1,
+            false,
+        ));
+        assert!(software_frame_needs_raster(
+            true,
+            InvalidationSet::default(),
+            0,
+            true,
+        ));
     }
 
     #[test]

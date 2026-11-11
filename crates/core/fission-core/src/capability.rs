@@ -153,6 +153,10 @@ pub struct PickedFile {
 }
 
 /// Result payload for a file picker operation.
+///
+/// User cancellation is represented as an empty `files` list. Host and I/O
+/// failures use [`PickOpenFilesError`] so callers can distinguish them from a
+/// dismissed picker.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PickOpenFilesResult {
     pub files: Vec<PickedFile>,

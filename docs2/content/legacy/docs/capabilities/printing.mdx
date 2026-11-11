@@ -1,0 +1,23 @@
+---
+title: Printing PDFs
+description: Use Fission's PDF print capability from a reducer and handle host results safely.
+---
+
+# Printing PDFs
+
+Fission's `print_pdf` capability sends generated PDF bytes or a one-shot data stream to the active host's print UI or service. It is intended for a user action, such as choosing **Print** from a document toolbar.
+
+Current providers buffer a stream before handing the PDF to the platform print API, so large PDFs still use memory proportional to their size.
+
+```rust
+let request = PrintPdfRequest {
+    pdf: FileWriteSource::Stream(pdf_stream),
+    job_name: Some("Quarterly report".into()),
+    ..Default::default()
+};
+ctx.effects.print_pdf(request)
+```
+
+Bind success and error actions so the screen can distinguish a submitted job, an opened system dialog, cancellation, and a host failure. Do not claim that a `Submitted` result means the printer finished. Android and browser APIs can report that the print UI opened but cannot tell the app whether the user later confirmed or cancelled it.
+
+The [PDF printing reference](/reference/capabilities/printing/) documents request fields, platform behavior, supported settings, and error codes.

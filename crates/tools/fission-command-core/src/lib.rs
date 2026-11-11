@@ -1565,11 +1565,13 @@ fi
 "#;
 
 fn apply_platform_capability_config(root: &Path, project: &FissionProject) -> Result<()> {
+    if project.targets.contains(&Target::Android) {
+        ensure_android_capability_helper(root)?;
+    }
     if project.capabilities.is_empty() {
         return Ok(());
     }
     if project.targets.contains(&Target::Android) {
-        ensure_android_capability_helper(root)?;
         if project
             .capabilities
             .contains(&PlatformCapability::FileSystem)
@@ -2760,6 +2762,11 @@ fn scaffold_android_bundle(
     write_file_with_policy(
         &root.join("platforms/android/java/rs/fission/runtime/FissionActivity.java"),
         render_android_activity_java(),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/android/java/rs/fission/runtime/FissionAndroidCapabilities.java"),
+        render_android_capabilities_java(),
         write_policy,
     )?;
     if project
@@ -6451,6 +6458,16 @@ publisher = "CN=Example & Co"
 
         scaffold_android_bundle(&dir, &project, WritePolicy::Overwrite).unwrap();
 
+        assert!(dir
+            .join("platforms/android/java/rs/fission/runtime/FissionAndroidCapabilities.java")
+            .exists());
+        let capabilities = fs::read_to_string(
+            dir.join("platforms/android/java/rs/fission/runtime/FissionAndroidCapabilities.java"),
+        )
+        .unwrap();
+        assert!(capabilities.contains("Intent.ACTION_OPEN_DOCUMENT"));
+        assert!(capabilities.contains("Intent.ACTION_CREATE_DOCUMENT"));
+        assert!(capabilities.contains("nativeFilePickerResult"));
         assert!(!dir
             .join("platforms/android/java/rs/fission/runtime/FissionFileSystem.java")
             .exists());

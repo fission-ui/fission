@@ -7,12 +7,14 @@ function defaultApplicationId() {
   return path ? `path:${path}` : "fission-web-app";
 }
 
-function createBridge(applicationId) {
+function createDatabaseBridge(applicationId, databaseName, databaseId) {
   const workerUrl = new URL("./fission-sqlite-worker.mjs", import.meta.url);
   workerUrl.searchParams.set("fission_app_id", applicationId);
+  if (databaseId) workerUrl.searchParams.set("fission_database_id", databaseId);
   const contextId = crypto.randomUUID();
-  const channelName = `fission-sqlite:${applicationId}`;
-  const lockName = `fission-sqlite-owner:${applicationId}`;
+  const databaseSuffix = databaseId ? `:db:${databaseId}` : "";
+  const channelName = `fission-sqlite:${applicationId}${databaseSuffix}`;
+  const lockName = `fission-sqlite-owner:${applicationId}${databaseSuffix}`;
   const coordinated =
     typeof BroadcastChannel === "function" && navigator.locks?.request;
 
@@ -23,8 +25,10 @@ function createBridge(applicationId) {
   let ownerId = null;
   let releaseOwnership = null;
   let closed = false;
+  let workerRestartCount = 0;
   const pending = new Map();
   const relays = new Map();
+  const waitingEnvelopes = [];
   const channel = coordinated ? new BroadcastChannel(channelName) : null;
   const ownershipAbort = coordinated ? new AbortController() : null;
 
@@ -33,7 +37,12 @@ function createBridge(applicationId) {
     if (!request) return;
     pending.delete(data.id);
     if (data.ok) request.resolve(data.value);
-    else request.reject(new Error(data.error || "SQLite worker request failed"));
+    else {
+      const error = new Error(data.message || data.error || "SQLite worker request failed");
+      if (data.code) error.code = data.code;
+      if (Number.isInteger(data.sqlite_code)) error.sqliteCode = data.sqlite_code;
+      request.reject(error);
+    }
   }
 
   function respond(recipient, data) {
@@ -46,9 +55,14 @@ function createBridge(applicationId) {
     const relayId = nextRelayId++;
     relays.set(relayId, {
       sender: envelope.sender,
-      clientId: envelope.clientId,
+      requestId: envelope.requestId,
+      transactional: envelope.request?.operation?.startsWith("sql_tx_") || false,
     });
-    worker.postMessage({ id: relayId, request: envelope.request });
+    worker.postMessage({
+      id: relayId,
+      clientId: envelope.sender,
+      request: envelope.request,
+    });
   }
 
   function sendPendingToOwner() {
@@ -59,7 +73,7 @@ function createBridge(applicationId) {
         type: "request",
         ownerId,
         sender: contextId,
-        clientId: request.id,
+        requestId: request.id,
         request: request.value,
       };
       if (ownerId === contextId) {
@@ -73,36 +87,58 @@ function createBridge(applicationId) {
     }
   }
 
-  function startDatabaseWorker() {
-    ownerId = contextId;
-    worker = new Worker(workerUrl, {
-      type: "module",
-      name: `fission-sqlite:${applicationId}`,
-    });
+  function failDatabaseWorker(currentWorker, reason) {
+    if (worker !== currentWorker) return;
+    workerReady = false;
+    worker = null;
+    currentWorker.terminate();
+    for (const [relayId, relay] of relays) {
+      relays.delete(relayId);
+      respond(relay.sender, {
+        id: relay.requestId,
+        ok: false,
+        code: relay.transactional ? "transaction_lost" : "unavailable",
+        message: `SQLite worker stopped before replying: ${reason}`,
+      });
+    }
+    if (!closed && workerRestartCount < 3) {
+      workerRestartCount += 1;
+      setTimeout(() => {
+        if (!closed && !worker && ownerId === contextId) startDatabaseWorker();
+      }, workerRestartCount * 100);
+    }
+  }
 
-    worker.addEventListener("message", ({ data }) => {
+  function startDatabaseWorker() {
+    if (closed || worker) return;
+    ownerId = contextId;
+    const currentWorker = new Worker(workerUrl, {
+      type: "module",
+      name: `fission-sqlite:${applicationId}${databaseSuffix}`,
+    });
+    worker = currentWorker;
+
+    currentWorker.addEventListener("message", ({ data }) => {
+      if (worker !== currentWorker) return;
       if (data?.type === "ready") {
         workerReady = true;
+        workerRestartCount = 0;
         channel?.postMessage({ type: "owner-ready", ownerId });
+        for (const envelope of waitingEnvelopes.splice(0)) forward(envelope);
         sendPendingToOwner();
         return;
       }
       const relay = relays.get(data?.id);
       if (!relay) return;
       relays.delete(data.id);
-      respond(relay.sender, { ...data, id: relay.clientId });
+      respond(relay.sender, { ...data, id: relay.requestId });
     });
 
-    worker.addEventListener("error", (event) => {
-      const error = event.message || "SQLite worker failed";
-      for (const [relayId, relay] of relays) {
-        relays.delete(relayId);
-        respond(relay.sender, {
-          id: relay.clientId,
-          ok: false,
-          error,
-        });
-      }
+    currentWorker.addEventListener("error", (event) => {
+      failDatabaseWorker(currentWorker, event.message || "SQLite worker failed");
+    });
+    currentWorker.addEventListener("messageerror", () => {
+      failDatabaseWorker(currentWorker, "the worker returned an unreadable message");
     });
   }
 
@@ -114,7 +150,10 @@ function createBridge(applicationId) {
         ownerId = data.ownerId;
         sendPendingToOwner();
       } else if (data?.type === "request") {
-        if (workerReady && data.ownerId === ownerId) forward(data);
+        if (data.ownerId === ownerId) {
+          if (workerReady) forward(data);
+          else waitingEnvelopes.push(data);
+        }
       } else if (data?.type === "response" && data.recipient === contextId) {
         settle(data.data);
       }
@@ -156,7 +195,71 @@ function createBridge(applicationId) {
     channel?.close();
   };
 
-  return { applicationId, request, close };
+  return { applicationId, databaseName, request, close };
+}
+
+async function databaseDigest(name) {
+  const digest = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(name)),
+  );
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function createBridge(applicationId) {
+  const databases = new Map();
+  let closed = false;
+
+  async function request(value) {
+    if (closed) throw new Error("SQLite bridge closed");
+    if (!value || typeof value !== "object") {
+      const error = new Error("invalid SQLite database request");
+      error.code = "invalid_request";
+      throw error;
+    }
+
+    const name = value.databaseName;
+    if (
+      name !== undefined &&
+      (typeof name !== "string" || name.trim().length === 0 ||
+        new TextEncoder().encode(name).length > 1024)
+    ) {
+      const error = new Error("Web SQLite database names must contain 1 to 1024 UTF-8 bytes");
+      error.code = "invalid_request";
+      throw error;
+    }
+
+    const key = name === undefined ? null : name;
+    let database = databases.get(key);
+    if (!database) {
+      const id = name === undefined ? null : await databaseDigest(name);
+      if (closed) throw new Error("SQLite bridge closed");
+      database = databases.get(key);
+      if (!database) {
+        database = createDatabaseBridge(applicationId, name, id);
+        databases.set(key, database);
+      }
+    }
+
+    const { databaseName: _databaseName, ...databaseRequest } = value;
+    return database.request(databaseRequest);
+  }
+
+  function closeDatabase(name) {
+    const key = name === undefined ? null : name;
+    const database = databases.get(key);
+    if (!database) return false;
+    databases.delete(key);
+    database.close();
+    return true;
+  }
+
+  function close() {
+    closed = true;
+    for (const database of databases.values()) database.close();
+    databases.clear();
+  }
+
+  return { applicationId, request, close, closeDatabase };
 }
 
 /**
@@ -186,4 +289,5 @@ export function installFissionSqlite(options = {}) {
     });
   }
   globalThis.__fissionSqliteRequest = bridge.request;
+  globalThis.__fissionSqliteCloseDatabase = bridge.closeDatabase;
 }
