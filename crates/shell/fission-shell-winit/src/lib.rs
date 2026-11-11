@@ -8460,9 +8460,7 @@ where
                                 applied_window_title = desired_window_title.to_string();
                             }
 
-                            #[cfg(target_arch = "wasm32")]
                             let update_ms = now.elapsed().as_secs_f64() * 1000.0;
-                            #[cfg(target_arch = "wasm32")]
                             let build_started = Instant::now();
                             let rebuilt = invalidations.build || pipeline.prev_ir.is_none();
                             if rebuilt {
@@ -8642,14 +8640,12 @@ where
                                 invalidations.merge(pipeline_invalidations);
                                 last_built_viewport = Some(build_viewport);
                             }
-                            #[cfg(target_arch = "wasm32")]
                             let build_ms = build_started.elapsed().as_secs_f64() * 1000.0;
 
                             if let Some(ir) = pipeline.prev_ir.as_ref() {
                                 runtime.reconcile_ir(ir);
                             }
 
-                            #[cfg(target_arch = "wasm32")]
                             let layout_started = Instant::now();
                             let layout_updates = match pipeline.ensure_layout(
                                 LayoutRect::new(
@@ -8668,10 +8664,8 @@ where
                                     return;
                                 }
                             };
-                            #[cfg(target_arch = "wasm32")]
                             let layout_ms = layout_started.elapsed().as_secs_f64() * 1000.0;
 
-                            #[cfg(target_arch = "wasm32")]
                             let post_layout_started = Instant::now();
                             if let (Some(ir), Some(layout)) =
                                 (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref())
@@ -8723,11 +8717,9 @@ where
                                     scale_factor,
                                 );
                             }
-                            #[cfg(target_arch = "wasm32")]
                             let post_layout_ms =
                                 post_layout_started.elapsed().as_secs_f64() * 1000.0;
 
-                            #[cfg(target_arch = "wasm32")]
                             let prepare_started = Instant::now();
                             match pipeline.prepare_current(
                                 target_viewport,
@@ -8739,12 +8731,8 @@ where
                                 &runtime.runtime_state.web,
                             ) {
                                 Ok(stats) => {
-                                    #[cfg(not(target_arch = "wasm32"))]
-                                    let _ = (&stats, layout_updates);
-                                    #[cfg(target_arch = "wasm32")]
                                     let prepare_ms =
                                         prepare_started.elapsed().as_secs_f64() * 1000.0;
-                                    #[cfg(target_arch = "wasm32")]
                                     let render_started = Instant::now();
                                     #[cfg(target_arch = "wasm32")]
                                     {
@@ -9533,6 +9521,34 @@ where
                                                     .active
                                                     .clone(),
                                                 total_ms: now.elapsed().as_secs_f64() * 1000.0,
+                                            },
+                                        );
+                                        diag::emit(
+                                            diag::DiagCategory::Frame,
+                                            diag::DiagLevel::Debug,
+                                            diag::DiagEventKind::FrameStagePerformance {
+                                                renderer: render_state
+                                                    .renderer_report
+                                                    .active
+                                                    .clone(),
+                                                update_ms,
+                                                build_ms,
+                                                layout_ms,
+                                                post_layout_ms,
+                                                prepare_ms,
+                                                render_present_ms: render_started
+                                                    .elapsed()
+                                                    .as_secs_f64()
+                                                    * 1000.0,
+                                                total_ms: now.elapsed().as_secs_f64() * 1000.0,
+                                                rebuilt,
+                                                nodes: pipeline
+                                                    .prev_ir
+                                                    .as_ref()
+                                                    .map_or(0, |ir| ir.nodes.len() as u32),
+                                                layout_updates: layout_updates as u32,
+                                                paint_hits: stats.paint_hits as u32,
+                                                paint_misses: stats.paint_misses as u32,
                                             },
                                         );
                                         diag::end_frame(diag::FrameStats::default());
