@@ -4,7 +4,7 @@ use std::collections::{hash_map::DefaultHasher, BTreeMap, HashMap};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::thread;
@@ -113,30 +113,10 @@ pub fn build_all(project_dir: &Path) -> Result<()> {
         .context("docs2 must live below the Fission workspace")?;
     let cache_context = preview_cache_context(workspace_root, project_dir)?;
 
-    let first_target = project_dir.join("target/tutorial-wasm");
-    if !first_target.exists() {
-        if let Some(first_step) = documents.first().and_then(|doc| doc.steps.first()) {
-            let legacy_target = project_dir
-                .join("target/tutorials")
-                .join(&documents[0].meta.app)
-                .join(&first_step.id)
-                .join("target");
-            if legacy_target.exists() {
-                eprintln!("Reusing the existing tutorial Web build cache...");
-                fs::rename(&legacy_target, &first_target).with_context(|| {
-                    format!(
-                        "failed to move {} to {}",
-                        legacy_target.display(),
-                        first_target.display()
-                    )
-                })?;
-            }
-        }
-    }
-
+    let build_cache_root = tutorial_build_cache_root(project_dir);
     let (previews, workspaces) =
-        prepare_preview_workspaces(project_dir, workspace_root, previews, &cache_context)?;
-    let cargo_target = project_dir.join("target/tutorial-wasm");
+        prepare_preview_workspaces(workspace_root, &build_cache_root, previews, &cache_context)?;
+    let cargo_target = build_cache_root.join("tutorial-wasm");
     compile_preview_workspaces(&workspaces, &previews, &cargo_target, parallelism)?;
     let workers = parallelism.min(previews.len());
     eprintln!(
@@ -147,8 +127,8 @@ pub fn build_all(project_dir: &Path) -> Result<()> {
 }
 
 fn prepare_preview_workspaces(
-    project_dir: &Path,
     workspace_root: &Path,
+    build_cache_root: &Path,
     mut previews: Vec<PreviewBuild>,
     cache_context: &str,
 ) -> Result<(Vec<PreparedPreview>, Vec<PreviewWorkspace>)> {
@@ -169,13 +149,11 @@ fn prepare_preview_workspaces(
             continue;
         }
 
-        let workspace_dir = project_dir
-            .join("target/tutorials")
-            .join(if include_charts {
-                "preview-workspace-charts"
-            } else {
-                "preview-workspace-web"
-            });
+        let workspace_dir = build_cache_root.join("tutorials").join(if include_charts {
+            "preview-workspace-charts"
+        } else {
+            "preview-workspace-web"
+        });
         fs::create_dir_all(&workspace_dir)?;
         let members = indices
             .iter()
@@ -220,8 +198,8 @@ fn prepare_preview_workspaces(
                 .as_bytes(),
             )?;
             let cache_key = preview_cache_key(&stage_dir, cache_context, &package)?;
-            let cache_marker = project_dir
-                .join("target/tutorial-preview-cache")
+            let cache_marker = build_cache_root
+                .join("tutorial-preview-cache")
                 .join(format!("{cache_key}.fingerprint"));
             prepared[*index] = Some(PreparedPreview {
                 package,
@@ -248,6 +226,12 @@ fn prepare_preview_workspaces(
         })
         .collect::<Result<Vec<_>>>()?;
     Ok((prepared, workspaces))
+}
+
+fn tutorial_build_cache_root(project_dir: &Path) -> std::path::PathBuf {
+    std::env::var_os("CARGO_TARGET_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| project_dir.join("target"))
 }
 
 fn write_if_changed(path: &Path, contents: &[u8]) -> Result<()> {
@@ -311,19 +295,14 @@ fn compile_preview_workspaces(
         for (_, package) in &uncached {
             command.arg("--package").arg(package);
         }
-        let output = command
+        let status = command
             .env("CARGO_TARGET_DIR", cargo_target)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
+            .status()
             .context("failed to launch Cargo for tutorial preview apps")?;
-        if !output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
+        if !status.success() {
             bail!(
-                "failed to compile {} tutorial preview app(s) {feature_label} ({}):\n{stdout}{stderr}",
-                uncached.len(),
-                output.status
+                "failed to compile {} tutorial preview app(s) {feature_label} ({status})",
+                uncached.len()
             );
         }
         eprintln!(
@@ -748,24 +727,17 @@ fn compile_preview(
     output: &Path,
     cargo_target: &Path,
 ) -> Result<()> {
-    let output_result = Command::new("wasm-pack")
+    let status = Command::new("wasm-pack")
         .arg("build")
         .arg(stage_dir)
         .args(["--target", "web", "--release", "--out-dir"])
         .arg(output.join("pkg"))
         .env("CARGO_TARGET_DIR", cargo_target)
         .env("CARGO_BUILD_JOBS", "1")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
+        .status()
         .context("failed to launch wasm-pack; install it before building goal tutorials")?;
-    if !output_result.status.success() {
-        let stdout = String::from_utf8_lossy(&output_result.stdout);
-        let stderr = String::from_utf8_lossy(&output_result.stderr);
-        bail!(
-            "tutorial `{app}` step `{step}` failed to compile ({}):\n{stdout}{stderr}",
-            output_result.status
-        );
+    if !status.success() {
+        bail!("tutorial `{app}` step `{step}` failed to compile ({status})");
     }
     let module = package.replace('-', "_");
     fs::write(
