@@ -602,7 +602,7 @@ fn tutorial_update_simd_flags(flags: &str, enabled: bool) -> Result<String> {
         retained.push("-C".into());
         retained.push(format!("target-feature={}", features.join(",")));
     }
-    Ok(shell_words::join(retained))
+    Ok(retained.join(" "))
 }
 
 fn build_preview(

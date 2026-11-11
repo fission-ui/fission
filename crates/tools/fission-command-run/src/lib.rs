@@ -1377,7 +1377,7 @@ fn update_simd_target_feature_flags(flags: &str, enabled: bool) -> Result<String
         retained.push("-C".into());
         retained.push(format!("target-feature={}", features.join(",")));
     }
-    Ok(shell_words::join(retained))
+    Ok(retained.join(" "))
 }
 
 fn ensure_web_cargo_feature_target(
@@ -2733,6 +2733,10 @@ mod tests {
             true,
         )
         .unwrap();
+        assert_eq!(
+            configured,
+            "-C opt-level=2 -C target-feature=+atomics,+simd128"
+        );
         let configured_args = shell_words::split(&configured).unwrap();
         assert!(configured_args
             .windows(2)
@@ -2743,6 +2747,7 @@ mod tests {
 
         let scalar =
             update_simd_target_feature_flags("-C target-feature=+atomics,+simd128", false).unwrap();
+        assert_eq!(scalar, "-C target-feature=+atomics");
         assert_eq!(
             shell_words::split(&scalar).unwrap(),
             ["-C", "target-feature=+atomics"]
