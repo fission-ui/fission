@@ -710,7 +710,8 @@ impl BrowserController {
         );
         let command_json = serde_json::to_string(&command)?;
         let submit = format!(
-            "(() => {{ const bridge=globalThis.__FISSION_TEST__; const command={command_json}; return typeof bridge.submitValue==='function' ? bridge.submitValue(command) : bridge.submit(JSON.stringify(command)); }})()"
+            "globalThis.__FISSION_TEST__.submit({})",
+            serde_json::to_string(&command_json)?
         );
         let result = self.client.send(
             "Runtime.evaluate",
@@ -730,7 +731,7 @@ impl BrowserController {
                 "Runtime.evaluate",
                 json!({
                     "expression": format!(
-                        "(() => {{ const bridge=globalThis.__FISSION_TEST__; if(typeof bridge.pollValue==='function') return bridge.pollValue({request_id}); const raw=bridge.poll({request_id}); return raw===null ? null : JSON.parse(raw); }})()"
+                        "(() => {{ const raw=globalThis.__FISSION_TEST__.poll({request_id}); return JSON.parse(raw); }})()"
                     ),
                     "returnByValue": true
                 }),

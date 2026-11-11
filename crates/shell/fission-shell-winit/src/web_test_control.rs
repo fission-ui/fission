@@ -47,39 +47,21 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         submit_command(command, &submit_proxy)
     }) as Box<dyn FnMut(String) -> u32>);
 
-    // Commands can cross as JS values, but responses stay as one JSON string so even a large
-    // SelectorResolved or Text response cannot allocate a graph of wasm-bindgen externref handles.
-    // Keep the original string functions for older test drivers.
-    let submit_value_proxy = proxy.clone();
-    let submit_value = Closure::wrap(Box::new(move |command: JsValue| -> u32 {
-        let command = serde_wasm_bindgen::from_value::<TestCommand>(command)
-            .map_err(|error| format!("parse error: {error}"));
-        submit_command(command, &submit_value_proxy)
-    }) as Box<dyn FnMut(JsValue) -> u32>);
-
-    let poll = Closure::wrap(Box::new(move |request_id: u32| -> JsValue {
+    // The bridge uses JSON strings for payloads so command and response data do not allocate
+    // wasm-bindgen externref handles, regardless of their size or shape.
+    let poll = Closure::wrap(Box::new(move |request_id: u32| -> String {
         match poll_response(request_id) {
-            Some(response) => response_json_value(&response),
-            None => JsValue::NULL,
+            Some(response) => response_json_string(&response),
+            None => "null".to_owned(),
         }
-    }) as Box<dyn FnMut(u32) -> JsValue>);
+    }) as Box<dyn FnMut(u32) -> String>);
 
-    let poll_value = Closure::wrap(Box::new(move |request_id: u32| -> JsValue {
-        match poll_response(request_id) {
-            Some(response) => poll_value_response(&response),
-            None => JsValue::NULL,
-        }
-    }) as Box<dyn FnMut(u32) -> JsValue>);
-
-    let frame = Closure::wrap(Box::new(move || -> JsValue {
-        FRAME.with(|state| {
-            state
-                .get()
-                .and_then(|frame| serde_json::to_string(&frame).ok())
-                .and_then(|json| js_sys::JSON::parse(&json).ok())
-                .unwrap_or(JsValue::NULL)
-        })
-    }) as Box<dyn FnMut() -> JsValue>);
+    let frame = Closure::wrap(Box::new(move || -> String {
+        FRAME
+            .with(|state| state.get())
+            .and_then(|frame| serde_json::to_string(&frame).ok())
+            .unwrap_or_else(|| "null".to_owned())
+    }) as Box<dyn FnMut() -> String>);
     let descriptor = Object::new();
     if Reflect::set(&descriptor, &JsValue::from_str("get"), frame.as_ref()).is_err()
         || Reflect::set(
@@ -102,18 +84,6 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     if Reflect::set(&bridge, &JsValue::from_str("submit"), submit.as_ref()).is_err()
         || Reflect::set(&bridge, &JsValue::from_str("poll"), poll.as_ref()).is_err()
         || Reflect::set(
-            &bridge,
-            &JsValue::from_str("submitValue"),
-            submit_value.as_ref(),
-        )
-        .is_err()
-        || Reflect::set(
-            &bridge,
-            &JsValue::from_str("pollValue"),
-            poll_value.as_ref(),
-        )
-        .is_err()
-        || Reflect::set(
             &js_sys::global(),
             &JsValue::from_str("__FISSION_TEST__"),
             &bridge,
@@ -125,8 +95,6 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
 
     submit.forget();
     poll.forget();
-    submit_value.forget();
-    poll_value.forget();
     frame.forget();
     true
 }
@@ -155,19 +123,14 @@ fn submit_command(command: Result<TestCommand, String>, proxy: &EventLoopProxy<T
     request_id
 }
 
-fn response_json_value(response: &TestResponse) -> JsValue {
-    let serialized = serde_json::to_string(response).unwrap_or_else(|error| {
+fn response_json_string(response: &TestResponse) -> String {
+    serde_json::to_string(response).unwrap_or_else(|error| {
         serde_json::json!({
             "status": "Error",
             "message": format!("response serialization failed: {error}")
         })
         .to_string()
-    });
-    JsValue::from_str(&serialized)
-}
-
-fn poll_value_response(response: &TestResponse) -> JsValue {
-    response_json_value(response)
+    })
 }
 
 fn poll_response(request_id: u32) -> Option<TestResponse> {

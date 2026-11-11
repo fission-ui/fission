@@ -90,13 +90,13 @@ then available on the same client type.
 Web shell installs `globalThis.__FISSION_TEST__` only in that build. Normal
 `fission build` and `fission run` Web output do not install the bridge.
 
-The bridge exposes a value-based pair for current drivers, plus a string-based
-pair for compatibility with older drivers:
+The bridge exchanges JSON strings so payload data does not allocate
+wasm-bindgen externref handles:
 
-- `submitValue(command)` accepts a JavaScript command object and returns a
-  request identifier; `pollValue(id)` returns a response object or `null` while
-  the event-loop response is pending;
-- `submit(json)` and `poll(id)` preserve the original JSON-string protocol.
+- `submit(json)` accepts a JSON command string and returns a request identifier;
+- `poll(id)` returns a JSON response string, or the text `null` while the
+  event-loop response is pending;
+- `frame` returns the submitted-frame snapshot as a JSON string.
 
 Completed responses are removed when polled. The bridge caps uncollected
 requests at 1,024; further submissions return an id that polls as an

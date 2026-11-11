@@ -8,7 +8,7 @@ use std::{
 };
 
 fn observe(c: &LiveTestClient) -> anyhow::Result<Value> {
-    c.browser_evaluate_json("(() => {const c=document.querySelector('canvas'),r=c?.getBoundingClientRect();return {width:innerWidth,height:innerHeight,scale:devicePixelRatio,url:location.href,timeOrigin:performance.timeOrigin,frame:globalThis.__FISSION_TEST__?.frame||null,canvas:r?{width:r.width,height:r.height,pixel_width:c.width,pixel_height:c.height}:null};})()")
+    c.browser_evaluate_json("(() => {const c=document.querySelector('canvas'),r=c?.getBoundingClientRect(),raw=globalThis.__FISSION_TEST__?.frame;return {width:innerWidth,height:innerHeight,scale:devicePixelRatio,url:location.href,timeOrigin:performance.timeOrigin,frame:raw?JSON.parse(raw):null,canvas:r?{width:r.width,height:r.height,pixel_width:c.width,pixel_height:c.height}:null};})()")
 }
 fn capture(c: &LiveTestClient, name: &str, width: u32) -> anyhow::Result<()> {
     let png = c.capture_screenshot_png()?;
@@ -43,7 +43,7 @@ fn capture_webgpu_frame(c: &LiveTestClient, name: &str, width: u32) -> anyhow::R
 
 #[test]
 #[ignore = "requires FISSION_BRIDGE_WEB_URL, the opt-in Web test bridge, and Chromium"]
-fn web_bridge_value_round_trips_remain_bounded_after_repeated_queries() -> anyhow::Result<()> {
+fn web_bridge_json_round_trips_remain_bounded_after_repeated_queries() -> anyhow::Result<()> {
     let url = std::env::var("FISSION_BRIDGE_WEB_URL")?;
     let client = LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())?;
 
@@ -54,8 +54,8 @@ fn web_bridge_value_round_trips_remain_bounded_after_repeated_queries() -> anyho
             .any(|item| item.text == "Fission web smoke"));
     }
 
-    // Every value-based bridge response uses one JSON string across the Wasm boundary, including
-    // the nested semantic tree and selector responses used by the real application.
+    // Bridge payloads stay as JSON strings across the Wasm boundary, including nested semantic
+    // trees and selector responses used by the real application.
     assert!(!client.get_tree()?.is_empty());
     let increment = client.resolve_selector(SelectorQuery::label("Increment"))?;
     assert_eq!(increment.label.as_deref(), Some("Increment"));
@@ -67,7 +67,7 @@ fn web_bridge_value_round_trips_remain_bounded_after_repeated_queries() -> anyho
     assert!(stage_perf["softwareOutputCopyMs"].is_number());
 
     let bounded = client.browser_evaluate_json(
-        "(() => { const bridge=globalThis.__FISSION_TEST__; const read=value=>typeof value==='string'?JSON.parse(value):value; const requests=[]; const command={cmd:'SimulateResize',width:390,height:900}; for(let i=0;i<1024;i++) requests.push(bridge.submitValue(command)); const overflow=bridge.submitValue(command); const rawRejected=bridge.pollValue(overflow); const rejected=read(rawRejected); const collected=requests.every(id=>read(bridge.pollValue(id))?.status==='Error'); return {count:requests.length,overflow,transport:typeof rawRejected,rejected:rejected?.message,collected}; })()",
+        "(() => { const bridge=globalThis.__FISSION_TEST__; const read=id=>JSON.parse(bridge.poll(id)); const requests=[]; const command=JSON.stringify({cmd:'SimulateResize',width:390,height:900}); for(let i=0;i<1024;i++) requests.push(bridge.submit(command)); const overflow=bridge.submit(command); const rawRejected=bridge.poll(overflow); const rejected=JSON.parse(rawRejected); const collected=requests.every(id=>read(id)?.status==='Error'); return {count:requests.length,overflow,transport:typeof rawRejected,rejected:rejected?.message,collected}; })()",
     )?;
     assert_eq!(bounded["count"], 1024);
     assert_eq!(bounded["overflow"], 0);
@@ -96,7 +96,7 @@ fn canvas_same_session_state_route_frames_raw_bridge_timeout_and_recovery() -> a
         .port();
     options.cdp_port = Some(port);
     let c = LiveTestClient::launch_browser(options)?;
-    assert_eq!(c.browser_evaluate_json("(() => {const d=Object.getOwnPropertyDescriptor(__FISSION_TEST__,'frame');const snapshot=__FISSION_TEST__.frame;snapshot.width=-1;return {getter:typeof d.get,setter:typeof d.set,width:__FISSION_TEST__.frame.width,legacy:typeof globalThis.__FISSION_REVIEW_FRAME};})()")?, json!({"getter":"function","setter":"undefined","width":1280,"legacy":"undefined"}));
+    assert_eq!(c.browser_evaluate_json("(() => {const d=Object.getOwnPropertyDescriptor(__FISSION_TEST__,'frame');const snapshot=JSON.parse(__FISSION_TEST__.frame);snapshot.width=-1;return {getter:typeof d.get,setter:typeof d.set,width:JSON.parse(__FISSION_TEST__.frame).width,legacy:typeof globalThis.__FISSION_REVIEW_FRAME};})()")?, json!({"getter":"function","setter":"undefined","width":1280,"legacy":"undefined"}));
     let unrelated = LiveTestClient::launch_browser(BrowserTestOptions::new(&url).fission_canvas())?;
     let unrelated_initial = observe(&unrelated)?;
     c.activate_selector(SelectorQuery::label("Increment"))
@@ -174,7 +174,7 @@ fn canvas_same_session_state_route_frames_raw_bridge_timeout_and_recovery() -> a
     println!("{}", json!({"raw_bridge":raw,"unchanged":after}));
 
     let bounded = c.browser_evaluate_json(
-        "(() => { const bridge=globalThis.__FISSION_TEST__; const read=value=>typeof value==='string'?JSON.parse(value):value; const requests=[]; const command={cmd:'SimulateResize',width:390,height:900}; for(let i=0;i<1024;i++) requests.push(bridge.submitValue(command)); const overflow=bridge.submitValue(command); const rawRejected=bridge.pollValue(overflow); const rejected=read(rawRejected); const collected=requests.every(id=>read(bridge.pollValue(id))?.status==='Error'); return {count:requests.length,overflow,transport:typeof rawRejected,rejected:rejected?.message,collected}; })()",
+        "(() => { const bridge=globalThis.__FISSION_TEST__; const read=id=>JSON.parse(bridge.poll(id)); const requests=[]; const command=JSON.stringify({cmd:'SimulateResize',width:390,height:900}); for(let i=0;i<1024;i++) requests.push(bridge.submit(command)); const overflow=bridge.submit(command); const rawRejected=bridge.poll(overflow); const rejected=JSON.parse(rawRejected); const collected=requests.every(id=>read(id)?.status==='Error'); return {count:requests.length,overflow,transport:typeof rawRejected,rejected:rejected?.message,collected}; })()",
     )?;
     assert_eq!(bounded["count"], 1024);
     assert_eq!(bounded["overflow"], 0);
@@ -187,7 +187,7 @@ fn canvas_same_session_state_route_frames_raw_bridge_timeout_and_recovery() -> a
 
     // Freeze only the acknowledgement in this disposable development page.
     // Actual Chromium/canvas resize still occurs, but cannot claim success.
-    c.browser_evaluate_json("globalThis.__savedFrame=Object.getOwnPropertyDescriptor(__FISSION_TEST__,'frame');Object.defineProperty(__FISSION_TEST__,'frame',{value:{...__FISSION_TEST__.frame,width:390},writable:false,configurable:true});true")?;
+    c.browser_evaluate_json("globalThis.__savedFrame=Object.getOwnPropertyDescriptor(__FISSION_TEST__,'frame');Object.defineProperty(__FISSION_TEST__,'frame',{value:JSON.stringify({...JSON.parse(__FISSION_TEST__.frame),width:390}),writable:false,configurable:true});true")?;
     let start = Instant::now();
     let error = c.simulate_resize(390, 900).unwrap_err();
     assert!(start.elapsed() < Duration::from_secs(5));
@@ -214,9 +214,9 @@ fn canvas_same_session_state_route_frames_raw_bridge_timeout_and_recovery() -> a
     assert_eq!(observe(&c)?["timeOrigin"], initial["timeOrigin"]);
     capture(&c, "recovered", 1280)?;
 
-    // Exercise the value-based bridge repeatedly, including the event-loop
-    // response path used by semantic queries. Completed responses must be
-    // removed so a long-running LiveTest does not accumulate bridge state.
+    // Exercise the JSON bridge repeatedly, including the event-loop response
+    // path used by semantic queries. Completed responses must be removed so a
+    // long-running LiveTest does not accumulate bridge state.
     for _ in 0..128 {
         assert!(c.get_text()?.iter().any(|item| item.text == "Count: 1"));
     }

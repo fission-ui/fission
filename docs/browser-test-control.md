@@ -38,9 +38,9 @@ dimensions: page JavaScript has no authority over Chromium's host viewport.
 
 ## Generic frame acknowledgement
 
-An opt-in Web build exposes a read-only snapshot getter alongside the existing
-`submit` and `poll` methods: `globalThis.__FISSION_TEST__.frame`. It returns
-`null` before successful renderer submission, then a value shaped as:
+An opt-in Web build exposes a read-only snapshot getter alongside the `submit`
+and `poll` methods: `globalThis.__FISSION_TEST__.frame`. It returns the JSON
+string `null` before successful renderer submission, then JSON text shaped as:
 
 ```json
 {"width":390.0,"height":900.0,"frame":42,"phase":"submitted"}
@@ -50,17 +50,16 @@ The shared Rust protocol is `WebTestFrame` / `WebTestFramePhase`. Width and
 height are the submitted frame's layout viewport in CSS pixels. The sequence
 advances after successful submission within this page. `submitted` identifies
 the shell's acknowledgement; it does not assert GPU readback or compositor
-presentation. Mutating a returned snapshot does not modify the shell's state.
+presentation. Parse the returned JSON string to get a snapshot; mutating that
+value does not modify the shell's state.
 Production builds expose neither the bridge nor this getter. No review-specific
 global is involved.
 
-Current LiveTest drivers use `submitValue(command)` to pass command objects into
-the bridge. `pollValue(id)` returns each completed response as one JSON string;
-the native driver decodes it after the Wasm call. Keeping responses as strings
-avoids allocating a JavaScript handle for every field in nested semantic nodes.
-The original `submit(json)` / `poll(id)` methods remain for older drivers.
-Completed response entries are removed when collected, and at most 1,024
-requests may be pending or uncollected at once.
+LiveTest drivers use `submit(json)` and `poll(id)`. Both methods exchange JSON
+strings across Wasm; `poll` returns the JSON text `null` while the response is
+pending. This avoids allocating JavaScript handles for command fields or nested
+semantic nodes. Completed response entries are removed when collected, and at
+most 1,024 requests may be pending or uncollected at once.
 
 Web renderer diagnostics also publish the most recent stage timings as
 `window.__FISSION_LAST_FRAME_STAGE_PERF`. On the Canvas2D software path,

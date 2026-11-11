@@ -13,7 +13,7 @@ pub(super) fn validate_dimensions(width: u32, height: u32) -> Result<()> {
 pub(super) fn read(client: &mut CdpClient) -> Result<Value> {
     // Read-only host observation, never shipped in production HTML.
     let result = client.send("Runtime.evaluate", json!({
-        "expression": "(() => {const c=document.querySelector('canvas');const b=c?c.getBoundingClientRect():null;return {width:innerWidth,height:innerHeight,scale:devicePixelRatio,url:location.href,frame:globalThis.__FISSION_TEST__?.frame||null,canvas:b?{x:b.x,y:b.y,width:b.width,height:b.height,pixel_width:c.width,pixel_height:c.height}:null};})()",
+        "expression": "(() => {const c=document.querySelector('canvas');const b=c?c.getBoundingClientRect():null;const raw=globalThis.__FISSION_TEST__?.frame;return {width:innerWidth,height:innerHeight,scale:devicePixelRatio,url:location.href,frame:raw?JSON.parse(raw):null,canvas:b?{x:b.x,y:b.y,width:b.width,height:b.height,pixel_width:c.width,pixel_height:c.height}:null};})()",
         "returnByValue": true
     }))?;
     runtime_exception(&result)?;
