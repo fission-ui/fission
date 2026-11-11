@@ -171,6 +171,13 @@ fn prepare_preview_workspaces(
             let member_name = format!("preview-{index:03}");
             let package = format!("docs2-tutorial-preview-{index:03}");
             let stage_dir = workspace_dir.join(&member_name);
+            // Preview indices are reused as the tutorial set changes. Clear
+            // the generated source directory before staging this preview so
+            // files removed from a tutorial (for example, an old build.rs)
+            // cannot leak into a different preview at the same index.
+            if stage_dir.exists() {
+                fs::remove_dir_all(&stage_dir)?;
+            }
             fs::create_dir_all(&stage_dir)?;
             for (relative, contents) in &preview.files {
                 let stage_path = preview_stage_path(relative);
