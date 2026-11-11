@@ -277,6 +277,93 @@ fn omitted_container_resolves_through_the_selected_responsive_branch() {
 }
 
 #[test]
+fn omitted_container_finds_measured_scroll_when_shared_identity_parent_is_inactive() {
+    let root = WidgetId::explicit("shared-responsive-root");
+    let active_branch = WidgetId::explicit("active-branch");
+    let active_scroll = WidgetId::explicit("active-scroll");
+    let inactive_branch = WidgetId::explicit("inactive-branch");
+    let inactive_scroll = WidgetId::explicit("inactive-scroll");
+    let target = WidgetId::explicit("shared-responsive-target");
+
+    let responsive = Op::Layout(LayoutOp::Responsive {
+        query: fission_ir::op::ResponsiveQuery::Viewport,
+        cases: vec![fission_ir::op::ResponsiveCondition {
+            min_width: None,
+            max_width: Some(600.0),
+        }],
+    });
+    let target_semantics = || {
+        Op::Semantics(fission_ir::Semantics {
+            role: fission_ir::Role::Text,
+            identifier: Some("document.page.2".into()),
+            ..Default::default()
+        })
+    };
+
+    let mut ir = CoreIR::new();
+    ir.add_node(target, target_semantics(), vec![]);
+    ir.add_node(
+        active_scroll,
+        scroll_op(FlexDirection::Column),
+        vec![target],
+    );
+    ir.add_node(active_branch, box_op(), vec![active_scroll]);
+
+    // Rebuilding the same logical target for the alternate responsive branch
+    // leaves the single stored parent pointer pointing at this inactive scroll.
+    ir.add_node(target, target_semantics(), vec![]);
+    ir.add_node(
+        inactive_scroll,
+        scroll_op(FlexDirection::Column),
+        vec![target],
+    );
+    ir.add_node(inactive_branch, box_op(), vec![inactive_scroll]);
+    ir.add_node(root, responsive, vec![active_branch, inactive_branch]);
+    ir.set_root(root);
+
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(500.0, 100.0));
+    for (id, rect, content_size) in [
+        (
+            root,
+            LayoutRect::new(0.0, 0.0, 500.0, 100.0),
+            LayoutSize::new(500.0, 100.0),
+        ),
+        (
+            active_branch,
+            LayoutRect::new(0.0, 0.0, 100.0, 100.0),
+            LayoutSize::new(100.0, 500.0),
+        ),
+        (
+            active_scroll,
+            LayoutRect::new(0.0, 0.0, 100.0, 100.0),
+            LayoutSize::new(100.0, 500.0),
+        ),
+        (
+            target,
+            LayoutRect::new(0.0, 260.0, 100.0, 40.0),
+            LayoutSize::new(100.0, 40.0),
+        ),
+    ] {
+        layout
+            .nodes
+            .insert(id, LayoutNodeGeometry { rect, content_size });
+    }
+
+    let mut runtime = Runtime::default();
+    runtime.queue_scroll_into_view(request(None, target));
+
+    assert!(runtime.post_layout_hook(&ir, &layout));
+    assert_eq!(
+        runtime.runtime_state.scroll.get_offset(active_scroll),
+        236.0
+    );
+    assert_eq!(
+        runtime.runtime_state.scroll.get_offset(inactive_scroll),
+        0.0
+    );
+}
+
+#[test]
 fn newly_mounted_active_descendant_is_centred_once_in_its_scroll_ancestor() {
     let (ir, layout, scroll, _target, _owner) = vertical_scroll_tree_with_active_descendant();
     let mut runtime = Runtime::default();

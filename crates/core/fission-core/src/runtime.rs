@@ -1106,7 +1106,9 @@ impl Runtime {
             return ScrollIntoViewOutcome::Retry;
         };
 
-        if !Self::is_descendant_or_self(ir, request.target, container_id) {
+        if !Self::is_descendant_or_self(ir, request.target, container_id)
+            && !Self::is_descendant_via_children(ir, request.target, container_id)
+        {
             Self::emit_scroll_into_view_diag("target_not_descendant", request, Some(container_id));
             return ScrollIntoViewOutcome::Ignored;
         }
@@ -1200,6 +1202,66 @@ impl Runtime {
             current = ir.nodes.get(&node_id).and_then(|node| node.parent);
         }
 
+        // Responsive alternatives can share a logical widget identity. CoreIR
+        // keeps a single parent pointer for that identity, so the pointer can
+        // refer to an unmeasured alternative even though another parent path
+        // in the active tree contains the measured scroll node. Recover that
+        // path from the root's child edges when the fast parent walk fails.
+        Self::resolve_scroll_container_from_children(request, ir, layout)
+    }
+
+    fn resolve_scroll_container_from_children(
+        request: &ScrollIntoViewRequest,
+        ir: &CoreIR,
+        layout: &LayoutSnapshot,
+    ) -> Option<WidgetId> {
+        let root = ir.root?;
+        let mut parents: HashMap<WidgetId, Vec<WidgetId>> = HashMap::new();
+        let mut reachable = HashSet::new();
+        let mut pending = vec![root];
+
+        while let Some(parent_id) = pending.pop() {
+            if !reachable.insert(parent_id) {
+                continue;
+            }
+            let Some(parent) = ir.nodes.get(&parent_id) else {
+                continue;
+            };
+            for child_id in &parent.children {
+                parents.entry(*child_id).or_default().push(parent_id);
+                pending.push(*child_id);
+            }
+        }
+
+        // Walk upward by distance so a measured inner scroll is selected
+        // before an outer one. Sorting makes shared-parent trees deterministic.
+        let mut frontier = vec![request.target];
+        let mut visited = HashSet::new();
+        visited.insert(request.target);
+        while !frontier.is_empty() {
+            frontier.sort_unstable_by_key(|id| id.as_u128());
+            let mut next = Vec::new();
+            for child_id in frontier {
+                let Some(ancestor_ids) = parents.get(&child_id) else {
+                    continue;
+                };
+                for ancestor_id in ancestor_ids {
+                    if !visited.insert(*ancestor_id) {
+                        continue;
+                    }
+                    if let Some(direction) = Self::scroll_direction(ir, *ancestor_id) {
+                        if Self::axis_matches(request.axis, direction)
+                            && layout.get_node_geometry(*ancestor_id).is_some()
+                        {
+                            return Some(*ancestor_id);
+                        }
+                    }
+                    next.push(*ancestor_id);
+                }
+            }
+            frontier = next;
+        }
+
         None
     }
 
@@ -1226,6 +1288,23 @@ impl Runtime {
                 return true;
             }
             current = ir.nodes.get(&node_id).and_then(|node| node.parent);
+        }
+        false
+    }
+
+    fn is_descendant_via_children(ir: &CoreIR, target: WidgetId, ancestor: WidgetId) -> bool {
+        let mut pending = vec![ancestor];
+        let mut visited = HashSet::new();
+        while let Some(node_id) = pending.pop() {
+            if node_id == target {
+                return true;
+            }
+            if !visited.insert(node_id) {
+                continue;
+            }
+            if let Some(node) = ir.nodes.get(&node_id) {
+                pending.extend(node.children.iter().copied());
+            }
         }
         false
     }
