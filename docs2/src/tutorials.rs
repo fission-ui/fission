@@ -180,12 +180,18 @@ fn prepare_preview_workspaces(
                 }
                 write_if_changed(&destination, contents.as_bytes())?;
             }
+            let sources = preview
+                .files
+                .values()
+                .map(String::as_str)
+                .collect::<Vec<_>>();
+            let fission_features = tutorial_fission_features(&sources, include_charts);
             write_if_changed(
                 &stage_dir.join("Cargo.toml"),
                 tutorial_manifest(
                     &package,
                     workspace_root,
-                    include_charts,
+                    &fission_features,
                     preview
                         .files
                         .values()
@@ -781,18 +787,18 @@ fn preview_stage_path(relative: &str) -> &Path {
 fn tutorial_manifest(
     package: &str,
     workspace_root: &Path,
-    include_charts: bool,
+    fission_features: &[&str],
     include_serde: bool,
     include_serde_yaml: bool,
     include_design_system_codegen: bool,
 ) -> String {
     let fission = workspace_root.join("crates/authoring/fission");
     let design_system_codegen = workspace_root.join("crates/tools/fission-design-system-codegen");
-    let fission_features = if include_charts {
-        "\"web\", \"charts\""
-    } else {
-        "\"web\""
-    };
+    let fission_features = fission_features
+        .iter()
+        .map(|feature| format!("\"{feature}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
     let serde_dependency = if include_serde {
         "serde = { version = \"1\", features = [\"derive\"] }\n"
     } else {
@@ -829,6 +835,37 @@ fission = {{ path = "{}", default-features = false, features = [{fission_feature
 {design_system_codegen_dependency}"#,
         fission.display()
     )
+}
+
+fn tutorial_fission_features(sources: &[&str], include_charts: bool) -> Vec<&'static str> {
+    let uses_any = |markers: &[&str]| {
+        sources
+            .iter()
+            .any(|source| markers.iter().any(|marker| source.contains(marker)))
+    };
+
+    let mut features = vec!["web"];
+    if include_charts {
+        features.push("charts");
+    }
+    if uses_any(&[
+        ".file_system()",
+        "FileSystemLocation",
+        "PickDirectoryRequest",
+    ]) {
+        features.push("filesystem");
+    }
+    if uses_any(&[".store()", "StoreKey<", "StoreBatch"]) {
+        features.push("store");
+    }
+    if uses_any(&[".sql()", "SqlStatement", "SqlMigration", "SqlTransaction"]) {
+        features.push("store-sql");
+    }
+    if uses_any(&["Video::", "Video("]) {
+        features.push("video");
+    }
+
+    features
 }
 
 fn tutorial_html(goal: &str, step: &str, task: &str) -> String {
@@ -918,15 +955,32 @@ mod tests {
     #[test]
     fn tutorial_manifest_enables_only_requested_build_dependencies() {
         let workspace = Path::new("/fission-workspace");
-        let with_codegen = tutorial_manifest("tutorial", workspace, false, false, false, true);
-        let without_codegen = tutorial_manifest("tutorial", workspace, false, false, false, false);
+        let features =
+            tutorial_fission_features(&["ctx.effects.sql().query(SqlStatement::new(...))"], false);
+        let with_codegen = tutorial_manifest("tutorial", workspace, &features, false, false, true);
+        let without_codegen =
+            tutorial_manifest("tutorial", workspace, &features, false, false, false);
 
         assert!(with_codegen.contains("path = \"src/preview.rs\""));
+        assert!(with_codegen.contains("features = [\"web\", \"store-sql\"]"));
         assert!(with_codegen.contains("[build-dependencies]"));
         assert!(with_codegen.contains("fission-design-system-codegen"));
         assert!(without_codegen.contains("path = \"src/preview.rs\""));
         assert!(!without_codegen.contains("[build-dependencies]"));
         assert!(!without_codegen.contains("fission-design-system-codegen"));
+    }
+
+    #[test]
+    fn tutorial_manifest_enables_capability_features_used_by_the_preview() {
+        let features = tutorial_fission_features(
+            &[
+                "ctx.effects.file_system().pick_directory(PickDirectoryRequest { .. })",
+                "Video::new(source)",
+            ],
+            true,
+        );
+
+        assert_eq!(features, vec!["web", "charts", "filesystem", "video"]);
     }
 
     #[test]
