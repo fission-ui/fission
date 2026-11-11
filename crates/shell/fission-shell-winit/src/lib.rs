@@ -9143,15 +9143,44 @@ where
                                                 if let Some(response_tx) =
                                                     pending_screenshot_response_tx.take()
                                                 {
-                                                    let response = if path == "__pump__" {
-                                                        fission_test_driver::TestResponse::Ok {}
+                                                    if path == "__pump__" {
+                                                        let _ = response_tx.send(
+                                                            fission_test_driver::TestResponse::Ok {},
+                                                        );
+                                                    } else if matches!(
+                                                        web_renderer.as_ref(),
+                                                        Some(WebRenderer::WebGpu(_))
+                                                    ) {
+                                                        let screenshot_dimensions =
+                                                            layout_size_to_image_dimensions(
+                                                                target_viewport,
+                                                            );
+                                                        let rendered = pipeline.retained_scene().map(
+                                                            |scene| {
+                                                                fission_render_vello::cpu::render_to_rgba8(
+                                                                    scene,
+                                                                    render_target_size.0,
+                                                                    render_target_size.1,
+                                                                    theme_background_render_color(&env),
+                                                                    scale_factor,
+                                                                    measurer.clone(),
+                                                                )
+                                                            },
+                                                        );
+                                                        let response = covered_window_screenshot(
+                                                            rendered,
+                                                            render_target_size,
+                                                            screenshot_dimensions,
+                                                            None,
+                                                        );
+                                                        let _ = response_tx.send(response);
                                                     } else {
-                                                        fission_test_driver::TestResponse::Error {
-                                                            message: "Web renderer screenshots are captured by the browser test host"
-                                                                .into(),
-                                                        }
-                                                    };
-                                                    let _ = response_tx.send(response);
+                                                        let _ = response_tx.send(
+                                                            fission_test_driver::TestResponse::Error {
+                                                                message: "renderer_screenshot_unavailable: use browser-host capture with the Canvas2D renderer".into(),
+                                                            },
+                                                        );
+                                                    }
                                                 }
                                             }
                                         }
@@ -10723,8 +10752,8 @@ fn gpu_screenshot(
     )
 }
 
-/// Answers a screenshot of a covered window, which cannot present, from a software rendering of the
-/// retained scene.
+/// Answers a screenshot from a software rendering of the retained scene when the presented surface
+/// cannot be read back reliably.
 fn covered_window_screenshot<E: std::fmt::Display>(
     rendered: Option<Result<Vec<u8>, E>>,
     render_size: (u32, u32),

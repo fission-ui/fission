@@ -400,6 +400,13 @@ fn dispatch(command: TestCommand, proxy: &EventLoopProxy<TestEvent>) -> PendingR
             ms,
             response_tx,
         }),
+        TestCommand::CaptureScreenshot {} => query(proxy, |response_tx| {
+            TestEvent::CaptureScreenshot { response_tx }
+        }),
+        TestCommand::CaptureAt { ms } => query(proxy, |response_tx| TestEvent::CaptureAt {
+            ms,
+            response_tx,
+        }),
         TestCommand::WaitForIdle { .. } => {
             query(proxy, |response_tx| TestEvent::MotionStatus { response_tx })
         }
@@ -429,9 +436,7 @@ fn dispatch(command: TestCommand, proxy: &EventLoopProxy<TestEvent>) -> PendingR
         | TestCommand::WaitForText { .. }
         | TestCommand::WaitForGone { .. }
         | TestCommand::Wait { .. }
-        | TestCommand::Screenshot { .. }
-        | TestCommand::CaptureScreenshot {}
-        | TestCommand::CaptureAt { .. } => PendingResponse::Ready(TestResponse::Error {
+        | TestCommand::Screenshot { .. } => PendingResponse::Ready(TestResponse::Error {
             message: "command is handled by the browser test host".into(),
         }),
     }

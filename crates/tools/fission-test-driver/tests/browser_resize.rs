@@ -24,12 +24,15 @@ fn capture(c: &LiveTestClient, name: &str, width: u32) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn capture_webgpu_diagnostic(c: &LiveTestClient, name: &str, width: u32) -> anyhow::Result<()> {
-    // Chromium's headless page screenshot does not reliably read the WebGPU swap chain.
-    // Preserve the capture for diagnosis, but do not treat its pixels as renderer readback.
+fn capture_webgpu_frame(c: &LiveTestClient, name: &str, width: u32) -> anyhow::Result<()> {
     let png = c.capture_screenshot_png()?;
     let image = image::load_from_memory(&png)?.to_rgba8();
     assert_eq!((image.width(), image.height()), (width, 900));
+    let first = image.get_pixel(0, 0);
+    assert!(
+        image.pixels().any(|pixel| pixel != first),
+        "WebGPU screenshot should contain Fission's rendered frame, not a blank browser capture"
+    );
     if let Some(dir) = std::env::var_os("FISSION_RESIZE_OUTPUT") {
         let dir = PathBuf::from(dir);
         std::fs::create_dir_all(&dir)?;
@@ -192,6 +195,7 @@ fn webgpu_renderer_resizes_without_recreating_mapped_config_buffer() -> anyhow::
         "the fixture must exercise the WebGPU renderer: {report:?}"
     );
 
+    capture_webgpu_frame(&client, "webgpu-initial", 1280)?;
     let initial = observe(&client)?;
     assert_eq!(initial["frame"]["phase"], "submitted");
     for (step, width) in [390, 1280, 390].into_iter().enumerate() {
@@ -202,7 +206,7 @@ fn webgpu_renderer_resizes_without_recreating_mapped_config_buffer() -> anyhow::
         assert_eq!(resized["canvas"]["pixel_width"], width);
         assert_eq!(resized["canvas"]["pixel_height"], 900);
         assert_eq!(resized["frame"]["phase"], "submitted");
-        capture_webgpu_diagnostic(&client, &format!("webgpu-step-{step}"), width)?;
+        capture_webgpu_frame(&client, &format!("webgpu-step-{step}"), width)?;
     }
     Ok(())
 }

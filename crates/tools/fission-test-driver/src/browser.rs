@@ -434,16 +434,21 @@ impl BrowserController {
             TestCommand::SelectOption { query } => {
                 self.selector_action(query.clone(), TestCommand::SelectOption { query })
             }
-            TestCommand::Screenshot { path } => {
-                let bytes = self.capture_page_screenshot()?;
-                write_screenshot(&PathBuf::from(path), &bytes)?;
-                Ok(TestResponse::Ok {})
-            }
-            TestCommand::CaptureScreenshot {} => self.capture_page_response(),
+            TestCommand::Screenshot { path } => match self.capture_renderer_or_page_response()? {
+                TestResponse::Screenshot { png_base64, .. } => {
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(png_base64)
+                        .context("invalid screenshot payload from browser")?;
+                    write_screenshot(&PathBuf::from(path), &bytes)?;
+                    Ok(TestResponse::Ok {})
+                }
+                response => Ok(response),
+            },
+            TestCommand::CaptureScreenshot {} => self.capture_renderer_or_page_response(),
             TestCommand::CaptureAt { ms } => {
                 ensure_response_ok(self.send_bridge_command(TestCommand::AdvanceClock { ms })?)?;
                 ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
-                self.capture_page_response()
+                self.capture_renderer_or_page_response()
             }
             TestCommand::PressKey { key, modifiers } => self.press_dom_key(&key, modifiers),
             command => self.send_bridge_command(command),
@@ -735,6 +740,25 @@ impl BrowserController {
             width: decoded.width(),
             height: decoded.height(),
         })
+    }
+
+    /// Prefer Fission's WebGPU-frame capture for a Fission canvas. Headless Chromium can omit the
+    /// WebGPU swapchain from `Page.captureScreenshot`, so that host screenshot may be black even
+    /// when the app has rendered. The Web shell captures its retained scene for this path; Canvas2D
+    /// and ordinary web pages continue to use the browser's viewport capture.
+    fn capture_renderer_or_page_response(&mut self) -> Result<TestResponse> {
+        if self.options.mode != BrowserSmokeMode::FissionCanvas {
+            return self.capture_page_response();
+        }
+
+        match self.send_bridge_command(TestCommand::CaptureScreenshot {})? {
+            TestResponse::Error { message }
+                if message.starts_with("renderer_screenshot_unavailable:") =>
+            {
+                self.capture_page_response()
+            }
+            response => Ok(response),
+        }
     }
 
     fn capture_page_screenshot(&mut self) -> Result<Vec<u8>> {

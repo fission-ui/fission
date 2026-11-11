@@ -101,9 +101,11 @@ The WebGPU resize regression uses the same opt-in fixture, served with
 `?fission_renderer=webgpu-vello`, and requires a browser with a working WebGPU
 adapter. It grows and shrinks the renderer in one Chromium session, exercising
 the intermediate-texture config upload that previously recreated a mapped
-buffer on every size change. If `FISSION_RESIZE_OUTPUT` is set, it retains page
-captures for diagnosis; headless Chromium's WebGPU screenshot pixels are not a
-reliable renderer readback and are not used as the pass condition:
+buffer on every size change. Its screenshots use Fission's retained scene and
+software rasterizer, then assert that the captured pixels contain the rendered
+frame. This avoids relying on Chromium's headless WebGPU swapchain capture,
+which can be black. If `FISSION_RESIZE_OUTPUT` is set, each capture is retained
+for visual inspection:
 
 ```sh
 FISSION_RESIZE_WEBGPU_URL=http://127.0.0.1:8123/?fission_renderer=webgpu-vello \
