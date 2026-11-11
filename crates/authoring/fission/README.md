@@ -27,6 +27,30 @@ cd my-app
 fission run
 ```
 
+### Using Fission from Git
+
+When consuming Fission's Git repository for a native desktop or mobile build,
+repeat this patch in the **application workspace root**. Cargo does not inherit
+`[patch.crates-io]` entries from dependency workspaces. Without the patch,
+`fission-shell-winit` and `fission-accesskit-winit` can compile against two
+different `fission-winit` revisions, which Rust treats as different window and
+event-loop types.
+
+Use the same revision as the Fission commit you consume:
+
+```toml
+[dependencies]
+fission = { git = "https://github.com/fission-ui/fission", branch = "main", features = ["desktop"] }
+
+[patch.crates-io]
+fission-winit = { git = "https://github.com/worka-ai/winit", rev = "1e99d748234f11a0dd49a00a1ffc3cca1bb0b203" }
+```
+
+The `rev` above matches the Fission `main` dependency at the time of writing.
+If you pin another Fission commit, copy the `fission-winit` revision from that
+commit's `crates/shell/fission-shell-winit/Cargo.toml`. Do not copy Fission's
+workspace patch expecting it to apply automatically in your project.
+
 ## What the facade gives you
 
 | Area | What is exposed |
