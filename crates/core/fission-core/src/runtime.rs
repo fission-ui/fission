@@ -6,7 +6,7 @@ mod text_focus;
 use crate::action::{Action, ActionEnvelope, ActionId, GlobalState};
 use crate::async_runtime::ServiceStopPayload;
 use crate::effect::{
-    ActionInput, Effect, EffectEnvelope, RuntimeEffect, ScrollAlignment, ScrollAxis,
+    ActionInput, Effect, EffectEnvelope, KeyPressInput, RuntimeEffect, ScrollAlignment, ScrollAxis,
     ScrollBehavior, ScrollIntoViewRequest,
 };
 use crate::env::{RuntimeState, VideoStatus};
@@ -1872,15 +1872,15 @@ impl Runtime {
             InputEvent::Keyboard(KeyEvent::Down {
                 key_code,
                 modifiers,
-            })
-            | InputEvent::Keyboard(KeyEvent::DownWithText {
+            }) => Some((key_code, *modifiers, None)),
+            InputEvent::Keyboard(KeyEvent::DownWithText {
                 key_code,
                 modifiers,
-                ..
-            }) => Some((key_code, *modifiers)),
+                text,
+            }) => Some((key_code, *modifiers, Some(text.as_str()))),
             _ => None,
         };
-        if let Some((key_code, modifiers)) = declared_key {
+        if let Some((key_code, modifiers, text)) = declared_key {
             if !matches!(key_code, KeyCode::Tab) {
                 if let Some((node_id, action)) = crate::hit_test::declared_key_action(
                     ir,
@@ -1888,7 +1888,15 @@ impl Runtime {
                     key_code,
                     modifiers,
                 ) {
-                    let input = crate::input::scoped_action_input(ir, node_id, ActionInput::None);
+                    let input = crate::input::scoped_action_input(
+                        ir,
+                        node_id,
+                        ActionInput::KeyPress(KeyPressInput {
+                            key_code: key_code.clone(),
+                            modifiers,
+                            text: text.map(str::to_owned),
+                        }),
+                    );
                     self.dispatch_node_with_input(
                         ActionEnvelope {
                             id: ActionId::from_u128(action.action_id),

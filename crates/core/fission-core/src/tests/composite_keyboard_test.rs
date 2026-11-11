@@ -1,11 +1,12 @@
-use crate::action::{ActionEnvelope, ActionId, GlobalState};
+use crate::action::{Action, ActionEnvelope, ActionId, GlobalState};
 use crate::hit_test::get_all_focusable_nodes;
-use crate::{InputEvent, KeyCode, KeyEvent, Runtime};
+use crate::{reduce_with, ActionRegistry, InputEvent, KeyCode, KeyEvent, ReducerContext, Runtime};
 use fission_ir::{
-    ActionEntry, ActionSet, ActionTrigger, CoreIR, KeyAction, LayoutDirection, Op, PopupKind, Role,
-    SemanticOrientation, Semantics, StructuralOp, WidgetId,
+    ActionEntry, ActionSet, ActionTrigger, CoreIR, KeyAction, KeyBinding, LayoutDirection, Op,
+    PopupKind, Role, SemanticOrientation, Semantics, StructuralOp, WidgetId,
 };
 use fission_layout::{LayoutSize, LayoutSnapshot};
+use serde::{Deserialize, Serialize};
 
 fn id(value: &str) -> WidgetId {
     WidgetId::explicit(value)
@@ -534,20 +535,34 @@ fn vertical_arrow_requests_open_on_a_collapsed_popup_controller() {
 #[test]
 fn declared_key_action_claims_down_with_text_before_text_insertion() {
     let mut ir = CoreIR::default();
+    let key_action = StartInlineEdit;
     add_semantics(
         &mut ir,
         "command",
         Semantics {
             role: Role::Button,
             focusable: true,
-            key_actions: vec![KeyAction::new(KeyCode::Char('x'), 99)],
+            key_actions: vec![KeyAction {
+                binding: KeyBinding::new(KeyCode::Char('x')),
+                action: ActionEntry {
+                    trigger: ActionTrigger::Key,
+                    action_id: StartInlineEdit::static_id().as_u128(),
+                    payload_data: Some(key_action.encode()),
+                },
+            }],
             ..Default::default()
         },
         Vec::new(),
     );
     finish_root(&mut ir, vec![id("command")]);
 
-    let mut runtime = dismiss_runtime();
+    let mut runtime = Runtime::default();
+    runtime
+        .add_global_state(Box::new(KeyActionState::default()))
+        .unwrap();
+    let mut registry = ActionRegistry::new();
+    registry.register(reduce_with!(on_start_inline_edit));
+    runtime.absorb_registry(registry);
     runtime
         .runtime_state
         .interaction
@@ -557,14 +572,45 @@ fn declared_key_action_claims_down_with_text_before_text_insertion() {
             InputEvent::Keyboard(KeyEvent::DownWithText {
                 key_code: KeyCode::Char('x'),
                 modifiers: 0,
-                text: "x".into(),
+                text: "x\u{301}".into(),
             }),
             &ir,
             &layout(),
         )
         .unwrap();
 
-    assert_eq!(runtime.get_global_state::<DismissState>().unwrap().count, 1);
+    assert_eq!(
+        runtime
+            .get_global_state::<KeyActionState>()
+            .unwrap()
+            .initial_text
+            .as_deref(),
+        Some("x\u{301}")
+    );
+}
+
+#[derive(Debug, Default)]
+struct KeyActionState {
+    initial_text: Option<String>,
+}
+
+impl GlobalState for KeyActionState {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct StartInlineEdit;
+
+impl Action for StartInlineEdit {
+    fn static_id() -> ActionId {
+        ActionId::from_name("fission_core::composite_keyboard_test::StartInlineEdit")
+    }
+}
+
+fn on_start_inline_edit<'a, 'b, 'c>(
+    state: &mut KeyActionState,
+    _action: StartInlineEdit,
+    ctx: &mut ReducerContext<'a, 'b, 'c, KeyActionState>,
+) {
+    state.initial_text = ctx.input.key_press().and_then(|press| press.text.clone());
 }
 
 #[derive(Debug, Default)]

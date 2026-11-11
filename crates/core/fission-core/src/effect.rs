@@ -15,7 +15,7 @@ use crate::capability::CapabilityInvocationPayload;
 use crate::capability::{CapabilityType, OperationCapability};
 use crate::env::RouteLocation;
 use crate::navigation::NavigationCommand;
-use fission_ir::WidgetId;
+use fission_ir::{KeyCode, WidgetId};
 use serde::{Deserialize, Serialize};
 
 /// An opaque request identifier assigned to each emitted effect.
@@ -24,6 +24,20 @@ use serde::{Deserialize, Serialize};
 /// runtime can correlate responses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ReqId(pub u64);
+
+/// Logical key details delivered with a declared semantic key action.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyPressInput {
+    /// The platform-independent logical key used to match the binding.
+    pub key_code: KeyCode,
+    /// Exact modifier bitmask held when the key was pressed.
+    pub modifiers: u8,
+    /// Text produced by the platform, when available.
+    ///
+    /// This can contain multiple Unicode scalars, such as a composed grapheme.
+    /// It is absent for `KeyEvent::Down`, which carries no produced text.
+    pub text: Option<String>,
+}
 
 /// An opaque handle to a platform-managed resource (e.g. a large binary blob).
 ///
@@ -213,6 +227,8 @@ pub enum ActionInput {
     None,
     /// The host shell delivered a route/navigation change.
     RouteChanged { location: RouteLocation },
+    /// A declared semantic key action claimed a keyboard press.
+    KeyPress(KeyPressInput),
     /// A typed async job completed successfully.
     JobOk {
         job_name: String,
@@ -408,6 +424,16 @@ impl ActionInput {
             } => Some((*x, *y, *delta_x, *delta_y)),
             ActionInput::Drop { x, y, .. } => Some((*x, *y, 0.0, 0.0)),
             ActionInput::InternalDrop { x, y, .. } => Some((*x, *y, 0.0, 0.0)),
+            _ => None,
+        }
+    }
+
+    /// Returns the logical key and produced text for a declared key action.
+    ///
+    /// Scoped actions are unwrapped automatically.
+    pub fn key_press(&self) -> Option<&KeyPressInput> {
+        match self.unscoped() {
+            ActionInput::KeyPress(input) => Some(input),
             _ => None,
         }
     }

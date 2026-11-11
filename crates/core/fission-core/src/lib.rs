@@ -403,8 +403,8 @@ pub mod public {
         FissionDataStreamErrorKind,
     };
     pub use crate::effect::{
-        ActionInput, ActionInputCodecError, Effect, EffectEnvelope, RuntimeEffect, ScrollAlignment,
-        ScrollAxis, ScrollBehavior, ScrollIntoViewRequest,
+        ActionInput, ActionInputCodecError, Effect, EffectEnvelope, KeyPressInput, RuntimeEffect,
+        ScrollAlignment, ScrollAxis, ScrollBehavior, ScrollIntoViewRequest,
     };
     pub use crate::env::{
         Clipboard, DragSessionPayload, DragSessionState, Env, ImeHandler, InteractionStateMap,
@@ -624,8 +624,8 @@ pub use data_stream::{
     FissionDataStreamErrorKind,
 };
 pub use effect::{
-    ActionInput, ActionInputCodecError, Effect, EffectEnvelope, RuntimeEffect, ScrollAlignment,
-    ScrollAxis, ScrollBehavior, ScrollIntoViewRequest,
+    ActionInput, ActionInputCodecError, Effect, EffectEnvelope, KeyPressInput, RuntimeEffect,
+    ScrollAlignment, ScrollAxis, ScrollBehavior, ScrollIntoViewRequest,
 };
 pub use env::{
     Clipboard, DragSessionPayload, DragSessionState, Env, ImeHandler, InteractionStateMap,
