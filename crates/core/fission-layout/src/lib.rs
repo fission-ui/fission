@@ -683,25 +683,46 @@ impl LayoutGraphState {
         self.rebuild_topology(validation);
     }
 
-    fn update_nodes(&mut self, input_nodes: &[LayoutInputNode]) {
-        let mut validation = LayoutGraphValidationState::default();
-        let mut seen = HashSet::new();
-        let mut next_order = Vec::with_capacity(input_nodes.len());
-        let mut next_nodes = HashMap::with_capacity(input_nodes.len());
-
-        for node in input_nodes {
-            if !seen.insert(node.id) {
-                validation.duplicate_nodes.push(node.id);
-                continue;
-            }
-            next_order.push(node.id);
-            next_nodes.insert(node.id, node.clone());
+    fn update_nodes(&mut self, input_nodes: &[LayoutInputNode]) -> bool {
+        let order_matches = self.node_order.len() == input_nodes.len()
+            && self
+                .node_order
+                .iter()
+                .zip(input_nodes)
+                .all(|(current, next)| *current == next.id);
+        if !order_matches {
+            self.replace_all_nodes(input_nodes);
+            self.rebuild_topology(LayoutGraphValidationState::default());
+            return true;
         }
 
-        self.node_order = next_order;
-        self.nodes = next_nodes;
+        let mut changed = false;
+        let mut topology_changed = false;
+        for node in input_nodes {
+            let Some(current) = self.nodes.get(&node.id) else {
+                self.replace_all_nodes(input_nodes);
+                self.rebuild_topology(LayoutGraphValidationState::default());
+                return true;
+            };
+            if current == node {
+                continue;
+            }
+
+            topology_changed |=
+                current.parent_id != node.parent_id || current.children_ids != node.children_ids;
+            self.nodes.insert(node.id, node.clone());
+            changed = true;
+        }
+
+        if !changed {
+            return false;
+        }
+
         self.last_layout_version = None;
-        self.rebuild_topology(validation);
+        if topology_changed {
+            self.rebuild_topology(LayoutGraphValidationState::default());
+        }
+        true
     }
 
     fn rebuild_topology(&mut self, mut validation: LayoutGraphValidationState) {
@@ -1287,8 +1308,10 @@ impl LayoutEngine {
     }
 
     fn ensure_graph_state(&mut self, input_nodes: &[LayoutInputNode]) {
-        if self.graph_state.is_empty() || !self.graph_state.matches_input_nodes(input_nodes) {
+        if self.graph_state.is_empty() {
             self.refresh_graph_state(input_nodes);
+        } else {
+            self.update(input_nodes);
         }
     }
 
@@ -1332,13 +1355,10 @@ impl LayoutEngine {
             return;
         }
 
-        if self.graph_state.matches_input_nodes(input_nodes) {
-            return;
+        if self.graph_state.update_nodes(input_nodes) {
+            let version = self.allocate_graph_version();
+            self.graph_state.graph_version = version;
         }
-
-        let version = self.allocate_graph_version();
-        self.graph_state.graph_version = version;
-        self.graph_state.update_nodes(input_nodes);
     }
 
     /// Rebuilds internal data structures from the full node list.
@@ -1429,8 +1449,6 @@ impl LayoutEngine {
         viewport_size: LayoutSize,
         scroll_source: &impl ScrollDataSource,
     ) -> Result<LayoutSnapshot> {
-        self.ensure_graph_state(input_nodes);
-        self.validate_graph_state(root_node_id)?;
         let snapshot = self.compute_layout_constraints(
             input_nodes,
             root_node_id,
@@ -1453,11 +1471,20 @@ impl LayoutEngine {
         viewport_size: LayoutSize,
         scroll_source: &impl ScrollDataSource,
     ) -> Result<LayoutSnapshot> {
+        self.ensure_graph_state(input_nodes);
+        self.validate_graph_state(root_node_id)?;
+        self.compute_layout_constraints_updated(root_node_id, viewport_size, scroll_source)
+    }
+
+    fn compute_layout_constraints_updated(
+        &mut self,
+        root_node_id: WidgetId,
+        viewport_size: LayoutSize,
+        scroll_source: &impl ScrollDataSource,
+    ) -> Result<LayoutSnapshot> {
         self.prepare_directional_layout();
         self.active_viewport = viewport_size;
         self.resolved_paragraphs.lock().unwrap().clear();
-        self.ensure_graph_state(input_nodes);
-        self.validate_graph_state(root_node_id)?;
 
         // Root constraints should be tight to the viewport size if no explicit size is given
         let mut constraints = BoxConstraints::tight(viewport_size);
@@ -1600,12 +1627,8 @@ impl LayoutEngine {
             previous_snapshot: previous_snapshot.clone(),
             dirty_ancestors,
         });
-        let result = self.compute_layout_constraints(
-            input_nodes,
-            root_node_id,
-            viewport_size,
-            scroll_source,
-        );
+        let result =
+            self.compute_layout_constraints_updated(root_node_id, viewport_size, scroll_source);
         self.incremental_reuse = None;
         result
     }
