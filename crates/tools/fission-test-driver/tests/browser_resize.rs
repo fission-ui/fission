@@ -54,9 +54,11 @@ fn web_bridge_value_round_trips_remain_bounded_after_repeated_queries() -> anyho
             .any(|item| item.text == "Fission web smoke"));
     }
 
-    // Semantic trees use a JSON-string response across the Wasm boundary so large nested node
-    // arrays do not require one externref handle per field while serde_wasm_bindgen builds them.
+    // Every value-based bridge response uses one JSON string across the Wasm boundary, including
+    // the nested semantic tree and selector responses used by the real application.
     assert!(!client.get_tree()?.is_empty());
+    let increment = client.resolve_selector(SelectorQuery::label("Increment"))?;
+    assert_eq!(increment.label.as_deref(), Some("Increment"));
 
     let stage_perf = client.browser_evaluate_json("globalThis.__FISSION_LAST_FRAME_STAGE_PERF")?;
     assert_eq!(stage_perf["renderer"], "canvas2d-software");
@@ -65,10 +67,11 @@ fn web_bridge_value_round_trips_remain_bounded_after_repeated_queries() -> anyho
     assert!(stage_perf["softwareOutputCopyMs"].is_number());
 
     let bounded = client.browser_evaluate_json(
-        "(() => { const bridge=globalThis.__FISSION_TEST__; const requests=[]; const command={cmd:'SimulateResize',width:390,height:900}; for(let i=0;i<1024;i++) requests.push(bridge.submitValue(command)); const overflow=bridge.submitValue(command); const rejected=bridge.pollValue(overflow); const collected=requests.every(id=>bridge.pollValue(id)?.status==='Error'); return {count:requests.length,overflow,rejected:rejected?.message,collected}; })()",
+        "(() => { const bridge=globalThis.__FISSION_TEST__; const read=value=>typeof value==='string'?JSON.parse(value):value; const requests=[]; const command={cmd:'SimulateResize',width:390,height:900}; for(let i=0;i<1024;i++) requests.push(bridge.submitValue(command)); const overflow=bridge.submitValue(command); const rawRejected=bridge.pollValue(overflow); const rejected=read(rawRejected); const collected=requests.every(id=>read(bridge.pollValue(id))?.status==='Error'); return {count:requests.length,overflow,transport:typeof rawRejected,rejected:rejected?.message,collected}; })()",
     )?;
     assert_eq!(bounded["count"], 1024);
     assert_eq!(bounded["overflow"], 0);
+    assert_eq!(bounded["transport"], "string");
     assert!(bounded["rejected"]
         .as_str()
         .unwrap()
@@ -171,10 +174,11 @@ fn canvas_same_session_state_route_frames_raw_bridge_timeout_and_recovery() -> a
     println!("{}", json!({"raw_bridge":raw,"unchanged":after}));
 
     let bounded = c.browser_evaluate_json(
-        "(() => { const bridge=globalThis.__FISSION_TEST__; const requests=[]; const command={cmd:'SimulateResize',width:390,height:900}; for(let i=0;i<1024;i++) requests.push(bridge.submitValue(command)); const overflow=bridge.submitValue(command); const rejected=bridge.pollValue(overflow); const collected=requests.every(id=>bridge.pollValue(id)?.status==='Error'); return {count:requests.length,overflow,rejected:rejected?.message,collected}; })()",
+        "(() => { const bridge=globalThis.__FISSION_TEST__; const read=value=>typeof value==='string'?JSON.parse(value):value; const requests=[]; const command={cmd:'SimulateResize',width:390,height:900}; for(let i=0;i<1024;i++) requests.push(bridge.submitValue(command)); const overflow=bridge.submitValue(command); const rawRejected=bridge.pollValue(overflow); const rejected=read(rawRejected); const collected=requests.every(id=>read(bridge.pollValue(id))?.status==='Error'); return {count:requests.length,overflow,transport:typeof rawRejected,rejected:rejected?.message,collected}; })()",
     )?;
     assert_eq!(bounded["count"], 1024);
     assert_eq!(bounded["overflow"], 0);
+    assert_eq!(bounded["transport"], "string");
     assert!(bounded["rejected"]
         .as_str()
         .unwrap()
