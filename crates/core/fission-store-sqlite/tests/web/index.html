@@ -164,18 +164,31 @@
           transaction_id: transactionId,
           tables: ["browser_transaction_smoke"],
         });
-        await transactionStatement(
-          transactionId,
-          "sql_tx_execute",
-          "INSERT INTO browser_transaction_smoke(run, value) VALUES (?1, ?2)",
-          { Positional: [{ Text: transactionRun }, { Text: "saved by a changeset" }] },
-        );
-        const context = await transactionStatement(
-          transactionId,
-          "sql_tx_query",
-          "SELECT pdb_current_operation_id() AS operation_id, pdb_next_op_seq() AS sequence",
-        );
-        const contextValues = context.rows[0]?.values;
+        const job = await request("sql_tx_job", {
+          transaction_id: transactionId,
+          steps: [
+            {
+              Execute: {
+                sql: "INSERT INTO browser_transaction_smoke(run, value) VALUES (?1, ?2)",
+                parameters: {
+                  Positional: [{ Text: transactionRun }, { Text: "saved by a changeset" }],
+                },
+              },
+            },
+            {
+              Query: {
+                sql: "SELECT pdb_current_operation_id() AS operation_id, pdb_next_op_seq() AS sequence",
+                parameters: "None",
+              },
+            },
+          ],
+        });
+        if (job.length !== 2 || Number(job[0]?.Execute?.affected_rows) !== 1) {
+          throw new Error(
+            `SQLite transaction job did not return ordered execute results: ${JSON.stringify(job, (_key, value) => typeof value === "bigint" ? value.toString() : value)}`,
+          );
+        }
+        const contextValues = job[1]?.Query?.rows[0]?.values;
         if (
           contextValues?.[0]?.Text !== "browser-smoke-operation" ||
           contextValues?.[1]?.Integer !== 1
@@ -190,16 +203,34 @@
 
         let authorizerError;
         try {
-          await transactionStatement(
-            transactionId,
-            "sql_tx_execute",
-            "DELETE FROM browser_smoke WHERE run=?1",
-            { Positional: [{ Text: run }] },
-          );
+          await request("sql_tx_job", {
+            transaction_id: transactionId,
+            steps: [
+              {
+                Execute: {
+                  sql: "INSERT INTO browser_transaction_smoke(run, value) VALUES (?1, ?2)",
+                  parameters: {
+                    Positional: [
+                      { Text: `${transactionRun}-job-rollback` },
+                      { Text: "must roll back with the failed job" },
+                    ],
+                  },
+                },
+              },
+              {
+                Execute: {
+                  sql: "DELETE FROM browser_smoke WHERE run=?1",
+                  parameters: { Positional: [{ Text: run }] },
+                },
+              },
+            ],
+          });
         } catch (error) {
           authorizerError = error.sqliteCode;
         }
-        if (authorizerError !== 23) throw new Error("the transaction authorizer did not deny the write");
+        if (authorizerError !== 23) {
+          throw new Error("the transaction authorizer did not deny the batched write");
+        }
         let expiredError;
         try {
           await transactionStatement(
@@ -221,6 +252,15 @@
         });
         if (rolledBack.rows[0]?.values[0]?.Integer !== 0) {
           throw new Error("authorizer failure did not roll back the open transaction");
+        }
+        const rolledBackJob = await request("sql_query", {
+          statement: {
+            sql: "SELECT count(*) AS count FROM browser_transaction_smoke WHERE run=?1",
+            parameters: { Positional: [{ Text: `${transactionRun}-job-rollback` }] },
+          },
+        });
+        if (rolledBackJob.rows[0]?.values[0]?.Integer !== 0) {
+          throw new Error("failed transaction job left an earlier step committed");
         }
         let rollbackContextExpired = false;
         try {
