@@ -2,7 +2,12 @@ package rs.fission.runtime;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.Fragment;
+import android.content.ClipData;
 import android.content.Context;
+import android.content.Intent;
+import android.database.Cursor;
+import android.net.Uri;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
@@ -35,7 +40,9 @@ import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.ParcelFileDescriptor;
 import android.os.ParcelUuid;
+import android.provider.OpenableColumns;
 import android.util.Size;
 import android.view.Surface;
 
@@ -55,6 +62,190 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class FissionAndroidCapabilities {
     private FissionAndroidCapabilities() {}
+
+    private static final int PICK_FILE = 0x46f6;
+
+    private static native void nativeFilePickerResult(
+            long requestId,
+            String[] uris,
+            String[] names,
+            String[] mimeTypes,
+            String[] sizes,
+            String errorCode,
+            String errorMessage);
+
+    public static void beginPickFile(
+            Activity activity,
+            long requestId,
+            boolean save,
+            boolean allowMultiple,
+            String suggestedName,
+            String[] mimeTypes) {
+        activity.runOnUiThread(() -> {
+            try {
+                FilePickerFragment fragment = new FilePickerFragment();
+                Bundle arguments = new Bundle();
+                arguments.putLong("requestId", requestId);
+                arguments.putBoolean("save", save);
+                arguments.putBoolean("allowMultiple", allowMultiple);
+                arguments.putString("suggestedName", suggestedName == null ? "" : suggestedName);
+                arguments.putStringArray("mimeTypes", mimeTypes == null ? new String[0] : mimeTypes);
+                fragment.setArguments(arguments);
+                activity.getFragmentManager()
+                        .beginTransaction()
+                        .add(fragment, "fission-file-picker-" + requestId)
+                        .commitAllowingStateLoss();
+            } catch (Throwable error) {
+                nativeFilePickerResult(
+                        requestId, new String[0], new String[0], new String[0], new String[0],
+                        "picker_failed", message(error));
+            }
+        });
+    }
+
+    public static int openPickedFileRead(Activity activity, String uriValue) throws Exception {
+        return openPickedFile(activity, uriValue, "r");
+    }
+
+    public static int openPickedFileWrite(Activity activity, String uriValue) throws Exception {
+        return openPickedFile(activity, uriValue, "wt");
+    }
+
+    private static int openPickedFile(Activity activity, String uriValue, String mode) throws Exception {
+        ParcelFileDescriptor descriptor = activity.getContentResolver()
+                .openFileDescriptor(Uri.parse(uriValue), mode);
+        if (descriptor == null) throw new IllegalStateException("the document provider returned no file descriptor");
+        return descriptor.detachFd();
+    }
+
+    private static String message(Throwable error) {
+        String value = error.getMessage();
+        return value == null || value.isEmpty() ? error.getClass().getSimpleName() : value;
+    }
+
+    private static String[] metadata(Activity activity, Uri uri) {
+        String name = uri.getLastPathSegment() == null ? "selected-file" : uri.getLastPathSegment();
+        String size = "";
+        try (Cursor cursor = activity.getContentResolver().query(
+                uri,
+                new String[] { OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE },
+                null,
+                null,
+                null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                int sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE);
+                if (nameIndex >= 0 && !cursor.isNull(nameIndex)) name = cursor.getString(nameIndex);
+                if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) size = Long.toString(cursor.getLong(sizeIndex));
+            }
+        } catch (Throwable ignored) {
+            // Some document providers omit metadata; the URI is still readable.
+        }
+        String mimeType = activity.getContentResolver().getType(uri);
+        return new String[] { uri.toString(), name, mimeType == null ? "" : mimeType, size };
+    }
+
+    public static final class FilePickerFragment extends Fragment {
+        @Override
+        public void onCreate(Bundle savedInstanceState) {
+            super.onCreate(savedInstanceState);
+            if (savedInstanceState != null) return;
+            Bundle arguments = getArguments();
+            long requestId = arguments == null ? 0L : arguments.getLong("requestId");
+            try {
+                boolean save = arguments != null && arguments.getBoolean("save");
+                boolean allowMultiple = arguments != null && arguments.getBoolean("allowMultiple");
+                String suggestedName = arguments == null ? "" : arguments.getString("suggestedName", "");
+                String[] mimeTypes = arguments == null ? new String[0] : arguments.getStringArray("mimeTypes");
+                Intent intent = new Intent(save ? Intent.ACTION_CREATE_DOCUMENT : Intent.ACTION_OPEN_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                String type = mimeTypes == null || mimeTypes.length == 0 ? "*/*" : mimeTypes[0];
+                if (mimeTypes != null && mimeTypes.length > 1) type = "*/*";
+                intent.setType(type);
+                if (mimeTypes != null && mimeTypes.length > 1) {
+                    intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
+                }
+                if (save) {
+                    if (!suggestedName.isEmpty()) intent.putExtra(Intent.EXTRA_TITLE, suggestedName);
+                } else {
+                    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, allowMultiple);
+                }
+                int flags = Intent.FLAG_GRANT_READ_URI_PERMISSION;
+                if (save) flags |= Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
+                flags |= Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION;
+                intent.addFlags(flags);
+                startActivityForResult(intent, PICK_FILE);
+            } catch (Throwable error) {
+                nativeFilePickerResult(
+                        requestId, new String[0], new String[0], new String[0], new String[0],
+                        "picker_failed", message(error));
+                removeSelf();
+            }
+        }
+
+        @Override
+        public void onActivityResult(int requestCode, int resultCode, Intent data) {
+            super.onActivityResult(requestCode, resultCode, data);
+            if (requestCode != PICK_FILE) return;
+            Bundle arguments = getArguments();
+            long requestId = arguments == null ? 0L : arguments.getLong("requestId");
+            try {
+                if (resultCode != Activity.RESULT_OK || data == null) {
+                    nativeFilePickerResult(
+                            requestId, new String[0], new String[0], new String[0], new String[0], null, null);
+                    return;
+                }
+                List<Uri> selected = new ArrayList<>();
+                ClipData clip = data.getClipData();
+                if (clip != null) {
+                    for (int index = 0; index < clip.getItemCount(); index++) {
+                        Uri uri = clip.getItemAt(index).getUri();
+                        if (uri != null && !selected.contains(uri)) selected.add(uri);
+                    }
+                }
+                Uri single = data.getData();
+                if (single != null && !selected.contains(single)) selected.add(single);
+                if (selected.isEmpty()) {
+                    nativeFilePickerResult(
+                            requestId, new String[0], new String[0], new String[0], new String[0], null, null);
+                    return;
+                }
+                if (arguments != null && arguments.getBoolean("save")) {
+                    int flags = data.getFlags()
+                            & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                    if ((flags & Intent.FLAG_GRANT_WRITE_URI_PERMISSION) == 0) {
+                        throw new SecurityException("Android did not grant write access to the selected document");
+                    }
+                    getActivity().getContentResolver().takePersistableUriPermission(selected.get(0), flags);
+                }
+                String[] uris = new String[selected.size()];
+                String[] names = new String[selected.size()];
+                String[] mimeTypes = new String[selected.size()];
+                String[] sizes = new String[selected.size()];
+                for (int index = 0; index < selected.size(); index++) {
+                    String[] row = metadata(getActivity(), selected.get(index));
+                    uris[index] = row[0];
+                    names[index] = row[1];
+                    mimeTypes[index] = row[2];
+                    sizes[index] = row[3];
+                }
+                nativeFilePickerResult(requestId, uris, names, mimeTypes, sizes, null, null);
+            } catch (Throwable error) {
+                nativeFilePickerResult(
+                        requestId, new String[0], new String[0], new String[0], new String[0],
+                        error instanceof SecurityException ? "permission_denied" : "picker_failed",
+                        message(error));
+            } finally {
+                removeSelf();
+            }
+        }
+
+        private void removeSelf() {
+            if (getActivity() != null) {
+                getActivity().getFragmentManager().beginTransaction().remove(this).commitAllowingStateLoss();
+            }
+        }
+    }
 
     public static String[] scanBluetoothDevices(
             Activity activity,

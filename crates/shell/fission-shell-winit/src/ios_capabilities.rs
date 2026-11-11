@@ -37,6 +37,7 @@ extern "C" {}
 
 pub(crate) fn register_ios_operation_capabilities(async_registry: &mut AsyncRegistry) {
     crate::ios_print::register_ios_print_capability(async_registry);
+    crate::ios_file_picker::register_ios_file_picker_capabilities(async_registry);
     #[cfg(feature = "filesystem")]
     crate::ios_file_system::register_ios_file_system_capabilities(async_registry);
     camera::register_camera_capabilities(async_registry, Arc::new(IosCameraHost));

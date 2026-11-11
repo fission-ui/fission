@@ -200,6 +200,8 @@ mod volume;
 pub use volume::{MemoryVolumeHost, UnsupportedVolumeHost, VolumeHost};
 #[cfg(target_os = "android")]
 mod android_capabilities;
+#[cfg(target_os = "android")]
+mod android_file_picker;
 #[cfg(all(target_os = "android", feature = "filesystem"))]
 mod android_file_system;
 #[cfg(target_os = "android")]
@@ -208,6 +210,8 @@ mod android_print;
 mod android_text_input;
 #[cfg(target_os = "ios")]
 mod ios_capabilities;
+#[cfg(target_os = "ios")]
+mod ios_file_picker;
 #[cfg(all(target_os = "ios", feature = "filesystem"))]
 mod ios_file_system;
 #[cfg(target_os = "ios")]

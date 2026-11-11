@@ -77,6 +77,10 @@ pub(crate) fn register_android_operation_capabilities(
         async_registry,
         context.clone(),
     );
+    crate::android_file_picker::register_android_file_picker_capabilities(
+        async_registry,
+        context.clone(),
+    );
     crate::android_print::register_android_print_capability(async_registry, context.clone());
 
     clipboard::register_clipboard_capabilities(
