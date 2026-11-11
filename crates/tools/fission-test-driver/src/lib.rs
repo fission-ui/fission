@@ -1117,7 +1117,9 @@ impl LiveTestClient {
                 ))
             }
         };
-        self.pump()?;
+        if node.visibility != VisibilityState::FullyVisible {
+            self.pump()?;
+        }
         Ok(node)
     }
 
@@ -1647,6 +1649,8 @@ impl LiveTestClient {
         Ok(())
     }
 
+    /// Waits for pending app work to render. Returns immediately if the current frame is already up
+    /// to date.
     pub fn pump(&self) -> Result<()> {
         self.send(TestCommand::Pump {})?;
         Ok(())

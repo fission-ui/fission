@@ -2326,6 +2326,37 @@ fn text_input_blink_enabled(
         .unwrap_or(!software_renderer_active)
 }
 
+#[derive(Clone, Copy, Default)]
+struct TestPumpState {
+    has_current_frame: bool,
+    invalidations: InvalidationSet,
+    resize_unsettled: bool,
+    capture_settle_pending: bool,
+    redraw_pending: bool,
+    active_animation: bool,
+    playing_video: bool,
+    has_dynamic_surfaces: bool,
+    frame_hook_registered: bool,
+    pending_effects: bool,
+    pending_screenshot: bool,
+    pending_image_cache: bool,
+}
+
+fn test_pump_can_ack_current_frame(state: TestPumpState) -> bool {
+    state.has_current_frame
+        && !state.invalidations.any()
+        && !state.resize_unsettled
+        && !state.capture_settle_pending
+        && !state.redraw_pending
+        && !state.active_animation
+        && !state.playing_video
+        && !state.has_dynamic_surfaces
+        && !state.frame_hook_registered
+        && !state.pending_effects
+        && !state.pending_screenshot
+        && !state.pending_image_cache
+}
+
 fn resize_is_unsettled(pending_resize: bool, needs_settled_frame: bool, live_resize: bool) -> bool {
     pending_resize || needs_settled_frame || live_resize
 }
@@ -4200,23 +4231,30 @@ fn handle_scroll_into_view_selector(
     query: &fission_test_driver::SelectorQuery,
     runtime: &mut Runtime,
     pipeline: &Pipeline,
-) -> fission_test_driver::TestResponse {
+) -> (fission_test_driver::TestResponse, bool) {
     let mut hidden_query = query.clone();
     hidden_query.include_hidden = true;
     match resolve_selector_record(pipeline, &runtime.runtime_state.scroll, &hidden_query) {
         Ok(record) => {
-            runtime.queue_scroll_into_view(ScrollIntoViewRequest {
-                container: None,
-                target: record.id,
-                axis: ScrollAxis::Both,
-                alignment: ScrollAlignment::Nearest,
-                padding: [8.0, 8.0, 8.0, 8.0],
-                behavior: ScrollBehavior::Instant,
-                if_needed: true,
-            });
-            fission_test_driver::TestResponse::SelectorResolved { node: record.node }
+            let needs_scroll =
+                record.node.visibility != fission_test_driver::VisibilityState::FullyVisible;
+            if needs_scroll {
+                runtime.queue_scroll_into_view(ScrollIntoViewRequest {
+                    container: None,
+                    target: record.id,
+                    axis: ScrollAxis::Both,
+                    alignment: ScrollAlignment::Nearest,
+                    padding: [8.0, 8.0, 8.0, 8.0],
+                    behavior: ScrollBehavior::Instant,
+                    if_needed: true,
+                });
+            }
+            (
+                fission_test_driver::TestResponse::SelectorResolved { node: record.node },
+                needs_scroll,
+            )
         }
-        Err(error) => error,
+        Err(error) => (error, false),
     }
 }
 
@@ -6534,24 +6572,23 @@ where
                             });
                             return;
                         };
-                        let resp =
+                        let (resp, needs_scroll) =
                             handle_scroll_into_view_selector(&query, &mut runtime, &pipeline);
-                        if matches!(
-                            resp,
-                            fission_test_driver::TestResponse::SelectorResolved { .. }
-                        ) {
+                        if needs_scroll {
                             invalidations.mark_build();
                         }
                         let _ = response_tx.send(resp);
-                        request_redraw_logged(
-                            window,
-                            elwt,
-                            &mut last_redraw_at,
-                            min_frame,
-                            &mut redraw_pending,
-                            &mut frame_trace,
-                            "test_scroll_into_view",
-                        );
+                        if needs_scroll {
+                            request_redraw_logged(
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "test_scroll_into_view",
+                            );
+                        }
                     }
                     TestEvent::TapSelector { query, response_tx } => {
                         let Some(window) = platform_window.active_window() else {
@@ -6955,14 +6992,53 @@ where
                                 invalidations.mark_build();
                             }
                         }
-                        pending_screenshot_path = Some("__pump__".into());
-                        pending_screenshot_response_tx = Some(response_tx);
-                        pending_capture_settle = resize_is_unsettled(
-                            pending_resize.is_some(),
-                            resize_needs_settled_frame,
-                            live_resize.is_live(Instant::now()),
-                        );
-                        window.request_redraw();
+                        let renderer_ready = {
+                            #[cfg(not(target_arch = "wasm32"))]
+                            {
+                                render_state.is_some()
+                            }
+                            #[cfg(target_arch = "wasm32")]
+                            {
+                                web_renderer.is_some()
+                            }
+                        };
+                        let pump_state = TestPumpState {
+                            has_current_frame: pipeline.prev_ir.is_some() && renderer_ready,
+                            invalidations,
+                            resize_unsettled: resize_is_unsettled(
+                                pending_resize.is_some(),
+                                resize_needs_settled_frame,
+                                live_resize.is_live(Instant::now()),
+                            ),
+                            capture_settle_pending: pending_capture_settle,
+                            redraw_pending,
+                            active_animation: !runtime.runtime_state.motion.active.is_empty(),
+                            playing_video: runtime
+                                .runtime_state
+                                .video
+                                .states
+                                .values()
+                                .any(|state| state.status == VideoStatus::Playing),
+                            has_dynamic_surfaces: !pipeline.video_surfaces.is_empty()
+                                || !pipeline.web_surfaces.is_empty()
+                                || !pipeline.native_surfaces.is_empty(),
+                            frame_hook_registered: self.frame_hook.is_some(),
+                            pending_effects: !runtime.pending_effects.is_empty(),
+                            pending_screenshot: pending_screenshot_path.is_some(),
+                            pending_image_cache: fission_render_vello::image_cache_has_pending(),
+                        };
+                        if test_pump_can_ack_current_frame(pump_state) {
+                            let _ = response_tx.send(fission_test_driver::TestResponse::Ok {});
+                        } else {
+                            pending_screenshot_path = Some("__pump__".into());
+                            pending_screenshot_response_tx = Some(response_tx);
+                            pending_capture_settle = resize_is_unsettled(
+                                pending_resize.is_some(),
+                                resize_needs_settled_frame,
+                                live_resize.is_live(Instant::now()),
+                            );
+                            window.request_redraw();
+                        }
                     }
                     // Mapped to a redraw before dispatch.
                     TestEvent::HeadlessFrame => {}
@@ -10908,10 +10984,10 @@ mod tests {
         rect_visible_in_scroll_ancestors, repeating_animation_redraw_interval, resize_is_unsettled,
         resolve_build_viewport, resolve_selector_record, should_present_startup_clear_frame,
         surface_acquire_recovery, sync_tracked_target_texture_size_to_surface,
-        text_input_blink_enabled, texture_plans_fit_device_limits, visual_rect_for_node,
-        web_effective_render_scale, window_insets_from_safe_area_frames,
+        test_pump_can_ack_current_frame, text_input_blink_enabled, texture_plans_fit_device_limits,
+        visual_rect_for_node, web_effective_render_scale, window_insets_from_safe_area_frames,
         windows_shell_execute_succeeded, windows_wide, BrowserDefaults, LiveResizeController,
-        SurfaceAcquireRecovery, WindowViewportState,
+        SurfaceAcquireRecovery, TestPumpState, WindowViewportState,
     };
     use crate::pipeline::{software_frame_needs_raster, CompositorTexturePlan};
     use crate::InvalidationSet;
@@ -10936,6 +11012,33 @@ mod tests {
         assert!(text_input_blink_enabled(Some("true"), true));
         assert!(!text_input_blink_enabled(Some("0"), false));
         assert!(!text_input_blink_enabled(Some("false"), false));
+    }
+
+    #[test]
+    fn live_test_pump_reuses_the_current_frame_when_idle() {
+        let idle = TestPumpState {
+            has_current_frame: true,
+            ..Default::default()
+        };
+        assert!(test_pump_can_ack_current_frame(idle));
+
+        let mut pending = idle;
+        pending.invalidations.mark_build();
+        assert!(!test_pump_can_ack_current_frame(pending));
+
+        let mut pending = idle;
+        pending.resize_unsettled = true;
+        assert!(!test_pump_can_ack_current_frame(pending));
+
+        let mut pending = idle;
+        pending.active_animation = true;
+        assert!(!test_pump_can_ack_current_frame(pending));
+
+        let mut pending = idle;
+        pending.pending_screenshot = true;
+        assert!(!test_pump_can_ack_current_frame(pending));
+
+        assert!(!test_pump_can_ack_current_frame(TestPumpState::default()));
     }
 
     #[test]
