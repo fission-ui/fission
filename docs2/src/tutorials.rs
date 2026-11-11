@@ -192,6 +192,7 @@ fn prepare_preview_workspaces(
                     &package,
                     workspace_root,
                     &fission_features,
+                    preview.files.contains_key("preview/lib.rs"),
                     preview
                         .files
                         .values()
@@ -788,6 +789,7 @@ fn tutorial_manifest(
     package: &str,
     workspace_root: &Path,
     fission_features: &[&str],
+    has_preview_entrypoint: bool,
     include_serde: bool,
     include_serde_yaml: bool,
     include_design_system_codegen: bool,
@@ -817,6 +819,11 @@ fn tutorial_manifest(
     } else {
         String::new()
     };
+    let lib_path = if has_preview_entrypoint {
+        "src/preview.rs"
+    } else {
+        "src/lib.rs"
+    };
     format!(
         r#"[package]
 name = "{package}"
@@ -824,7 +831,7 @@ version = "0.0.0"
 edition = "2021"
 
 [lib]
-path = "src/preview.rs"
+path = "{lib_path}"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
@@ -957,9 +964,12 @@ mod tests {
         let workspace = Path::new("/fission-workspace");
         let features =
             tutorial_fission_features(&["ctx.effects.sql().query(SqlStatement::new(...))"], false);
-        let with_codegen = tutorial_manifest("tutorial", workspace, &features, false, false, true);
+        let with_codegen =
+            tutorial_manifest("tutorial", workspace, &features, true, false, false, true);
         let without_codegen =
-            tutorial_manifest("tutorial", workspace, &features, false, false, false);
+            tutorial_manifest("tutorial", workspace, &features, true, false, false, false);
+        let source_entrypoint =
+            tutorial_manifest("tutorial", workspace, &features, false, false, false, false);
 
         assert!(with_codegen.contains("path = \"src/preview.rs\""));
         assert!(with_codegen.contains("features = [\"web\", \"store-sql\"]"));
@@ -968,6 +978,7 @@ mod tests {
         assert!(without_codegen.contains("path = \"src/preview.rs\""));
         assert!(!without_codegen.contains("[build-dependencies]"));
         assert!(!without_codegen.contains("fission-design-system-codegen"));
+        assert!(source_entrypoint.contains("path = \"src/lib.rs\""));
     }
 
     #[test]

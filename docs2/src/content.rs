@@ -500,7 +500,7 @@ mod tests {
         assert_eq!(document.steps.len(), 3);
         assert!(document.steps.iter().all(|step| step.preview));
         assert!(!document.steps[0].markdown.starts_with("## "));
-        assert!(document.steps[1].files["src/app.rs"].contains("on_press: reduce"));
+        assert!(document.steps[1].files["src/app.rs"].contains("key: task.id"));
         assert!(document.steps[2]
             .markdown
             .contains("Run, test and build the finished project"));
