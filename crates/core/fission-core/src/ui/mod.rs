@@ -16,14 +16,14 @@ pub use widgets::{
     HttpHeader, Icon, IgnorePointer, Image, ImageAlignment, ImageCachePolicy, ImageErrorBehavior,
     ImageLoadingBehavior, ImageRequest, ImageSource, IosAudioSessionCategory,
     IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, LayoutBuilder,
-    LazyColumn, Overlay, Positioned, Pressable, PressableRole, PressableStyle, Provider, Radio,
-    Responsive, ResponsiveCase, ResponsiveQuery, RichText, RichTextRun, Row, SafeArea, Scroll,
-    SelectionPlatformStyle, SelectionRegion, SelectionRegionControls, SemanticsRegion, Slider,
-    Spacer, Switch, Text, TextBaseline, TextContent, TextContextMenuAction, TextContextMenuConfig,
-    TextDecoration, TextDecorationLines, TextDecorationStyle, TextFontStyle, TextHyphenation,
-    TextInput, TextLeadingDistribution, TextLineBreakPolicy, TextRunStyle, TextScaler, TextShadow,
-    TextTypography, VectorPath, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy,
-    VideoSource, ZStack,
+    LazyColumn, LazyColumnBuilder, Overlay, Positioned, Pressable, PressableRole, PressableStyle,
+    Provider, Radio, Responsive, ResponsiveCase, ResponsiveQuery, RichText, RichTextRun, Row,
+    SafeArea, Scroll, SelectionPlatformStyle, SelectionRegion, SelectionRegionControls,
+    SemanticsRegion, Slider, Spacer, Switch, Text, TextBaseline, TextContent,
+    TextContextMenuAction, TextContextMenuConfig, TextDecoration, TextDecorationLines,
+    TextDecorationStyle, TextFontStyle, TextHyphenation, TextInput, TextLeadingDistribution,
+    TextLineBreakPolicy, TextRunStyle, TextScaler, TextShadow, TextTypography, VectorPath, Video,
+    VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource, ZStack,
 };
 #[cfg(feature = "interactive-canvas")]
 pub use widgets::{

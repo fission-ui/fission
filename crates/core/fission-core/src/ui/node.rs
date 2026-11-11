@@ -5,9 +5,9 @@ use super::widgets::InteractiveViewer;
 use super::widgets::{
     ActionScope, Align, Button, Checkbox, Clip, Column, Composite, Container, ContextMenuEntry,
     ContextMenuRegion, FocusScope, GestureDetector, Grid, GridItem, Icon, Image, LazyColumn,
-    Overlay, Positioned, Pressable, Radio, Responsive, RichText, Row, SafeArea, Scroll,
-    SelectionRegion, SemanticsRegion, Slider, Spacer, Switch, Text, TextInput, Transform, Video,
-    ZStack,
+    LazyColumnBuilder, Overlay, Positioned, Pressable, Radio, Responsive, RichText, Row, SafeArea,
+    Scroll, SelectionRegion, SemanticsRegion, Slider, Spacer, Switch, Text, TextInput, Transform,
+    Video, ZStack,
 };
 use crate::lowering::{FormFieldContext, LoweringContext};
 use fission_ir::{CoreIR, Op, Role, StructuralOp, TextFieldValidationState, WidgetId};
@@ -74,6 +74,7 @@ pub enum WidgetKind {
     Spacer(Spacer),
     Slider(Slider),
     LazyColumn(LazyColumn),
+    LazyColumnBuilder(LazyColumnBuilder),
     Icon(Icon),
     Composite(Composite),
     Custom(InternalRenderNode),
@@ -354,7 +355,8 @@ impl Widget {
             | WidgetKind::Radio(_)
             | WidgetKind::Spacer(_)
             | WidgetKind::Slider(_)
-            | WidgetKind::Icon(_) => ControlFlow::Continue(()),
+            | WidgetKind::Icon(_)
+            | WidgetKind::LazyColumnBuilder(_) => ControlFlow::Continue(()),
         }
     }
 
@@ -429,6 +431,7 @@ impl Widget {
             WidgetKind::Spacer(widget) => widget.id = Some(id),
             WidgetKind::Slider(widget) => widget.id = Some(id),
             WidgetKind::LazyColumn(widget) => widget.id = Some(id),
+            WidgetKind::LazyColumnBuilder(widget) => widget.id = Some(id),
             WidgetKind::Icon(widget) => widget.id = Some(id),
             WidgetKind::Composite(widget) => widget.id = Some(id),
             WidgetKind::ActionScope(_) | WidgetKind::Custom(_) => {
@@ -504,6 +507,7 @@ impl Widget {
             WidgetKind::Spacer(_) => "Spacer",
             WidgetKind::Slider(_) => "Slider",
             WidgetKind::LazyColumn(_) => "LazyColumn",
+            WidgetKind::LazyColumnBuilder(_) => "LazyColumnBuilder",
             WidgetKind::Icon(_) => "Icon",
             WidgetKind::Composite(_) => "Composite",
             WidgetKind::Custom(_) => "Custom",
@@ -549,6 +553,7 @@ impl Widget {
             WidgetKind::Spacer(_) => 32,
             WidgetKind::Slider(_) => 33,
             WidgetKind::LazyColumn(_) => 34,
+            WidgetKind::LazyColumnBuilder(_) => 39,
             WidgetKind::Icon(_) => 35,
             WidgetKind::Composite(_) => 36,
             WidgetKind::Custom(_) => 37,
@@ -598,6 +603,7 @@ impl Widget {
             WidgetKind::Spacer(widget) => widget.id,
             WidgetKind::Slider(widget) => widget.id,
             WidgetKind::LazyColumn(widget) => widget.id,
+            WidgetKind::LazyColumnBuilder(widget) => widget.id,
             WidgetKind::Icon(widget) => widget.id,
             WidgetKind::Composite(widget) => widget.id,
         }
@@ -752,6 +758,7 @@ impl Widget {
             WidgetKind::LazyColumn(widget) => {
                 Self::resolve_children_identities(parent, 0, &mut widget.children);
             }
+            WidgetKind::LazyColumnBuilder(_) => {}
             WidgetKind::Icon(_) => {}
             WidgetKind::Composite(widget) => {
                 Self::resolve_child_identity(parent, 0, &mut widget.child);
@@ -932,6 +939,7 @@ impl Widget {
             WidgetKind::Spacer(w) => w.lower(cx),
             WidgetKind::Slider(w) => w.lower(cx),
             WidgetKind::LazyColumn(w) => w.lower(cx),
+            WidgetKind::LazyColumnBuilder(w) => w.lower(cx),
             WidgetKind::Icon(w) => w.lower(cx),
             WidgetKind::Composite(w) => w.lower(cx),
             WidgetKind::Custom(w) => {
@@ -1267,6 +1275,11 @@ impl From<Slider> for Widget {
 impl From<LazyColumn> for Widget {
     fn from(w: LazyColumn) -> Self {
         Self::from_kind(WidgetKind::LazyColumn(w))
+    }
+}
+impl From<LazyColumnBuilder> for Widget {
+    fn from(w: LazyColumnBuilder) -> Self {
+        Self::from_kind(WidgetKind::LazyColumnBuilder(w))
     }
 }
 impl From<Icon> for Widget {
