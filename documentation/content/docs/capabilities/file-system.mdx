@@ -46,6 +46,33 @@ ctx.effects
 
 `PickDirectoryResult::directory` is `None` when the user cancels. Store the returned handle in app state for the current runtime. A handle is host-owned and can become invalid or lose permission, so handle `invalid_handle` and `permission_denied` as normal outcomes.
 
+## Ask where to save a file
+
+Desktop applications can use the native Save dialog when the destination should
+belong to the user. Start the request from the Save button's reducer and
+provide a useful default name and file filter:
+
+```rust
+ctx.effects
+    .file_system()
+    .pick_save_file(PickSaveFileRequest {
+        suggested_name: "quarterly-report.pdf".into(),
+        extensions: vec!["pdf".into()],
+        mime_types: vec!["application/pdf".into()],
+    })
+    .on_ok(ctx.effects.bind(SaveDestinationPicked, reduce_with!(on_save_destination_picked)))
+    .on_err(ctx.effects.bind(SaveDestinationFailed, reduce_with!(on_save_destination_failed)));
+```
+
+The successful result contains `location: None` if the user cancels. A chosen
+destination is returned as a host path that can be passed to `write` or to an
+export job. The native picker is available on macOS, Windows, and Linux. Web
+currently reports `unsupported` because its browser save picker produces an
+opaque writable file handle that cannot yet be represented by
+`FileSystemLocation`; Android and iOS also report `unsupported` until their
+document providers expose save-destination selection through this API. A
+cancelled dialog is not an error.
+
 ## Work with a directory handle
 
 Use a handle-backed location after the picker succeeds:
@@ -88,6 +115,6 @@ Call `forget_directory` to delete a persisted browser handle, and `release` when
 
 ## Error handling
 
-All operations return `FileSystemError { code, message }`. Treat cancellation separately from failure: picker cancellation is a successful result with no directory. Common error codes include `unsupported`, `unsupported_path_namespace`, `permission_denied`, `invalid_handle`, `invalid_path`, `not_found`, `not_a_file`, and operation-specific I/O failures.
+All operations return `FileSystemError { code, message }`. Treat cancellation separately from failure: picker cancellation is a successful result with no directory or location. Common error codes include `unsupported`, `unsupported_path_namespace`, `permission_denied`, `invalid_handle`, `invalid_path`, `not_found`, `not_a_file`, and operation-specific I/O failures.
 
 For the complete type and operation list, see the [File system reference](/reference/capabilities/file-system/) and [capability matrix](/docs/capabilities/matrix/).

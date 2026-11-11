@@ -1,7 +1,8 @@
 use crate::web_data_stream::{browser_data_stream, BrowserDataStream, BrowserDataStreamSink};
 use fission_core::{
-    Bytes, FissionDataStreamError, FissionDataStreamErrorKind, PickOpenFilesError,
-    PickOpenFilesRequest, PickOpenFilesResult, PickedFile, PICK_OPEN_FILES,
+    Bytes, FileSystemError, FissionDataStreamError, FissionDataStreamErrorKind, PickOpenFilesError,
+    PickOpenFilesRequest, PickOpenFilesResult, PickSaveFileRequest, PickSaveFileResult, PickedFile,
+    PICK_OPEN_FILES, PICK_SAVE_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
 use futures_core::Stream;
@@ -140,6 +141,16 @@ extern "C" {
 }
 
 pub(crate) fn register_web_file_picker(async_registry: &mut AsyncRegistry) {
+    async_registry.register_operation_capability(
+        PICK_SAVE_FILE,
+        |_request: PickSaveFileRequest, _| async move {
+            // A browser download is not equivalent to a user-selected writable
+            // destination. Keep the contract explicit until a browser
+            // FileSystemFileHandle provider can be represented by the shared
+            // filesystem API.
+            Err::<PickSaveFileResult, _>(FileSystemError::unsupported("pick_save_file"))
+        },
+    );
     async_registry.register_operation_capability(
         PICK_OPEN_FILES,
         move |request: PickOpenFilesRequest, ctx| async move {

@@ -379,6 +379,14 @@ fn register_unsupported_file_picker_capability(async_registry: &mut AsyncRegistr
             )
         },
     );
+    async_registry.register_operation_capability(
+        fission_core::PICK_SAVE_FILE,
+        |_request: fission_core::PickSaveFileRequest, _| async move {
+            Err::<fission_core::PickSaveFileResult, _>(fission_core::FileSystemError::unsupported(
+                "pick_save_file",
+            ))
+        },
+    );
 }
 
 fn collect_startup_deep_links(config: &DeepLinkConfig) -> Vec<DeepLink> {

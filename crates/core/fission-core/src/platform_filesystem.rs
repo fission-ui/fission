@@ -170,6 +170,30 @@ pub struct PickDirectoryResult {
     pub directory: Option<DirectoryHandle>,
 }
 
+/// Requests a native file-save dialog.
+///
+/// Hosts that cannot expose a writable file destination should return an
+/// `unsupported` filesystem error rather than substituting an application
+/// managed path. `suggested_name` should be a file name, including its desired
+/// extension when one is known.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PickSaveFileRequest {
+    pub suggested_name: String,
+    /// File extensions shown by the host filter. Extensions may include a
+    /// leading dot; hosts normalize that detail for their native dialog.
+    pub extensions: Vec<String>,
+    /// MIME types that can be translated into a native extension filter.
+    pub mime_types: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PickSaveFileResult {
+    /// `None` means the user dismissed the save dialog. Native hosts return a
+    /// path in their host filesystem namespace.
+    pub location: Option<FileSystemLocation>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RestoreDirectoryRequest {
     pub persistence_key: String,
@@ -343,6 +367,13 @@ filesystem_capability!(
     "fission.fs.pick_directory"
 );
 filesystem_capability!(
+    PickSaveFileCapability,
+    PickSaveFileRequest,
+    PickSaveFileResult,
+    PICK_SAVE_FILE,
+    "fission.fs.pick_save_file"
+);
+filesystem_capability!(
     RestoreDirectoryCapability,
     RestoreDirectoryRequest,
     RestoreDirectoryResult,
@@ -443,6 +474,30 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<FileSystemPath>(r#""../secret""#).unwrap(),
             FileSystemPath::new("../secret")
+        );
+    }
+
+    #[test]
+    fn save_file_request_and_cancellation_round_trip() {
+        let request = PickSaveFileRequest {
+            suggested_name: "report.pdf".into(),
+            extensions: vec!["pdf".into()],
+            mime_types: vec!["application/pdf".into()],
+        };
+        let bytes = serde_json::to_vec(&request).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<PickSaveFileRequest>(&bytes).unwrap(),
+            request
+        );
+
+        let legacy = serde_json::from_str::<PickSaveFileRequest>("{}").unwrap();
+        assert_eq!(legacy, PickSaveFileRequest::default());
+
+        let result = PickSaveFileResult { location: None };
+        let bytes = serde_json::to_vec(&result).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<PickSaveFileResult>(&bytes).unwrap(),
+            result
         );
     }
 }

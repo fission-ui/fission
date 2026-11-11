@@ -46,10 +46,11 @@ use crate::platform_clipboard::{
 };
 use crate::platform_filesystem::{
     CreateDirectoryRequest, DirectoryPermissionRequest, ForgetDirectoryRequest,
-    ListDirectoryRequest, PickDirectoryRequest, ReadFileRequest, ReleaseDirectoryRequest,
-    RemoveEntryRequest, RestoreDirectoryRequest, StatEntryRequest, WriteFileRequest,
-    CREATE_DIRECTORY, DIRECTORY_PERMISSION, FORGET_DIRECTORY, LIST_DIRECTORY, PICK_DIRECTORY,
-    READ_FILE, RELEASE_DIRECTORY, REMOVE_ENTRY, RESTORE_DIRECTORY, STAT_ENTRY, WRITE_FILE,
+    ListDirectoryRequest, PickDirectoryRequest, PickSaveFileRequest, ReadFileRequest,
+    ReleaseDirectoryRequest, RemoveEntryRequest, RestoreDirectoryRequest, StatEntryRequest,
+    WriteFileRequest, CREATE_DIRECTORY, DIRECTORY_PERMISSION, FORGET_DIRECTORY, LIST_DIRECTORY,
+    PICK_DIRECTORY, PICK_SAVE_FILE, READ_FILE, RELEASE_DIRECTORY, REMOVE_ENTRY, RESTORE_DIRECTORY,
+    STAT_ENTRY, WRITE_FILE,
 };
 use crate::platform_geolocation::{
     GeolocationPermissionRequest, GeolocationPositionRequest, GET_CURRENT_POSITION,
@@ -1093,6 +1094,12 @@ pub struct FileSystemEffects<'a, 'b, S: GlobalState> {
 impl<'a, 'b, S: GlobalState> FileSystemEffects<'a, 'b, S> {
     pub fn pick_directory(self, request: PickDirectoryRequest) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(PICK_DIRECTORY, request)
+    }
+
+    /// Opens a host save dialog and returns the user-selected destination.
+    /// The result location is `None` when the user cancels.
+    pub fn pick_save_file(self, request: PickSaveFileRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(PICK_SAVE_FILE, request)
     }
 
     pub fn restore_directory(self, request: RestoreDirectoryRequest) -> EffectBuilder<'a, 'b, S> {
