@@ -769,7 +769,10 @@ impl WebCanvasPresenter {
         Ok(Self {
             canvas,
             context,
-            cpu_renderer: fission_render_vello::cpu::CpuRenderer::new(),
+            // Canvas2D is a software fallback. A full-window backdrop blur takes seconds in
+            // WebAssembly, so keep the modal's translucent scrim and omit that optional effect.
+            cpu_renderer: fission_render_vello::cpu::CpuRenderer::new()
+                .with_backdrop_filters(false),
             report: RendererReport::new(
                 "canvas2d-software",
                 web_renderer_request(),

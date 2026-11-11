@@ -1795,6 +1795,13 @@ mod tests {
     }
 
     fn render_ops(ops: Vec<DisplayOp>) -> RecordingPainter {
+        render_ops_with_backdrop_filters(ops, true)
+    }
+
+    fn render_ops_with_backdrop_filters(
+        ops: Vec<DisplayOp>,
+        backdrop_filters_enabled: bool,
+    ) -> RecordingPainter {
         let bounds = LayoutRect::new(0.0, 0.0, 200.0, 200.0);
         let mut list = DisplayList::new(bounds);
         for op in ops {
@@ -1802,6 +1809,7 @@ mod tests {
         }
         let mut painter = RecordingPainter::default();
         test_renderer(&mut painter)
+            .with_backdrop_filters(backdrop_filters_enabled)
             .render_scene(&RenderScene::from_display_list(list))
             .expect("render test scene");
         painter
@@ -1869,6 +1877,27 @@ mod tests {
         assert_eq!(painter.backdrop_filters.len(), 1);
         let clip = painter.backdrop_filters[0];
         assert!((clip.x0 - 20.0).abs() < 0.01 && (clip.x1 - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn software_fallback_can_omit_backdrop_filters() {
+        let rect = LayoutRect::new(0.0, 0.0, 200.0, 200.0);
+        let painter = render_ops_with_backdrop_filters(
+            vec![
+                DisplayOp::BackdropFilter {
+                    rect,
+                    filter: fission_ir::op::BackdropFilter::Blur(4.0),
+                    corner_radius: 0.0,
+                    bounds: rect,
+                    node_id: None,
+                    corner_radii: None,
+                },
+                draw_rect(None, None, None),
+            ],
+            false,
+        );
+        assert!(painter.backdrop_filters.is_empty());
+        assert_eq!(painter.paths, 1, "the modal scrim still paints");
     }
 
     #[test]
@@ -1978,6 +2007,7 @@ pub struct VelloRenderer<'a> {
     current_layer_count: usize,
     clip_stack: Vec<Rect>,
     scale_factor: f64,
+    backdrop_filters_enabled: bool,
 }
 
 impl<'a> VelloRenderer<'a> {
@@ -1995,7 +2025,18 @@ impl<'a> VelloRenderer<'a> {
             current_layer_count: 0,
             clip_stack: Vec::new(),
             scale_factor,
+            backdrop_filters_enabled: true,
         }
+    }
+
+    /// Configure whether backdrop filters are encoded for the painter.
+    ///
+    /// CPU renderers can disable these effects for an interactive fallback: a full-window blur
+    /// is particularly expensive when software rasterization runs inside WebAssembly. Other
+    /// render effects, including the scrim fill drawn over the backdrop, are left unchanged.
+    pub fn with_backdrop_filters(mut self, enabled: bool) -> Self {
+        self.backdrop_filters_enabled = enabled;
+        self
     }
 
     fn layout_rect_to_rect(rect: fission_render::LayoutRect) -> Rect {
@@ -3509,14 +3550,19 @@ impl<'a> VelloRenderer<'a> {
                     corner_radii,
                     ..
                 } => {
-                    if let Some(filter) = painter::backdrop_filter(filter) {
-                        let r = Self::layout_rect_to_rect(*rect);
-                        let radii = corner_radii.map(kurbo_radii).unwrap_or_else(|| {
-                            RoundedRectRadii::from_single_radius(*corner_radius as f64)
-                        });
-                        let clip = RoundedRect::from_rect(r, radii).to_path(0.1);
-                        self.painter
-                            .apply_backdrop_filter(self.current_transform, &clip, filter);
+                    if self.backdrop_filters_enabled {
+                        if let Some(filter) = painter::backdrop_filter(filter) {
+                            let r = Self::layout_rect_to_rect(*rect);
+                            let radii = corner_radii.map(kurbo_radii).unwrap_or_else(|| {
+                                RoundedRectRadii::from_single_radius(*corner_radius as f64)
+                            });
+                            let clip = RoundedRect::from_rect(r, radii).to_path(0.1);
+                            self.painter.apply_backdrop_filter(
+                                self.current_transform,
+                                &clip,
+                                filter,
+                            );
+                        }
                     }
                 }
                 DisplayOp::DrawRect {

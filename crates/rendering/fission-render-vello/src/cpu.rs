@@ -24,6 +24,7 @@ pub struct CpuRenderer {
     context: Option<RenderContext>,
     context_size: Option<(u16, u16)>,
     resources: Resources,
+    backdrop_filters_enabled: bool,
 }
 
 impl CpuRenderer {
@@ -33,7 +34,17 @@ impl CpuRenderer {
             context: None,
             context_size: None,
             resources: Resources::new(),
+            backdrop_filters_enabled: true,
         }
+    }
+
+    /// Enable or disable backdrop filters for software-rendered output.
+    ///
+    /// Disable them when this renderer serves an interactive fallback that cannot afford to blur
+    /// a full-window backdrop. The remaining scene, including translucent scrims, is unchanged.
+    pub fn with_backdrop_filters(mut self, enabled: bool) -> Self {
+        self.backdrop_filters_enabled = enabled;
+        self
     }
 
     /// Render `scene` into premultiplied RGBA8 bytes over `background`.
@@ -69,6 +80,7 @@ impl CpuRenderer {
             background,
             scale_factor,
             measurer,
+            self.backdrop_filters_enabled,
         )?;
         Ok(pixmap.take_rgba8(ImageAlphaType::AlphaPremultiplied))
     }
@@ -103,6 +115,7 @@ pub fn render_to_pixmap(
         background,
         scale_factor,
         measurer,
+        true,
     )
 }
 
@@ -115,6 +128,7 @@ fn render_scene_to_pixmap(
     background: RenderColor,
     scale_factor: f64,
     measurer: Arc<VelloTextMeasurer>,
+    backdrop_filters_enabled: bool,
 ) -> Result<Pixmap> {
     let mut pixmap = Pixmap::new(width, height);
     {
@@ -131,7 +145,9 @@ fn render_scene_to_pixmap(
             )),
             &Rect::new(0.0, 0.0, f64::from(width), f64::from(height)),
         );
-        VelloRenderer::new(&mut painter, measurer, scale_factor).render_scene(scene)?;
+        VelloRenderer::new(&mut painter, measurer, scale_factor)
+            .with_backdrop_filters(backdrop_filters_enabled)
+            .render_scene(scene)?;
     }
 
     ctx.flush();
