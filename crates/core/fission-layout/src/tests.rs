@@ -1,6 +1,10 @@
+use super::paragraph_cache::{
+    ResolvedParagraphCache, ResolvedParagraphCacheKey, RESOLVED_PARAGRAPH_CACHE_MAX_BYTES,
+    RESOLVED_PARAGRAPH_CACHE_MAX_ENTRIES,
+};
 use super::{
     flyout_root_position, resolve_length, resolve_position_length, LayoutEngine, LayoutGraphState,
-    LayoutInputNode, LayoutPoint, LayoutRect, LayoutSize, TextMeasurer,
+    LayoutInputNode, LayoutPoint, LayoutRect, LayoutSize, ResolvedParagraphLayout, TextMeasurer,
     DEFAULT_RICH_TEXT_HIT_TEST_FONT_SIZE,
 };
 use fission_ir::op::{
@@ -8,7 +12,7 @@ use fission_ir::op::{
     TextStyle,
 };
 use fission_ir::{GridPlacement, LayoutOp, WidgetId};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 fn box_node(
@@ -45,6 +49,11 @@ struct RecordingMeasurer {
     last_font_size_bits: AtomicU32,
 }
 
+#[derive(Default)]
+struct CountingParagraphMeasurer {
+    resolve_calls: AtomicUsize,
+}
+
 struct WrappingMeasurer;
 
 impl TextMeasurer for WrappingMeasurer {
@@ -54,6 +63,33 @@ impl TextMeasurer for WrappingMeasurer {
             Some(width) => (width, (natural_width / width).ceil() * 20.0),
             None => (natural_width, 20.0),
         }
+    }
+}
+
+impl TextMeasurer for CountingParagraphMeasurer {
+    fn measure(&self, _text: &str, _font_size: f32, _available_width: Option<f32>) -> (f32, f32) {
+        (0.0, 0.0)
+    }
+
+    fn resolve_rich_text(
+        &self,
+        runs: &[TextRun],
+        available_width: Option<f32>,
+    ) -> ResolvedParagraphLayout {
+        self.resolve_calls.fetch_add(1, Ordering::SeqCst);
+        let natural_width = runs
+            .iter()
+            .map(|run| run.text.chars().count() as f32 * run.style.font_size * 0.5)
+            .sum::<f32>();
+        let wrapping_width = available_width.filter(|width| *width > 0.0 && natural_width > *width);
+        let width = wrapping_width.unwrap_or(natural_width);
+        let line_count = wrapping_width
+            .map(|width| (natural_width / width).ceil())
+            .unwrap_or(1.0);
+        let font_size = runs.first().map(|run| run.style.font_size).unwrap_or(16.0);
+        let mut paragraph = ResolvedParagraphLayout::empty(available_width);
+        paragraph.size = LayoutSize::new(width, line_count * font_size * 1.25);
+        paragraph
     }
 }
 
@@ -176,6 +212,161 @@ fn matches_input_nodes_detects_changed_rich_text_without_formatting_nodes() {
     let mut changed = original;
     changed.rich_text = Some(vec![text_run("A long paragraph with edited content.")]);
     assert!(!state.matches_input_nodes(&[changed]));
+}
+
+#[test]
+fn resolved_paragraph_cache_reuses_only_matching_node_runs_and_width() {
+    let root = WidgetId::from_u128(21);
+    let node_with_text = |text: &str, font_size: f32| {
+        let mut input = node(
+            root,
+            None,
+            Vec::new(),
+            LayoutOp::Box {
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                aspect_ratio: None,
+            },
+        );
+        let mut run = text_run(text);
+        run.style.font_size = font_size;
+        input.rich_text = Some(vec![run]);
+        vec![input]
+    };
+
+    let measurer = Arc::new(CountingParagraphMeasurer::default());
+    let mut engine = LayoutEngine::new().with_measurer(measurer.clone());
+    let initial_nodes = node_with_text("text", 16.0);
+    let initial = engine
+        .compute_layout(&initial_nodes, root, LayoutSize::new(100.0, 300.0), &|_| {
+            0.0
+        })
+        .expect("initial paragraph layout");
+    assert_eq!(measurer.resolve_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        initial
+            .get_resolved_paragraph(root)
+            .unwrap()
+            .constraint_width,
+        Some(100.0)
+    );
+
+    let same_content_same_width = engine
+        .compute_layout_incremental(
+            &initial_nodes,
+            root,
+            LayoutSize::new(100.0, 300.0),
+            &|_| 0.0,
+            &initial,
+            &std::collections::HashSet::from([root]),
+        )
+        .expect("same paragraph layout");
+    assert_eq!(measurer.resolve_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        same_content_same_width.get_resolved_paragraph(root),
+        initial.get_resolved_paragraph(root)
+    );
+
+    let narrower = engine
+        .compute_layout_incremental(
+            &initial_nodes,
+            root,
+            LayoutSize::new(20.0, 300.0),
+            &|_| 0.0,
+            &same_content_same_width,
+            &std::collections::HashSet::from([root]),
+        )
+        .expect("narrower paragraph layout");
+    assert_eq!(measurer.resolve_calls.load(Ordering::SeqCst), 2);
+    let narrow_paragraph = narrower.get_resolved_paragraph(root).unwrap();
+    assert_eq!(narrow_paragraph.constraint_width, Some(20.0));
+    assert!(narrow_paragraph.size.height > initial.paragraphs[&root].size.height);
+
+    let changed_nodes = node_with_text("changed", 16.0);
+    let changed_content = engine
+        .compute_layout_incremental(
+            &changed_nodes,
+            root,
+            LayoutSize::new(20.0, 300.0),
+            &|_| 0.0,
+            &narrower,
+            &std::collections::HashSet::from([root]),
+        )
+        .expect("changed paragraph layout");
+    assert_eq!(measurer.resolve_calls.load(Ordering::SeqCst), 3);
+    assert!(
+        changed_content
+            .get_resolved_paragraph(root)
+            .unwrap()
+            .size
+            .height
+            > narrow_paragraph.size.height,
+        "reusing a node identity with different text must not return stale geometry"
+    );
+
+    let changed_style_nodes = node_with_text("changed", 24.0);
+    let changed_style = engine
+        .compute_layout_incremental(
+            &changed_style_nodes,
+            root,
+            LayoutSize::new(20.0, 300.0),
+            &|_| 0.0,
+            &changed_content,
+            &std::collections::HashSet::from([root]),
+        )
+        .expect("changed rich run layout");
+    assert_eq!(measurer.resolve_calls.load(Ordering::SeqCst), 4);
+    assert!(
+        changed_style
+            .get_resolved_paragraph(root)
+            .unwrap()
+            .size
+            .height
+            > changed_content
+                .get_resolved_paragraph(root)
+                .unwrap()
+                .size
+                .height,
+        "a rich-run style change must invalidate cached geometry"
+    );
+}
+
+#[test]
+fn resolved_paragraph_cache_obeys_entry_and_byte_limits() {
+    let mut cache = ResolvedParagraphCache::default();
+    let paragraph = Arc::new(ResolvedParagraphLayout::empty(Some(100.0)));
+
+    for index in 0..=RESOLVED_PARAGRAPH_CACHE_MAX_ENTRIES {
+        cache.insert(
+            ResolvedParagraphCacheKey {
+                node_id: WidgetId::from_u128(10_000 + index as u128),
+                width_bits: Some(100.0f32.to_bits()),
+            },
+            paragraph.clone(),
+        );
+    }
+    assert_eq!(cache.entries.len(), RESOLVED_PARAGRAPH_CACHE_MAX_ENTRIES);
+    assert!(cache.estimated_bytes <= RESOLVED_PARAGRAPH_CACHE_MAX_BYTES);
+
+    let mut oversized = ResolvedParagraphLayout::empty(Some(100.0));
+    oversized.glyphs = Vec::with_capacity(
+        RESOLVED_PARAGRAPH_CACHE_MAX_BYTES / std::mem::size_of::<super::ParagraphGlyph>() + 1,
+    );
+    let oversized_key = ResolvedParagraphCacheKey {
+        node_id: WidgetId::from_u128(99_999),
+        width_bits: Some(100.0f32.to_bits()),
+    };
+    cache.insert(oversized_key, Arc::new(oversized));
+    assert!(!cache.entries.contains_key(&oversized_key));
+    assert!(cache.entries.len() <= RESOLVED_PARAGRAPH_CACHE_MAX_ENTRIES);
+    assert!(cache.estimated_bytes <= RESOLVED_PARAGRAPH_CACHE_MAX_BYTES);
 }
 
 #[test]

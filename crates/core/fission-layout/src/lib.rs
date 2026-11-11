@@ -38,6 +38,7 @@ use std::sync::{Arc, Mutex};
 
 mod geometry;
 mod paragraph;
+mod paragraph_cache;
 mod spotlight;
 use geometry::{intersect_rect, union_rect};
 mod stack;
@@ -45,6 +46,7 @@ pub use paragraph::{
     LineMetric, ParagraphCaretStop, ParagraphCluster, ParagraphGlyph, ParagraphSelectionBox,
     ResolvedParagraphLayout, RichTextInlineBox, RichTextLayoutInfo,
 };
+use paragraph_cache::{ResolvedParagraphCache, ResolvedParagraphCacheKey};
 use spotlight::spotlight_regions;
 
 mod flyout;
@@ -626,6 +628,13 @@ struct IncrementalLayoutReuseState {
     dirty_ancestors: HashSet<WidgetId>,
 }
 
+#[derive(Debug, Default)]
+struct LayoutGraphUpdate {
+    changed: bool,
+    order_changed: bool,
+    changed_rich_text: Vec<WidgetId>,
+}
+
 impl LayoutGraphState {
     fn is_empty(&self) -> bool {
         self.nodes.is_empty()
@@ -683,7 +692,7 @@ impl LayoutGraphState {
         self.rebuild_topology(validation);
     }
 
-    fn update_nodes(&mut self, input_nodes: &[LayoutInputNode]) -> bool {
+    fn update_nodes(&mut self, input_nodes: &[LayoutInputNode]) -> LayoutGraphUpdate {
         let order_matches = self.node_order.len() == input_nodes.len()
             && self
                 .node_order
@@ -693,21 +702,33 @@ impl LayoutGraphState {
         if !order_matches {
             self.replace_all_nodes(input_nodes);
             self.rebuild_topology(LayoutGraphValidationState::default());
-            return true;
+            return LayoutGraphUpdate {
+                changed: true,
+                order_changed: true,
+                changed_rich_text: Vec::new(),
+            };
         }
 
         let mut changed = false;
         let mut topology_changed = false;
+        let mut changed_rich_text = Vec::new();
         for node in input_nodes {
             let Some(current) = self.nodes.get(&node.id) else {
                 self.replace_all_nodes(input_nodes);
                 self.rebuild_topology(LayoutGraphValidationState::default());
-                return true;
+                return LayoutGraphUpdate {
+                    changed: true,
+                    order_changed: true,
+                    changed_rich_text,
+                };
             };
             if current == node {
                 continue;
             }
 
+            if current.rich_text != node.rich_text {
+                changed_rich_text.push(node.id);
+            }
             topology_changed |=
                 current.parent_id != node.parent_id || current.children_ids != node.children_ids;
             self.nodes.insert(node.id, node.clone());
@@ -715,14 +736,18 @@ impl LayoutGraphState {
         }
 
         if !changed {
-            return false;
+            return LayoutGraphUpdate::default();
         }
 
         self.last_layout_version = None;
         if topology_changed {
             self.rebuild_topology(LayoutGraphValidationState::default());
         }
-        true
+        LayoutGraphUpdate {
+            changed: true,
+            order_changed: false,
+            changed_rich_text,
+        }
     }
 
     fn rebuild_topology(&mut self, mut validation: LayoutGraphValidationState) {
@@ -1265,7 +1290,8 @@ pub struct LayoutEngine {
     next_graph_version: u64,
     incremental_reuse: Option<IncrementalLayoutReuseState>,
     active_viewport: LayoutSize,
-    resolved_paragraphs: Mutex<HashMap<WidgetId, ResolvedParagraphLayout>>,
+    resolved_paragraphs: Mutex<HashMap<WidgetId, Arc<ResolvedParagraphLayout>>>,
+    resolved_paragraph_cache: Mutex<ResolvedParagraphCache>,
 }
 
 impl LayoutEngine {
@@ -1285,6 +1311,7 @@ impl LayoutEngine {
             incremental_reuse: None,
             active_viewport: LayoutSize::ZERO,
             resolved_paragraphs: Mutex::new(HashMap::new()),
+            resolved_paragraph_cache: Mutex::new(ResolvedParagraphCache::default()),
         }
     }
 
@@ -1305,6 +1332,7 @@ impl LayoutEngine {
     fn refresh_graph_state(&mut self, input_nodes: &[LayoutInputNode]) {
         let version = self.allocate_graph_version();
         self.graph_state = LayoutGraphState::from_input_nodes(input_nodes, version);
+        self.resolved_paragraph_cache.lock().unwrap().clear();
     }
 
     fn ensure_graph_state(&mut self, input_nodes: &[LayoutInputNode]) {
@@ -1355,7 +1383,17 @@ impl LayoutEngine {
             return;
         }
 
-        if self.graph_state.update_nodes(input_nodes) {
+        let update = self.graph_state.update_nodes(input_nodes);
+        if update.order_changed {
+            self.resolved_paragraph_cache.lock().unwrap().clear();
+        } else if !update.changed_rich_text.is_empty() {
+            let mut cache = self.resolved_paragraph_cache.lock().unwrap();
+            for node_id in update.changed_rich_text {
+                cache.remove_node(node_id);
+            }
+        }
+
+        if update.changed {
             let version = self.allocate_graph_version();
             self.graph_state.graph_version = version;
         }
@@ -1592,7 +1630,13 @@ impl LayoutEngine {
 
         self.apply_flyout_absolute_overrides(&mut snapshot, flyout_abs_overrides)?;
 
-        snapshot.paragraphs = self.resolved_paragraphs.lock().unwrap().clone();
+        snapshot.paragraphs = self
+            .resolved_paragraphs
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(node_id, paragraph)| (*node_id, paragraph.as_ref().clone()))
+            .collect();
         self.graph_state.mark_layout_complete();
         self.incremental_reuse = None;
 
@@ -1919,7 +1963,7 @@ impl LayoutEngine {
                 self.resolved_paragraphs
                     .lock()
                     .unwrap()
-                    .insert(current_id, paragraph.clone());
+                    .insert(current_id, Arc::new(paragraph.clone()));
             }
 
             let children = self.graph_state.children_of(current_id);
@@ -1948,7 +1992,11 @@ impl LayoutEngine {
         };
         if let (Some(runs), Some(measurer)) = (&node.rich_text, &self.measurer) {
             return Ok(match intrinsic {
-                IntrinsicAxis::Max => measurer.resolve_rich_text(runs, None).size.width,
+                IntrinsicAxis::Max => {
+                    self.resolve_cached_rich_paragraph(node_id, runs, None, measurer.as_ref())
+                        .size
+                        .width
+                }
                 IntrinsicAxis::Min => runs
                     .iter()
                     .flat_map(|run| {
@@ -2002,6 +2050,29 @@ impl LayoutEngine {
                 depth + 1,
             )?
             .width)
+    }
+
+    fn resolve_cached_rich_paragraph(
+        &self,
+        node_id: WidgetId,
+        runs: &[TextRun],
+        available_width: Option<f32>,
+        measurer: &dyn TextMeasurer,
+    ) -> Arc<ResolvedParagraphLayout> {
+        let key = ResolvedParagraphCacheKey {
+            node_id,
+            width_bits: available_width.map(f32::to_bits),
+        };
+        if let Some(paragraph) = self.resolved_paragraph_cache.lock().unwrap().get(key) {
+            return paragraph;
+        }
+
+        let paragraph = Arc::new(measurer.resolve_rich_text(runs, available_width));
+        self.resolved_paragraph_cache
+            .lock()
+            .unwrap()
+            .insert(key, paragraph.clone());
+        paragraph
     }
 
     fn layout_node_constraints(
@@ -2118,7 +2189,10 @@ impl LayoutEngine {
                             })
                         })
                         .fold(0.0, f32::max);
-                    max_content = measurer.resolve_rich_text(runs, None).size.width;
+                    max_content = self
+                        .resolve_cached_rich_paragraph(node_id, runs, None, measurer.as_ref())
+                        .size
+                        .width;
                 }
                 for child_id in &flow_children {
                     min_content = min_content.max(self.measure_grid_intrinsic_width(
@@ -4368,7 +4442,8 @@ impl LayoutEngine {
                         .is_width_bounded()
                         .then_some(text_inner_constraints.max_w),
                 };
-                let rich_layout = measurer.resolve_rich_text(runs, avail_w);
+                let rich_layout =
+                    self.resolve_cached_rich_paragraph(node_id, runs, avail_w, measurer.as_ref());
                 if record {
                     self.resolved_paragraphs
                         .lock()
@@ -4415,7 +4490,7 @@ impl LayoutEngine {
                     let result =
                         self.record_geometry(node_id, origin, measured, text_content, out, record);
                     if record {
-                        let mut inline_boxes = rich_layout.inline_boxes;
+                        let mut inline_boxes = rich_layout.inline_boxes.clone();
                         inline_boxes.sort_by_key(|inline_box| inline_box.id);
                         for (child_id, inline_box) in flow_children.iter().zip(inline_boxes.iter())
                         {
