@@ -58,6 +58,12 @@ fn web_bridge_value_round_trips_remain_bounded_after_repeated_queries() -> anyho
     // arrays do not require one externref handle per field while serde_wasm_bindgen builds them.
     assert!(!client.get_tree()?.is_empty());
 
+    let stage_perf = client.browser_evaluate_json("globalThis.__FISSION_LAST_FRAME_STAGE_PERF")?;
+    assert_eq!(stage_perf["renderer"], "canvas2d-software");
+    assert!(stage_perf["softwareSceneRecordingMs"].is_number());
+    assert!(stage_perf["softwareRasterizationMs"].is_number());
+    assert!(stage_perf["softwareOutputCopyMs"].is_number());
+
     let bounded = client.browser_evaluate_json(
         "(() => { const bridge=globalThis.__FISSION_TEST__; const requests=[]; const command={cmd:'SimulateResize',width:390,height:900}; for(let i=0;i<1024;i++) requests.push(bridge.submitValue(command)); const overflow=bridge.submitValue(command); const rejected=bridge.pollValue(overflow); const collected=requests.every(id=>bridge.pollValue(id)?.status==='Error'); return {count:requests.length,overflow,rejected:rejected?.message,collected}; })()",
     )?;

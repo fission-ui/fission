@@ -6,6 +6,11 @@
 //! approximation of it.
 
 use std::sync::Arc;
+use std::time::Duration;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
 
 use anyhow::{anyhow, Result};
 use fission_render::{Color as RenderColor, RenderScene, Renderer};
@@ -25,6 +30,17 @@ pub struct CpuRenderer {
     context_size: Option<(u16, u16)>,
     resources: Resources,
     backdrop_filters_enabled: bool,
+}
+
+/// Time spent in the main software-rendering stages for one frame.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct CpuRenderTimings {
+    /// Building the CPU scene from the retained render tree.
+    pub scene_recording: Duration,
+    /// Flushing and rasterizing that scene into the output pixmap.
+    pub rasterization: Duration,
+    /// Copying the rendered pixmap into its RGBA8 output buffer.
+    pub output_copy: Duration,
 }
 
 impl CpuRenderer {
@@ -57,6 +73,20 @@ impl CpuRenderer {
         scale_factor: f64,
         measurer: Arc<VelloTextMeasurer>,
     ) -> Result<Vec<u8>> {
+        self.render_to_rgba8_with_timings(scene, width, height, background, scale_factor, measurer)
+            .map(|(rgba, _)| rgba)
+    }
+
+    /// Render a frame and report scene-recording, rasterization, and output-copy time.
+    pub fn render_to_rgba8_with_timings(
+        &mut self,
+        scene: &RenderScene,
+        width: u32,
+        height: u32,
+        background: RenderColor,
+        scale_factor: f64,
+        measurer: Arc<VelloTextMeasurer>,
+    ) -> Result<(Vec<u8>, CpuRenderTimings)> {
         let width = pixmap_dimension(width, "width")?;
         let height = pixmap_dimension(height, "height")?;
         let dimensions = (width, height);
@@ -71,7 +101,7 @@ impl CpuRenderer {
         // retained by Resources for later frames.
         self.resources.clear_images();
 
-        let pixmap = render_scene_to_pixmap(
+        let (pixmap, mut timings) = render_scene_to_pixmap(
             self.context.as_mut().expect("context initialized above"),
             &mut self.resources,
             scene,
@@ -82,7 +112,10 @@ impl CpuRenderer {
             measurer,
             self.backdrop_filters_enabled,
         )?;
-        Ok(pixmap.take_rgba8(ImageAlphaType::AlphaPremultiplied))
+        let copy_started = Instant::now();
+        let rgba = pixmap.take_rgba8(ImageAlphaType::AlphaPremultiplied);
+        timings.output_copy = copy_started.elapsed();
+        Ok((rgba, timings))
     }
 }
 
@@ -117,6 +150,7 @@ pub fn render_to_pixmap(
         measurer,
         true,
     )
+    .map(|(pixmap, _)| pixmap)
 }
 
 fn render_scene_to_pixmap(
@@ -129,7 +163,8 @@ fn render_scene_to_pixmap(
     scale_factor: f64,
     measurer: Arc<VelloTextMeasurer>,
     backdrop_filters_enabled: bool,
-) -> Result<Pixmap> {
+) -> Result<(Pixmap, CpuRenderTimings)> {
+    let recording_started = Instant::now();
     let mut pixmap = Pixmap::new(width, height);
     {
         let mut painter = CpuPainter { ctx, resources };
@@ -149,10 +184,20 @@ fn render_scene_to_pixmap(
             .with_backdrop_filters(backdrop_filters_enabled)
             .render_scene(scene)?;
     }
+    let scene_recording = recording_started.elapsed();
 
+    let raster_started = Instant::now();
     ctx.flush();
     ctx.render(&mut pixmap, resources);
-    Ok(pixmap)
+    let rasterization = raster_started.elapsed();
+    Ok((
+        pixmap,
+        CpuRenderTimings {
+            scene_recording,
+            rasterization,
+            output_copy: Duration::ZERO,
+        },
+    ))
 }
 
 /// Render `scene` into premultiplied RGBA8 bytes over `background`.

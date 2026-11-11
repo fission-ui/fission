@@ -1773,6 +1773,9 @@ struct WebFrameStagePerf<'a> {
     prepare_ms: f64,
     render_present_ms: f64,
     software_render_ms: f64,
+    software_scene_recording_ms: f64,
+    software_rasterization_ms: f64,
+    software_output_copy_ms: f64,
     canvas_upload_ms: f64,
     total_ms: f64,
     rebuilt: bool,
@@ -8861,6 +8864,12 @@ where
                                     #[cfg(target_arch = "wasm32")]
                                     let mut software_render_ms = 0.0;
                                     #[cfg(target_arch = "wasm32")]
+                                    let mut software_scene_recording_ms = 0.0;
+                                    #[cfg(target_arch = "wasm32")]
+                                    let mut software_rasterization_ms = 0.0;
+                                    #[cfg(target_arch = "wasm32")]
+                                    let mut software_output_copy_ms = 0.0;
+                                    #[cfg(target_arch = "wasm32")]
                                     let mut canvas_upload_ms = 0.0;
                                     #[cfg(target_arch = "wasm32")]
                                     {
@@ -8881,9 +8890,9 @@ where
                                                     "retained render scene missing before render",
                                                 );
                                                 let software_render_started = Instant::now();
-                                                let Ok(rgba) = presenter
+                                                let Ok((rgba, timings)) = presenter
                                                     .cpu_renderer
-                                                    .render_to_rgba8(
+                                                    .render_to_rgba8_with_timings(
                                                         retained_scene,
                                                         render_target_size.0,
                                                         render_target_size.1,
@@ -8909,6 +8918,12 @@ where
                                                 software_render_ms =
                                                     software_render_started.elapsed().as_secs_f64()
                                                         * 1000.0;
+                                                software_scene_recording_ms =
+                                                    timings.scene_recording.as_secs_f64() * 1000.0;
+                                                software_rasterization_ms =
+                                                    timings.rasterization.as_secs_f64() * 1000.0;
+                                                software_output_copy_ms =
+                                                    timings.output_copy.as_secs_f64() * 1000.0;
 
                                                 let canvas_upload_started = Instant::now();
                                                 if let Err(err) = presenter.present(
@@ -9233,6 +9248,9 @@ where
                                                 .as_secs_f64()
                                                 * 1000.0,
                                             software_render_ms,
+                                            software_scene_recording_ms,
+                                            software_rasterization_ms,
+                                            software_output_copy_ms,
                                             canvas_upload_ms,
                                             total_ms,
                                             rebuilt,

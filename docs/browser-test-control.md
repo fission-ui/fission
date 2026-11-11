@@ -62,10 +62,13 @@ most 1,024 requests may be pending or uncollected at once.
 
 Web renderer diagnostics also publish the most recent stage timings as
 `window.__FISSION_LAST_FRAME_STAGE_PERF`. On the Canvas2D software path,
-`softwareRenderMs` measures CPU rasterization and `canvasUploadMs` measures
-canvas resizing, `ImageData` creation, and `putImageData`. These separate fields
-help distinguish expensive scene work from transfer to the browser canvas;
-`renderPresentMs` remains the total for both stages.
+`softwareRenderMs` measures the whole CPU render, including scene recording,
+rasterization, and RGBA output copying. The new `softwareSceneRecordingMs`,
+`softwareRasterizationMs`, and `softwareOutputCopyMs` fields split those costs.
+`canvasUploadMs` measures canvas resizing, `ImageData` creation, and
+`putImageData`. These fields distinguish scene work, pixel rasterization, and
+transfer to the browser canvas; `renderPresentMs` remains the total for both
+software rendering and canvas upload.
 
 The driver verifies actual browser metrics, canvas CSS/backing dimensions and
 the matching submitted-frame acknowledgement, crosses two browser animation
