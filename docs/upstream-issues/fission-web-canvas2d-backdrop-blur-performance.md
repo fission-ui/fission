@@ -1,11 +1,11 @@
 # Web Canvas2D fallback spends seconds rendering modal backdrop blur
 
 Status: the Web Canvas2D fallback omits backdrop filters while preserving the
-translucent modal scrim and foreground content. Zoffice's New Document modal
-frame fell from 3,987.68 ms to 1,618.5 ms, but CPU rendering still takes
-1,583.15 ms and remains too slow. The frame has 359 nodes, with build, layout,
-and prepare taking about 4 ms combined. Additional CPU stage timings split
-scene recording, rasterization, and output copying to locate the remaining cost.
+translucent modal scrim and foreground content. The latest Zoffice run on
+`bcec7df5` measured 1,682.34 ms in software rendering and 1,656.85 ms for the
+whole modal frame. Scene recording took 213.53 ms and CPU rasterization took
+1,418.60 ms; output copy was negligible. Rasterization still dominates and
+remains too slow for an interactive modal.
 
 ## Reproduction and measurements
 
@@ -17,8 +17,9 @@ the delay.
 
 The modal scrim applies a 4 px backdrop blur. Fission's Web Canvas2D presenter
 renders the retained scene through `CpuRenderer` inside WebAssembly, where that
-full-window filter takes several seconds. This makes a supported software
-fallback feel unresponsive when opening a modal.
+full-window filter originally took several seconds. Disabling the filter made
+the page readable and improved the frame, but the translucent scene still needs
+expensive software rasterization.
 
 ## Fission change
 
@@ -40,5 +41,9 @@ rasterization, and RGBA-copy duration inside the total software-render time.
 - Zoffice's Web QA passed the New Document modal flow on `46843123` with
   `canvas2d-software`. The screenshot remains legible after removing blur. Its
   1,583.15 ms `softwareRenderMs` versus 3,957.025 ms before the patch is still
-  above interactive response time; the new substage diagnostics need a rerun
-  before choosing further rendering tradeoffs.
+  above interactive response time.
+- A repeat on `bcec7df5` recorded 1,682.34 ms `softwareRenderMs`, with 213.53 ms
+  scene recording, 1,418.60 ms rasterization, 0.005 ms output copy, and 0.975 ms
+  canvas upload. A 4,308-sample Chrome CPU profile (about 5 s including polling
+  and setup) concentrated the raster work in Vello CPU SIMD compositing kernels.
+  The measured optimization target is the Vello CPU raster path.
