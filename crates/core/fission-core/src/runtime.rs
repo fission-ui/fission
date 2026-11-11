@@ -1868,17 +1868,25 @@ impl Runtime {
         // to consume the event. This lets an editor handle its own text keys
         // while application shortcuts such as Ctrl+F still reach an ancestor.
         // Tab remains reserved for tree-wide focus traversal.
-        if let InputEvent::Keyboard(KeyEvent::Down {
-            key_code,
-            modifiers,
-        }) = &event
-        {
+        let declared_key = match &event {
+            InputEvent::Keyboard(KeyEvent::Down {
+                key_code,
+                modifiers,
+            })
+            | InputEvent::Keyboard(KeyEvent::DownWithText {
+                key_code,
+                modifiers,
+                ..
+            }) => Some((key_code, *modifiers)),
+            _ => None,
+        };
+        if let Some((key_code, modifiers)) = declared_key {
             if !matches!(key_code, KeyCode::Tab) {
                 if let Some((node_id, action)) = crate::hit_test::declared_key_action(
                     ir,
                     self.runtime_state.interaction.focused,
                     key_code,
-                    *modifiers,
+                    modifiers,
                 ) {
                     let input = crate::input::scoped_action_input(ir, node_id, ActionInput::None);
                     self.dispatch_node_with_input(

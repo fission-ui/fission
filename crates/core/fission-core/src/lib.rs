@@ -580,9 +580,9 @@ pub mod public {
         Overflow,
     };
     pub use fission_ir::{
-        EmbedKind, FocusPolicy, Hyperlink, InputFormatter, LinkTarget, MaxLengthEnforcement, Op,
-        PopoverAction, PopoverTarget, PopupKind, Role, SceneDimension, SceneTarget,
-        SemanticOrientation, Semantics, TextCapitalization, TextFieldValidationState,
+        EmbedKind, FocusPolicy, Hyperlink, InputFormatter, KeyAction, KeyBinding, LinkTarget,
+        MaxLengthEnforcement, Op, PopoverAction, PopoverTarget, PopupKind, Role, SceneDimension,
+        SceneTarget, SemanticOrientation, Semantics, TextCapitalization, TextFieldValidationState,
         TextInputAction, TextInputType, TextWrapMode, WidgetId,
     };
     pub use fission_layout::{
@@ -669,10 +669,10 @@ pub use fission_ir::op::{
     Overflow,
 };
 pub use fission_ir::{
-    EmbedKind, FocusPolicy, Hyperlink, InputFormatter, LinkTarget, MaxLengthEnforcement, Op,
-    PopoverAction, PopoverTarget, PopupKind, Role, SceneDimension, SceneTarget,
-    SemanticOrientation, Semantics, TextCapitalization, TextFieldValidationState, TextInputAction,
-    TextInputType, TextWrapMode, WidgetId,
+    EmbedKind, FocusPolicy, Hyperlink, InputFormatter, KeyAction, KeyBinding, LinkTarget,
+    MaxLengthEnforcement, Op, PopoverAction, PopoverTarget, PopupKind, Role, SceneDimension,
+    SceneTarget, SemanticOrientation, Semantics, TextCapitalization, TextFieldValidationState,
+    TextInputAction, TextInputType, TextWrapMode, WidgetId,
 };
 pub use fission_layout::{
     BoxConstraints, FlexDirection, LayoutEngine, LayoutInspection, LayoutNodeGeometry, LayoutOp,

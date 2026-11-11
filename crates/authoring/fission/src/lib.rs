@@ -167,6 +167,13 @@ pub mod compose {
     pub use fission_compose::*;
 }
 
+/// Advanced widget authoring for cases where built-in widgets do not emit the
+/// IR structure an application needs. Most applications should use ordinary
+/// widgets or Compose components instead.
+pub mod authoring {
+    pub use fission_core::authoring::*;
+}
+
 /// Material Design icons.
 pub mod icons {
     pub use fission_icons::*;
@@ -256,6 +263,7 @@ pub use fission_compose::{
     DefaultScope, Event, ManySource, Press, Scope, Source, TextChanged, Toggle, UiKey,
 };
 pub use fission_core::Bytes;
+pub use fission_core::{KeyAction, KeyBinding};
 /// Serialization traits and derives used by Fission action macros.
 pub use serde;
 
@@ -563,6 +571,11 @@ pub mod prelude {
     // Keep the facade root as the authority for public names. Explicit imports
     // below provide whole widget/theme families that the root intentionally
     // exposes primarily through namespaces.
+    pub use crate::authoring::{
+        custom_widget, lower_widget, lower_widget_to_ir, lower_widget_to_ir_in,
+        lower_widget_to_ir_with_root, lower_widget_with_root, IrBuilder, Lower, LowerWidget,
+        LoweringContext,
+    };
     pub use crate::*;
     pub use fission_core::public::*;
     pub use fission_diagnostics::{

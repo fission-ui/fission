@@ -2,7 +2,7 @@ use crate::action::{ActionEnvelope, ActionId, GlobalState};
 use crate::hit_test::get_all_focusable_nodes;
 use crate::{InputEvent, KeyCode, KeyEvent, Runtime};
 use fission_ir::{
-    ActionEntry, ActionSet, ActionTrigger, CoreIR, LayoutDirection, Op, PopupKind, Role,
+    ActionEntry, ActionSet, ActionTrigger, CoreIR, KeyAction, LayoutDirection, Op, PopupKind, Role,
     SemanticOrientation, Semantics, StructuralOp, WidgetId,
 };
 use fission_layout::{LayoutSize, LayoutSnapshot};
@@ -529,6 +529,42 @@ fn vertical_arrow_requests_open_on_a_collapsed_popup_controller() {
             "opening is controlled; focus stays on the trigger until the rebuilt popup exists"
         );
     }
+}
+
+#[test]
+fn declared_key_action_claims_down_with_text_before_text_insertion() {
+    let mut ir = CoreIR::default();
+    add_semantics(
+        &mut ir,
+        "command",
+        Semantics {
+            role: Role::Button,
+            focusable: true,
+            key_actions: vec![KeyAction::new(KeyCode::Char('x'), 99)],
+            ..Default::default()
+        },
+        Vec::new(),
+    );
+    finish_root(&mut ir, vec![id("command")]);
+
+    let mut runtime = dismiss_runtime();
+    runtime
+        .runtime_state
+        .interaction
+        .set_focused(Some(id("command")));
+    runtime
+        .handle_input(
+            InputEvent::Keyboard(KeyEvent::DownWithText {
+                key_code: KeyCode::Char('x'),
+                modifiers: 0,
+                text: "x".into(),
+            }),
+            &ir,
+            &layout(),
+        )
+        .unwrap();
+
+    assert_eq!(runtime.get_global_state::<DismissState>().unwrap().count, 1);
 }
 
 #[derive(Debug, Default)]
