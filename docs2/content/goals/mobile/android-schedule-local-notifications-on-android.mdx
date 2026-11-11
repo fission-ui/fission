@@ -20,13 +20,13 @@ outcomes:
 
 Juniper County’s trail crew has logged water cutting across the North Ridge path. A second crew is bringing gravel, so the inspector wants a reminder to check the bridge approach again in about fifteen minutes. If the road crew resolves the hazard early, the inspector should be able to cancel the reminder.
 
-We will build that follow-up flow. The report description stays editable, Android permission is requested only when the inspector chooses to schedule, and a denied request leaves the form usable.
+We’ll build that follow-up flow. The report stays editable, Android asks for permission only when the inspector chooses to schedule, and a denial does not block the form.
 
-There is one delivery limit to understand before you use this in a product: Fission’s current Android `AfterMillis` scheduler runs a cancellable timer in the app process. It can post while that process is alive, but it is not a persistent Android alarm and may not fire after Android kills the process or delays it for power management. Treat this as a best-effort reminder. A promise that must survive process death or arrive at a precise time needs a target-specific Android scheduler.
+There’s a delivery limit to understand before using this in a product. Fission’s Android `AfterMillis` scheduler runs a cancellable timer in the app process. It can post while the process is alive, but it is not a persistent Android alarm. Android may delay it for power management, and it may not fire after the process is killed. Treat it as best-effort. A reminder that must survive process death or arrive at a precise time needs a target-specific Android scheduler.
 
 ## Create the Android project
 
-Create the shared app, add Android, then declare the notification capability. The capability command adds Android’s notification permission to the generated project. Keep the reminder rules and form in shared Rust code; the generated Android host handles platform notifications.
+Create the shared app, add Android, and declare the notification capability. That adds Android’s notification permission to the generated project. Keep the reminder rules and form in shared Rust code; the Android host handles platform notifications.
 
 <Tabs>
 <TabItem label="Create the project">
@@ -62,9 +62,9 @@ The CLI adds `POST_NOTIFICATIONS` to the Android manifest. Android 13 (API 33) a
 <!-- fission:step id="main-flow" -->
 ## Build the reminder form and notification actions
 
-The form belongs to the report screen, so its trail segment and observation are retained as local component state while the inspector edits them. Permission status, in-flight work, and the returned receipt live in `GlobalState` because they arrive asynchronously and control actions elsewhere in the screen.
+The report screen owns its trail segment and observation drafts, so retain them as local component state while the inspector edits. Permission status, in-flight work, and the returned receipt belong in `GlobalState`: they arrive asynchronously and affect other parts of the screen.
 
-The **Enable notifications** button asks the host for access. The separate refresh button reads the latest settings without prompting. That second action matters when someone has just answered Android’s prompt or changed notification access in system settings. Only enable scheduling after the host reports that alerts and scheduling are available.
+The **Enable notifications** button asks the host for access. **Refresh access status** reads the latest settings without prompting, which matters after someone answers Android’s prompt or changes settings. Keep scheduling disabled until the host confirms that alerts and scheduling are available.
 
 <Tabs>
 <TabItem label="src/app.rs · shared state and component">
@@ -553,14 +553,12 @@ pub fn run() -> Result<(), JsValue> {
 </TabItem>
 </Tabs>
 
-The notification request uses the same stable ID for scheduling and cancellation. When the crew changes the report, that ID keeps the reminder tied to one follow-up instead of creating an unrelated notification each time.
-
-The permission prompt and the status check do different jobs. **Enable notifications** asks the host to request access; after the system prompt closes, **Refresh access status** reads the latest settings without prompting. The schedule button stays disabled until the host reports that alerts and scheduling are available.
+The schedule and cancellation requests use the same stable ID. That keeps the reminder tied to one follow-up instead of creating a different notification every time the crew edits the report.
 
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Open the interactive result and edit the trail segment or observation. Refresh access status to see what the browser host allows. If browser notifications are available, grant access, schedule the reminder, then cancel it. The preview uses the Web notification host; Android permission prompts and delivery timing still need to be checked on an Android target.
+Open the preview and edit the trail segment or observation. Refresh status to see what the browser host allows. If browser notifications are available, grant access, schedule the reminder, and cancel it. This preview uses the Web host; check Android prompts and delivery on an Android target.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -593,5 +591,5 @@ fission run --target android --project-dir .
 </TabItem>
 </Tabs>
 
-The notification is an invitation to reopen the report, not the source of truth for whether the path is safe. Keep report state in the app and let the crew resolve it there, even if notifications are disabled or the best-effort timer never fires.
+The notification only reminds the crew to reopen the report; it does not tell them whether the path is safe. Keep the report as the source of truth and let the crew resolve it there, even when notifications are disabled or the timer never fires.
 <!-- /fission:step -->

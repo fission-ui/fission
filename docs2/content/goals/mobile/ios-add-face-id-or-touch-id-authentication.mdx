@@ -16,11 +16,11 @@ outcomes:
   - Understand which native provider is needed before Face ID or Touch ID can run on iOS
 ---
 
-At the end of a busy shift, a store manager reviews a **$428.50 refund** for order **GM-2841**. Before the app marks the review as ready to submit, it asks the person holding the device to confirm locally. Face ID, Touch ID, or another supported device prompt can answer that question without asking the manager to type a password in a crowded shop.
+At the end of a shift, a store manager reviews a **$428.50 refund** for order **GM-2841**. Before marking it ready to submit, the app asks the person holding the device to verify locally. Face ID, Touch ID, or another supported prompt can do that without asking the manager to type a password in a busy shop.
 
-That device check is only one part of the decision. A successful biometric result means the host verified its current local user; it does not prove an account identity to a server or grant permission to issue money. The real refund API must still check the signed-in manager, their role, and the refund amount. This screen stops at **ready for server review** so it cannot suggest that a local check alone completed a refund.
+That device check is only one part of the decision. A successful result means the host verified its current local user; it does not prove an account identity to a server or authorize a refund. The refund API still has to check the signed-in manager, their role, and the amount. This screen stops at **ready for server review** so a local check cannot be mistaken for a completed refund.
 
-The browser cannot open Face ID or Touch ID. Its preview keeps Fission’s real web host, which reports that standalone biometric prompts are unavailable and points the manager to account sign-in. You can inspect that recovery state and confirm the refund remains unchanged. The iOS shell in this checkout also has no LocalAuthentication provider yet, so this guide makes that boundary explicit instead of showing a pretend successful prompt.
+The browser can’t open Face ID or Touch ID. Fission’s Web host reports that standalone biometric prompts are unavailable and points the manager to account sign-in. You can inspect that recovery path and confirm the refund stays unchanged. The iOS shell in this checkout also lacks a LocalAuthentication provider, so this guide does not pretend a successful prompt exists.
 
 ## Create the iOS app and declare the capability
 
@@ -53,16 +53,16 @@ refund-review/
 </TabItem>
 </Tabs>
 
-The CLI records `biometric` in `fission.toml` and adds the Face ID usage description to the generated iOS property list. That description is the sentence iOS shows when an app asks for Face ID. It does not install the operating-system provider that performs authentication; we will check that platform boundary before trying this on a device.
+The CLI records `biometric` in `fission.toml` and adds the Face ID usage description to the generated iOS property list. iOS shows that description when an app requests Face ID. It does not install the provider that performs authentication; we’ll check that platform boundary before trying the app on a device.
 
 The refund is application data, so the shared approval state owns it. A button draft or an open menu would belong to local component state, but this screen has no temporary field: its important state is the selected refund, device availability, and the provider’s eventual response.
 
 <!-- fission:step id="review-refund" -->
 ## Build the approval screen and wait for the host result
 
-The screen asks the host whether authentication is available before enabling **Verify manager**. That avoids sending the user into a prompt the current device cannot complete. The request itself starts in a reducer after the manager presses the button; the reducer returns immediately while Fission waits for the host.
+The screen checks whether authentication is available before enabling **Verify manager**. That avoids opening a prompt the device cannot complete. Pressing the button starts a request from a reducer; it returns immediately while Fission waits for the host.
 
-Select each tab to see how the app state, screen, and browser host fit together. In a real app, the signed-in route would provide the selected refund. The preview seeds one review so you can try the interface; the empty default state does not contain production fixture data. The browser uses its normal unsupported-biometric response, which demonstrates recovery without claiming a Face ID check took place.
+The tabs show how app state, screen, and browser host fit together. A real app would get the selected refund from the signed-in route. The preview seeds one review for the interaction; the default state has no production fixture data. The Web host returns its normal unsupported-biometric result, so you can test recovery without pretending Face ID ran.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -472,7 +472,7 @@ pub fn run() -> Result<(), JsValue> {
 </TabItem>
 </Tabs>
 
-The availability response and authentication result arrive through `ReducerContext.input`: `GET_BIOMETRIC_AVAILABILITY` supplies the device check, and `AUTHENTICATE_BIOMETRIC` supplies the authentication result. The unit actions named `BiometricAvailabilityReceived` and `RefundManagerVerified` only route each response to its reducer. They do not carry pretend provider data in their action payloads.
+Availability and authentication results arrive through `ReducerContext.input`: `GET_BIOMETRIC_AVAILABILITY` supplies the device check, and `AUTHENTICATE_BIOMETRIC` supplies the result. `BiometricAvailabilityReceived` and `RefundManagerVerified` are unit actions that route each response to its reducer. Provider data stays in the typed input rather than a pretend action payload.
 
 <!-- fission:preview -->
 
@@ -484,9 +484,9 @@ In the browser preview, select **Check this device**. The web host reports that 
 <!-- fission:step id="verify-ios-support" -->
 ## Check the native provider before testing Face ID or Touch ID
 
-The Rust request and browser preview are ready, but this checkout does not yet contain an iOS biometric host. The iOS shell registers camera, barcode, geolocation, and microphone providers; biometric requests still use `UnsupportedBiometricHost` unless the app registers its own `BiometricHost`. Adding `biometric` to `fission.toml` creates the Face ID usage string, but that metadata does not implement LocalAuthentication.
+The Rust request and browser preview are ready, but this checkout does not include an iOS biometric host. The iOS shell registers camera, barcode, geolocation, and microphone providers. Biometric requests use `UnsupportedBiometricHost` until the app registers a `BiometricHost`. Adding `biometric` to `fission.toml` creates the Face ID usage string; it does not implement LocalAuthentication.
 
-The capability matrix now marks iOS biometrics as **Provider** for this reason. To run this flow with real Face ID or Touch ID, add a `BiometricHost` backed by Apple’s LocalAuthentication framework and register it with the mobile shell. The host must report availability and enrollment, then return a typed success or error from the system prompt. Until that provider exists, an iOS request should fail with `unsupported`; keep the refund unchanged and use the account sign-in path.
+That is why the capability matrix marks iOS biometrics as **Provider**. To run real Face ID or Touch ID, add a `BiometricHost` backed by Apple’s LocalAuthentication framework and register it with the mobile shell. It must report availability and enrollment, then return a typed success or error from the system prompt. Until then, an iOS request should return `unsupported`; keep the refund unchanged and use account sign-in.
 
 You can still build and inspect the generated iOS configuration now:
 
@@ -504,7 +504,7 @@ rg -n "NSFaceIDUsageDescription" platforms/ios/Info.plist
 </TabItem>
 </Tabs>
 
-These commands verify the target toolchain and privacy metadata. They do not prove that Face ID completed: a successful device test requires the missing native provider. On a target with a registered provider, test both an enrolled biometric and the recovery paths. Cancel the prompt, remove enrollment, and try a device that does not support the requested method. In every failure case, the refund should remain a draft and the app should direct the manager to account sign-in.
+These commands verify the toolchain and privacy metadata. They do not prove Face ID works; that requires the native provider. Once it is registered, test an enrolled biometric and the recovery paths: cancel the prompt, remove enrollment, and try a device that does not support the requested method. In every failure case, keep the refund as a draft and offer account sign-in.
 
 For the exact request types and current support by platform, continue to the [biometric capability reference](/reference/capabilities/biometrics/) and [capability matrix](/reference/capabilities/matrix/). The reference explains what the provider must return; the [state and effects guide](/docs/guides/state-handles-and-providers/) explains why the request begins in a reducer and finishes in a later one.
 <!-- /fission:step -->

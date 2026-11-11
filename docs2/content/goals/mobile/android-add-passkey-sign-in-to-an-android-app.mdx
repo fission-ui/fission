@@ -18,9 +18,9 @@ outcomes:
 
 Mara Chen has arrived at the Cedar Ridge Outfitters pickup desk for order **CR-7712**. The order includes a weatherproof daypack and two trail maps. Its pickup QR code contains a short-lived collection token, so the app must keep it hidden until Mara has signed in.
 
-This tutorial adds the client side of that sign-in. The app asks the passkey provider for an assertion using a fresh challenge, then holds the order behind the sign-in boundary while a server verifies the response. A passkey prompt may use a fingerprint, face check, device PIN, password manager, another phone, or a security key. The app does not receive a fingerprint and must not treat “the prompt closed” as proof that Mara has an account.
+We’ll build the client side of that sign-in. The app asks the passkey provider for an assertion using a fresh challenge, then keeps the order locked while the server verifies the response. The prompt may use a fingerprint, face check, device PIN, password manager, another phone, or a security key. The app never receives a fingerprint, and closing the prompt is not proof that Mara has an account. Only a server-verified assertion can establish the session.
 
-The browser preview uses Fission’s `MemoryPasskeyHost` so you can exercise the same request and reducer path without an Android device. It returns fixture bytes, not a real cryptographic assertion. The preview therefore stops at **Ready for server verification** and never unlocks the order. In this repository, the native mobile shell also needs an Android `PasskeyHost` adapter backed by Credential Manager; the capability declaration by itself does not install one.
+The browser preview uses Fission’s `MemoryPasskeyHost`, so you can exercise the same request and reducer path without an Android device. It returns fixture bytes, not a cryptographic assertion. The preview stops at **Ready for server verification** and never unlocks the order. There’s one important gap on Android: declaring the passkeys capability does not install a Credential Manager provider. The native shell still needs an Android `PasskeyHost` adapter.
 
 ## Create the Android project
 
@@ -59,12 +59,12 @@ cedar-ridge-passkey-pickup/
 </TabItem>
 </Tabs>
 
-The order and sign-in attempt belong to the app because both can be read by several parts of the screen. The loading flags and response status also belong here: the operating-system credential request finishes later, after the first reducer has returned. The named component below owns the presentation and binds buttons to reducer actions; it does not start a host request while building its view.
+The order and sign-in attempt belong in app state because several parts of the screen need them. So do the loading flag and response status: Android’s credential request finishes after the first reducer has returned. The component below renders that state and binds its buttons to reducer actions. It does not start a host request while building the view.
 
 <!-- fission:step id="build-sign-in-flow" -->
 ## Model passkey sign-in and protect the pickup order
 
-First give the screen a real order to protect. The pickup token is deliberately absent from the signed-out state. In a production app, the order service would return the public order summary after the app knows which member is signed in. This example uses fixed order details so the screen can be built without a backend.
+First give the screen an order to protect. The signed-out state deliberately has no pickup token. In a real app, the order service would return the public summary after identifying the member. We’ll use fixed order details here so the screen works without a backend.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -398,15 +398,15 @@ pub fn create_env() -> Env {
 </TabItem>
 </Tabs>
 
-`CheckPasskeySupport` and `SignInWithPasskey` are user actions. Their effect callbacks use unit actions only to route the completed operation to a reducer; each reducer reads the typed result from `ctx.input`. This keeps asynchronous host data out of pretend action payloads and means the UI reports the provider’s actual response.
+`CheckPasskeySupport` and `SignInWithPasskey` are user actions. Their effect callbacks use unit actions to route completion to a reducer, and each reducer reads the typed result from `ctx.input`. The result is not smuggled through a pretend action payload, so the screen reports what the provider actually returned.
 
-The server supplies `challenge` and, when using an account-first flow, `allowed_credentials`. The challenge must be fresh, unpredictable, tied to this sign-in attempt, and stored server-side until the response arrives. The preview will seed a fixed challenge to make the example runnable, but production code must fetch a new one for every attempt.
+The server supplies `challenge` and, for an account-first flow, `allowed_credentials`. The challenge must be fresh, unpredictable, tied to this sign-in attempt, and kept server-side until the response arrives. The preview uses a fixed challenge to stay runnable. Production code must fetch a new one for every attempt.
 
-The screen’s messages live in checked-in English and Spanish property files. `create_env` loads both bundles once, and the component asks Fission to resolve stable keys through the active locale. This keeps translated copy out of the reusable component; the order and item names remain data supplied by the app.
+The screen’s messages live in checked-in English and Spanish property files. `create_env` loads both bundles, and the component resolves stable translation keys through the active locale. That keeps translated copy out of the reusable component; the order and item names stay app data.
 
 ### Build the reusable pickup sign-in screen
 
-Now put the state into a named Fission component. The order summary gives Mara enough context to recognize what she is unlocking, while the locked-state message explains why the QR code is not visible yet. The component keeps both actions disabled while the host is busy, and it does not show a “signed in” success state after receiving fixture assertion bytes.
+Now put the screen in a named Fission component. The order summary lets Mara check what she is unlocking, and the locked-state message explains why the QR code is still hidden. Both actions are disabled while the host is busy. Even after the preview returns fixture assertion bytes, the component must not show a signed-in state.
 
 <Tabs>
 <TabItem label="src/app/widgets.rs">
@@ -574,7 +574,7 @@ pub fn run() -> Result<(), JsValue> {
 </TabItem>
 </Tabs>
 
-The screen is shared Rust UI. It knows the order details and current sign-in state, but it does not import Android classes. That leaves the same component available to the browser preview and to other Fission targets. The native provider is a separate host boundary, so an unsupported host can show the recovery message without making the order appear unlocked. On Android, install the same environment on `MobileApp` so that the shared component resolves the same English and Spanish keys.
+This is shared Rust UI: it reads the order and sign-in state without importing Android classes. The same component therefore works in the browser preview and on other Fission targets. The provider stays behind the host boundary. If a host does not support passkeys, the app can show a recovery message without unlocking the order. On Android, install the same environment on `MobileApp` so both language bundles are available there too.
 
 <!-- fission:preview -->
 
@@ -586,7 +586,7 @@ Select **Check passkey support**, then **Sign in with passkey**. Trace the state
 <!-- fission:step id="prepare-android-provider" -->
 ## Prepare Android Credential Manager
 
-Android’s passkey flow uses Credential Manager. The Android app requests sign-in options from its relying-party server, passes those options to Credential Manager, and sends the returned assertion back to the server. The server checks the challenge, relying-party identity, credential, authenticator data, and signature before it creates the signed-in session. Android’s [passkey sign-in guide](https://developer.android.com/identity/passkeys/sign-in-with-passkeys) walks through that client and server exchange.
+Android uses Credential Manager for passkeys. The app gets sign-in options from its relying-party server, passes them to Credential Manager, then sends the returned assertion back. The server checks the challenge, relying-party identity, credential, authenticator data, and signature before creating a session. Android’s [passkey sign-in guide](https://developer.android.com/identity/passkeys/sign-in-with-passkeys) explains the full exchange.
 
 For a native Android app to share credentials with its website, the production website must also publish a Digital Asset Links file. Replace the placeholders below with the real application id and signing certificate fingerprint; do not copy these example values into a release app.
 
@@ -609,7 +609,7 @@ For a native Android app to share credentials with its website, the production w
 
 Host this as `https://members.cedarridge.example/.well-known/assetlinks.json`. Android requires the association to be reachable directly with HTTP 200 and an `application/json` response; a redirect or an incorrect package name or signing fingerprint prevents verification. See Android’s [Credential Manager prerequisites](https://developer.android.com/identity/credential-manager/prerequisites) for the complete Digital Asset Links requirements.
 
-The project command above declares `passkeys`, but this checkout’s generated Android shell does not yet contain a Credential Manager implementation of Fission’s `PasskeyHost`. `MobileApp::with_passkey_host(...)` is the registration point for that adapter. Until your app supplies it, the native shell reports passkeys as unsupported. The `MemoryPasskeyHost` used in the next tab is only for the browser preview; it is not an Android implementation and cannot sign a member in.
+The project command declares `passkeys`, but this checkout’s generated Android shell does not include a Credential Manager implementation of Fission’s `PasskeyHost`. Register an adapter with `MobileApp::with_passkey_host(...)`. Until you provide one, the native shell reports passkeys as unsupported. `MemoryPasskeyHost` in the next tab only supports the browser preview; it is not an Android provider and cannot sign anyone in.
 
 <Tabs>
 <TabItem label="Android adapter boundary">
@@ -625,13 +625,13 @@ MobileApp::<MemberPasskeySignInState, _>::new(PickupOrderSignInScreen)
 </TabItem>
 </Tabs>
 
-The final tab shows the integration boundary rather than inventing a provider that is not in this checkout. Implementing `AndroidCredentialManagerPasskeyHost` means mapping Fission’s typed request to Android’s `GetCredentialRequest`, converting the returned `PublicKeyCredential` into `PasskeyAuthenticationResult`, and returning typed cancellation or unsupported errors. If you are new to native adapters, first follow [Integrate an Android SDK through a Fission native module](/blog/integrate-an-android-sdk-through-a-fission-native-module/), then return to the [PasskeyHost reference](/reference/capabilities/passkeys/).
+The final tab shows the integration boundary; it does not pretend an Android provider already exists. An `AndroidCredentialManagerPasskeyHost` would map Fission’s typed request to Android’s `GetCredentialRequest`, convert `PublicKeyCredential` into `PasskeyAuthenticationResult`, and report cancellation or unsupported cases as typed errors. If native adapters are new to you, start with [Integrate an Android SDK through a Fission native module](/blog/integrate-an-android-sdk-through-a-fission-native-module/), then come back to the [PasskeyHost reference](/reference/capabilities/passkeys/).
 
 <!-- /fission:step -->
 
 ## Verify the app and the sign-in boundary
 
-The browser build proves that the Rust state, named component, typed effects, and preview host compile together. It does not prove Digital Asset Links, Android Credential Manager, or server signature verification. Keep those checks separate so each result tells you what has actually been verified.
+The browser build proves that the Rust state, component, typed effects, and preview host compile together. It does not verify Digital Asset Links, Android Credential Manager, or the server’s signature checks. Keep those checks separate; otherwise a passing browser build can look like stronger proof than it is.
 
 <Tabs>
 <TabItem label="Build the Android target">
@@ -652,6 +652,6 @@ rg -n "passkeys" fission.toml
 </TabItem>
 </Tabs>
 
-The target build validates the Android project and generated configuration; it cannot make the missing `PasskeyHost` appear. On a device with your adapter installed, check both the successful and recovery paths: accept the prompt, cancel it, use a device with no available credential, and try an incorrect domain association. In all cases where no server-verified session is returned, keep order CR-7712 and its pickup code locked.
+The Android build validates the project and generated configuration. It cannot supply the missing `PasskeyHost`. Once your adapter is installed, test the successful and recovery paths: accept the prompt, cancel it, try a device with no available credential, and try an incorrect domain association. Unless the server returns a verified session, order CR-7712 and its pickup code must stay locked.
 
 For the request fields and host contract, see the [Passkeys reference](/reference/capabilities/passkeys/) and the [capability support matrix](/reference/capabilities/matrix/). For a working example of how Fission keeps Android host behavior behind a shared component, continue with [the Android native module tutorial](/blog/integrate-an-android-sdk-through-a-fission-native-module/).

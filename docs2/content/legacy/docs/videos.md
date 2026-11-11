@@ -166,7 +166,7 @@ The calendar should remain flexible, but the standard should not. Every shipped 
 
 ## Lifecycle fit and verification
 
-This page belongs to the setup, learn, build, test, and publish lifecycle. Use it to decide the next concrete action, then verify the action before moving to the next stage.
+Choose one useful viewer outcome for each episode, then make the app, guide, screenshot and tests prove that outcome. The video should show the result early and leave viewers with a working path they can follow.
 
 | Stage question | Verification |
 | --- | --- |

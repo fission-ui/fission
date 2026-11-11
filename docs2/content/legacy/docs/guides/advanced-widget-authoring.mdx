@@ -5,7 +5,7 @@ description: Write widgets that emit their own IR structure using fission_core::
 
 # Advanced widget authoring
 
-Almost every widget you write should be an ordinary Rust type that converts into a `Widget`:
+Most widgets are ordinary Rust types that convert into a `Widget`:
 
 ```rust
 fission_component!
@@ -25,30 +25,30 @@ fission_component!
     }
 }
 ```
-That is the authoring API for the overwhelming majority of work, and it is the one to reach for first. This guide covers the rarer case: a widget that has to emit intermediate representation structure the built-in widget structs cannot express.
+Start with that API. Reach for `fission_core::authoring` only when built-in widget structs cannot express the structure your widget needs. This guide covers that less common case: emitting the intermediate representation (IR) directly.
 
 ## When you actually need it
 
-You need `fission_core::authoring` when all of these are true:
+Use `fission_core::authoring` only when all of these are true:
 
 - The structure you need is not expressible by composing built-in widgets.
 - You are not trying to invent a new layout algorithm or a new paint primitive. Neither is possible, by design. See [The closed vocabulary](#the-closed-vocabulary).
 - You have checked that the `LayoutOp` you want already exists.
 
-In practice this means widgets that need a layout op with no widget wrapper, such as flyout anchoring or aspect-ratio boxes, or widgets that need to control their own identity for retained state.
+In practice, this is for an existing layout operation with no widget wrapper, such as flyout anchoring or an aspect-ratio box, or for a widget that must control its identity to retain state.
 
 If you are reaching for this module because a layout mode is missing, stop and open an issue instead. A layout mode added to `LayoutOp` works on every target; a workaround in one widget does not.
 
 ## The closed vocabulary
 
-Fission lowers the widget tree into an intermediate representation before any target sees it. Every node in that representation is an `Op` drawn from a fixed set: `Structural`, `Layout`, `Paint`, `Semantics`. Desktop, web, mobile, terminal, static-site, and SSR shells all consume the same fixed set.
+Fission lowers the widget tree to an intermediate representation before a target renders it. Each node uses one of the fixed `Op` kinds: `Structural`, `Layout`, `Paint`, or `Semantics`. Desktop, Web, mobile, Terminal, Static site, and SSR shells all consume those same operations.
 
-Widget authoring is therefore **open composition over a closed vocabulary**. You may assemble any structure you like, but you cannot add a word to the language. That constraint is what makes a widget you write today keep working on a target that ships next year, and it is why the widget catalog reaches nine targets rather than one.
+You can compose these operations into new widgets, but you cannot add a new layout or paint operation. That keeps the tree portable: every target implements the same vocabulary instead of each widget bringing its own rendering rules.
 
 Two things follow, and both are deliberate:
 
-- **You cannot define a custom layout algorithm.** Layout has to be reproducible from the IR alone, or a static-site build and a GPU shell would disagree about where things are. Layout modes live in `LayoutOp` so every target implements them once.
-- **You cannot define a custom paint primitive.** Emit `PaintOp` values instead.
+- **You cannot define a custom layout algorithm.** Layout must be reproducible from the IR, or a Static site build and a GPU shell could place the same widget differently. Layout modes belong in `LayoutOp` so every target can implement them consistently.
+- **You cannot define a custom paint primitive.** Compose the available `PaintOp` values instead.
 
 ## Writing a lowered widget
 
@@ -137,21 +137,21 @@ Nodes are only ever added through `IrBuilder`. The context does not hand out mut
 
 ### `stable_key`
 
-`stable_key` feeds structural diffing. Return a content-derived hash so the runtime can tell an unchanged subtree from a changed one. Returning the default `0` is correct but forfeits an optimisation: the subtree is treated as changed on every rebuild.
+`stable_key` feeds structural diffing. Return a content-derived hash so the runtime can tell when the subtree changed. The default value, `0`, is correct, but it makes the runtime treat the subtree as changed on every rebuild.
 
 ### `widget_id`
 
-Override `widget_id` when the widget owns retained state that must survive rebuilds, such as focus, text selection, or IME composition. Returning a stable id keeps that state attached to the same logical widget across frames.
+Override `widget_id` when the widget owns retained state that must survive rebuilds, such as focus, text selection, or IME composition. A stable ID keeps that state attached to the same logical widget across frames.
 
 ## Semantics are not optional
 
-A widget that emits its own structure is also responsible for its own accessibility. Emit an `Op::Semantics` node with the right `Role` and state, or wrap your content in `SemanticsRegion` before lowering it.
+A widget that emits its own structure must also provide its accessibility semantics. Emit an `Op::Semantics` node with the right `Role` and state, or wrap the content in `SemanticsRegion` before lowering it.
 
-A widget with no semantics is invisible to screen readers on every target, and invisible to the semantic test harness, which means it cannot be covered by widget tests either.
+Without semantics, screen readers cannot use the widget and semantic tests cannot find it.
 
 ## Testing a lowered widget
 
-Assert against the IR the widget emits, not against pixels. The IR is what every target consumes, so an IR assertion covers all nine of them at once.
+Assert against the IR the widget emits, not just its pixels. Every target consumes that IR, so these tests cover the shared contract.
 
 Build the widget inside `build::enter` so component local state resolves, then lower it:
 

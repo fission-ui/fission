@@ -15,9 +15,9 @@ outcomes:
   - Reject expired sessions on the server
 ---
 
-Protect a Rust account area by hydrating the session, rendering pending and denied states, delaying private content and authorising every server action. The preview changes the session status locally. In the real SSR app, load and verify the session on the server, and do not build private content until access is confirmed.
+Check access on the server before rendering a protected page. Hiding an account link or redirecting in the browser does not protect account data. This tutorial adds pending, denied, and allowed states to an account route, then applies the same policy to server actions.
 
-Add a protected account route that handles session loading, an unauthenticated visitor, an authorised user and an expired session without flashing private data.
+The preview changes session status locally so you can inspect each screen. It is not authentication. In the SSR app, load and verify the session on the server, and do not construct private content until access is confirmed.
 
 Install the Fission CLI and scaffold the SSR project:
 
@@ -46,16 +46,14 @@ harbour-account/
 └── tests/                      # project-specific flow checks
 ```
 
-`fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs` and `src/app.rs`. Add the task modules in the tree as you build the feature. Keep data shared across routes in `GlobalState`, and keep retained interaction such as a disclosure or draft field in the owning `fission_component!`. Request database, filesystem, network and session work through a reducer effect, job or service; never run host work while a component view is being built.
+`fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs`, and `src/app.rs`. Add the feature modules as you build it. Keep data shared across routes in `GlobalState`; keep a view-only choice or draft in the component that owns it. Database, filesystem, network, and session work starts through a reducer effect, job, or service—not while the component view is being built.
 
-`preview/lib.rs` is a documentation harness. The page compiles each complete `src/app.rs` component into WebAssembly so you can use the same UI while reading. Its host results are deterministic preview states; the target-specific host work described in this tutorial runs in each target project code, not in the browser preview.
+`preview/lib.rs` is the documentation harness. It compiles the same component into WebAssembly so you can try the UI while reading. Its host results are deterministic preview states; they do not load a real session or run the server-side work described here.
 
 <!-- fission:step id="start-screen" -->
 ## Separate public pages from private content
 
-Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
-
-Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+Start with the public account entry point and sign-in screen. The public shell can explain what is protected, but it must not construct the account panel while the session is still being checked. Keep page copy in props and use the active theme through the component context.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -127,17 +125,16 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Separate public pages from private content: Confirm the initial screen names the task and its next action.
+Check that the first screen is public and that it does not reveal account details before a session is verified.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
 ## Preserve a safe return path through sign-in
 
-Render a pending state while the session is hydrated. If the server denies access, show a sign-in path; only construct the account panel after the current request has a verified session. Hiding a link in the browser is not an authorisation check.
+While session state is loading, render a pending screen. If the visitor is signed out, offer sign-in and keep a safe return path. Build the account panel only after the server confirms access. Hiding a link in the browser is not authorisation.
 
-The source below makes the main task interactive using retained component state and explicit controls.
-This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+The next version wires the route decision to the shared session state. Durable session and account data belong in `GlobalState`; only a temporary choice that belongs to this screen should live in retained component state.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
@@ -216,17 +213,16 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Preserve a safe return path through sign-in: Use the preview control and check that the result matches the action.
+Try the signed-out state. The sign-in path should preserve only the safe, origin-free destination needed to return to the requested page; it must not turn an arbitrary URL into a redirect.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
 ## Reject expired sessions on the server
 
-Enforce the same policy in every server action that reads or changes private data. Test a fresh browser, a valid session, a revoked session and a request that calls the action directly without opening the account page.
+The route is not the authorization boundary. Every server action that reads or changes private data must enforce the same policy. Test a fresh browser, a valid session, a revoked session, and a direct action request that never opens the account page.
 
-Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
-The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+Keep I/O out of component conversion. Reducers make the state transition and queue asynchronous work; an effect, capability, job, or service performs it without blocking the UI. The preview below simulates a failed host result so you can inspect the message and recovery path. It does not authenticate a user or access a database, network, or filesystem.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
@@ -305,7 +301,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Reject expired sessions on the server: Trigger the error preview and confirm a recovery action remains available.
+Trigger the expired-session preview. The server action must reject the request, private content must remain unavailable, and a recovery action should still be visible.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -321,7 +317,7 @@ fission build --target ssr --project-dir .
 fission test --target ssr --project-dir .
 ```
 
-Expected result: The app preserves an allowed return path and checks authorization on every protected request.
+The route should preserve a safe return path, keep private content out of pending and denied trees, and check authorization again on every protected server request.
 
 ## Related Fission reference
 

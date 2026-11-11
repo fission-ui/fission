@@ -1,7 +1,7 @@
 ---
 layout: goal
 title: Build a Rust website with accessible dropdown navigation
-description: Create a responsive Rust website with a keyboard-accessible dropdown menu, crawlable page routes and a production-ready static build using Fission.
+description: Build a responsive Rust website with an accessible dropdown menu, direct page routes, and a static build using Fission.
 goal: Publish a responsive Rust website with an accessible Products menu
 path: /tutorials/build-a-rust-website-with-dropdown-navigation/
 order: 1
@@ -15,9 +15,9 @@ outcomes:
   - Handle missing destinations and test keyboard use
 ---
 
-Create a responsive Rust website with a keyboard-accessible dropdown menu, crawlable page routes and a production-ready static build using Fission. The menu interaction runs in the browser preview. The finished site renders its pages as static HTML and keeps pointer, keyboard and touch navigation accessible.
+A dropdown that only works with a mouse is not enough for site navigation. It needs real page routes, keyboard support and links that still work when scripting is unavailable. We will build the Products menu as part of a static Rust site, then check the pointer, keyboard and touch paths in the preview.
 
-The finished Harbour site has a Products menu with direct destinations for desktop and mobile products. A visitor can open the menu with a pointer or keyboard, select a destination and still follow ordinary page links when the menu is closed.
+Harbour's Products menu links to the overview, desktop apps and mobile apps. The Products label remains a normal link when the menu is closed, so a visitor does not have to discover a special interaction just to reach the overview.
 
 Install the Fission CLI and scaffold the Static site project:
 
@@ -61,11 +61,11 @@ harbour-site/
 │   └── site/README.md
 ```
 
-The website template creates a Static site project with a static entrypoint in `src/main.rs`, route registration and the Web shell in `src/lib.rs`, and reusable page, navigation and footer components in their own modules. Add the task files shown in the tree as you work. The preview's `src/app.rs` is a separate, compiled browser harness for the interactive lesson; the production website uses the template modules and `fission.toml`. Do not copy `preview/lib.rs` into the website.
+The website template gives you a Static site entrypoint in `src/main.rs`, route registration and the Web shell in `src/lib.rs`, plus separate modules for the page, navigation and footer. Add the task files as you reach them. The preview's `src/app.rs` is a separate browser app used to try the lesson; the actual website uses the template modules and `fission.toml`. Keep those two pieces separate—`preview/lib.rs` is not the website entrypoint.
 
 ### Configure the site routes and Products dropdown
 
-The Static site template renders `[[site.nav]]` as the shared Fission navigation component. A parent keeps its own useful link, while the nested links expose destinations to pointer and keyboard users.
+The Static site template turns `[[site.nav]]` into Fission's shared navigation component. Give the parent item its own useful destination, then add the nested product links beneath it. That way pointer and keyboard users can reach the same pages.
 
 Merge the following fields into the template’s existing `[site]` table, then add the route and navigation entries below it. Edit the existing table instead of adding a second `[site]` table:
 
@@ -97,14 +97,12 @@ title = "Mobile apps"
 href = "/products/mobile/"
 ```
 
-Create `content/products/index.mdx`, `desktop.mdx` and `mobile.mdx`. Give each page its own title and search description. The template's nested navigation is already a Fission component; leave its interaction and semantics there instead of adding a second menu state to the page. Test that Products remains a normal destination when closed, that its children open with keyboard and pointer input, and that each direct URL works after refresh.
+Create `content/products/index.mdx`, `desktop.mdx` and `mobile.mdx`. Give each page a distinct title and search description. Fission's navigation component already owns the menu interaction and semantics, so do not add another copy of that state to the page. Check that Products still works as a link, the nested items open from both keyboard and pointer input, and every direct URL loads after a refresh.
 
 <!-- fission:step id="start-screen" -->
 ## Render product links in the site header
 
-Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
-
-Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+This first preview is a task card, not the site header. Its copy comes through props and its spacing uses theme tokens. Next, put Products and its destinations in the header before adding open and close behaviour.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -185,10 +183,9 @@ Render product links in the site header: Confirm the initial screen names the ta
 <!-- fission:step id="main-flow" -->
 ## Add an open and close state
 
-Give the Products button retained open and closed state inside its component. Use a real Fission Button so focus, Enter and Space work through the same input path as pointer activation. Keep the parent Products link pointed at a useful overview page; this avoids making the menu toggle the only way to reach product content.
+The Products menu needs one piece of retained state: whether it is open. Keep that state in the navigation component because no other screen needs it. Use a Fission `Button` for the toggle so focus, Enter, Space and pointer activation all use the same control.
 
-The source below makes the main task interactive using retained component state and explicit controls.
-This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+Keep Products itself linked to the overview page. If the menu is closed, people can still get where they need to go. The preview below shows the menu state changing and lets you select a destination. This is view-only state; values shared across routes belong in `GlobalState` and change through reducers.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
@@ -281,10 +278,9 @@ Add an open and close state: Use the preview control and check that the result m
 <!-- fission:step id="edge-state" -->
 ## Handle missing destinations and test keyboard use
 
-Create the nested Markdown routes and verify the whole route set before building. Every page should have a unique title, a useful search description, a descriptive first heading and a link to a next action. The compact layout stacks the menu entries so they do not overflow a phone-sized viewport.
+Add the three Markdown routes and check that each one has a distinct title, a useful search description, a clear first heading and a next step. The compact layout stacks the menu entries so they still fit on a phone.
 
-Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
-The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+The preview also has a control that simulates a missing destination. It shows the error and recovery path, but it does not make a network, database or file-system request. In the real app, keep I/O out of component conversion: reducers make the state transition, then an effect, capability, job or service performs asynchronous work without blocking the UI.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
@@ -376,7 +372,7 @@ Handle missing destinations and test keyboard use: Trigger the error preview and
 
 ## Run, test and build the finished project
 
-From the project root, run the checks in order:
+Run these checks from the project root:
 
 ```sh
 cargo test
@@ -387,11 +383,11 @@ fission site serve --project-dir . --host 127.0.0.1 --port 8123
 fission test --target static-site --project-dir .
 ```
 
-Expected result: The menu opens and closes, destination selection updates the view, and each linked page exists in the static build.
+The menu should open and close, choosing a destination should update the preview, and the static build should contain every linked page.
 
 ## Related Fission reference
 
-Use these precise reference pages after the working path above is clear:
+Once the working path is clear, use these reference pages for the detailed contracts:
 
 - [Static Sites](/docs/guides/static-sites/)
 - [Static Site Content Routes](/docs/guides/static-site-content-routes/)

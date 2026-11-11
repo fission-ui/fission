@@ -16,17 +16,16 @@ show_adjacent_posts: true
 
 # Fission 0.11.0: One text-input contract
 
-Fission 0.11.0 replaces `TextInput::on_change` with one universal
-`TextInput::on_input` contract. The action an application binds is never
-rewritten by the text runtime. The complete edited text, widget ID, caret, and
-selection anchor arrive separately through `ReducerContext::input`.
+Fission 0.11.0 replaces `TextInput::on_change` with `TextInput::on_input`.
+The bound action stays yours: the text runtime no longer rewrites its payload.
+Instead, the reducer reads the complete edit—including the text, widget ID,
+caret, and selection anchor—from `ReducerContext::input`.
 
-This is deliberately a breaking release. The old API was convenient for
-`SetText(String)` but made the action payload mean two incompatible things: the
-application's stable context before dispatch and the current text after
-dispatch. That failed for dynamic fields whose reducer needed both a field ID
-and its new value. One contract is simpler to reason about and works for simple
-fields and dynamic forms alike.
+This is a breaking change. The old API worked for a simple `SetText(String)`,
+but it used the action payload for two different things: first the context the
+app bound, then the edited text. That falls apart for a dynamic form where the
+reducer needs both the field ID and the new value. With `on_input`, the action
+keeps its meaning and the edit arrives as separate runtime input.
 
 ## Migrate `on_change` to `on_input`
 
@@ -66,27 +65,25 @@ fn update_integration_field(
 inspect application JSON, replace the last string in a tuple, or synthesize a
 different action at dispatch time.
 
-`UpdateTextInput` is runtime event data and no longer implements `Action`.
-Applications bind their own unit or contextual action to `on_input` and read
-the edit from the reducer context; they do not dispatch `UpdateTextInput`
-directly.
+`UpdateTextInput` is runtime event data, not an `Action`. Bind your own unit or
+contextual action to `on_input` and read the edit from the reducer context;
+there is no need to dispatch `UpdateTextInput` yourself.
 
-A field that only updates one string uses the same contract. Bind a unit action
-and read `change.new_text`; there is no legacy payload-replacement mode to opt
-into.
+A field that updates a single string uses the same contract: bind a unit action
+and read `change.new_text`. There is no separate legacy mode.
 
-Declarative binding also now installs one reducer handler per effective action
-ID during a build. Repeated fields can bind the same action type with different
-payloads without dispatching the same reducer once per mounted field. Put
-field-specific context in the action value, as above. Explicit `register(...)`
-continues to run every registered handler and is the API for intentional
-multicast dispatch.
+Declarative bindings install one reducer handler for each effective action ID
+during a build. That means repeated fields can use the same action type with
+different payloads without running the reducer once for every mounted field.
+Put the field-specific context in the action value, as above. If you do want to
+run every registered handler, use `register(...)` for intentional multicast
+dispatch.
 
 ## Numeric input is explicit too
 
-`NumberInput::on_input` forwards the same text-edit event. Parse in the reducer
-so the application owns product decisions around empty input, a leading minus
-sign, decimal separators, invalid text, clamping, and formatting:
+`NumberInput::on_input` sends the same text-edit event. Parse it in your reducer
+so the app decides what empty input, a minus sign, decimal separators, invalid
+text, clamping, and formatting should mean:
 
 ```rust
 #[fission_reducer(SetQuantity)]
@@ -100,32 +97,31 @@ fn set_quantity(state: &mut OrderState, ctx: &mut ReducerContext<OrderState>) {
 }
 ```
 
-`Combobox` and `Editable` also rename their typed-edit hook to `on_input` and
-forward this contract from their inner `TextInput`.
+`Combobox` and `Editable` also use `on_input` for typed edits, forwarding the
+event from their inner `TextInput`.
 
 ## One event across interactive shells
 
-Core keyboard and input-method edits, winit accessibility value changes, native
-desktop and mobile input, Web input, and interactive SSR browser islands all
-dispatch `ActionInput::TextChanged(UpdateTextInput)`. Core IR identifies the
-binding with `ActionTrigger::TextChanged`. Browser islands retain the runtime
-and local widget state across edits rather than reconstructing the action from
-DOM payloads.
+Keyboard and input-method edits, winit accessibility changes, native desktop
+and mobile input, Web input, and interactive SSR browser islands all dispatch
+`ActionInput::TextChanged(UpdateTextInput)`. Core IR identifies the binding
+with `ActionTrigger::TextChanged`. Browser islands keep the runtime and local
+widget state between edits instead of rebuilding an action from DOM data.
 
-Static site output and ordinary SSR HTML are intentionally inert: they render
-native controls but do not execute per-keystroke Rust reducers. Use an
-interactive browser island when an SSR page needs this reducer contract in the
-browser. Browser islands are not yet a general client-side effects runtime;
-input reducers are supported, while queued effects and callbacks are rejected.
+Static site output and ordinary SSR HTML are intentionally inert. They render
+controls but do not run Rust reducers for each keystroke. If an SSR page needs
+this input behaviour in the browser, use an interactive island. Islands do not
+yet run general client-side effects: input reducers work, while queued effects
+and callbacks are rejected.
 
-Reducer action-deserialization failures now emit sanitized diagnostics and
-return errors instead of looking like silently lost input. Diagnostics identify
-the action and target without logging serialized form payloads or raw errors
-that may contain credentials.
+If Fission cannot deserialize a reducer action, it now returns an error and
+emits a sanitised diagnostic instead of silently dropping the input. The
+diagnostic names the action and target without logging form payloads or raw
+errors that could contain credentials.
 
 ## Breaking surface
 
-Applications must make these migrations:
+Update your app to:
 
 - rename `TextInput::on_change` to `TextInput::on_input`;
 - replace direct `UpdateTextInput` action dispatch with an application action
@@ -148,5 +144,5 @@ Update the Fission dependency used by the application:
 fission = { version = "0.11.0", default-features = false, features = ["desktop"] }
 ```
 
-The clean break is the reason this release is `0.11.0` rather than a patch to
-the previous payload-replacement behavior.
+This is a clean break, so the version is `0.11.0` rather than a patch to the
+payload-replacement behaviour.

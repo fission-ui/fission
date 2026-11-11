@@ -16,13 +16,13 @@ outcomes:
   - Load saved records asynchronously and explain database failures without losing the draft
 ---
 
-A useful reading list answers everyday questions: what did I mean to read next, where did I stop, and which books have I finished? We will build Harbour Reads, a small library for a book club that tracks those details without turning the screen into a spreadsheet. Each entry stores its title, author, total pages, and pages read. From that record the app derives “Want to read”, “Reading”, or “Finished”.
+The reading list needs to answer three simple questions: what should I read next, where did I stop, and what have I finished? We’ll build Harbour Reads for a small book club. Each entry stores the title, author, total pages, and pages read. The app derives “Want to read”, “Reading”, or “Finished” from that record, so a separate status can’t get out of sync.
 
-The screen begins with four sample books so you can see a believable library before entering anything. You will add a book, search and filter the list, record progress, and remove an entry. Then we will move each change behind Fission’s asynchronous SQLite effects. The interactive article preview uses in-memory records so you can exercise the workflow in a browser; the runnable Web app uses SQLite reducers shown in the final step, with the same fields and actions.
+The screen starts with four sample books. You can add a book, search and filter, record progress, and remove an entry. Then we’ll move those changes behind Fission’s asynchronous SQLite effects. The article preview uses in-memory records so you can try the workflow in a browser; the runnable Web app uses the SQLite reducers in the final step, with the same fields and actions.
 
 ## Create the Web project and enable storage
 
-Scaffold the Web target and ask Fission to install its storage capability. The capability selects SQLite for Web, adds the worker and browser assets, and configures the headers used by the local server.
+Scaffold the Web target and add Fission’s storage capability. It selects SQLite for Web, installs the worker and browser assets, and configures the local server headers the browser requires.
 
 <Tabs>
 <TabItem label="Commands">
@@ -54,14 +54,14 @@ harbour-reads/
 </TabItem>
 </Tabs>
 
-In the article preview, the library starts with sample records so the screen is immediately useful. Storage work in your project belongs in reducers and effects: a reducer validates the user’s request and queues the SQL operation; a later reducer handles its result.
+The article preview starts with sample records. In your app, a reducer validates each storage request and queues the SQL effect; a later reducer handles the result. The UI never waits for SQLite inside a render or reducer.
 
 <!-- fission:step id="library" -->
 ## Shape the library around a reader’s next decision
 
-Start with the book record and the information a reader needs to choose what to read next. A page count makes progress measurable, while keeping title and author together helps distinguish books with similar names. “Finished” is derived from the page counters; there is no separate status value that could disagree with them.
+Start with the book record and the details that help a reader choose what to read next. Page counts make progress measurable, and the author helps distinguish books with similar titles. Derive “Finished” from the page counters; don’t keep another status field that can disagree with them.
 
-The migration below also protects the data if another screen or job writes to the same table. It rejects blank names, zero-page records, negative progress, and progress beyond the final page. The title index gives larger libraries a useful starting point for title lookup.
+The migration enforces the same rules if another screen or job writes to the table: no blank names, zero-page books, negative progress, or progress beyond the last page. The title index gives a larger library a useful starting point for title searches.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -214,11 +214,11 @@ Find “The Left Hand of Darkness” and compare its current page count with its
 <!-- fission:step id="daily-workflow" -->
 ## Add books, search the library, and log a reading session
 
-A create form needs enough information to make a useful record. The title and author stay in app state while a book is being added; the page-count field is parsed as a positive integer before the reducer accepts it. An invalid value leaves the library unchanged and explains which input needs attention.
+The create form needs enough information to make a useful record. Keep title and author while the book is being added, and parse the page count as a positive integer before accepting it. An invalid value leaves the library alone and explains what to fix.
 
-Search and status filters are local to the dashboard because they only change what this screen shows. The library itself lives in app state. Every row uses a stable book ID, so adding or removing a record does not make Fission treat another book as the same widget. The progress action records a reading session and caps the count at the last page. A finished book cannot advance beyond its total. Removing an entry changes the list and confirms which title was removed.
+Search and status filters are local to the dashboard; they only change what this screen shows. The library itself lives in app state. Rows use stable book IDs, so adding or removing a book won’t make Fission treat a different one as the same widget. The progress action records a reading session and stops at the last page. Removing an entry updates the list and confirms which title was removed.
 
-This step uses in-memory reducers so the article preview responds to each action. In the runnable app, keep these action names and replace their in-memory updates with the parameterized SQL effects in the next step.
+This step uses in-memory reducers so the preview responds to each action. In the runnable app, keep the same actions and replace their in-memory updates with the parameterized SQL effects in the next step.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -537,9 +537,9 @@ Add “A Wizard of Earthsea” by Ursula K. Le Guin and enter its page count. Se
 <!-- fission:step id="persist-and-recover" -->
 ## Persist each change and recover from storage errors
 
-A database call can outlast a render, so reducers must not wait for it. Validate the submitted values, mark the save as pending, and queue an insert effect. A later reducer receives success or failure. Only a successful insert clears the draft and reloads the library; if SQLite reports an error, the app stops the loading state, keeps the reader’s draft, and displays the provider’s message.
+SQLite can take longer than one render, so reducers must not wait for it. Validate the values, mark the save pending, and queue an insert effect. A later reducer receives success or failure. Only clear the draft and reload the library after a successful insert; if SQLite fails, stop loading, keep the draft, and show the provider’s message.
 
-The code tabs show the migration, read, progress, delete, and insert operations. Bind every value as a parameter so a title such as <em>The Book: Volume 2</em> remains data rather than becoming part of the SQL statement. Progress and deletion use the database ID because titles can repeat or change.
+The code tabs show migration, read, progress, delete, and insert operations. Bind every value as a parameter so a title such as <em>The Book: Volume 2</em> stays data and never becomes part of the SQL statement. Update progress and delete by database ID; titles can repeat or change.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -1082,7 +1082,7 @@ cargo test
 </TabItem>
 </Tabs>
 
-In the running app, create an entry and record a few pages before restarting. The values should still be there because the database, not the widget tree, owns the saved library.
+Create a book and record a few pages, then restart the app. The values should still be there: SQLite owns the saved library, not the widget tree.
 
 ## Continue learning
 

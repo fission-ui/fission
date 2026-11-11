@@ -5,7 +5,7 @@ description: The reference contract for Env, InputEvent, clipboard support, and 
 
 # Environment, input, and input method editor
 
-This page covers the public contracts that connect the shared runtime to user input and host-provided context.
+`Env` and `InputEvent` are the public boundary between the shared runtime, user input, and host-provided context.
 
 The two main ideas are simple.
 
@@ -127,7 +127,7 @@ That separation matters because clipboard and input method editor behavior are p
 
 ## Related runtime-owned text state
 
-This page is about the public boundary types, but it helps to remember that the runtime also owns text-edit state internally. That includes caret and selection state, undo history, preedit state, and other editing affordances.
+The runtime also owns editing details such as the caret, selection, undo history, and IME pre-edit state. Keep those details with the text input rather than copying them into application state.
 
 That ownership is why built-in `TextInput` and more advanced text surfaces can share the same underlying model instead of each inventing their own text pipeline.
 

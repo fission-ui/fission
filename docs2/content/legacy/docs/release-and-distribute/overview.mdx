@@ -5,7 +5,7 @@ description: Publish Fission packages through release content, provider readines
 
 # Release and distribute
 
-Release begins after packaging. At this stage you already have an artifact manifest. The release workflow prepares metadata, checks provider requirements, uploads or submits the artifact, and records what happened.
+Once `fission package` has written an artifact manifest, you can release that build. Validate the release content, check the provider requirements, upload or submit the manifest-backed artifact, and keep the receipt so you can see exactly what happened.
 
 ## The release loop
 
@@ -16,7 +16,7 @@ Release begins after packaging. At this stage you already have an artifact manif
 | Distribute | `fission distribute ...` or `fission publish ...` | The manifest-backed artifact is uploaded or submitted to the selected provider. |
 | Keep the receipt | `target/fission/distribution/...` | The team can later prove which asset, hash, provider id, URL, or rollout state was produced. |
 
-Release commands should fail with diagnosable errors. Missing credentials, expired auth, invalid tracks, absent screenshots, and provider rejections should be safe to fix and retry.
+If credentials are missing or expired, a track is invalid, screenshots are absent, or the provider rejects the upload, fix that issue and retry. The command output and receipt should make clear what failed.
 
 ## Choose a local or CI release path
 

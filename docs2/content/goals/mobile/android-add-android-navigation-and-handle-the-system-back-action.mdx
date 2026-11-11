@@ -16,9 +16,9 @@ outcomes:
   - Update a work order from its detail screen with a reducer
 ---
 
-Riverside Property Services handles repairs across several apartment buildings. A coordinator starts the day with a queue of open jobs, opens one work order to see its location and reported problem, and returns to the same queue when the repair is complete. On Android, the system Back action should return from that detail screen just like the app’s own navigation.
+Riverside Property Services handles repairs across several apartment buildings. The coordinator needs to open a job, check where the problem is, mark it resolved, and get back to the queue. Android’s system Back action should do the same thing as the app’s own Back button. If those two routes behave differently, navigation will feel broken.
 
-We will build that flow around three work orders. Fission’s `Router` will select the queue or a detail screen from the current path. The detail route will read its work-order ID from `RouteParams`, and a reducer will mark the repair complete. A route handler keeps app state in sync when Android changes the path through system Back.
+We’ll build that flow around three work orders. Fission’s `Router` selects the queue or a detail screen from the current path. `RouteParams` supplies the work-order ID, and a reducer marks the repair complete. The route handler also updates app state when Android changes the path through system Back. It is one route state shared by the UI and the shell, not a second navigation model just for Android.
 
 ## Create the Android project
 
@@ -48,14 +48,14 @@ riverside-work-orders/
 </TabItem>
 </Tabs>
 
-The queue, route state, and screens all belong in shared Rust code under `src/`. The generated Android host starts the app and packages it for the device; it does not need its own copy of the work-order rules.
+Keep the queue, route state, and screens in shared Rust code under `src/`. Fission’s generated Android host starts and packages the app; it shouldn’t contain a second copy of the work-order rules.
 
 <!-- fission:step id="start-screen" -->
 ## Build the maintenance queue
 
-Start with the information a coordinator needs before opening a job: its short ID, location, priority, current status, and reported problem. We will use sample records in memory so the first screen is ready to inspect as soon as the app opens. Later, a service or database can replace this sample source without changing the way the queue lays out each row.
+The coordinator needs to recognise a job before opening it, so each row shows its ID, location, priority, status, and reported problem. We’ll keep three records in memory for this tutorial. The important part is that the queue layout doesn’t own where those records come from; a service or database can replace them later.
 
-`WorkOrderCard` presents one repair request. `WorkOrderList` counts the open and urgent jobs, then gives each record a stable key so Fission can keep rows associated with the same work order when the list changes.
+`WorkOrderCard` presents one repair request. `WorkOrderList` counts the open and urgent jobs and keys each row by its work-order ID. That stable identity matters once the list changes: a row should remain attached to the same job, not whichever item happens to move into its old position.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -283,9 +283,9 @@ Find work order `WO-4201`. The card should identify Riverside House’s basement
 <!-- fission:step id="route-to-work-order" -->
 ## Open a work order and return with Android Back
 
-Now give each row an action. The queue and detail screen are two destinations in one app, so their current path belongs in `WorkOrderState`. `Router` compares that path with the route table and builds only the matching screen. A route such as `/work-orders/4201` contains the record ID; the detail route reads that value from `RouteParams` and checks it against the records before displaying anything.
+Now make each row open its work order. The queue and detail screen are two routes in the same app, so `WorkOrderState` keeps the current path and `Router` builds the matching screen. `/work-orders/4201` carries the record ID. The detail route reads it from `RouteParams` and checks that the record exists before showing its details.
 
-When a coordinator marks a repair resolved, a reducer changes the shared work-order record. The queue count and detail screen then read the same updated state. Opening a record pushes a route through `ctx.effects.navigate`. Android’s system Back changes the shell route, and `with_route_handler` copies that change into `current_path`, so the Router returns to the queue.
+Marking a repair resolved goes through a reducer, so the queue and detail screen both read the same updated record. Opening a job pushes its route with `ctx.effects.navigate`. When Android Back changes the shell route, `with_route_handler` copies the new path into `current_path`; `Router` then builds the queue again. That is the key connection between native Back and the app’s own route state.
 
 Replace `src/app.rs` with this version. The queue looks familiar, but its cards can now open typed detail routes, and the detail screen can update the repair status.
 
@@ -718,9 +718,9 @@ Open `WO-4201`. Confirm the detail screen includes the boiler location, Mina’s
 <!-- fission:step id="run-on-android" -->
 ## Connect the route handler to the Android shell
 
-The component code now knows how to render each route. The shell still needs a handler for route changes that originate outside a button, such as pressing Android Back. Register `on_shell_route_changed` when you create the app. It receives the new path from the shell and updates `WorkOrderState`; the next render then gives that path to `Router`.
+The components can render both routes now. There is one piece left: the app must hear about route changes that didn’t come from one of its buttons. Register `on_shell_route_changed` when creating the app. Android calls it after system Back, and it copies the new path into `WorkOrderState` so the next render gives `Router` the right route.
 
-Keep this setup in `src/lib.rs`. The generated `src/main.rs` and `platforms/android/` files can stay as Fission created them.
+Put this setup in `src/lib.rs`. Leave the generated `src/main.rs` and `platforms/android/` files alone; they already handle starting and packaging the app.
 
 <Tabs>
 <TabItem label="src/lib.rs">
@@ -798,9 +798,9 @@ fission run --target android --device <device-id> --project-dir .
 </TabItem>
 </Tabs>
 
-Run the Rust tests first. They check that resolving an existing order updates the shared record and that an unknown ID leaves the queue unchanged. In the emulator, open WO-4201, mark the repair resolved, then press Android Back. The queue should show the updated status and count. Open another order and use the visible **Back to work orders** control; it uses the same navigation history as the system action.
+Run the Rust tests first. They check that resolving a real order updates shared state and that an unknown ID leaves the queue alone. Then open WO-4201 in the emulator, mark it resolved, and press Android Back. You should land on the queue with the new status and count. Open another order and use **Back to work orders**; it follows the same route history.
 
-The dynamic route also validates its parameter before rendering a record. If a user opens `/work-orders/9999`, the app explains that the work order was not found instead of displaying unrelated data or failing during conversion. See the [Router reference](/reference/widgets/router/) and [RouteParams reference](/reference/widgets/route-params/) for the matching rules, then follow the [Android device guide](/blog/run-a-fission-app-on-a-physical-android-phone/) to install the built app on a phone.
+The route also handles a bad ID. Open `/work-orders/9999` and the app should say the work order wasn’t found, rather than showing the wrong record or failing during conversion. The [Router reference](/reference/widgets/router/) and [RouteParams reference](/reference/widgets/route-params/) cover the matching rules. To try this on a phone, follow the [Android device guide](/blog/run-a-fission-app-on-a-physical-android-phone/).
 <!-- /fission:step -->
 
 ## Continue learning

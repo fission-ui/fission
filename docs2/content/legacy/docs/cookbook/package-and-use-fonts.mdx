@@ -32,3 +32,12 @@ DesktopApp::<AppState, _>::new(App)
 ```
 
 Use the generated typography tokens inside widgets. Avoid assuming a platform font exists.
+
+For Static site and SSR output, Fission does not add packaged fonts to CSS by default. Set `[web].font_delivery` in `fission.toml` to `"external"` for cacheable font files or `"inline"` to embed them as data URLs:
+
+```toml
+[web]
+font_delivery = "external"
+```
+
+`"none"` is the default. This setting applies to Static site and SSR documents, not the canvas-rendered Web SPA. See the [`[web]` configuration](/reference/config/fission-toml/#web) for details.

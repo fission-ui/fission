@@ -30,3 +30,5 @@ Grid {
 ```
 
 This is usually better than manually calculating column counts from `viewport_size()`.
+
+If a card owns retained state, give each product a stable `WidgetId` derived from its product ID. Do not use the card's position in the collection; reordering the products should not move one card's state to another.

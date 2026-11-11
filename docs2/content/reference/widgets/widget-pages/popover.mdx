@@ -5,11 +5,14 @@ slug: /widgets/popover
 ---
 # Popover
 
-`Popover` is an anchored overlay widget. It renders a trigger in the normal layout tree and, when open, renders popup content in the flyout portal layer next to that trigger.
+`Popover` keeps its trigger in the normal layout and places its open content
+next to it in the flyout portal layer.
 
-Use it for contextual controls such as filter menus, formatting pickers, account menus, or compact inspectors. A popover is larger and more interactive than a tooltip, but less disruptive than a modal dialog.
+Use it for filter menus, formatting pickers, account menus, or compact
+inspectors. It has more room than a tooltip but interrupts less than a modal.
 
-The important state rule is that the popover does not decide when it is open. Your app state owns `is_open`. The widget's job is to keep the trigger in the normal layout flow, give it a stable anchor id, and position the popup content relative to that anchor when the state says it should be visible.
+Your app owns `is_open`. The widget keeps the trigger in layout, uses its
+stable anchor ID, and positions the popup when state says it is open.
 
 ## Example
 
@@ -71,15 +74,11 @@ The trigger owns opening and closing the popover. Use a button, pressable, or an
 
 ## Production checklist
 
-For `Popover`, review the fields that change behavior before treating the widget as finished: `id`, `is_open`, `on_close`, `trigger`, `content`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
-
 - Bind the trigger action and `on_close` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
 - When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
 - Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
 - Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
 - Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
-
-If a screen starts repeating the same `Popover` setup, extract a named component around this widget. That keeps the reference API small while making product code easier to read and safer for generated code to copy.
 
 ## Related
 

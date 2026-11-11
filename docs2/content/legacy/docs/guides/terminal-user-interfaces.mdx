@@ -24,20 +24,6 @@ Use the Fission facade crate and enable the terminal shell feature for tools tha
 fission = { version = "0.15.1", features = ["terminal-shell"] }
 ```
 
-## What you should have working
-
-After this guide, you should be able to explain where `Terminal user interfaces` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
-
-## Common mistakes to check
-
-| Symptom | What to check first |
-| --- | --- |
-| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
-| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
-| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
-| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
-| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
-
 The public API is available through the facade, so app code should use `fission::terminal::TerminalApp` or import from the prelude when appropriate. You should not depend directly on the internal shell crate unless you are working on Fission itself.
 
 ## Build a terminal app from normal widgets

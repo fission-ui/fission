@@ -6,7 +6,9 @@ description: Recreate the core shape of the Fission documentation site with cont
 
 # Build a documentation site
 
-This cookbook builds a small site with the same architecture as the Fission documentation: a custom home page, Markdown-driven docs, an explicit sidebar, static assets, search, code highlighting, sitemap, robots file, and a generated static output directory.
+Build a small documentation site with a custom home page, Markdown pages, a
+sidebar, search, code highlighting, and generated sitemap and robots files. The
+same pieces are used by the Fission documentation site.
 
 ## 1. Create the project
 
@@ -15,18 +17,6 @@ fission init docs-site
 cd docs-site
 fission add-target site --project-dir .
 ```
-
-## Finished state and checks
-
-By the end of `Build a documentation site`, you should have a runnable change, not just a set of snippets. Run the command shown in the page, exercise the feature once manually, and add or update the smallest test that protects the behavior.
-
-| Check | Expected result |
-| --- | --- |
-| Build | `cargo check` or the relevant `fission` command finishes without target-specific configuration errors. |
-| Behavior | The screen, package, server route, or test flow described by the recipe is visible and responds to input. |
-| Failure path | At least one denied, missing, invalid, or empty case renders a useful message instead of silently doing nothing. |
-| Next link | The reference page linked from the recipe explains the exact fields, commands, or types used here. |
-
 
 Set the site fields in [`fission.toml`](/reference/config/fission-toml/):
 
@@ -165,4 +155,7 @@ fission package --project-dir . --target static-site --format static --release
 fission publish --project-dir . --provider github-pages --artifact target/fission/release/static-site/static/artifact-manifest.json --site production
 ```
 
-That is the same lifecycle used by the Fission documentation site: source-controlled content and widgets in the project, generated static output in the build, and provider upload from a package manifest.
+Open the generated pages under `dist/site/` and check that the home page, docs
+routes, search index, sitemap, and robots file are present. The package manifest
+is the input to the publish command; it records the artifact that command will
+upload.

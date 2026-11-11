@@ -5,9 +5,7 @@ description: The reference contract for runtime-owned animation, overlay composi
 
 # Animations, portals, and media
 
-Animations, portals, and media are grouped together because they all involve runtime-owned behavior that is declared during component conversion.
-
-That does not make them hidden. It means the widget tree describes what should exist, then the runtime tracks the transient state needed to make it behave across frames.
+Animations, portals, and media widgets declare runtime-managed behavior during component conversion. The widget tree describes what should exist; the runtime tracks the transient state needed to keep it working across frames.
 
 ## Animation contract
 

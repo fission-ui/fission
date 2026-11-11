@@ -5,7 +5,7 @@ description: Prepare release notes, screenshots, metadata, testers, review files
 
 # Release content
 
-Release content is the human-facing and provider-facing material that travels with a package: notes, screenshots, store descriptions, privacy answers, review instructions, tester groups, rollout plans, and preview media.
+Your release includes more than the package. Providers may also need release notes, screenshots, store descriptions, privacy answers, review instructions, tester groups, rollout plans, and preview media.
 
 Keep [`fission.toml`](/reference/config/fission-toml/) as the root reference, but keep long content in files.
 
@@ -131,8 +131,8 @@ fission release-content capture --project-dir . --target android --set play-stor
 fission release-content render --project-dir . --provider play-store --json
 ```
 
-Screenshots should be reviewed visually before publishing. Automated capture is
-there to make the release reproducible, not to replace product judgment.
+Review screenshots before publishing. Automated capture makes the release
+reproducible; it does not replace product judgment.
 
 ## 4. Keep provider metadata reviewable
 

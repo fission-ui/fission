@@ -23,7 +23,7 @@ This recipe answers those questions with one concrete example: a **Compose messa
 
 We want a screen with a button called **Compose**. Pressing it should open a modal dialog. The dialog should contain text fields. As the user types, the current draft should live in app state. Pressing **Apply** should use the current state and close the modal.
 
-That may sound ordinary, but this is exactly where explicit state pays off. Instead of scattering modal logic across widget-local variables, you can describe the whole flow in one predictable model.
+The useful part is making each piece of the flow explicit. Keep the open state, draft text, input actions, and submit action in the same app model so the screen has one clear source of truth.
 
 ## Step 1: keep modal state and text state in `GlobalState`
 
@@ -75,7 +75,7 @@ The draft actions name user editing without carrying transient text.
 `SetShowComposeModal` controls visibility. `ApplyCompose` represents the user
 choosing to commit the modal.
 
-This is a good beginner pattern because it makes the reducer story very obvious.
+The named actions make it clear which state transition each control triggers.
 
 ## Step 3: write plain reducers for the form fields
 
@@ -182,7 +182,7 @@ fission_component!
 ```
 The open and close actions are explicit, which means the app can always answer the question "why is the dialog open right now?"
 
-That answer comes from state, not from a hidden overlay manager that only the widget knows about.
+The answer comes from state, so the rest of the app and your tests can see it too.
 
 ## Step 5: wire text input fields back into state
 
@@ -339,17 +339,10 @@ Do not forget dismiss behavior. Users should always have a clear way to cancel o
 
 Do not treat accessibility as a later patch. Focus behavior and readable modal titles are part of getting the flow right.
 
-## Where to go next
+## Check the flow
 
-If this recipe made the text-update loop click for you, the next useful step is [Build a counter](/docs/cookbook/build-a-counter) for the smallest possible version of the same architecture, or [Write a live interface test](/docs/cookbook/write-a-live-ui-test) to validate that the modal stays reachable and dismisses correctly on a real host.
-
-## Finished state and checks
-
-By the end of `Build a modal text flow`, you should have a runnable change, not just a set of snippets. Run the command shown in the page, exercise the feature once manually, and add or update the smallest test that protects the behavior.
-
-| Check | Expected result |
-| --- | --- |
-| Build | `cargo check` or the relevant `fission` command finishes without target-specific configuration errors. |
-| Behavior | The screen, package, server route, or test flow described by the recipe is visible and responds to input. |
-| Failure path | At least one denied, missing, invalid, or empty case renders a useful message instead of silently doing nothing. |
-| Next link | The reference page linked from the recipe explains the exact fields, commands, or types used here. |
+Run the app and verify that **Compose** opens the dialog, edits update the
+draft, **Apply** uses that draft, and closing or cancelling leaves the rest of
+the screen usable. Then add a [LiveTest](/docs/cookbook/write-a-live-ui-test)
+for the interaction you most need to keep working. For a smaller example of
+the same action-to-state flow, see [Build a counter](/docs/cookbook/build-a-counter).

@@ -1,7 +1,7 @@
 ---
 layout: goal
 title: Request iOS location access
-description: "Step-by-step Rust guide to request iOS location access using Fission."
+description: "Request iOS location access using Fission."
 goal: Configure the location usage description, defer the prompt until needed, and handle denied, restricted and unknown results.
 path: /blog/request-ios-location-access/
 order: 95
@@ -17,7 +17,7 @@ outcomes:
 
 ## Create the project and add the target
 
-Install the Fission command line, create the app, and add its native target.
+Create a shared Rust app and add the iOS target. Fission generates the native host; keep the app behaviour in Rust.
 
 ```sh
 cargo install cargo-fission
@@ -29,7 +29,7 @@ fission add-capability geolocation --project-dir .
 
 ## Files created by Fission
 
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/ios/`.
+Fission creates this starter tree. Shared Rust code stays in `src/`; the generated host under `platforms/ios/` handles iOS launch and packaging.
 
 ```text
 ios-request-ios-location-access/
@@ -43,12 +43,12 @@ ios-request-ios-location-access/
     └── ios/                  # generated iOS host
 ```
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated iOS host owns launch and packaging details; shared components describe the user task without importing iOS APIs.
+Keep app behaviour in shared Rust. Add a feature module only when it creates a useful boundary, and keep iOS APIs behind the generated host.
 
 <!-- fission:step id="start-screen" -->
 ## See where the browser stops
 
-A browser cannot reach the device provider for this feature, so this preview is intentionally read-only. It explains where the browser stops and where the native app takes over; it never claims that a permission prompt or hardware action succeeded. In the following steps, we will connect the user action to Fission’s capability request and handle the result returned by the target.
+The preview does not request location. It shows the permission and result UI only; the next step connects an app action to Fission’s location provider.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -126,16 +126,16 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Use this read-only preview to identify the boundary between the website and the native app. No device request has been made. The next step follows the actual request path and shows how the app should handle a result from its platform provider.
+No location request runs in this preview. Continue to the provider wiring below.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
 ## Connect the Geolocation provider to the user action
 
-This is the real Fission request path for this feature. Keep permission and hardware work outside the component view: the component dispatches one intent, the reducer queues the request, and success or error reducers store the returned result.
+Keep location requests out of component conversion. The screen dispatches an action, a reducer queues the request, and completion reducers store the coordinates or error.
 
-Start with task data and status in the app state. Keep a text-field draft, open flag or selected tab in the owning component instead of duplicating that temporary state here:
+Keep the latest location and any error in app state. Keep temporary UI choices, such as open flags or selected tabs, local to their component:
 
 ```rust
 #[derive(Debug, Default)]
@@ -149,7 +149,7 @@ struct GeolocationState {
 impl GlobalState for GeolocationState {}
 ```
 
-Handle successful and failed results separately so the screen can explain denied permission, cancellation, unsupported hardware and provider errors:
+Handle a location result and an error separately so denial, cancellation and provider failure cannot look like a successful position:
 
 ```rust
 #[fission_reducer(PositionLoaded)]
@@ -166,7 +166,7 @@ fn on_position_failed(state: &mut GeolocationState, error: GeolocationError) {
 }
 ```
 
-Queue the operation after the user presses the named control. The sample `PositionLoaded` value below supplies the action's payload type; the host replaces it with the actual coordinates when the request completes:
+Start the location request from the user action. The sample `PositionLoaded` value below supplies the action's payload type; the host replaces it with the actual coordinates when the request completes:
 
 ```rust
 state.locating = true;
@@ -196,7 +196,7 @@ ctx.effects
     ));
 ```
 
-Bind the user action from a reusable Fission component. Keep the visible label in the same control so it works with touch, keyboard and assistive technology:
+Keep the action and visible label together in the button so touch, keyboard and assistive-technology users get the same control:
 
 ```rust
 fission_component!
@@ -215,9 +215,9 @@ fission_component!
 }
 ```
 
-The [complete Geolocation guide](/docs/capabilities/geolocation/) explains configuration and expected platform behaviour. Test a successful memory-provider response and an unavailable or denied response before relying on the physical-device check below. The preview is read-only. The native target uses Fission’s provider to perform the request and report the result.
+The [Geolocation guide](/docs/capabilities/geolocation/) covers configuration and target behaviour. Use the memory provider to test successful and failed requests, then check the permission flow and returned position on a supported iPhone. The web preview does not request location.
 
-Keep platform-only code behind the generated target boundary or a typed provider; the shared component should describe the user task rather than call an operating-system API directly.
+Keep iOS location calls in the host or typed provider. The shared component requests a position through Fission.
 
 
 

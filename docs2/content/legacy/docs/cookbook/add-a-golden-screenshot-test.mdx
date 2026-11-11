@@ -5,6 +5,10 @@ description: Capture and compare a Fission screen with a golden image.
 
 # Add a golden screenshot test
 
+This test drives a real Fission app to a known state, captures its screen, and
+compares it with a checked-in image. Run it when layout or styling changes; the
+diff image shows which pixels moved.
+
 ```rust
 #[test]
 #[ignore]
@@ -27,6 +31,7 @@ fn settings_phone_matches_golden() -> anyhow::Result<()> {
 }
 ```
 
-Use semantic identifiers to drive the screen into the desired state before
-comparing pixels. `compare_golden` returns an error when the changed-pixel
-budget is exceeded, so a second threshold assertion is unnecessary.
+The app must be running with LiveTest enabled, and `control_port` must point to
+its test-control port. Use semantic identifiers to get to the screen you want
+to compare. `compare_golden` returns an error when the changed-pixel budget is
+exceeded, so a second threshold assertion is unnecessary.

@@ -1,7 +1,7 @@
 ---
 layout: goal
 title: Test mobile capability flows without depending on hardware for every test
-description: "Step-by-step Rust guide to test mobile capability flows without depending on hardware for every test using Fission."
+description: "Test mobile capability flows without depending on hardware for every test using Fission."
 goal: Use memory providers for success, denial and unsupported cases, then identify which cases still need physical-device verification.
 path: /blog/test-mobile-capability-flows-without-depending-on-hardware-for-every-test/
 order: 116
@@ -17,8 +17,6 @@ outcomes:
 
 ## Create the project and add the target
 
-Install the Fission command line, create the app, and add its native target.
-
 ```sh
 cargo install cargo-fission
 fission init mobile-test-mobile-capability-flows-without-depending-on-hardware-for-every-test
@@ -28,7 +26,7 @@ fission add-target android ios --project-dir .
 
 ## Files created by Fission
 
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in the generated Android and iOS hosts.
+Fission generates Android and iOS hosts alongside the shared Rust project:
 
 ```text
 mobile-test-mobile-capability-flows-without-depending-on-hardware-for-every-test/
@@ -43,12 +41,12 @@ mobile-test-mobile-capability-flows-without-depending-on-hardware-for-every-test
     └── ios/                  # generated iOS host
 ```
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android and iOS hosts own launch and packaging details; shared components describe the user task without importing either platform API.
+Keep provider outcome handling in shared reducers. Tests can inject a memory provider, while the generated hosts connect the app to each target’s real provider.
 
 <!-- fission:step id="start-screen" -->
 ## Create the app screen
 
-Give the workflow a clear first screen before adding its platform-specific behavior. This version displays the user task and current step; the next section connects the feature and its outcome to Fission state.
+This preview is a task card, not a capability flow. The next step handles success, denial, and unsupported outcomes, then tests them with a memory provider.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -144,7 +142,7 @@ Inject a memory provider at the capability boundary and drive its success, denie
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-The compiled preview changes browser-local state only; it does not perform this task on an Android Emulator or iOS Simulator, inspect your toolchain or access native hardware. Use the commands below to verify the generated project on the target.
+The browser preview changes local state only. It cannot invoke Android or iOS providers, check your toolchain, launch an emulator or simulator, or access device hardware. Use the commands below for those checks.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -184,7 +182,7 @@ fission test --target ios --project-dir .
 
 ### Current references
 
-These references explain the API contract behind the example and the target-specific behavior to verify:
+Use these for provider injection, testing, and the component contracts shown above:
 
 - [Testing](/docs/guides/testing-and-diagnostics/)
 - [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)

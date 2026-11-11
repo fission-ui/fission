@@ -8,19 +8,19 @@ description: Learn how Fission models accessibility semantics, which shells expo
 
 # Accessibility in Fission
 
-Fission accessibility starts in the shared widget tree, not in a separate platform-specific layer.
+Accessibility starts in the shared widget tree. You should not need to rebuild the meaning of each screen separately for every platform.
 
-Widgets lower into Core IR. Meaningful widgets also lower semantic metadata: role, label, value, focusability, disabled state, checked state, text selection, scrollability, and actions. Native shells can then translate that semantic tree into the host accessibility API. Tests use the same semantic information through LiveTest selector commands and `GetTree`.
+Widgets lower into Core IR along with semantic data such as role, label, value, focus, checked and disabled state, text selection, scrolling, and available actions. Native shells translate that data for the host accessibility API. LiveTest uses it too, so tests can find controls by meaning instead of by their position on screen.
 
-That gives Fission one accessibility model for three jobs:
+The same model serves three purposes:
 
 - screen readers and other assistive technology need to know what the UI means;
 - keyboard and accessibility actions need to activate the same reducers as pointer input;
 - tests need stable selectors that do not depend on pixels or generated node order.
 
-## Can screen readers control Fission apps?
+## What assistive technology can use today
 
-On supported native shells, yes. The winit-based native shell builds an AccessKit tree from Fission Core IR and layout. AccessKit then bridges that tree to the operating-system accessibility stack.
+On supported native shells, yes. The winit shell builds an AccessKit tree from Core IR and layout. AccessKit connects that tree to the operating system’s accessibility APIs.
 
 Current native support is:
 
@@ -32,13 +32,13 @@ Current native support is:
 | iOS | AccessKit through the iOS accessibility adapter | Supported by the shared native bridge where the iOS shell uses the winit path. Validate with VoiceOver on simulator and device. |
 | Android | AccessKit through the Android accessibility stack | Supported through the generated AndroidX GameActivity host. Validate with TalkBack, Switch Access, and Voice Access on the Android versions you ship. |
 
-Static site and SSR targets are different: they render semantic HTML, native inputs, buttons, links, headings, labels, and ARIA/data attributes where the static/server renderer has enough information. Browser screen readers then see the browser accessibility tree rather than AccessKit. The canvas Web target does not currently expose a DOM accessibility tree for the canvas-rendered app.
+Static site and SSR render HTML instead. Where the renderer has enough information, that includes native inputs, buttons, links, headings, labels, and ARIA or data attributes. Browser assistive technology uses the browser’s accessibility tree. The canvas Web target does not currently expose a DOM accessibility tree for the canvas-rendered app.
 
-Terminal targets are also different. The terminal shell renders through the terminal emulator. Accessibility depends on the terminal and screen-reader combination. Fission semantics can inform terminal rendering and tests, but the terminal backend does not currently expose the full selector command tree that the winit LiveTest backend exposes.
+Terminal accessibility depends on the terminal emulator and screen reader. Fission semantics can inform terminal rendering and tests, but the terminal backend does not currently expose the full selector command tree available through the winit LiveTest backend.
 
 ## What Fission exports today
 
-The native bridge exports the semantic data that widgets lower into Core IR.
+The native bridge exports the semantic data that widgets put into Core IR.
 
 | Fission data | Accessibility output |
 | --- | --- |
@@ -53,15 +53,15 @@ The native bridge exports the semantic data that widgets lower into Core IR.
 | Scroll state | Scrollable nodes expose scroll actions and current scroll offsets. |
 | Actions | Click/default, focus, blur, replace selected text, set value, set selection, scroll, increment, and decrement map back into the Fission runtime. |
 
-This is not a promise that every possible platform accessibility feature is complete. It is the current public contract. Advanced features such as custom rotor behavior and platform-specific landmarks beyond current roles need additional implementation.
+This is the current contract, not a claim that every platform accessibility feature is complete. Custom rotor behavior and platform landmarks beyond the roles listed here still need implementation.
 
 ## Design accessible widgets from the start
 
-A screen-reader user should get the same product meaning that a sighted pointer user gets. That requires explicit semantics where visuals alone are not enough.
+Make sure someone using a screen reader gets the same meaning and actions as someone using a pointer. Visual appearance alone does not tell assistive technology what a control does.
 
-Use built-in widgets when possible. `Button`, `TextInput`, `Checkbox`, `Radio`, `Switch`, `Slider`, `Image`, `Text`, `RichText`, `Scroll`, `Modal`, and other widgets lower useful semantics automatically or expose fields/builders for semantic labels and identifiers.
+Use built-in widgets when they fit. `Button`, `TextInput`, `Checkbox`, `Radio`, `Switch`, `Slider`, `Image`, `Text`, `RichText`, `Scroll`, and `Modal` provide useful semantics or fields for adding labels and identifiers.
 
-Add stable semantic identifiers to interactive controls that tests, automation, or host integrations need to target.
+Give interactive controls stable semantic identifiers when tests, automation, or host integrations need to find them.
 
 ```rust
 Button {
@@ -73,9 +73,9 @@ Button {
 .into()
 ```
 
-Do not use semantic identifiers as user-facing labels. Identifiers are stable machine-readable names. Labels are what the user hears or reads.
+An identifier is a stable name for code and tests. It is not a label: the label is what the user hears or reads.
 
-For icon-only controls, add an explicit label through custom semantics or wrap the region in `SemanticsRegion`.
+Icon-only controls need an explicit label. Add it through custom semantics or use a `SemanticsRegion` around the relevant content.
 
 ```rust
 use fission::prelude::*;
@@ -95,19 +95,19 @@ Button {
 .into()
 ```
 
-Prefer translated labels for real apps. Visible text can use `TextContent::Key`; semantic labels that are plain strings should be resolved from `view.i18n()` using the current locale before they are placed into `Semantics`.
+In a real app, resolve labels from the current locale. Visible text can use `TextContent::Key`; for a plain string in `Semantics`, look it up through `view.i18n()` first.
 
 ## Keep focus and actions meaningful
 
-Accessible interaction should dispatch the same product action as pointer interaction. Do not create a separate accessibility-only behavior path unless the product genuinely needs one.
+Use the same product action for assistive technology, keyboard, and pointer input. Avoid a separate accessibility-only behavior path unless the product has a specific reason for one.
 
-Fission maps semantic actions back into reducers through the same action entries used by widgets. A screen reader activating a button should run the same `on_press` action that a tap or click would run.
+Fission routes semantic actions through the same widget action entries and reducers. A screen reader activating a button should trigger the same `on_press` action as a tap or click.
 
-Focus should follow visible structure. Use focus scopes for dialogs and panels, and use `FocusPolicy::PreserveCurrentOnPointer` only for controls such as editor toolbars that intentionally should not steal focus from the editable region when clicked.
+Keep focus aligned with the visible interface. Use focus scopes for dialogs and panels. Use `FocusPolicy::PreserveCurrentOnPointer` only when a control, such as an editor toolbar, should not take focus away from the editable region when clicked.
 
 ## Test accessibility as behavior
 
-Do not test accessibility only by looking at screenshots. Use semantic tests as part of the normal test ladder.
+Screenshots cannot tell you whether controls are labelled or operable. Include semantic checks in your tests:
 
 - Reducer tests prove the action changes state correctly.
 - Headless Fission tests inspect semantics without launching a real window.
@@ -130,7 +130,7 @@ assert!(tree.nodes.iter().any(|node| {
 
 ## Screen readers and tools to validate with
 
-Fission apps should be tested with the assistive technology that real users use on each target. These are compatibility targets, not substitute test suites.
+Test with the assistive technology your users rely on for each target. The tools below are part of compatibility QA, not a replacement for automated tests.
 
 | Platform | Common tools to include in QA |
 | --- | --- |

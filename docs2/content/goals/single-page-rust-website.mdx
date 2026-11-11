@@ -15,11 +15,11 @@ outcomes:
   - Check phone and desktop layouts
 ---
 
-Build a responsive Rust landing page with a clear hero, useful page sections, anchor navigation, accessible calls to action and a static production build. The landing page preview runs in the browser. The finished static site emits responsive HTML with working section links and crawlable page copy.
+Visitors should understand what a product does and what to do next without having to hunt for it. We will build a responsive landing page for Fieldnotes, a small-team planning tool, then generate the production site as crawlable HTML with working section links.
 
-Create a focused landing page for Fieldnotes, a small-team planning tool. The page introduces the product, explains three benefits, answers a common question and gives visitors a direct path to start. Its section links use normal fragment URLs, so the page remains useful without a client-side router.
+The page introduces the product, explains three benefits, answers a common question and gives visitors one clear way to get started. Its section links use ordinary fragment URLs, so the page still works without a client-side router.
 
-Install the Fission CLI and scaffold the Static site project:
+Install the Fission CLI and create a Static site project:
 
 ```sh
 cargo install cargo-fission
@@ -57,13 +57,13 @@ fieldnotes-site/
 │   └── site/README.md
 ```
 
-The website template creates a Static site project with a static entrypoint in `src/main.rs`, route registration and the Web shell in `src/lib.rs`, and reusable page, navigation and footer components in their own modules. Add the task files shown in the tree as you work. The preview's `src/app.rs` is a separate, compiled browser harness for the interactive lesson; the production website uses the template modules and `fission.toml`. Do not copy `preview/lib.rs` into the website.
+The template provides a Static site entrypoint in `src/main.rs`, route registration and the Web shell in `src/lib.rs`, plus separate page, navigation and footer components. Add the task files from the tree as you work. The lesson's `preview/src/app.rs` is a separate browser harness; the production site uses the template modules and `fission.toml`. Do not copy `preview/lib.rs` into the website.
 
 ### Set up the landing-page route and responsive styling
 
-The generated `SitePage` in `src/page.rs` is a `fission_component!` component. Extend its home-page branch with the hero, benefit sections, question section and primary action. Give each section one purpose and a stable heading so its text can be scanned without the preview.
+The generated `SitePage` in `src/page.rs` uses `fission_component!`. Extend its home-page branch with the hero, benefit sections, question, and primary action. Give each section one job and a heading that makes the page easy to scan.
 
-Merge these site metadata and stylesheet fields into the generated `[site]` table:
+Add these metadata and stylesheet settings to the generated `[site]` table:
 
 ```toml
 [site]
@@ -76,7 +76,7 @@ generate_sitemap = true
 generate_robots = true
 ```
 
-In the home component, use Fission `Text`, `Link`, `Column` and `SemanticsRegion` components. Make the section navigation ordinary links and keep the primary action visible at narrow widths. Give the hero and sections matching semantic identifiers in their `fission_component!` regions, then put responsive overrides in `assets/landing.css`. Fission writes these identifiers to `data-fission-semantics`:
+In the home component, use Fission's `Text`, `Link`, `Column`, and `SemanticsRegion` widgets. Use normal links for section navigation and keep the main action visible on a narrow screen. Give the hero and sections matching semantic identifiers, then add responsive overrides in `assets/landing.css`. Fission writes those identifiers to `data-fission-semantics`:
 
 ```css
 [data-fission-semantics="landing-hero"] { max-width: 68rem; margin-inline: auto; padding: clamp(2rem, 8vw, 7rem) 1.25rem; }
@@ -86,14 +86,12 @@ In the home component, use Fission `Text`, `Link`, `Column` and `SemanticsRegion
 }
 ```
 
-Keep the page copy useful without JavaScript. Check each call to action at a phone width and make sure keyboard focus reaches the section links and primary action in a sensible order.
+Make sure the copy and links still work without JavaScript. At phone width, check that every action is visible and that keyboard focus reaches the section links and main action in the right order.
 
 <!-- fission:step id="start-screen" -->
 ## Write a clear hero and page outline
 
-Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
-
-Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+This first preview is a task card, not the Fieldnotes landing page. Its copy comes through props and its spacing uses theme tokens. Next, build the hero, benefit sections, and question section that the anchor links will target.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -174,10 +172,9 @@ Write a clear hero and page outline: Confirm the initial screen names the task a
 <!-- fission:step id="main-flow" -->
 ## Connect section navigation and the call to action
 
-Write one clear H1, a short explanation of who the product helps and one primary action. Add an in-page contents row with links to stable section ids such as #features and #questions. Keep each section focused on one user question instead of repeating the same sales claim.
+Give the page one clear H1, a short explanation of who the product helps, and one main action. Add an in-page navigation row with links to stable section IDs such as `#features` and `#questions`. Make each section answer a different question instead of repeating the same sales claim.
 
-The source below makes the main task interactive using retained component state and explicit controls.
-This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+The selected section and missing-section message are local to this preview. The published page uses fragment links such as `#features`; it does not need a second copy of its content in app state.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
@@ -267,10 +264,9 @@ Connect section navigation and the call to action: Use the preview control and c
 <!-- fission:step id="edge-state" -->
 ## Check phone and desktop layouts
 
-Check the page at narrow and wide widths. Let columns wrap or become vertical, keep headings readable, and make every anchor target visible below the sticky header if you add one. Search crawlers should receive the page heading and main copy in the generated HTML.
+Check the page at narrow and wide widths. Let columns wrap or stack, keep headings readable, and make sure anchor targets are not hidden under a sticky header. The generated HTML should include the page heading and main copy for search crawlers.
 
-Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
-The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+Do not perform I/O during component conversion. Use reducers for state changes, then request host work through an effect, capability, job, or service so the UI stays responsive. The preview control only simulates a failed host operation and its recovery path; it does not perform authentication, database, network, or filesystem work.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
@@ -359,7 +355,7 @@ Check phone and desktop layouts: Trigger the error preview and confirm a recover
 
 ## Run, test and build the finished project
 
-From the project root, run the checks in order:
+From the project root, run these checks:
 
 ```sh
 cargo test
@@ -370,11 +366,11 @@ fission site serve --project-dir . --host 127.0.0.1 --port 8123
 fission test --target static-site --project-dir .
 ```
 
-Expected result: The page has one descriptive H1, working section anchors, a clear next action, and crawlable HTML.
+You should end up with one descriptive H1, working section links, a clear next action, and crawlable HTML.
 
 ## Related Fission reference
 
-Use these precise reference pages after the working path above is clear:
+Once the working page makes sense, use these references to explore the APIs in more detail:
 
 - [Responsive Ui](/docs/learn/responsive-ui/)
 - [Static Sites](/docs/guides/static-sites/)

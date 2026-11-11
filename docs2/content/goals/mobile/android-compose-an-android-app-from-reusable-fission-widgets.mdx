@@ -17,11 +17,11 @@ outcomes:
 
 ## The morning inspection round
 
-You will build the morning inspection board used by a city tree-care crew. It shows which trees need attention, where each tree is, what the inspector found, and whether a crew has been assigned. Dispatch can assign an unowned inspection to the Green Crew; the card and the summary then update together.
+We’re building the morning inspection board for a city tree-care crew. It needs to show which trees need attention, where they are, what the inspector found, and whether a crew has been assigned. Dispatch can assign an unowned inspection to the Green Crew, and the card and summary should update together.
 
-The repeated card is a useful boundary because every inspection needs the same information and action. The dashboard arranges those cards and calculates the counts from the shared records. That separation keeps card presentation reusable while the app state remains the source of truth.
+Each inspection needs the same information and action, so it belongs in one reusable card. The dashboard arranges the cards and calculates its counts from shared records. The card owns presentation; app state remains the source of truth.
 
-The browser example uses three representative records so you can try the workflow before opening an emulator. Those records live only in this example. A production app would load inspections from its service or local database through an effect.
+The browser preview starts with three sample records, so you can try the workflow before opening an emulator. They belong to the tutorial, not to production data. A real app would load inspections from a service or local database through an effect.
 
 ## Create the Android project
 
@@ -34,14 +34,14 @@ cd urban-tree-rounds
 fission add-target android --project-dir .
 ```
 
-Fission generates the Android host and a Rust application shell. Keep the records, reducers, and screen in shared Rust code. The generated Android project launches and packages that shared app; it should not contain a second copy of the inspection rules.
+Fission generates the Android host and Rust application shell. Keep the records, reducers, and screen in shared Rust code. The host launches and packages that app; it shouldn’t have a second copy of the inspection rules.
 
 <!-- fission:step id="start-screen" -->
 ## Give each inspection a clear card
 
-Start with the information a field crew needs before it walks to a tree: a stable inspection number, species, location, priority, and a concise report. A named `TreeInspectionCard` keeps that presentation consistent as the daily queue grows. Its props describe one inspection, so the parent can reuse it without the card reaching into unrelated app data.
+Before a crew walks to a tree, it needs the inspection number, species, location, priority, and a short report. `TreeInspectionCard` keeps that information in a consistent shape. Its props describe one inspection, so the parent can reuse it without the card reaching into unrelated app state.
 
-Here is the first version of the board. It is deliberately read-only: first check that the repeated records are easy to scan, then add the assignment action in the next step.
+The first version is read-only. Check that the records are easy to scan; we’ll add the assignment action next.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -205,11 +205,11 @@ Find inspection **TREE-184**. It should be the only urgent job, and its card sho
 <!-- fission:step id="main-flow" -->
 ## Compose the dispatch board from reusable components
 
-Now connect the cards to app state. The board derives its counts from the inspection records, so assigning a crew cannot leave a separate summary number out of date. `TreeInspectionCard` receives one record and binds its button to a reducer; the reducer updates that record in `TreeRoundsState`. Every card uses the same component, while each button carries the ID of the record it represents.
+Now connect each card to app state. The board derives its counts from the records, so assigning a crew can’t leave a separate summary number stale. Each `TreeInspectionCard` receives one record and binds its button to a reducer that updates `TreeRoundsState`. All cards use the same component, and each button carries the ID of its own inspection.
 
-The `key` on each card comes from the durable inspection ID. That identity matters when the list changes: Fission can keep retained widget state with the correct inspection instead of attaching it to whichever row happens to occupy the same position.
+Each card’s `key` is its durable inspection ID. When the list changes, Fission can keep retained widget state with the right inspection instead of reusing it for whatever row moves into the same position.
 
-The combined source below is kept in one file so you can build and run the example without first creating modules. Once the feature grows, move the model, reducer, card, and screen into separate files; the component boundaries remain the same.
+The tutorial keeps the source together so you can run it without creating a set of files first. In an app you plan to grow, put the model, reducer, card, and screen in focused modules. Those boundaries are already visible here; splitting them out doesn’t change how the components fit together.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -505,7 +505,7 @@ In the preview, select **Assign to Green Crew** on TREE-184. Its card should rep
 <!-- fission:step id="edge-state" -->
 ## Run the same shared app on Android
 
-Replace the generated `CounterApp` wiring in `src/lib.rs` with the Android shell below. The browser and Android shells then use the same `TreeRoundsState`, reducer, and dashboard component. The browser shell makes the interaction easy to inspect; the Android shell supplies the device window and generated host. No tree-assignment logic belongs in Android-specific code.
+Replace the generated `CounterApp` wiring in `src/lib.rs` with the Android shell below. Browser and Android then use the same `TreeRoundsState`, reducer, and dashboard. The browser shell is handy for inspecting the interaction; Android adds the device window and generated host. Tree assignment stays in shared Rust code.
 
 <Tabs>
 <TabItem label="src/lib.rs · Android shell">
@@ -564,7 +564,7 @@ pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
 </TabItem>
 </Tabs>
 
-Add the focused state-transition test in `src/app_tests.rs` (the **state-transition test** tab above), then run the app on an emulator. Before assigning, confirm TREE-184 is urgent and unassigned. After tapping **Assign to Green Crew**, check that the card, the summary counts, and the route notice all change together. Reopen the screen after navigating away to confirm app-wide state is owned by the application, not by one card’s retained local state.
+Add the focused state-transition test in `src/app_tests.rs` (the **state-transition test** tab), then run the app on an emulator. TREE-184 should start urgent and unassigned. Tap **Assign to Green Crew** and check the card, summary counts, and route notice. Then navigate away and reopen the screen: the assignment belongs to app state, not to one card’s retained local state.
 
 ```sh
 cargo test
@@ -574,9 +574,9 @@ fission test --target android --project-dir .
 fission build --target android --project-dir . --release
 ```
 
-`cargo test` runs the state-transition test. `fission doctor` checks the Android toolchain, `fission run` launches the selected emulator or connected phone, and `fission test` exercises the generated host. A release build verifies packaging. The example records are in memory; connect an effect and a persistence layer before using the board for real municipal work.
+Run `cargo test` for the state-transition check. `fission doctor` checks the Android toolchain, `fission run` launches an emulator or connected phone, and `fission test` exercises the generated host. A release build checks packaging. These records are in memory; a real inspection board needs an effect and a persistence layer.
 
-For the next implementation pass, move `TreeInspection` and `TreeRoundsState` into a model module, keep `on_assign_tree_to_green_crew` beside the state transition, and give `TreeInspectionCard` its own component file. Those modules should still compile into one shared app library used by Android.
+As you expand the app, move `TreeInspection` and `TreeRoundsState` into a model module, keep `on_assign_tree_to_green_crew` with the transition it implements, and give `TreeInspectionCard` its own component file. Android should still run the same shared app library.
 
 ### References
 

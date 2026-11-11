@@ -14,12 +14,12 @@ show_adjacent_posts: true
 
 # Fission 0.14.1: registry-reproducible dependencies
 
-Fission 0.14.1 is a focused repair for the 0.14.0 publication. The 0.14.0 source
+Fission 0.14.1 fixes an installation problem in the 0.14.0 release. The source
 workspace passed its platform checks, but those checks used workspace overrides
 for Fission's Winit and Vello forks. Published Cargo packages do not inherit a
-workspace `[patch.crates-io]` section or external path dependency, so downstream
-installation resolved older fork packages that lacked APIs used by the released
-Fission shell.
+workspace `[patch.crates-io]` section or an external path dependency. As a
+result, users installing from crates.io got older fork packages without APIs
+used by the released shell.
 
 The visible result was a compile failure from:
 
@@ -27,30 +27,29 @@ The visible result was a compile failure from:
 cargo install cargo-fission --version 0.14.0 --locked
 ```
 
-The failure was not caused by `--locked`. It was a difference between the
-dependency graph qualified in the repository and the graph available from
-crates.io.
+`--locked` was not the cause. The repository tested one dependency graph, while
+crates.io gave downstream users another.
 
 ## One dependency graph for CI and users
 
-The required fork changes are now published as immutable versions:
+The required fork changes are now published as fixed registry versions:
 
 - `fission-winit 0.30.13-fission.3`
 - `fission-vello-encoding 0.6.0-fission.3`
 - `fission-vello-shaders 0.6.0-fission.3`
 - `fission-vello 0.6.0-fission.3`
 
-Fission requires those registry packages directly. The workspace-level Winit
-and Android Activity patches are removed, and publishable renderer and shell
-manifests no longer resolve Vello through the vendored source tree. The lockfile
-therefore records crates.io sources and checksums for every external dependency
-used by the released graph.
+Fission now depends on those registry packages directly. We removed the
+workspace-level Winit and Android Activity patches, and publishable renderer and
+shell manifests no longer resolve Vello from the vendored source tree. The
+lockfile records the crates.io source and checksum for every external
+dependency in the release.
 
-Web, Android, iOS, and CLI CI now compile those registry artifacts. A new
-dependency-boundary check rejects `[patch]`, `[replace]`, external Git sources,
-and `third_party` path dependencies in publishable Fission manifests. A future
-fork change must be published under a new version before Fission can consume and
-qualify it.
+Web, Android, iOS, and CLI CI now compile the same registry artifacts users
+install. A dependency check also rejects `[patch]`, `[replace]`, external Git
+sources, and `third_party` path dependencies in publishable Fission manifests.
+Any future fork change must be published under a new version before Fission can
+use and qualify it.
 
 ## Upgrade
 
@@ -65,6 +64,6 @@ fission = { version = "0.14.1", default-features = false, features = ["desktop"]
 cargo install cargo-fission --version 0.14.1 --locked
 ```
 
-No application source changes are required from 0.14.0. Applications should
-move directly to 0.14.1 because 0.14.0's published dependency graph is not
-installable for targets that compile `fission-shell-winit`.
+No app code change is needed. Move directly from 0.14.0 to 0.14.1: the
+published 0.14.0 dependency graph cannot be installed for targets that compile
+`fission-shell-winit`.

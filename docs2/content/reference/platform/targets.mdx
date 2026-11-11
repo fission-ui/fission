@@ -5,11 +5,7 @@ description: The reference contract for generated target hosts, checked-in smoke
 
 # Targets
 
-A target in Fission is a host for shared app code.
-
-The target does not own your reducers, selectors, widgets, or product state model. It owns the files, packaging steps, launch path, rendering mode, and host checks needed to run that shared app in one delivery environment.
-
-That is why target output matters. It is the host wrapper around your app, not a second copy of your app.
+A target is the host that runs your shared Fission app in one delivery environment. It supplies that environment's files, packaging, launch path, rendering mode and host checks; it does not own a second copy of your reducers, widgets or product state.
 
 ## Public target set
 

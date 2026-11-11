@@ -12,13 +12,13 @@ categories:
   - Releases
 ---
 
-Fission 0.8.0 is a productization release. It brings the post-build workflow, release automation, native video support, semantic test automation, text input behavior, and generated app guidance into a more coherent platform story.
+Fission 0.8.0 adds a shared release plan, provider-aware publishing, native video, selector-driven LiveTest actions, text-input fixes, and generated app guidance.
 
-The main theme is reliability across the full lifecycle: build the app, validate it, capture release assets, publish through the right provider, and test the UI through semantic actions rather than fragile coordinates.
+These changes cover the path from checking the app and its release content to publishing the artifact and testing it with semantic actions instead of coordinates.
 
 ## One release workflow
 
-The publish flow now builds a shared release plan with the selected target, package format, provider, track, locales, release version, build number, requirements, capabilities, and steps.
+Publishing now starts from a shared release plan. The plan records the target, package format, provider, track, locales, release version, build number, requirements, capabilities, and steps.
 
 That plan is consumed by:
 
@@ -29,15 +29,15 @@ That plan is consumed by:
 - the windowed publish UI;
 - CI JSON mode.
 
-This removes the previous problem where command surfaces drifted into different release behavior.
+This keeps the CLI, terminal UI, windowed UI, and CI from drifting into different release behaviour.
 
 ## Release content is first-class
 
-Store-bound release flows now present release notes, screenshots, localized metadata, privacy/review information, tester setup, provider assets, signing state, and provider auth as release-plan requirements.
+For store releases, the plan lists requirements for release notes, screenshots, localised metadata, privacy and review details, tester setup, provider assets, signing, and provider authentication.
 
-The requirement model distinguishes provider-required items, Fission-recommended items, optional items, and not-applicable items. Recommended items can be skipped explicitly and appear in the receipt. Provider-required items still block provider mutation.
+Each item is marked as required by the provider, recommended by Fission, optional, or not applicable. You can explicitly skip a recommendation and see that choice in the receipt. Provider-required items still block changes to the store until you provide them.
 
-Package readiness checks more of the actual release artifact before upload:
+Before upload, package readiness checks more of the release artifact itself:
 
 - selected app icon source and generated icon manifest;
 - target, format, version, build, source config hashes, and artifact hashes;
@@ -47,9 +47,9 @@ Package readiness checks more of the actual release artifact before upload:
 
 ## Provider-aware publishing
 
-The provider layer now records clearer upload plans, provider request/response summaries, provider status observations, stdout/stderr line events, uploaded assets, uploaded byte totals, deployment IDs, canonical URLs, preview URLs, manual follow-up, and skipped requirements.
+The provider layer now records upload plans, request and response summaries, provider status, stdout and stderr events, uploaded assets and byte totals, deployment IDs, canonical and preview URLs, manual follow-up, and skipped requirements.
 
-Notable provider improvements include:
+Provider changes include:
 
 - Google Play uses correct edit validate/commit semantics, including empty-body validate requests with an explicit content length.
 - App Store Connect can upload screenshots, previews, review attachments, assign TestFlight groups, and submit App Review actions through explicit commands.
@@ -58,33 +58,33 @@ Notable provider improvements include:
 - S3 can inspect planned object keys from an artifact manifest and report `ok`, `partial`, or `missing`.
 - Docker registry status checks every configured tag or falls back to tags from docker image metadata.
 
-Some provider behavior remains intentionally explicit: Microsoft Store trailer upload is still a handoff manifest, provider-console rollback remains manual where the provider does not expose a safe API, and Fission does not reimplement provider portals.
+Some steps remain manual by design. Microsoft Store trailer upload still creates a handoff manifest. Rollback in a provider console stays manual when the provider has no safe API. Fission does not try to recreate those provider portals.
 
 ## Native video without forcing native dependencies everywhere
 
-Fission 0.8.0 tightens the video widget contract and native backend story.
+Fission 0.8.0 clarifies the video widget contract and native backends.
 
-Video sources are now typed so app code can describe asset, file, and URL sources clearly instead of passing ambiguous strings through every shell. Native video backends are wired per platform, while Linux native video support is feature-gated behind the `video` feature so projects that do not use native video do not inherit GStreamer development package requirements.
+Video sources are typed, so app code can distinguish assets, files, and URLs instead of passing ambiguous strings through each shell. Native backends are configured per platform. Linux native video is behind the `video` feature, so projects that do not use it do not need GStreamer development packages.
 
-Static site, SSR, and Web video paths remain independent from the native GStreamer-backed Linux path.
+Static site, SSR, and Web video do not depend on the native GStreamer-backed Linux path.
 
 ## Selector-driven LiveTest actions
 
-LiveTest now supports selector-driven UI automation for end-to-end checks and release screenshots. Tests and release-content capture scenarios can target semantic identifiers, explicit widget IDs, roles, labels, accessibility/test identifiers, and scoped duplicate matches.
+LiveTest can now find UI elements by selector for end-to-end tests and release screenshots. A test can target semantic identifiers, explicit widget IDs, roles, labels, accessibility or test identifiers, and scoped matches when names are duplicated.
 
-The API covers actions such as tap, activate, focus, hover, right click, scroll into view, fill, clear, toggle, and select option. `GetTree` now exposes semantic identifiers separately from values, making automated UI checks less dependent on overloaded text fields or coordinate math.
+It supports actions including tap, activate, focus, hover, right-click, scroll into view, fill, clear, toggle, and select. `GetTree` now reports semantic identifiers separately from values, so tests do not have to rely on text fields with multiple meanings or coordinate calculations.
 
-This matters for release screenshots as much as tests: Fission can drive the app like a user, wait for the right state, and capture the intended screen without brittle sleeps.
+The same selectors help with release screenshots. Fission can drive the app, wait for the state you want, and capture the screen without brittle sleeps.
 
 ## Better semantics and text input behavior
 
-Interactive widgets now have a clearer semantic identity path, including first-class radio semantics rather than treating radio controls like generic toggles. This improves accessibility metadata and gives tests a more stable target surface.
+Interactive widgets now expose clearer semantic identities. Radio buttons have their own semantics instead of being treated as generic toggles. That improves accessibility metadata and gives tests a more stable way to find them.
 
-Text input selection and controlled-value rendering were tightened so visible text, selection state, and editing affordances stay aligned. That fixes cases where the rendered value could drift from the controlled value or where selection controls behaved inconsistently around disabled/read-only text input states.
+Text selection and controlled-value rendering now keep the visible text, selection, and editing affordances aligned. This fixes cases where the rendered text drifted from the controlled value or selection behaved inconsistently for disabled and read-only inputs.
 
 ## Generated app guidance is stricter
 
-`fission init` now writes stronger app-agent guidance. Generated projects guide agents toward:
+`fission init` now writes more complete app guidance. Generated projects recommend:
 
 - responsive mobile and desktop layouts by default;
 - generated design-system tokens rather than hard-coded styling;
@@ -94,11 +94,11 @@ Text input selection and controlled-value rendering were tightened so visible te
 - shared app cores with thin feature-gated shell entrypoints for multi-platform apps;
 - Fission LiveTest end-to-end checks and screenshot-based manual QA.
 
-The intent is to make generated Fission apps behave like real production apps rather than one-off demos.
+The aim is for a generated Fission app to start with the structure of a real product, not a throwaway demo.
 
 ## Migration notes
 
-Update Fission dependencies to 0.8.0:
+Update the Fission dependency to 0.8.0:
 
 ```toml
 fission = { version = "0.8.0", default-features = false, features = ["desktop"] }
@@ -110,7 +110,7 @@ If your app uses native video on Linux, enable the `video` feature and install t
 sudo apt install libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
 ```
 
-For release automation, run readiness before publishing:
+Before publishing, check that the release is ready:
 
 ```sh
 fission readiness release   --target android   --format aab   --provider play-store   --track internal   --locale en-US   --json

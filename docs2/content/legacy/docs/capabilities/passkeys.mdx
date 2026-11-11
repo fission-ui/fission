@@ -7,7 +7,7 @@ description: Register and authenticate WebAuthn-style credentials through the ho
 
 Passkeys are account credentials. The host may unlock the credential with fingerprint, face, device PIN, password manager, phone, or hardware key, but the app receives WebAuthn registration or authentication data that the server must verify.
 
-By the end of this guide, you will know how to build a sign-in button that receives a server challenge, asks the host for a credential assertion, and sends that assertion back to the server. The same pattern applies to larger apps: declare the capability when native configuration is needed, store the result in typed app state, request the host operation from a reducer, and test both success and failure with a memory host.
+The example follows one sign-in attempt: receive a server challenge, ask the host for an assertion, then send it to the server for verification. The code here covers the Fission side of that flow; your server must verify the assertion before granting a session.
 
 Do not use passkeys for local-only unlock when no server identity is involved. Use biometrics for local verification and passkeys for account registration or sign-in.
 
@@ -42,9 +42,9 @@ That command records the capability in [`fission.toml`](/reference/config/fissio
 
 The CLI records the capability, but domain association is product-specific. Web needs a secure origin and relying-party id. iOS and macOS usually need associated domains such as `webcredentials:example.com`. Android usually needs Digital Asset Links. Fission cannot invent those because they must match the production domain and app identifiers.
 
-This is the difference between the Fission API, a provider, and packaging configuration:
+Keep these three pieces separate:
 
-- The Fission API is the typed Rust contract your reducer calls, such as `ctx.effects.camera().capture_photo(...)`.
+- The Fission API is the typed request your reducer makes; this example calls `passkeys().authenticate(...)`.
 - The provider is the shell-side Rust implementation that turns that typed request into the correct OS, browser, or hardware call.
 - Packaging configuration is the manifest, plist, entitlement, service-worker, protocol, domain, or store metadata that lets the platform permit that call in a real installed app.
 
@@ -52,7 +52,7 @@ If the API exists but the provider is missing, the request returns a typed unsup
 
 ## 3. Define reducers for success and failure
 
-Capability work finishes later, after the reducer that started it has returned. You therefore need one reducer for the successful result and one reducer for the error path.
+The host responds after the starting reducer returns. Handle the assertion and any error in completion reducers.
 
 ```rust
 #[fission_reducer(PasskeyAssertionReady)]
@@ -95,7 +95,7 @@ ctx.effects
     ));
 ```
 
-The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across Fission targets where the capability applies, plus static-site previews and tests.
+The call records a typed host request. A configured provider handles it, or returns `unsupported` when this target has no provider.
 
 ## 5. Trigger the reducer from the UI
 
@@ -119,25 +119,23 @@ fission_component!
     }
 }
 ```
-Rename the widget and action for your product, but keep the shape: the widget dispatches one typed action, the reducer starts the capability request, and the success or failure reducer updates state.
+Rename the widget and action for your product. The widget dispatches an action, the reducer requests the host operation, and a completion reducer handles the result.
 
 ## 6. Provide and test the host behavior
 
 Register a `PasskeyHost` with `.with_passkey_host(...)`. Use `MemoryPasskeyHost` for reducer tests. A real provider only gathers credential data; the relying-party server must verify registration and authentication results before the app treats the user as signed in.
 
-Use fixed challenges and memory results for reducer tests. Integration tests should cover server rejection, cancellation, unsupported host, and mismatched relying-party id.
-
-A useful first test creates the app with the memory host, dispatches the start action, feeds the queued effect through the host, and asserts that the reducer updates state from the returned payload. Add a second test for the error path before you ship the screen.
+Use fixed challenges and memory results for reducer tests. Integration tests should cover a successful assertion, server rejection, cancellation, unsupported hosts, and a mismatched relying-party ID. Do not treat a host result as an authenticated session until the server verifies it.
 
 ## Platform expectations
 
-Web, Android, iOS, macOS, and Windows all have passkey routes. Linux support depends on browser, desktop credential providers, and hardware authenticators. Secure origin and domain ownership are non-negotiable for production.
+Passkey routes are available on Web, Android, iOS, macOS, and Windows. Linux support depends on the browser, desktop credential provider, and hardware authenticator. A route does not guarantee a production provider on every target, so check the [capability matrix](/docs/capabilities/matrix/) and handle the typed unsupported result in the UI. Production also requires a secure origin and correctly configured domain ownership.
 
 For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Passkeys reference](/reference/capabilities/passkeys/).
 
 ## Finished capability flow
 
-A complete `Passkeys` integration has all of these pieces in place:
+A production passkey flow needs all of these pieces:
 
 | Piece | What should exist |
 | --- | --- |

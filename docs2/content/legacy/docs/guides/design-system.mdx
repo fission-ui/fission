@@ -6,20 +6,20 @@ description: Use a Design System Package JSON file to generate typed Fission the
 
 # Design system
 
-A design system is the set of decisions that makes an application feel coherent: color, typography, spacing, radius, elevation, motion, chart palettes, and the component styles that turn those tokens into real buttons, inputs, badges, cards, tabs, modals, tooltips, and progress indicators.
+Your design system is what makes the app feel like one product: colour, type, spacing, radius, elevation, motion, chart palettes, and the styles used by buttons, inputs, cards, tabs, modals, and other widgets.
 
-Fission supports Design System Package JSON files as a build-time input. The app does not parse JSON while it is running. Instead, a build script reads `dsp.json` and `tokens.json`, resolves the token references, and generates ordinary Rust code. Your app then chooses one of the generated themes and writes it into `Env`.
+Fission reads Design System Package JSON at build time. Your app doesn’t parse JSON at runtime. A build script reads `dsp.json` and `tokens.json`, resolves references, and generates normal Rust code. Your app chooses a generated theme and puts it in `Env`.
 
-That keeps the hot path simple. Widgets read typed Rust values from `view.env.theme`; they do not search JSON, hash token names, or do string lookups while drawing a frame.
+That keeps rendering simple. Widgets read typed Rust values from `view.env.theme`; they don’t search JSON or look up token names while drawing a frame.
 
 ## What gets generated
 
-A DSP package contains two important files:
+A DSP package has two main files:
 
 - `dsp.json`, which describes the package, components, patterns, assets, and where the token file lives.
 - `tokens.json`, which contains primitive and semantic values such as colors, font sizes, spacing, radius, shadows, motion, and chart palettes.
 
-Fission's generator turns those files into a Rust type that implements `DesignSystem`.
+Fission’s generator turns them into a Rust type that implements `DesignSystem`.
 
 ```rust
 include!(concat!(env!("OUT_DIR"), "/app_design_system.rs"));
@@ -29,11 +29,11 @@ DesktopApp::new(MyApp)
     .run()?;
 ```
 
-`AppDesignSystem` is not hand-written. It is generated during `cargo build`, compiled into your app, and used like any other Rust type.
+`AppDesignSystem` is generated during `cargo build`, compiled into your app, and used like any other Rust type.
 
 ## Add a DSP package to an app
 
-Create a `design/` folder in your app and place the package files inside it:
+Create a `design/` folder and put the package files in it:
 
 ```text
 my-app/
@@ -46,7 +46,7 @@ my-app/
     main.rs
 ```
 
-Once the package is in `design/`, generate the Rust theme from that app-local input:
+Then generate the Rust theme from your app’s package:
 
 ```rust title="build.rs"
 use std::path::PathBuf;
@@ -77,9 +77,9 @@ breaking your `build.rs`:
 | `.inherit_from(path)` | `{crate_path}::FissionDefaultDesignSystem` | Design system whose component recipes fill in any recipe this one omits. |
 | `.require_complete_components()` | off | Fail the build when a required component recipe is missing instead of inheriting it. |
 
-An application design system only needs to declare the components it changes. Every recipe it
-leaves out is taken from the system named by `inherit_from`, so widgets never fall back to empty
-styling. Call `require_complete_components()` when the design system must stand alone.
+Your design system only needs recipes for the components it changes. Missing recipes come from
+`inherit_from`, so widgets don’t fall back to empty styles. Call `require_complete_components()`
+when it must stand alone.
 
 ### Migrating from the `Config` struct literal
 
@@ -112,21 +112,7 @@ fission = { version = "0.15.1", default-features = false, features = ["desktop"]
 fission-design-system-codegen = "0.15.1"
 ```
 
-## What you should have working
-
-After this guide, you should be able to explain where `Design system` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
-
-## Common mistakes to check
-
-| Symptom | What to check first |
-| --- | --- |
-| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
-| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
-| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
-| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
-| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
-
-The generated code uses the public Fission theme API. Your application still imports Fission normally:
+Generated code uses Fission’s public theme API. Import Fission as usual:
 
 ```rust title="src/main.rs"
 use fission::prelude::*;
@@ -136,7 +122,7 @@ include!(concat!(env!("OUT_DIR"), "/app_design_system.rs"));
 
 ## Let the user choose light or dark
 
-Theme choice is product state. If the user can choose light mode or dark mode, keep that choice in `GlobalState`, then mirror it into `Env` with `.with_sync_env(...)`.
+If users can choose light or dark mode, keep that choice in `GlobalState` and mirror it into `Env` with `.with_sync_env(...)`.
 
 ```rust
 DesktopApp::new(MyApp)
@@ -148,21 +134,21 @@ DesktopApp::new(MyApp)
     .run()?;
 ```
 
-`Env` is the environment shared with widgets during component conversion. Putting the generated `Theme` there means every widget sees the same colors, typography, component sizes, shadows, and motion settings for the current frame.
+`Env` is shared with widgets during component conversion. Putting the generated `Theme` there means every widget sees the same colours, typography, sizes, shadows, and motion for that frame.
 
 ## What Fission consumes today
 
-The generated theme is not just a bag of metadata. Fission resolves DSP component styles into typed runtime structs.
+The generated theme is more than metadata. Fission resolves DSP component styles into typed runtime structs.
 
 Buttons consume hierarchy styles such as `primary`, `secondary_color`, `secondary_gray`, `tertiary_color`, `link_color`, and `destructive`. Button sizes such as `sm`, `md`, `lg`, and `xl` map to first-class component size slots. State tables such as `default`, `hover`, `active`, `focus`, and `disabled` resolve into typed style values before the widget renders.
 
 Inputs, badges, tabs, cards, modals, tooltips, and progress bars follow the same model. They read generated component styles for background fills, text colors, borders, radius, padding, font sizes, font weights, line heights, shadows, and state-specific overrides. Charts read the generated data-visualization palette from the theme instead of inventing a separate chart palette.
 
-The important rule is that JSON stops at conversion time. Runtime code sees Rust values.
+The key rule is that JSON stops at conversion time. Runtime code sees Rust values.
 
 ### Colour pairs
 
-Every fill a component paints comes with the colour for text and icons drawn on it. Ask for both at once, so text is never paired with the wrong ground:
+Every component fill has a matching colour for its text and icons. Ask for the pair together so the content stays legible:
 
 ```rust
 use fission::theme::ColorRole;
@@ -185,11 +171,11 @@ Container::new(Text::new("Invoice").color(card.on)).bg(card.fill)
 
 `input`, the border of text fields, falls back to `border`.
 
-The newer roles are optional. A DSP file that leaves one out gets the existing role in the last column, both at runtime and in references, so `{color.light.card}` works in a recipe even when `tokens.json` never declares `card`. Declare the role under `color.light` and `color.dark` to give it its own value. Each bundled look keeps every pair at WCAG AA contrast (4.5:1).
+These newer roles are optional. If the DSP leaves one out, Fission uses the fallback in the last column, so `{color.light.card}` still works even when `tokens.json` has no `card` value. Declare the role under `color.light` and `color.dark` to give it its own value. Each bundled theme keeps every pair at WCAG AA contrast (4.5:1).
 
 ## Start from a bundled system when it fits
 
-Fission ships several bundled DSP packages for common product directions. They are not magic modes inside the renderer. Each one is a normal `dsp.json` and `tokens.json` package under `crates/core/fission-theme/design`, generated into a Rust `DesignSystem` implementation at conversion time.
+Fission ships DSP packages for several common product styles. They aren’t special renderer modes; each is a normal `dsp.json` and `tokens.json` package under `crates/core/fission-theme/design`. The generator turns it into a Rust `DesignSystem` at build time.
 
 | Preset | Generated Rust type | Use when |
 | --- | --- | --- |
@@ -215,9 +201,9 @@ DesktopApp::new(MyApp)
     .run()?;
 ```
 
-Presets are a good starting point, not a cage. If your product needs a slightly different brand color, radius scale, chart palette, or component state table, copy the preset package into your app's `design/` folder and edit the JSON there. Your app's build script can then generate `AppDesignSystem` from that copy.
+Presets are a starting point, not a cage. Copy one into your app’s `design/` folder if you need to change its brand colour, radius scale, chart palette, or component states. Then generate `AppDesignSystem` from your copy.
 
-That keeps the same architecture: design information enters as DSP JSON at conversion time, and widgets consume typed Rust theme values at runtime.
+The architecture stays the same: DSP JSON goes in at build time, and widgets read typed Rust theme values at runtime.
 
 ## Where to get DSP and token files
 
@@ -240,9 +226,9 @@ Useful links:
 
 ## Example app
 
-The repository includes `examples/todo-design-system`. It is intentionally small: a todo list, a text input, buttons, badges, a card surface, and a light/dark toggle.
+The repository includes `examples/todo-design-system`. It’s deliberately small: a todo list, text input, buttons, badges, a card, and a light/dark toggle.
 
-The example's `build.rs` points at Fission's bundled DSP package so the example does not carry a large local copy of the JSON files. In your own app, copy the default package, replace it with your design team's package, or point the generator at a package produced by your design tooling.
+Its `build.rs` uses Fission’s bundled DSP package rather than copying large JSON files into the example. In your app, copy the default package, use your design team’s package, or point the generator at output from your design tooling.
 
 Run it with:
 
@@ -252,8 +238,8 @@ cargo run -p todo-design-system
 
 ## Packaged fonts and design fidelity
 
-Design-system packages can declare font files in `assets.fonts`. Codegen validates those files at build time and emits packaged font faces through `DesignSystem::font_faces()`. The runtime shell registers those fonts before rendering, so app widgets can use generated typography tokens without depending on system-installed fonts.
+Design-system packages can declare font files in `assets.fonts`. Codegen checks them at build time and emits font faces through `DesignSystem::font_faces()`. The shell registers those fonts before rendering, so widgets can use the generated typography without relying on system-installed fonts.
 
-Pair design tokens with typed layout and paint primitives. Use `Length` for responsive dimensions, `Fill` for gradients, `BoxShadow` for elevation, and `BackdropFilter` for glass or blur effects. That keeps visual fidelity inspectable and testable instead of being hidden in target-specific code.
+Use typed layout and paint primitives with your design tokens: `Length` for responsive dimensions, `Fill` for gradients, `BoxShadow` for elevation, and `BackdropFilter` for glass or blur. This keeps visual fidelity inspectable and testable instead of hiding it in target-specific code.
 
 Read [Design systems and fonts](/docs/develop/design-systems-and-fonts/) for the full flow and [Visual fidelity](/docs/learn/visual-fidelity/) for testing guidance.

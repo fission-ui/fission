@@ -8,17 +8,17 @@ description: Fission Charts reference for 3D network scene.
 
 ![3D network scene screenshot](/img/charts/scene3d-network.png)
 
-3D network scene uses Fission Charts typed Rust data to render a production-ready 3d and gl view. Use it for spatial network views. The screenshot is captured from the native Fission chart gallery.
+This example uses Fission Charts' typed Rust API. Use it for spatial network views. The screenshot is from Fission's chart gallery.
 
 ## What the chart is for
 
-3D network scene is part of the **3D and GL** chart family and is intended for `Vertex spheres connected by segment meshes`. Use it when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+This chart is in the **3D and GL** family. Use it when a visual makes the pattern easier to spot.
 
-Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
+Use a table or simpler chart when readers need exact values.
 
 ## Data model
 
-`Vertex spheres connected by segment meshes.` Keep the data close to the Rust type that describes it. Fission Charts is typed Rust, so each chart uses explicit series and component structs instead of string configuration hidden in a loosely typed object.
+This example uses `Vertex spheres connected by segment meshes`. Keep the source values in Rust types and map them to the series or component below.
 
 ## Rust API
 
@@ -41,15 +41,15 @@ let scene = Scene3D::new()
 
 ## Interaction and animation
 
-Charts can emit typed `ChartInteractionEvent` values when interaction is enabled. Handle those events in a reducer when the app needs hover, press, release, scroll, selection, or brush behavior. `ChartAnimation` stores duration, delay, stagger, easing, and reduced-motion behavior as deterministic chart data, so animation timing can be tested instead of being hidden in ad-hoc timers.
+Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
 
 ## Testing guidance
 
-For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed by running the ignored chart-gallery screenshot capture test with `FISSION_UPDATE_CHART_DOCS=1`, which updates `documentation/static/img/charts` before the static site build.
+Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
 
 ## Authoring from a Fission component
 
-Use this reference page as the chart expression inside ordinary Fission component conversion. The chart is a `Widget`, so it can sit inside a `Card`, `Grid`, `Scroll`, responsive page section, or any other layout container.
+Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
 
 ```rust
 use fission::prelude::*;
@@ -71,17 +71,17 @@ fission_component!
     }
 }
 ```
-Keep expensive data loading outside component conversion. A reducer, job, service, or server route should prepare the typed chart data, then the component should read that state and construct the chart deterministically.
+Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
 ## Options, accessibility, and diagnostics
 
-| Area | What to decide | How to verify |
+| Area | What to decide | How to check it |
 | --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series type shown in the example. | Unit test the mapping separately from rendering. |
-| Options | Choose axes, legends, labels, animation, and interaction based on the user's task. | Add a screenshot test when changing visual behavior. |
-| Accessibility | Provide a clear title and adjacent summary text for important trends or outliers. | Inspect the generated semantics and make sure the chart is understandable without color alone. |
-| Failure handling | Render an empty, loading, or error state before constructing the chart if data is unavailable. | Test empty data, partial data, and failed fetches. |
-| Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
+| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
+| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
+| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
+| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
+| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
 
 Tags: `3d`, `network`.
 

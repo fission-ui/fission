@@ -10,12 +10,12 @@ categories:
   - Releases
 ---
 
-Fission 0.4.0 is the authoring API release. It changes how application and library authors write widgets, how state is accessed during component conversion, and how local retained state is modeled. The work is tracked in [PR #63](https://github.com/fission-ui/fission/pull/63).
+Fission 0.4.0 changes how you write widgets and access state while building them. It also gives retained, widget-local state a clear model. The work is in [PR #63](https://github.com/fission-ui/fission/pull/63).
 
-The short version is this: authored components are now ordinary Rust structs that convert into `Widget` with `impl From<Component> for Widget`. The old public widget-authoring-boundary shape is gone. The framework keeps the closed internal `Widget` representation, but authoring code no longer teaches language models or developers to implement a public `Widget` trait or return internal node-like forms.
+The short version: a component is an ordinary Rust struct, converted into `Widget` with `impl From<Component> for Widget`. The old public widget-authoring boundary is gone. Fission still owns the internal `Widget` representation, but app and library authors no longer have to implement a public `Widget` trait or return internal node types.
 
 
-The motivation came from a real documentation and code-generation problem. Fission wants examples, docs, generated components, and third-party crates to teach one clear shape. A component should look like a Rust value. It can have props. It can be composed into parent child slots. When it needs state or runtime wiring, it asks the current build scope for handles. When it is done, it returns a `Widget` tree.
+This change fixes a practical problem in the docs and generated code: examples, generated components, and third-party crates need to teach the same shape. A component should look like a Rust value, accept props, fit into its parent's child slots, and return a `Widget` tree. If it needs app state or runtime wiring, it asks the current build scope for the relevant handles.
 
 That gives the public boundary a simple form:
 
@@ -32,31 +32,31 @@ impl From<CounterLabel> for Widget {
 }
 ```
 
-State access changed at the same time. Components no longer need to be generic over the application state type just to participate in the widget tree. Instead, component conversion uses scoped handles:
+State access changed with it. A component no longer needs to be generic over the app's state type just to appear in the widget tree. During conversion, it gets scoped handles instead:
 
 ```rust
 let (ctx, view) = fission::build::current::<AppState>();
 ```
 
-`ViewHandle` is the read side. It reads app state, generated state views, selectors, environment, theme, i18n data, viewport size, previous layout, animation values, and runtime-owned state. `BuildCtxHandle` is the wiring side. It binds actions, local reducers, animation requests, portals, media registrations, resources, and other runtime-managed behavior.
+`ViewHandle` is for reading: app state, generated state views, selectors, environment, theme, i18n, viewport size, previous layout, animation values, and runtime-owned state. `BuildCtxHandle` is for wiring: binding actions and local reducers, requesting animation, registering portals and media, and connecting other runtime-managed behaviour.
 
-The handles are deliberately handles, not raw references. They resolve through the active build scope and fail clearly if used outside component conversion. That prevents stale references from becoming hidden global state while still keeping authoring syntax readable.
+These are handles, not long-lived references. They resolve through the active build scope and fail clearly if used outside component conversion. That keeps stale references from turning into hidden global state.
 
-0.4.0 also adds a provider stack for typed parent-to-child context. A parent can install a value while a subtree converts:
+Version 0.4.0 also adds a provider stack for typed parent-to-child context. A parent can install a value for a subtree:
 
 ```rust
 Provider::new(FormSection { name: "billing" }, || BillingFields).into()
 ```
 
-A descendant can then read the nearest active value of that type:
+Descendants can read the nearest active value of that type:
 
 ```rust
 let section = fission::build::read::<FormSection>();
 ```
 
-This is not a replacement for app state. Provider values are scoped build context. They are useful for local configuration, section identity, density, feature flags, or derived read-only values that should be visible to descendants without passing them through every intermediate component.
+Providers are not a replacement for app state. They carry values scoped to a subtree, such as local configuration, section identity, density, feature flags, or derived read-only data. Use them when descendants need the value but intermediate components should not have to pass it along.
 
-Local widget state now has an explicit authoring model as well. Components that own retained UI-local state use `#[with_local_state]` and `#[local_state(default = ...)]`:
+Retained UI-local state now has an explicit authoring model. A component that owns it uses `#[with_local_state]` and `#[local_state(default = ...)]`:
 
 ```rust
 #[with_local_state]
@@ -86,15 +86,15 @@ impl From<Counter> for Widget {
 }
 ```
 
-The local field becomes a `StateField<T>` accessor. The runtime retains it by widget identity, not by keeping the component struct object alive. If a component appears in dynamic, reorderable data, authors use `.id(WidgetId::explicit(...))` to give that identity a stable key.
+The local field becomes a `StateField<T>` accessor. Fission retains its value by widget identity; it does not keep the component struct alive. If the component is part of data that can be reordered or filtered, give it a stable key with `.id(WidgetId::explicit(...))`.
 
-0.4.0 also includes the base scoped raw action primitives used by host shells that mount or compose isolated subtrees. `ActionScopeId` identifies a dispatch scope, `ActionScope` annotates a subtree in the lowered semantics tree, and `ActionInput::ScopedRaw` lets shell/runtime code inspect the nearest scope and target before recovering the original unscoped input. These primitives are intentionally low-level; they establish the raw dispatch boundary, while later shell releases can add higher-level route or guest-runtime policies on top.
+Version 0.4.0 also adds low-level scoped raw-action primitives for host shells that mount isolated subtrees. `ActionScopeId` identifies a dispatch scope, `ActionScope` marks a subtree in the lowered semantics tree, and `ActionInput::ScopedRaw` lets shell and runtime code inspect the nearest scope and target before recovering the original input. These primitives define the dispatch boundary. Higher-level route or guest-runtime policies can build on it.
 
-This release touches nearly every crate because the public boundary changed across the whole stack. Core widgets, controls, media widgets, text widgets, charts, 3D surfaces, shell integrations, static and server rendering, terminal rendering, the CLI UI, tests, examples, and documentation were all updated to the same model. The old compatibility layer was intentionally removed. Fission 0.4.0 is a breaking authoring release because keeping two authoring models would teach the wrong thing.
+This is a breaking release because the public authoring boundary changed across the stack. Core widgets, controls, media and text widgets, charts, 3D surfaces, shell integrations, Static site and SSR, Terminal, the CLI, tests, examples, and docs now use the same model. We removed the old compatibility layer rather than keep two ways of authoring widgets and teach both.
 
-The documentation was updated to match. The runtime model now introduces component conversion through `impl From<Component> for Widget`. The state reference documents `GlobalState`, local widget state, scoped handles, provider values, reducers, `ReducerContext`, selectors, and `WidgetId`. The new [State, handles, and providers](/docs/guides/state-handles-and-providers/) guide explains how to choose between durable state, local widget state, environment, and parent-provided context.
+The docs follow the new API too. The runtime guide introduces `impl From<Component> for Widget`; the state reference covers `GlobalState`, local widget state, scoped handles, providers, reducers, `ReducerContext`, selectors, and `WidgetId`. The [State, handles, and providers](/docs/guides/state-handles-and-providers/) guide explains which kind of state to use and when.
 
-For existing code, the migration is conceptually straightforward even though it can touch many files:
+The migration is straightforward to understand, even if it touches a lot of files:
 
 1. Replace public widget-authoring-boundary implementations with `impl From<Component> for Widget`.
 2. Replace build arguments with `let (ctx, view) = fission::build::current::<State>();` inside conversion.
@@ -103,9 +103,9 @@ For existing code, the migration is conceptually straightforward even though it 
 5. Use `Provider::new(...)` only for scoped read-only context, not product state.
 6. Add explicit `WidgetId` values for dynamic retained children that can be reordered or filtered.
 
-The payoff is a smaller and clearer public API surface. Components are Rust structs. Conversion is explicit. State access is scoped. Runtime wiring is handled through typed handles. Parent context has a stack. Local widget state has a retained identity model. The code now better matches the mental model the docs teach and the shape Fission wants generated code to produce.
+The result is a smaller public API with one clear component shape. Components are Rust structs, conversion is explicit, and state and runtime wiring come from scoped handles. Providers carry parent context; local state is retained by widget identity. The examples, generated code, and the framework now teach the same model.
 
 ## What this means for developers
 
 
-If you are evaluating Fission, use the release as a checklist rather than a marketing claim: create or open an app, run the documented command, inspect the generated files, and add one small test around the behavior you plan to depend on. The framework should make that path explicit. When it does not, the documentation or tooling needs to improve until the risk is visible and actionable.
+If you maintain custom widgets or a component library, start by converting one component to `From<Component> for Widget`. Then check how it reads state, receives parent context, and retains local state. That is the shape the rest of your components and generated code can now share.

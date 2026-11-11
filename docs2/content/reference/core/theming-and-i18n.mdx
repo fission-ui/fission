@@ -5,13 +5,7 @@ description: The reference contract for theme values, design systems, locale, an
 
 # Theming and internationalization
 
-This page is the reference contract for the app-wide presentation values that widgets read during component conversion.
-
-Theming controls how the interface looks: color, typography, spacing, radius, elevation, motion, chart palettes, and component-level styling.
-
-Internationalization, often shortened to i18n, controls how the interface supports multiple languages and locale-sensitive text selection.
-
-Both systems flow through `Env`. Widgets read the current environment through `ViewHandle`, which means theme and locale are explicit inputs to rendering rather than hidden global state.
+Widgets get their theme and locale from `Env` while they are being built. The theme supplies values such as colour, typography, spacing, radius, motion and component styling. Internationalisation (i18n) supplies translations and locale-aware text. Keeping both in `Env` makes them explicit inputs to the view instead of hidden global state.
 
 ## Theme types
 

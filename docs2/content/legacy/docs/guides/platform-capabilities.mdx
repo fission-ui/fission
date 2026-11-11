@@ -5,17 +5,7 @@ description: Add host-owned features such as camera, notifications, passkeys, Bl
 
 # Platform capabilities
 
-A capability is how a Fission app asks the host to do something the shared widget tree should not do directly. Camera access, clipboard writes, passkey prompts, NFC scans, notifications, Bluetooth discovery, and microphone capture all depend on operating-system, browser, hardware, or package rules. Fission keeps those rules behind typed host contracts so your reducers stay portable.
-
-By the end of this guide, you will know the full workflow:
-
-1. decide whether the feature belongs in a capability,
-2. declare the capability when native configuration is needed,
-3. add state and reducers for success and failure,
-4. request the capability from a reducer,
-5. register or rely on the host provider,
-6. test the success and error paths,
-7. review platform packaging before release.
+A capability is the boundary between shared app code and work owned by the host. Use one when an operation needs an OS or browser API, device hardware, or platform package configuration. The examples here use a camera request; the same boundary applies to the other capabilities in the guide map below.
 
 ## 1. Know the three pieces
 
@@ -27,7 +17,7 @@ A capability is not just one Rust method. Production support has three pieces:
 | Provider | The shell-side implementation that maps the request to the host. | A `CameraHost` that calls the platform camera API. |
 | Packaging configuration | Native metadata that lets the platform allow the feature. | Android `CAMERA`, iOS `NSCameraUsageDescription`, macOS bundle usage text, Windows webcam capability. |
 
-This is what the capability matrix means by "the app or shell still needs a concrete provider and packaging configuration". The Fission crate may expose the typed API, but a real product still needs code in the shell that performs the host operation and native metadata that lets the installed app request the permission. If either piece is missing, the feature should fail clearly: no provider means a typed unsupported error; missing package metadata usually means the operating system or browser denies the request.
+The typed API alone does not perform the operation. A real app also needs a provider that calls the host API and any package metadata the platform requires. Without a provider, the request should return `unsupported`; missing package configuration usually means the OS or browser denies it.
 
 ## 2. Choose capability vs normal app code
 
@@ -50,7 +40,7 @@ Start from your project root:
 fission add-capability camera --project-dir .
 ```
 
-The command updates [`fission.toml`](/reference/config/fission-toml/) and generated target files where the configuration is deterministic. For camera, that means Android camera permission and camera feature entries, plus iOS camera usage text. For features such as passkeys, deep links, notifications, or push, Fission records the capability but cannot safely invent production domains, service identifiers, associated domains, notification categories, or push provider data.
+The command updates [`fission.toml`](/reference/config/fission-toml/) and generated target files where the configuration is known. For camera, that includes Android permission and feature entries and iOS usage text. For passkeys, deep links, notifications, and push, you must supply product-owned domains, service identifiers, categories, and provider details.
 
 Run a readiness check before you rely on the target:
 
@@ -78,7 +68,7 @@ struct ProfileState {
 
 ## 5. Add callback reducers
 
-Capability calls finish later. The reducer that starts the request returns immediately. The runtime later dispatches either the success action or the error action.
+Capability requests finish after the starting reducer returns. The runtime dispatches a success or error action when the host responds.
 
 ```rust
 use fission::prelude::*;
@@ -130,11 +120,11 @@ fn on_capture_profile_photo(state: &mut ProfileState, ctx: &mut ReducerContext<P
 }
 ```
 
-The reducer does not call a camera library. It records a typed request. The active shell resolves that request after the reducer returns.
+The reducer records a typed request. The active shell handles it after the reducer returns.
 
 ## 7. Wire the UI to the reducer
 
-Use the normal Fission action binding from a widget.
+Bind the button to the reducer that starts capture:
 
 ```rust
 
@@ -154,7 +144,7 @@ fission_component!
     }
 }
 ```
-This keeps the UI readable. The widget describes what the user can do. The reducer describes what should happen. The provider describes how the host performs it.
+The widget describes the user action, the reducer decides what to request, and the provider calls the host API.
 
 ## 8. Register a provider when the default host is not enough
 
@@ -175,7 +165,7 @@ File picking follows the same rule. The portable app code uses `PICK_OPEN_FILES`
 
 ## 9. Test the feature before testing the device
 
-Start with reducer and memory-host tests. The first test should prove your reducer queues the right effect and updates state on success. The second should prove the error path updates state correctly.
+Start with reducer and memory-host tests. Prove that the reducer requests the operation and that both success and error update state correctly.
 
 ```rust
 #[test]
@@ -224,17 +214,3 @@ Use a custom capability for product-specific host work such as enterprise device
 ## Where to go next
 
 Read [Resources and async](/docs/guides/resources-and-async/) to understand how effects return results. Use the [Capability matrix](/docs/capabilities/matrix/) to compare target support. Use [Platform capabilities reference](/reference/core/platform-capabilities/) when you need exact operation and configuration names.
-
-## What you should have working
-
-After this guide, you should be able to explain where `Platform capabilities` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
-
-## Common mistakes to check
-
-| Symptom | What to check first |
-| --- | --- |
-| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
-| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
-| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
-| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
-| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |

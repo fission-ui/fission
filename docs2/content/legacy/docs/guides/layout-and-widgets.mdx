@@ -11,7 +11,7 @@ The better starting point is this question: what information needs to be visible
 
 Once you answer that, the container choices become much easier. Most Fission screens are built from a small set of layout ideas: rows, columns, grids, stacking layers, and scroll regions. Higher-level widgets help, but they work best after the screen structure is already clear.
 
-This guide explains how to think about screen composition in Fission, including responsive and adaptive layout for phone, tablet, desktop, and web-sized surfaces.
+Screen composition in Fission starts with the space the content has to use. The same layout can adapt to phone, tablet, desktop, and web-sized surfaces without hard-coding a separate screen for each one.
 
 ## Start with the screen's reading order
 
@@ -322,17 +322,3 @@ This workflow matches the architecture of Fission itself. The app model stays sh
 ## Where to go next
 
 If you want to understand how input, viewport data, locale, and theme reach widgets, read [Input, text, and environment](/docs/guides/input-events-text-and-env). If you want the beginner explanation of `ViewHandle`, `BuildCtxHandle`, and selectors first, go back to [Runtime model](/docs/learn/runtime-model).
-
-## What you should have working
-
-After this guide, you should be able to explain where `Layout and widgets` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
-
-## Common mistakes to check
-
-| Symptom | What to check first |
-| --- | --- |
-| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
-| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
-| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
-| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
-| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |

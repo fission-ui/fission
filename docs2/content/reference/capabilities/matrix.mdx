@@ -5,7 +5,7 @@ description: Reference table for Fission capability support by platform.
 
 # Capability matrix reference
 
-This reference uses the same terms as the guide matrix. **Yes** means the platform has a normal production path. **Provider** means the shared Fission API exists but the app or shell must supply a concrete provider and packaging metadata for that target. **Limited** means support depends heavily on browser, hardware, policy, distribution, or optional platform services. **No general API** means the platform does not expose a normal app-level API for the feature.
+Read the matrix labels this way: **Yes** means the platform has a normal production path. **Provider** means the shared Fission API exists, but the app or shell must supply a concrete provider and any required target configuration. **Limited** means support depends on the browser, hardware, policy, distribution, or optional platform services. **No general API** means the platform does not expose a normal app-level API for the feature.
 
 | Capability | Guide | Reference | Web | Windows | macOS | Linux | Android | iOS |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -22,7 +22,9 @@ This reference uses the same terms as the guide matrix. **Yes** means the platfo
 | Haptics | [Guide](/docs/capabilities/haptics/) | [Reference](/reference/capabilities/haptics/) | Limited | Hardware provider | Hardware provider | Hardware provider | Yes | Yes |
 | Microphone | [Guide](/docs/capabilities/microphone/) | [Reference](/reference/capabilities/microphone/) | Yes | Provider | Provider | Limited | Yes | Yes |
 | Bluetooth | [Guide](/docs/capabilities/bluetooth/) | [Reference](/reference/capabilities/bluetooth/) | Limited | Provider | Provider | Limited | Yes | Yes |
-| Wi-Fi | [Guide](/docs/capabilities/wifi/) | [Reference](/reference/capabilities/wifi/) | No general API | Provider | Provider | Provider | Yes | Constrained |
+| Wi-Fi | [Guide](/docs/capabilities/wifi/) | [Reference](/reference/capabilities/wifi/) | No general API | Provider | Provider | Provider | Yes | Provider |
 | Volume control | [Guide](/docs/capabilities/volume-control/) | [Reference](/reference/capabilities/volume-control/) | No system API | Provider | Provider | Provider | Yes | Limited |
 
 Use the detailed capability reference pages for request fields and provider contracts, and the guide pages for copyable app wiring.
+
+Fission does not register a built-in iOS Wi-Fi provider: the default host uses `UnsupportedWifiHost`. An app can supply a custom provider, but it must follow iOS policy and cannot assume general network scanning or connection access.

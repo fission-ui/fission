@@ -16,13 +16,13 @@ outcomes:
   - Run and verify the shared interface on Android
 ---
 
-Before a weekend hike, the final check is easy to get wrong: water treatment is packed, but did the spare batteries make it into the bag? We will build Harbour Trail, a small checklist that shows the quantity and category of each essential item, marks gear as packed, and can hide completed rows while you finish the remaining work.
+The last check before a weekend hike is easy to get wrong. The water filter is packed—but are the spare batteries? In this tutorial, we will build Harbour Trail, a checklist that shows each item's category and quantity, marks gear as packed, and hides completed rows while you finish the rest.
 
-The checklist is intentionally small enough to understand in one sitting, but it behaves like a real task. The summary changes with each item, the action label tells you what the next tap will do, and the list can return a packed item if you take it back out. Its data stays in memory for this first app; later tutorials can add persistence without changing the checklist’s basic interaction.
+The checklist is small, but it behaves like a real task. Its summary updates as you pack, the button tells you what will happen next, and you can put an item back on the list if it comes out of the bag. The data stays in memory for now; we can add persistence later without changing these interactions.
 
 ## Create an Android project
 
-Fission generates the native Android host while the checklist itself remains ordinary shared Rust code. If the Android SDK and NDK are not ready yet, follow the [Android toolchain setup guide](/blog/set-up-rust-android-gui-development-with-fission/) first.
+Fission generates the Android host; the checklist stays in shared Rust code. If you have not set up the Android SDK and NDK yet, start with the [Android toolchain setup guide](/blog/set-up-rust-android-gui-development-with-fission/).
 
 <Tabs>
 <TabItem label="Create the app">
@@ -48,14 +48,14 @@ harbour-trail/
 </TabItem>
 </Tabs>
 
-Keep the checklist model in shared Rust code. The generated host handles Android startup and packaging; it does not need to own a second version of the item list.
+Keep the checklist model in shared Rust. The generated host handles Android startup and packaging; it does not need its own copy of the item list.
 
 <!-- fission:step id="packing-screen" -->
 ## Give the packing task a clear first screen
 
-A checklist row needs enough context to prevent a vague “done” tap. The item name says what to find, its category groups similar gear, and the quantity prevents “bottles” from hiding whether one or both are packed. A text status keeps the state understandable without relying on a colored icon.
+Each row needs enough detail to make “done” mean something. The name tells you what to find, the category groups related gear, and the quantity makes clear whether one or both bottles are packed. A text status keeps the information clear without relying on colour.
 
-For the first screen, define the item record and render the five essentials a small hiking group checks before setting out. The completed water filter and rain shell make the progress summary meaningful at first launch; the remaining bottle, first-aid kit, and headlamp give us clear next actions in the following step.
+Start with an item record and five essentials to check before setting out. Two items are already packed, so the summary is useful on first launch. The remaining bottle, first-aid kit, and headlamp give us clear actions to add in the next step.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -188,9 +188,9 @@ Find the headlamp row and note its category and quantity. The summary should rep
 <!-- fission:step id="pack-and-filter" -->
 ## Mark gear packed and focus on what remains
 
-The item list is shared application data because both the summary and each row need the same packed flag. A typed reducer changes that flag by stable item ID, then updates a short confirmation. Search and filter choices only change this screen, so the “show only what is left” switch belongs in the checklist component’s retained local state.
+The summary and each row need the same packed status, so the item list belongs in shared application state. A typed reducer changes one item by its stable ID and updates the confirmation. The “show only what is left” switch affects this screen alone, so keep it in the checklist component's retained local state.
 
-Each row is a reusable PackItemRow component. Giving repeated rows the item’s ID keeps their identity stable when the filter removes completed gear. The action changes from “Mark packed” to “Unpack item” after the reducer updates the state, so the next available action stays clear.
+Each row uses the reusable `PackItemRow` component. Its item ID keeps the row's identity stable when filtering removes completed gear. After the reducer runs, the action changes from “Mark packed” to “Unpack item”, so the next step is always clear.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -395,9 +395,9 @@ Mark the first-aid kit and headlamp packed; the summary should move from two of 
 <!-- fission:step id="run-on-android" -->
 ## Run the checklist on Android
 
-The component and reducer stay in shared Rust code. Fission’s Android target supplies a native shell, so the emulator and browser preview exercise the same checklist rules. The sample list resets when the process starts because we have not added storage; the Android build is still a real native app, not a web page wrapped in a browser.
+The component and reducer stay in shared Rust. Fission's Android target supplies the native shell, so the emulator and browser preview use the same checklist rules. The sample list resets when the app restarts because we have not added storage. The Android build is still a native app, not a web page inside a browser.
 
-Run the checks from the project root. Use the emulator for the first pass, then repeat the pack/unpack flow on a connected phone if the task is part of a device release.
+Run these commands from the project root. Start with the emulator, then repeat the pack and unpack flow on a connected phone when you need to check a device build.
 
 <Tabs>
 <TabItem label="Run and build">
@@ -409,7 +409,7 @@ fission build --target android --project-dir . --release
 ```
 </TabItem>
 <TabItem label="Wire the shared app">
-`fission init` generated `src/lib.rs` with `CounterApp` as its root. Replace that app wiring with the checklist so Android and the other targets start the same component and state:
+`fission init` points `src/lib.rs` at the starter `CounterApp`. Replace that wiring with the checklist so Android and the other targets start the same component and state:
 
 ```rust
 pub mod app;
@@ -469,7 +469,7 @@ fission run --target android --device <adb-serial> --project-dir .
 </TabItem>
 </Tabs>
 
-Rotate the emulator and scale its system font up one step. The packed labels, item quantities, and row actions should stay visible and tappable. A tap must change only the selected item, leave other rows intact, and update the packed summary immediately. These checks cover the task’s shared state and Android layout; they do not claim to test hardware permissions, which this checklist does not use.
+Rotate the emulator and increase its system font by one step. The packed labels, quantities, and actions should stay visible and easy to tap. Tapping one row should change only that item and update the summary straight away. This checks the shared state and Android layout; there are no hardware permissions in this app to test.
 <!-- /fission:step -->
 
 ## Continue learning

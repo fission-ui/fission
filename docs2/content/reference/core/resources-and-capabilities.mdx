@@ -5,17 +5,15 @@ description: The reference contract for build-time resources and reducer-trigger
 
 # Resources and capabilities
 
-Resources and capabilities are both explicit runtime surfaces, but they solve different problems.
+Capabilities ask a host to perform an operation. Resources declare work whose lifetime follows a widget subtree. Both are runtime-managed, but they start and stop for different reasons.
 
 A capability is a typed request for host-owned work, usually emitted from a reducer.
 
 A resource is a build-time declaration that tells the runtime some work should stay mounted while a widget subtree exists.
 
-That difference is the most important thing to keep clear when using this page.
-
 ## Capabilities
 
-A capability is the public contract for asking the host to perform an operation the shared app should not perform directly.
+A capability is a typed contract for asking the active host to perform work that shared app code should not do directly.
 
 Examples include opening a web address, opening a user-granted file picker, capturing a photo, scanning a barcode, requesting geolocation, or asking the host for biometric authentication. Fission ships low-level built-ins such as `OPEN_URL` and `PICK_OPEN_FILES` plus platform capability groups for notifications, deep links, NFC, biometrics, passkeys, barcode scanning, camera and flashlight, clipboard, geolocation, haptics, microphone, Bluetooth, Wi-Fi, and volume control.
 
@@ -27,11 +25,9 @@ Built-in APIs that can carry large binary data follow this rule: file picker res
 
 Native operating-system alerts are deliberately not built in as a generic alert capability. If you need an in-app alert, use normal Fission UI such as `Modal`, `Drawer`, `Toast`, or your own overlay. If you need a true host-owned prompt or a product-specific host flow, define a custom capability and register a shell provider for the hosts that support it.
 
-A capability invocation is the act of requesting one of these operations through `ctx.effects.capability(...)` with a typed request payload. The reducer chooses that operation explicitly, and the runtime routes the eventual success or error back through follow-up actions.
+A reducer requests a capability through `ctx.effects.capability(...)` with a typed payload. The runtime sends the request to the host provider, then routes its success or error through follow-up actions.
 
-Use a capability when the host boundary is the reason the work exists.
-
-Do not use a capability as a generic async escape hatch for ordinary app-owned background work. If the host does not need to do it, it is probably better modeled as a job or service.
+Use a capability when the host must perform the operation. For ordinary app-owned background work, use a job or service instead.
 
 ### Defining your own operation capability
 
@@ -100,11 +96,9 @@ Use reverse-DNS names such as `com.example.payment.start` for application-specif
 
 ## Resources
 
-A resource is a runtime-managed declaration collected during component conversion through `BuildCtxHandle` resource methods.
+A resource is declared during component conversion through `BuildCtxHandle` resource methods. It tells the runtime which work should exist while that part of the widget tree is mounted.
 
-Instead of saying "start this work right now because one reducer fired," a resource says "this work should exist while the current widget tree says it should exist."
-
-That difference is what makes resources such a good fit for timers, mounted polling, tree-owned jobs, or tree-owned long-lived services.
+Use resources for timers, mounted polling, jobs owned by a subtree, or long-lived services whose lifetime should match that subtree.
 
 The public types in this area include `ResourceRegistry`, `ResourceKey`, `ResourcePolicy`, `RuntimeResourceDeclaration`, `JobResource`, `ServiceResource`, and `TimerResource`.
 
@@ -120,7 +114,7 @@ The public types in this area include `ResourceRegistry`, `ResourceKey`, `Resour
 
 Every resource has a key, represented by `ResourceKey`.
 
-The key is how the runtime knows whether a resource declaration on this frame is the same logical resource as one from the previous frame. If the key is unstable or poorly chosen, reconciliation becomes noisy and the runtime cannot preserve or restart work the way you intended.
+The runtime compares a resource's key with the previous build to decide whether it is the same logical resource. An unstable key can make it restart or stop work unexpectedly.
 
 Stable keys are part of the public contract for correct resource usage.
 
@@ -134,23 +128,15 @@ Today, the public policy values are `RestartOnChange` and `PreserveOnChange`.
 
 `PreserveOnChange` means keep the live instance even though the declaration changed. Use it carefully when continuity matters more than immediate restart.
 
-These names are short, but the intent matters. Policy is not decoration. It is how you describe lifetime behavior to the runtime.
-
 ## Resource reconciliation
 
 The runtime reconciles resources by comparing the key, declaration kind, dependency payload, and policy.
 
-That is why resource declarations are safe to make during a pure `component conversion` method. Declaring a resource does not perform the work immediately. It gives the runtime the information it needs to start, preserve, restart, or stop the resource after the conversion phase.
+Declaring a resource during component conversion does not start the work immediately. It gives the runtime what it needs to start, preserve, restart, or stop the resource after conversion.
 
 ## Choosing between capabilities and resources
 
-Use a capability when the question is "ask the host to do this operation."
-
-Use a resource when the question is "this work should stay mounted while this part of the user interface exists."
-
-If you are deciding between a capability and a job, ask whether the work is host-owned. If yes, capability. If not, job.
-
-If you are deciding between a reducer effect and a resource, ask whether the work should happen because one action occurred or because a subtree should stay alive. If the widget tree should own the lifetime, use a resource.
+Use a capability for work the host owns. Use a job or command for app-owned work requested by a reducer. Use a resource when the work should stay active for as long as a widget subtree is mounted.
 
 ## Related reference pages
 

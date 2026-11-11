@@ -6,9 +6,9 @@ description: Reference contract for semantic output, translated text, locale, an
 
 # Accessibility and internationalization
 
-Accessibility and internationalization are not finishing touches. They affect how the runtime describes the interface, how text is selected, how layout adapts, and how platform shells expose the app to operating-system services.
+Accessibility and internationalization affect the whole app: what the runtime says each control is, how text is selected, how layouts adapt to translation, and what platform shells expose to assistive technology.
 
-In Fission, both concerns start in the shared app model. Widgets produce semantic information as part of the normal tree. Text can come from translation keys. Locale and translation bundles live in `Env`. Shells then bridge the resolved result to the host platform.
+In Fission, widgets add semantics to the normal tree, text can use translation keys, and `Env` holds the active locale and translation bundles. Each shell exposes the result through its platform's accessibility services.
 
 For the dedicated accessibility support matrix, native bridge contract, role mapping, and screen-reader compatibility targets, use [Accessibility reference](/reference/platform/accessibility/). This page keeps accessibility and locale together because platform shells often need to validate both at the same time.
 

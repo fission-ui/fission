@@ -16,22 +16,21 @@ show_adjacent_posts: true
 
 # Fission 0.12.0: Interactive canvas and complete Web input
 
-Fission 0.12.0 adds a retained, backend-neutral camera and a declarative
-infinite canvas without creating a second rendering or state system. It also
-completes the input work those widgets require: multiple pointer identities,
-pinch and magnification, cancellation, detailed scrolling, browser editing
-shortcuts, context menus, and reliable WebGPU presentation at real application
-sizes.
+Fission 0.12.0 adds a retained camera and a declarative infinite canvas. Both
+use the same rendering and state systems as the rest of Fission. To make them
+work across targets, this release also adds multiple pointer identities, pinch
+and magnification, cancellation, detailed scrolling, browser editing shortcuts,
+context menus, and reliable WebGPU presentation at real app sizes.
 
-This is a minor release because it adds major public capabilities and changes
-the public pointer and scoped-action contracts.
+This is a minor release with new public capabilities and changes to the pointer
+and scoped-action contracts.
 
 ## One camera for ordinary retained widgets
 
-`InteractiveViewer` pans and uniformly scales one normal Fission widget
-subtree. The camera may be runtime-owned or controlled by application state,
-and its behavior is expressed with backend-neutral policies for boundaries,
-clipping, axes, minimum and maximum scale, wheel behavior, and inertia.
+`InteractiveViewer` pans and scales an ordinary Fission widget subtree. The
+runtime can own the camera, or your app can control it through state. Its
+backend-neutral policies cover boundaries, clipping, axes, minimum and maximum
+scale, wheel behaviour, and inertia.
 
 ```rust
 let viewer: Widget = InteractiveViewer {
@@ -45,20 +44,20 @@ let viewer: Widget = InteractiveViewer {
 .into();
 ```
 
-Mouse, touch, stylus, modifier-wheel, macOS magnification, and browser pinch
-feed the same core controller. A draggable child wins an ordinary one-pointer
-drag, while a second contact promotes the nearest viewer to a captured
-two-pointer pan and zoom without a camera jump when one contact is released.
+Mouse, touch, stylus, modifier-wheel, macOS magnification, and browser pinch all
+use the same controller. A draggable child keeps an ordinary one-pointer drag.
+Add a second contact and the nearest viewer takes over for a two-pointer pan and
+zoom, without the camera jumping when one contact is released.
 
-Callbacks preserve their bound action payload. Reducers read the live camera,
-focal points, pan delta, scale factor, input family, modifiers, and lifecycle
-from `ctx.input.viewport_interaction()`.
+Callbacks keep the action payload you bound. Reducers read the current camera,
+focal point, pan delta, scale factor, input type, modifiers, and gesture
+lifecycle from `ctx.input.viewport_interaction()`.
 
 ## InfiniteCanvas stays declarative
 
-`InfiniteCanvas` builds on `InteractiveViewer` instead of introducing an
-imperative scene authority. Applications continue to own committed nodes,
-edges, selection, and optional controlled camera state.
+`InfiniteCanvas` builds on `InteractiveViewer`; it does not introduce a second,
+imperative source of truth. Your app still owns its nodes, edges, selection, and
+any camera state it chooses to control.
 
 The initial widget includes:
 
@@ -76,22 +75,21 @@ SSR, and Terminal-only builds intentionally do not expose them.
 
 ## Complete pointer facts across shells
 
-Fission no longer collapses every touch contact into one synthetic mouse
-pointer. `PointerEvent` now retains `PointerId` and `PointerKind`, explicit
+Fission no longer treats every touch contact as the same synthetic mouse
+pointer. `PointerEvent` now carries `PointerId` and `PointerKind`, explicit
 cancellation, line-versus-pixel scroll mode, scroll lifecycle, and
-multiplicative magnification. Native and Web test control use the same detailed
-events, which makes multi-contact behavior deterministic to test.
+multiplicative magnification. Native and Web tests use the same event details,
+so multi-contact behaviour is deterministic.
 
 This is a source change for code that directly constructs or exhaustively
 matches `PointerEvent`.
 
 ## Web behaves like a Fission application
 
-Web applications now receive platform-correct secondary clicks and Fission-owned
-keyboard editing, selection, copy, cut, paste, and context menus. Browser
-defaults remain suppressed by default. An application can selectively delegate
-keyboard, pointer, touch, wheel, context-menu, or clipboard behavior with a
-composed `BrowserDefaults` value:
+Web apps now get platform-correct secondary clicks and Fission-managed keyboard
+editing, selection, copy, cut, paste, and context menus. Browser defaults remain
+suppressed unless you opt in. Choose which keyboard, pointer, touch, wheel,
+context-menu, or clipboard behaviour to delegate with `BrowserDefaults`:
 
 ```rust
 WebApp::<AppState, _>::new(App)
@@ -100,19 +98,18 @@ WebApp::<AppState, _>::new(App)
     );
 ```
 
-The release also fixes the blank or transparent WebGPU output seen at larger
-window sizes. Fission validates WebGPU work before presentation, configures the
-browser canvas surface correctly, sizes the forked Vello buffers from the real
-frame workload, and mirrors framework diagnostics into the browser console.
+This release also fixes blank or transparent WebGPU output at larger window
+sizes. Fission checks WebGPU work before presentation, configures the browser
+canvas surface, sizes Vello buffers for the actual frame, and sends framework
+diagnostics to the browser console.
 
 ## Authoring-tree and scoped-action contracts
 
-`Widget::kind()` and `Widget::visit()` provide read-only, depth-first access to
-the authoring tree for integrations that need to discover widget structure.
-Scoped handlers now return an explicit `ScopedActionResolution`: handle the
-action locally, or forward an envelope once through normal dispatch. Fission
-rejects ambiguous multiple forwards and prevents a forwarded action from
-recursively re-entering the handler that forwarded it.
+Integrations can inspect the authoring tree read-only and depth-first with
+`Widget::kind()` and `Widget::visit()`. Scoped handlers now return a
+`ScopedActionResolution`: handle an action locally, or forward its envelope
+once through normal dispatch. Fission rejects multiple forwards and stops a
+forwarded action from re-entering the handler that forwarded it.
 
 ## Migration
 

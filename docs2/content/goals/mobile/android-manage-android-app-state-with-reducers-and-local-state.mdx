@@ -16,9 +16,9 @@ outcomes:
   - Run the same Rust workflow in an Android emulator
 ---
 
-At North Gate Workshop, volunteers share drills, saws, and other equipment. When a tool is checked out, everyone at the desk needs to see who has it and when it is due back. The desk also needs a quick way to focus on tools that are available without changing the inventory.
+North Gate Workshop lends drills, saws, and other equipment to its volunteers. When someone checks out a tool, the whole desk needs to see who has it and when it is due back. Volunteers also need to filter the shelf to available tools. That filter should change what they see, not the inventory itself.
 
-We will build that checkout desk from four workshop tools. A reducer checks a tool out to Asha or marks it back on the shelf, while a summary reads the same inventory. The available-only filter belongs to the desk component because it changes the view, not the equipment record. This first version keeps its sample inventory in memory, so restarting the app restores the starting shelf.
+We’ll build the desk around four tools. Reducers check a tool out to Asha or mark it back on the shelf, and the summary reads the same inventory. The available-only filter belongs to the desk component because it is temporary UI state. This first version keeps sample inventory in memory, so restarting the app restores the original shelf.
 
 ## Create an Android project
 
@@ -48,14 +48,15 @@ north-gate-tool-library/
 </TabItem>
 </Tabs>
 
-Keep the tool records and the desk components in the shared Rust project under `src/`. The generated Android host launches that app; it does not need a second copy of the inventory rules.
+Keep tool records and desk components in the shared Rust project under `src/`. The generated Android host launches that app; it doesn’t need another copy of the inventory rules.
 
 <!-- fission:step id="start-screen" -->
 ## Lay out the workshop shelf
 
-A volunteer should be able to tell at a glance which tools can leave the workshop and which ones are already with a member. Each row therefore shows a tool name, where it belongs, its current status, and the return time when it is checked out.
+Volunteers need to see which tools are available and which are checked out.
+Each row shows the tool, where it belongs, its status, and when it is due back.
 
-Start with a read-only screen so the inventory shape is easy to see before adding actions. `ToolCard` gives one tool a consistent layout, and `ToolLibraryDesk` arranges the summary and cards. Its named vertical scroll region keeps the full shelf reachable on a phone and gives TalkBack a useful description for the scroll area.
+Start with a read-only screen. It is easier to check the inventory layout before adding actions. `ToolCard` gives each tool the same presentation, while `ToolLibraryDesk` arranges the summary and rows. Its named scroll region keeps the whole shelf reachable on a phone and gives TalkBack a useful description.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -242,11 +243,11 @@ Find the circular saw in the cutting bay. Its row should name Ravi as the borrow
 <!-- fission:step id="check-tools-in-and-out" -->
 ## Check tools in and out with reducers
 
-A checkout changes shared inventory. When a volunteer checks out the drill, the tool row and the available count should change together. Checking in Elena’s pressure washer must update the same shared record, not just remove a card from the current screen.
+Checking out a tool changes shared inventory. The drill row and available count should change together; checking in Elena’s pressure washer should update the same record, not just hide its card.
 
-Keep the tool list in `ToolLibraryState`, which implements `GlobalState`. The `CheckOutTool` and `CheckInTool` actions carry the selected tool’s stable ID; their reducers reject an invalid repeat transition, update the matching status, and leave a clear notice. `ToolSummary` and `ToolCard` both read this state, so their values stay in sync.
+`ToolLibraryState` implements `GlobalState` and owns the tool list. `CheckOutTool` and `CheckInTool` carry a stable tool ID. Their reducers reject a repeated or invalid transition, update the matching record, and leave a notice. Both `ToolSummary` and `ToolCard` read the same state, so there is no second count to keep in sync by hand.
 
-The filter has a different job. A volunteer can focus on available tools, then show the whole shelf to check who has the rest. `available_only` is retained local state in `ToolLibraryDesk` because it changes the visible rows, not the equipment data. Replace `src/app.rs` with this version and try the drill, saw, and filter in the preview.
+The filter is different: volunteers can focus on available tools, then show the whole shelf to check who has the rest. `available_only` is retained local state in `ToolLibraryDesk` because it changes the visible rows, not the equipment records. Replace `src/app.rs` and try the drill, saw, and filter in the preview.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -594,7 +595,7 @@ Check out the cordless drill to Asha. The available total should drop from two t
 <!-- fission:step id="run-on-android" -->
 ## Run the checkout desk on Android
 
-The browser preview exercises the inventory rules without requiring an emulator. The native app uses the same `ToolLibraryDesk` and `ToolLibraryState`; the Android shell supplies the device window and generated host. Replace the generated app’s `CounterApp` references in `src/lib.rs`. The generated `src/main.rs` continues to select the Android entry point.
+The browser preview lets you try the inventory rules without an emulator. The Android app uses the same `ToolLibraryDesk` and `ToolLibraryState`; only the shell and host change. Replace the generated app’s `CounterApp` references in `src/lib.rs`. Leave `src/main.rs` to select the Android entry point.
 
 <Tabs>
 <TabItem label="src/lib.rs">
@@ -667,7 +668,7 @@ fission run --target android --device <device-id> --project-dir .
 </TabItem>
 </Tabs>
 
-Run `cargo test` first. The reducer tests prove that a checkout records Asha and that a check-in returns the pressure washer to the shelf. Then launch the app in an Android emulator. Check out the drill, verify both the row and available total change, and check in the pressure washer. Open TalkBack and confirm that each tool row announces its name, storage location, status, and action. A physical Android build uses the same Rust app; the [Android device guide](/blog/run-a-fission-app-on-a-physical-android-phone/) explains USB debugging and deployment.
+Run `cargo test` first. The reducer tests check that checkout records Asha and check-in returns the pressure washer to the shelf. Then launch the app in an emulator, check out the drill, and confirm the row and available count both change. Check in the pressure washer. Finally, use TalkBack to confirm that each row announces the tool, location, status, and action. The same Rust app runs on a physical phone; the [Android device guide](/blog/run-a-fission-app-on-a-physical-android-phone/) covers USB debugging and installation.
 
 <!-- /fission:step -->
 

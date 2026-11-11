@@ -5,9 +5,7 @@ description: The staged path from Widget build output to layout, semantics, rend
 
 # Rendering pipeline
 
-This page describes the runtime pipeline that turns authored widgets into a presented frame.
-
-Use it when you need to confirm what each stage consumes, what it produces, and where a bug likely belongs.
+Before a widget appears on screen, Fission composes it, lowers it, lays it out, derives semantics, compiles paint commands and presents the result through the shell. Use this page to see what each stage takes and returns, and to narrow down where a rendering bug starts.
 
 ## Pipeline stages
 
@@ -34,7 +32,7 @@ Lowering is the step that translates the authored `Widget` tree into the smaller
 
 That contract is commonly described as the Core intermediate representation, or Core IR.
 
-The purpose of Core IR is architectural stability. Layout, semantics, testing, and rendering should not have to understand every authoring convenience widget directly. They consume a more stable internal representation instead.
+Core IR gives the later stages a stable shape to work with. Layout, semantics, testing, and rendering do not need to understand every authoring convenience widget; they work with this smaller representation instead.
 
 Framework-owned specialized render paths fit into this stage when a built-in widget needs direct control over its internal representation. Application code authors reusable components with `fission_component!`, which composes the values and state for a view into `Widget`.
 
@@ -48,17 +46,17 @@ This explicit geometry stage is why layout can be inspected directly in tests an
 
 ## Semantics output
 
-Semantics are the runtime's description of interface meaning rather than pixels.
+Semantics describe what the interface means, not how its pixels look.
 
-That includes roles, labels, values, focus-relevant structure, and other accessibility-oriented meaning derived from the shared runtime. The shell then adapts that meaning to platform accessibility APIs.
+They include roles, labels, values, focus structure, and other accessibility information from the shared runtime. Each shell maps that information to its platform accessibility APIs.
 
-Semantics are part of the pipeline because they are a first-class runtime output, not an afterthought layered on top of pixels.
+The runtime produces semantics alongside the visual output, so accessibility is not an extra layer added after rendering.
 
 ## Paint compilation and display list output
 
 Once structure and geometry are known, the runtime compiles visible content into a display list.
 
-A display list is the ordered sequence of drawing operations consumed by the renderer. Keeping this stage explicit is important for performance, determinism, and debugging. Paint order can be inspected, compared, and validated without collapsing all rendering questions into final pixels alone.
+A display list is the ordered sequence of drawing operations consumed by the renderer. Keeping it explicit makes paint order easier to inspect, compare, and validate. It also lets you debug those commands without reducing every rendering question to the final pixels.
 
 ## Shell presentation
 
@@ -76,7 +74,7 @@ The most commonly referenced public types in this area are:
 
 ## Debugging guidance
 
-This page is often most useful when you ask which stage first became wrong.
+When something goes wrong, find the earliest stage whose input is already wrong.
 
 If the wrong branch or text is present, inspect state or the component view.
 

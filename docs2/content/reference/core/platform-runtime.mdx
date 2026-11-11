@@ -5,9 +5,7 @@ description: The boundary between Fission's shared runtime and the public target
 
 # Platform runtime
 
-This page explains one of the most important boundaries in Fission: the line between the shared runtime and the platform shell that hosts it.
-
-The short version is this:
+Fission keeps app behaviour in a shared runtime and uses a platform shell to connect it to each host. In practice:
 
 - the core runtime decides what the user interface means,
 - the shell decides how that user interface is attached to a real host.
@@ -68,7 +66,9 @@ They host the same shared runtime model. Where a wrapper has type parameters, th
 
 If you are new to Rust generics, you can read those wrappers more simply as "desktop shell for my app," "mobile shell for my app," "web shell for my app," "terminal shell for my app," "static site shell," and "SSR shell for my app."
 
-The important thing they share is more valuable than the differences: each wrapper keeps product behavior in the shared app model. You still provide root widgets or routes. You still have app state where the target needs runtime state. You still use reducers, actions, selectors, and widgets the same way.
+Each wrapper keeps product behavior in the shared app model. You provide the
+root widget or routes, keep runtime state in the app state, and use the same
+reducers, actions, selectors, and widgets across targets.
 
 ## How the wrappers are meant to be used
 

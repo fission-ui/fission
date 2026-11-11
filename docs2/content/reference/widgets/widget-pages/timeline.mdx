@@ -80,16 +80,11 @@ A timeline is strongest when entries represent real moments in a meaningful orde
 
 Avoid stuffing a full paragraph into every event. Timelines stay readable when the title carries the main meaning and the description adds only the context that helps the user decide what happened.
 
-## Production checklist
+## Check the timeline in context
 
-For `Timeline`, review the fields that change behavior before treating the widget as finished: `items`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
-
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
-
-If a screen starts repeating the same `Timeline` setup, extract a named component around this widget. That keeps the reference API small while making product code easier to read and safer for generated code to copy.
+- Pass events in the order you want people to read them; keep the title short and put only useful context in the description.
+- Use `TimelineLayout` when entries have different heights or contain controls, and give each retained entry a durable identity.
+- Test long translated entries and narrow widths so text does not obscure the marker rail or connector.
 
 ## Related
 

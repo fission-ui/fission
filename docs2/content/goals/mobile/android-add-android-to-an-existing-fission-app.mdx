@@ -1,7 +1,7 @@
 ---
 layout: goal
 title: Add Android to an existing Fission app
-description: "Step-by-step Rust guide to add Android to an existing Fission app."
+description: "Add Android to an existing Fission app."
 goal: Add the Android target while keeping shared app state, reducers, components and product logic in the common Rust project.
 path: /blog/add-android-to-an-existing-fission-app/
 order: 20
@@ -39,7 +39,7 @@ android-add-android-to-an-existing-fission-app/
     └── android/              # generated Android host
 ```
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android host owns launch and packaging details; shared components describe the user task without importing Android APIs.
+Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
 
 <!-- fission:step id="start-screen" -->
 ## Create the app screen

@@ -192,9 +192,12 @@ fission site build --project-dir . --release
 
 Open the generated `index.html` and `site.css` if the page looks wrong. The HTML should contain the real content, not a blank app shell. That is what keeps the site crawlable and shareable.
 
-## What you should have working
+## Check the generated output
 
-After this guide, you should have a custom widget route, site-owned content chrome, project CSS loaded after the generic shell styles, and any progressive enhancement limited to the routes that need it. You should also be able to build the site and inspect the generated HTML without changing `fission-shell-site`.
+The generated pages should contain the custom widget route and site-owned
+content chrome in the HTML. Project CSS should load after the shell styles, and
+any progressive enhancement should only load on the routes that use it. You
+can inspect the generated HTML and CSS without changing `fission-shell-site`.
 
 ## Common mistakes to check
 

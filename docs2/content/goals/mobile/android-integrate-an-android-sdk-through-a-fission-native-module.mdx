@@ -1,7 +1,7 @@
 ---
 layout: goal
 title: Integrate an Android SDK through a Fission native module
-description: "Step-by-step Rust guide to integrate an Android SDK through a Fission native module."
+description: "Integrate an Android SDK through a Fission native module."
 goal: Add a narrowly scoped Gradle or native dependency, expose a typed boundary and keep Android-only code out of shared UI logic.
 path: /blog/integrate-an-android-sdk-through-a-fission-native-module/
 order: 61
@@ -17,7 +17,7 @@ outcomes:
 
 ## Create the project and add the target
 
-Install the Fission command line, create the app, and add its native target.
+Create the project and add the target used by this guide. Fission generates the native host; the app and its behaviour stay in shared Rust code.
 
 ```sh
 cargo install cargo-fission
@@ -28,7 +28,7 @@ fission add-target android --project-dir .
 
 ## Files created by Fission
 
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/android/`.
+This is the starter tree Fission generates. Keep shared app code in `src/`; the generated platform files handle native launch and packaging.
 
 ```text
 android-integrate-an-android-sdk-through-a-fission-native-module/
@@ -42,12 +42,12 @@ android-integrate-an-android-sdk-through-a-fission-native-module/
     └── android/              # generated Android host
 ```
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android host owns launch and packaging details; shared components describe the user task without importing Android APIs.
+Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
 
 <!-- fission:step id="start-screen" -->
 ## Create the app screen
 
-Give the workflow a clear first screen before adding its platform-specific behavior. This version displays the user task and current step; the next section connects the feature and its outcome to Fission state.
+Start with the shared Rust screen and keep Android SDK calls out of it. The next section adds a typed boundary through a Fission native module.
 
 <Tabs>
 <TabItem label="src/app.rs">

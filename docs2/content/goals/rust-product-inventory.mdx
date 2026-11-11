@@ -16,15 +16,15 @@ outcomes:
   - Recover from invalid quantities, overflow and searches with no matches
 ---
 
-You are opening the stockroom at Harbour Supply in Troutdale. A delivery can only be put away safely when the receiver can identify the exact product, confirm its storage bin and compare the new count with the reorder point. A name alone is not enough: two products may come from the same supplier, and a misplaced box can leave the shelf empty even when the total warehouse count looks healthy.
+You’re opening the Harbour Supply stockroom in Troutdale. Before putting a delivery away, the receiver needs to identify the product, check its bin, and compare the count with its reorder point. A name alone is not enough: two products can have the same supplier, and a box in the wrong place can leave the shelf empty while the warehouse total still looks fine.
 
-We will build the screen the receiving team uses to check those details and record units as they arrive. The catalogue starts with five outdoor-shop products, with three products to review: the camp stove is out of stock and two others are below their reorder points. Search accepts a product name, SKU, category, supplier or bin. A receipt updates the selected product, the warehouse total and the reorder summary together; zero, invalid or overflowing quantities leave the stored count untouched and explain why.
+We’ll build the screen the receiving team uses to check those details and record new stock. The catalogue has five outdoor products; three need attention, including an out-of-stock camp stove. Search by name, SKU, category, supplier, or bin. A receipt updates the product, warehouse total, and reorder summary together. Zero, invalid, or overflowing quantities leave the count alone and explain what needs fixing.
 
-All catalogue data stays in memory so you can see each state change immediately without configuring a service. The tutorial will show where the reducer owns inventory truth, where the dashboard keeps its temporary search and receipt fields, and what must move behind an asynchronous persistence boundary in a production app.
+The catalogue stays in memory so you can see each change without configuring a service. We’ll keep inventory truth in shared app state and search and receipt drafts in the dashboard. At the end, we’ll look at what needs to move behind an asynchronous persistence boundary in a real app.
 
 ## Create the server-rendered project
 
-Install the Fission command line tool if it is not already on your machine, then create an SSR project. The generated shell gives the site a server-rendered entry point; the dashboard itself stays in shared Rust code.
+Install the Fission CLI if you haven’t already, then create an SSR project. The generated shell starts the server-rendered site; the dashboard stays in shared Rust code.
 
 <Tabs>
 <TabItem label="Create the project">
@@ -52,14 +52,14 @@ harbour-inventory/
 </TabItem>
 </Tabs>
 
-The generated files have different jobs. `main.rs` starts the server target, while `lib.rs` configures the shared app. We will keep the page component in `app.rs` and the product fields in `models.rs`, so changing a row later does not require searching through the server setup.
+The generated files have separate jobs: `main.rs` starts the server target, and `lib.rs` configures the shared app. Keep the page in `app.rs` and product fields in `models.rs`; changing a row shouldn’t mean digging through server setup.
 
 <!-- fission:step id="catalogue" -->
 ## Start with a useful stock catalogue
 
-Before the receiver changes a count, the screen needs to make each product unmistakable. At Harbour Supply, the SKU is the reliable identifier; the product name, supplier and bin help the person match that record to the label on a carton or shelf. The row also shows the current quantity next to its reorder point, so “Reorder soon” has a visible reason instead of relying on colour alone.
+Before changing a count, the receiver needs to know exactly which product they’re looking at. The SKU is the reliable identifier; the name, supplier, and bin help match the record to the carton or shelf. Each row also puts the current quantity next to the reorder point, so “Reorder soon” has a clear reason and doesn’t rely on colour alone.
 
-We will put those details in `InventoryProduct` and render a row from each record. Unit cost is stored as cents rather than a floating-point number. That keeps money exact in Rust: 1,800 cents is always eighteen dollars, and formatting only happens when we display it.
+`InventoryProduct` holds those details. Unit cost is stored in cents, not as a floating-point number. That keeps money exact: 1,800 cents is always eighteen dollars, and formatting happens only when we display it.
 
 <Tabs>
 <TabItem label="src/models.rs">
@@ -347,9 +347,9 @@ Find the compact camp stove and check its stock, reorder point, supplier and war
 <!-- fission:step id="search-and-adjust" -->
 ## Find products and record stock receipts
 
-When the delivery arrives, the receiver may know only the supplier name or the bin printed on a shelf label. The search field checks the product name, SKU, category, supplier and bin, and the stock filters help staff focus on the products that need a decision. “Needs reorder” compares the available quantity with the visible threshold; “Out of stock” is narrower and shows only a zero count.
+When the delivery arrives, the receiver may know only the supplier or the bin on the shelf label. Search checks name, SKU, category, supplier, and bin. The stock filters narrow the list: “Needs reorder” compares the quantity with the visible threshold, while “Out of stock” shows only products with a zero count.
 
-For this first interaction, the row’s receive action adds five units. It is attached to the named product row, so the reducer receives that SKU’s product ID and cannot accidentally update a different item. In the next step we will let the receiver enter the amount from the packing slip and reject invalid quantities before any stock changes.
+For now, the receive action adds five units. It belongs to a specific product row, so the reducer receives that product ID and can’t update a different item by mistake. Next, the receiver will enter the amount from the packing slip, and we’ll reject invalid quantities before changing stock.
 
 <Tabs>
 <TabItem label="src/models.rs">
@@ -743,13 +743,13 @@ Search for `MUG-104`, select “Needs reorder” and receive five units. Confirm
 <!-- fission:step id="validate-and-recover" -->
 ## Validate receipts and make empty results recoverable
 
-A receiving clerk should be able to use the count on the packing slip rather than accept a fixed quantity. The dashboard keeps the receipt field local because it is only a draft for this screen; when the receiver presses Receive, the action sends a parsed number and product ID to `on_receive_stock`. The reducer rejects zero and checks for integer overflow before it writes. On an error, the previous stock total stays intact and the message says what the receiver can correct.
+The receiver needs to enter the quantity from the packing slip. The dashboard keeps that field local because it is just a draft. When the receiver presses **Receive**, the action sends the parsed number and product ID to `on_receive_stock`. The reducer rejects zero and checks for integer overflow before writing. On error, the count stays unchanged and the message explains what to correct.
 
-Search can also produce an empty list when someone enters a partial SKU or supplier that is not in this warehouse. An empty result should explain that the filters caused it and provide one action to restore the whole catalogue. Clearing the view changes only search and filter state, so earlier receipts remain visible in the product count and reorder summary.
+Search may also return no products. The empty state should say that the current search or filters caused it and offer a way to restore the catalogue. Clearing the view resets only the search and filter; it must not undo earlier receipts.
 
-Product records belong in `GlobalState` because the summary cards, reorder notice and visible rows all depend on the same stock values. Search, the active filter and the current receipt quantity are local to the dashboard; they are temporary view choices, not warehouse facts. When the reducer accepts a receipt, every part of the screen derives from the updated product list. When it rejects a receipt, no count changes.
+Product records belong in `GlobalState`: the summary, reorder notice, and rows all need the same stock values. Search, the active filter, and the receipt draft are local dashboard state, not warehouse facts. When the reducer accepts a receipt, the whole screen reads the updated product list. When it rejects one, no count changes.
 
-The example resets to its starting products when the page reloads. A production version would load inventory from a service and write receipts through an asynchronous effect, displaying a pending state until that service confirms or rejects the movement. The same product ID and quantity validation can stay in the domain action, while the service boundary owns persistence and network errors.
+Reloading this example restores its starting products. A real app would load inventory from a service and write receipts through an async effect, showing a pending state until the service accepts or rejects the change. Keep product ID and quantity validation with the domain action; the service boundary handles persistence and network errors.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -1206,9 +1206,9 @@ fission doctor --project-dir .
 fission run --target ssr --project-dir .
 ```
 
-Before packaging the app, search by an SKU, supplier and bin; compare the reorder filter with the threshold in each row; and receive both valid and invalid quantities. A successful receipt should update the selected product and summary. A rejected receipt should explain the problem without changing any count.
+Before packaging, search by SKU, supplier, and bin. Compare the reorder filter with the threshold in each row, then try valid and invalid receipts. A successful receipt updates the product and summary; a rejected one explains the problem without changing the count.
 
-The interactive lesson keeps its sample records in app state, so a reload restores the starting counts. To keep inventory changes across requests or share them with product-detail routes, move the catalogue into `GlobalState` and add an asynchronous repository service. Let a reducer request the write, render a pending state while it runs, and show the service result when it completes.
+The lesson keeps sample records in app state, so a reload restores the starting counts. To keep changes across requests or share them with product-detail routes, persist the catalogue through an asynchronous repository service. A reducer requests the write; the screen shows pending state and then the service result.
 
 ## Where to go next
 

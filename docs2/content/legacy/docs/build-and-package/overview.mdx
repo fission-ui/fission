@@ -5,15 +5,14 @@ description: Choose the right Fission package target and produce manifest-backed
 
 # Build and package
 
-Packaging turns a working Fission app into something another person, device, store, host, or deployment system can consume. It is separate from distribution: packaging creates the artifact, distribution uploads or submits it.
+`fission build` checks a target build. `fission package` turns that output into an installable or deployable artifact. Publishing is a separate step: it sends the package to a store, registry, or host.
 
-Use this overview to choose the correct target page, then follow that page for the exact package shape.
+Choose your target below, then follow its page for the exact package format and configuration.
 
 ## Build, package, release, and publish are different steps
 
-Fission keeps the release pipeline explicit. That makes local developer releases
-and CI releases easier to reason about because each step has a concrete input
-and output.
+Each command has a defined input and output, so you can check a package before
+you upload it.
 
 | Step | Command family | Input | Output |
 | --- | --- | --- | --- |

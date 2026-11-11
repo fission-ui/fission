@@ -7,7 +7,9 @@ description: Use design-system tokens, packaged fonts, typed paint, shadows, fil
 
 Fission's visual model is intentionally explicit. A widget tree can describe layout, colors, fills, text metrics, shadows, filters, and packaged fonts in a way that the runtime and tests can inspect.
 
-The goal is not to hard-code more detail. The goal is to make design decisions durable by routing them through a generated design system and typed primitives.
+Put shared design decisions in the generated design system and typed layout and
+paint primitives. That keeps colors, spacing, typography, and effects consistent
+across the app and gives the runtime something it can inspect and test.
 
 ## Use tokens before literals
 
@@ -70,9 +72,16 @@ Use these APIs for reusable components and design-system-backed examples. Target
 
 ## Fonts are assets
 
-Design-system codegen embeds declared font files into the generated Rust type. Shells register those packaged fonts during startup through `DesignSystem::font_faces()`.
+Design-system codegen packages declared font files with the generated type. Native shells can register those fonts through `DesignSystem::font_faces()`. Static site and SSR output do not add packaged fonts to CSS by default. Set `[web].font_delivery` in `fission.toml` when you want a different behavior:
 
-This means a component can rely on the generated typography tokens instead of assuming that a user's machine has the same fonts installed.
+```toml
+[web]
+font_delivery = "none" # default; use "external" or "inline" to opt in
+```
+
+`external` writes cacheable font files and references them from CSS. `inline` embeds the bytes as CSS data URLs, which makes the output self-contained but increases the CSS size. This setting applies to Static site and SSR documents; it does not configure the canvas-rendered Web SPA, which registers packaged font data with its renderer. See the [`[web]` configuration](/reference/config/fission-toml/#web) for details.
+
+Use the generated typography tokens instead of assuming that a user's machine has the same fonts installed. Choose browser font delivery deliberately for the deployment you are building.
 
 ## Verify with golden tests
 

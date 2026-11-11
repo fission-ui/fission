@@ -15,13 +15,13 @@ outcomes:
   - Require an internal note and a supervisor role before resolving a ticket
 ---
 
-A support supervisor opening an admin panel needs to answer a few connected questions: which customer is waiting, what happened, who owns the issue, and what action is safe to take? A table of labels does not answer those questions. We will build a small support workspace that keeps the ticket queue and the selected conversation in view, then adds the checks that make a resolution understandable to the next person.
+When a support supervisor opens the admin panel, they need to know who is waiting, what happened, who owns the issue, and what they can safely do next. A table of labels is not enough. We’ll build a small workspace with the queue and selected conversation side by side, then add the checks and history that make a resolution clear to the next person.
 
-The example follows a fictional team at Harbour Support. Its records are sample data held in the browser for this lesson, so the preview can be used without an account or server. The same screen structure can connect to a ticket service later. Search, filters, the role demonstration and the unfinished note belong to this screen, so the component retains them locally. The selected ticket ID belongs in shared app state because the queue and detail pane both read it. In a real application, ticket records come from a service and permission decisions are made on the server.
+The example uses sample records for a fictional team at Harbour Support. They live in the browser, so you can try the screen without an account or server. Search, filters, the role demo, and unfinished note belong to this screen, so keep them local. The selected ticket ID belongs in shared app state because both panes use it. A real app loads tickets from a service and makes permission decisions on the server.
 
 ## Create the Web project
 
-Install the Fission command line tool if it is not already available, then scaffold the browser target. The generated shell starts the app; the screen we build below lives in shared Rust code.
+Install the Fission CLI if needed, then scaffold the Web target. The generated shell starts the app; the screen belongs in shared Rust code.
 
 <Tabs>
 <TabItem label="Create the project">
@@ -50,14 +50,14 @@ harbour-support/
 </TabItem>
 </Tabs>
 
-The generated project already contains the entry point and shared app setup. Put the first screen in app.rs so we can understand the user task before splitting data loading or actions into other modules.
+Keep the initial screen in `src/app.rs` while the task is small. Once the service and actions arrive, move them into focused modules instead of letting the screen become the place for everything.
 
 <!-- fission:step id="queue" -->
 ## Start with the support queue
 
-Start from the queue a supervisor sees when opening the workspace. Each row answers a different part of the triage question: the customer and subject explain the issue, the category and priority describe its impact, and the assignee shows who should act next. The summary cards give a quick sense of the backlog, but the ticket list remains the main content.
+Start with the queue. Each row should show who raised the issue, what it is about, its category and priority, and who owns the next action. Summary cards give a sense of the backlog, but the ticket list is still the main work surface.
 
-Notice that the queue is a reusable screen component with a domain name. The sample records are kept near the screen for now because they are only preview data; when records are loaded from a service, move the model and shared state into their own modules.
+The queue is a named component with a clear job. Keep the sample records nearby for this preview; when a service supplies real records, move the model and shared state into their own modules.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -284,13 +284,11 @@ Before adding controls, read one row aloud as a complete handoff: customer, issu
 <!-- /fission:step -->
 
 <!-- fission:step id="find-and-inspect" -->
-The list is useful for scanning, but a supervisor still needs to find one customer’s case and inspect its details. We will add search and queue filters next. Search text and the active filter only affect this screen, so the component retains them locally. The selected ticket ID lives in SupportState because the queue and detail pane both depend on it.
-
 ## Find a ticket and inspect its history
 
-The supervisor’s work usually begins with a name, a ticket number or a queue such as “urgent” or “assigned to me.” Search across both customer and issue text so a partial name still finds the right conversation. When a row is selected, keep the detail panel visible even while filters change; otherwise the user can lose the issue they were reading.
+Supervisors often start with a name, ticket number, or queue such as “urgent” or “assigned to me.” Search customer and issue text so a partial name finds the right conversation. Keep the detail panel visible when filters change; otherwise the person reviewing a case can lose their place.
 
-This step gives every selectable row a stable key based on its ticket id. That key matters because these rows are generated from data and their order may change as the query or filter changes.
+Search text and the active filter only affect this screen, so retain them locally. The selected ticket ID belongs in `SupportState` because both the queue and detail pane depend on it. Give each row a stable key based on the ticket ID; filtering or sorting must not change which ticket owns its retained state.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -560,15 +558,15 @@ Search for “Maya” and select ticket HS-4301. Then choose Urgent and Assigned
 <!-- /fission:step -->
 
 <!-- fission:step id="resolve-with-context" -->
-Selection and search solve the “find the case” part of the task. A realistic admin screen also needs an accountable change. Resolving a customer issue should leave an internal note describing what the supervisor checked, and it should be unavailable to an agent who lacks that permission.
+Finding the ticket is only part of the job. Resolving it should leave an internal note that explains what the supervisor checked, and an agent without permission should not be able to perform that action.
 
-The note field below belongs to this screen as an unfinished draft. The resolved status shown in the preview is also local demonstration state; an application should send the action to an authorised service, which verifies the role again before changing the stored ticket.
+The note is an unfinished screen draft. The preview also keeps its resolved status locally; a real app sends the action to an authorised service, which checks the user’s role before changing the stored ticket.
 
 ## Resolve the issue with a documented action
 
-A disabled button needs an explanation beside it. Here, the supervisor must write at least eight characters of internal context, and the role switch lets you see why an agent cannot resolve tickets. The button becomes available only when both conditions are met. After resolving, the right pane displays the note in the activity history so the next operator can see why the case was closed.
+A disabled button needs an explanation. Here, the supervisor must write at least eight characters of internal context, and the role switch demonstrates why an agent cannot resolve a ticket. The button is available only when both checks pass. After resolving, the right pane adds the note to the activity history so the next operator knows why the case was closed.
 
-The preview keeps that draft and role in component-local state because neither should survive leaving this screen. In a real application, the server must authorize the current user and append an audit event atomically with the status change. A disabled browser button improves the interaction; it does not provide security.
+The preview keeps the draft and role in local component state; neither should survive leaving the screen. A real server must authorize the user and append the audit event atomically with the status change. Disabling the browser button improves the interaction, but it does not provide security.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -880,9 +878,9 @@ pub fn run() -> Result<(), JsValue> {
 
 ## Connect the screen to real application data
 
-The browser preview uses a fixed ticket set so the workbench is immediately usable. In your own project, move SupportTicket and its data loading to a model or service module, and put records shared by multiple routes in GlobalState. Search text, the selected row and an unfinished note still belong to this screen.
+The preview uses a fixed set of tickets so you can try the workbench immediately. In your app, move `SupportTicket` and data loading into model and service modules, and put records shared by routes in `GlobalState`. Search text, the selected row, and an unfinished note still belong to this screen.
 
-A production resolution should follow this sequence: the UI dispatches an action, an asynchronous effect calls the ticket service, the service checks the signed-in user’s permission, and a reducer records the returned status and activity event. Keep the screen in a loading state while that work runs; if the service rejects it, retain the note and selected ticket and explain how the operator can recover. The client-side role switch in this lesson only demonstrates the interaction, and must never be used as the permission check.
+In production, the UI dispatches an action, an async effect calls the ticket service, the service checks the signed-in user’s permission, and a reducer records the returned status and activity event. Show a loading state while the request runs. If the service rejects it, keep the note and selected ticket and explain what the operator can do next. The client-side role switch only demonstrates the interaction; never use it as the permission check.
 
 ## Run the application
 

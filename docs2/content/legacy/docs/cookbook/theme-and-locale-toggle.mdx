@@ -299,15 +299,9 @@ Because the shell synchronizes `state.locale` into `env.locale`, the next reconv
 
 The same pattern applies to theming. Widgets that read `view.theme()` or `view.env.theme` will see the synchronized theme value on the next build.
 
-## Why `.with_sync_env(...)` is the right tool
+## Keep presentation settings in `Env`
 
-It can be tempting to branch on `view.state().locale` or `view.state().theme_mode` all over the widget tree. Avoid that when you are dealing with app-wide presentation inputs.
-
-Locale and theme are exactly the kind of values that should be centralized. The shell hook keeps the synchronization rule in one place, and widgets can read the environment consistently.
-
-Use `.with_sync_env(...)` for values like theme, locale, or other global presentation context.
-
-Do not put ordinary product data there. Message lists, editor contents, form drafts, and domain objects still belong in `GlobalState` and should be read from `view.state()`.
+Use `.with_sync_env(...)` for app-wide presentation choices such as theme and locale. Do not put ordinary product data there: message lists, editor contents, form drafts, and domain objects still belong in `GlobalState` and should be read from `view.state()`.
 
 ## What to test before you ship
 
@@ -323,13 +317,4 @@ If a language or theme choice should persist across launches, keep the persisted
 
 If you want the broader explanation of how `Env`, `ViewHandle`, and synchronized environment values work, read [Input, text, and environment](/docs/guides/input-events-text-and-env) and [Theming and internationalization](/docs/guides/theming-and-i18n). If you want a repo-backed example after finishing this recipe, the `inbox` example is the strongest current demonstration of theme and locale switching.
 
-## Finished state and checks
-
-By the end of `Toggle theme and locale`, you should have a runnable change, not just a set of snippets. Run the command shown in the page, exercise the feature once manually, and add or update the smallest test that protects the behavior.
-
-| Check | Expected result |
-| --- | --- |
-| Build | `cargo check` or the relevant `fission` command finishes without target-specific configuration errors. |
-| Behavior | The screen, package, server route, or test flow described by the recipe is visible and responds to input. |
-| Failure path | At least one denied, missing, invalid, or empty case renders a useful message instead of silently doing nothing. |
-| Next link | The reference page linked from the recipe explains the exact fields, commands, or types used here. |
+Run the app and switch both controls. The theme should update from the new `DesignMode`, and translated text should resolve from the selected locale. Include a long translation in your check so wrapping and layout are tested too.

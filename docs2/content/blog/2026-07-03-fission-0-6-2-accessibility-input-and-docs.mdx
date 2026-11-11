@@ -11,21 +11,21 @@ categories:
   - Releases
 ---
 
-Fission 0.6.2 is a focused quality release for the parts of the framework that determine whether real applications feel native: accessibility, text input, IME behavior, editor focus, and documentation authoring.
+Fission 0.6.2 improves the parts of the framework that make an app usable day to day: accessibility, text input, input-method editor (IME) behaviour, editor focus, and documentation authoring.
 
-The release also includes the recent widget-state, layout, native overlay, and documentation-site fixes that had landed during the 0.6.2 cycle. The goal is to get those fixes into a published crate set instead of leaving app developers pinned to unreleased Git branches.
+It also includes widget-state, layout, native overlay, and documentation-site fixes from the 0.6.2 cycle. These changes are now in published crates, so apps do not need to stay pinned to unreleased Git branches to use them.
 
 ## Native accessibility bridge
 
 The winit shell now publishes Fission semantics through the native accessibility path.
 
-This matters because a UI framework is not complete if screen readers, accessibility inspectors, remote-control tools, and native text tooling cannot understand the widget tree. Fission already had an internal semantics model. 0.6.2 connects that model to the shell so controls expose roles, labels, values, checked state, editable text, selection offsets, and supported actions through the host accessibility layer.
+Screen readers, accessibility inspectors, remote-control tools, and native text tools need to understand the widget tree. Fission already had a semantics model; 0.6.2 connects it to the shell. Controls can now expose roles, labels, values, checked state, editable text, selection offsets, and supported actions through the host accessibility layer.
 
-For text input, the bridge can report and update values and selections. For ordinary controls, it can expose button, checkbox, radio, slider, and switch state in a way that platform tools can inspect and operate.
+The bridge can report and update text values and selections. Platform tools can also inspect and operate buttons, checkboxes, radio buttons, sliders, and switches.
 
 ## Text input and IME composition
 
-Text input now treats IME composition as first-class state instead of flattening every incoming event into ordinary committed text.
+Text input now keeps IME composition separate from committed text instead of flattening every incoming event into one value.
 
 0.6.2 separates:
 
@@ -34,9 +34,9 @@ Text input now treats IME composition as first-class state instead of flattening
 - cancellation;
 - committed text.
 
-That distinction is required for CJK input, accented-character composition, emoji input, autocorrect flows, and external keyboards that send composed text in different shapes from ordinary key presses. Fission also exposes preedit and selection ranges through semantics, renders preedit text distinctly, and keeps the shell IME cursor rectangle synchronized after focus changes, text edits, scrolling, and custom-editor events.
+That distinction matters for CJK input, accented characters, emoji, autocorrect, and external keyboards that send composed text differently from ordinary key presses. Fission exposes preedit and selection ranges through semantics, renders preedit text distinctly, and keeps the IME cursor rectangle in sync after focus changes, edits, scrolling, and custom-editor events.
 
-That cursor rectangle is not cosmetic. It is how candidate windows and mobile keyboard sessions know where the active edit point is.
+The cursor rectangle is how candidate windows and mobile keyboards know where the active edit point is.
 
 ## Remote keyboard and custom winit packages
 
@@ -45,39 +45,39 @@ The release depends on the published Fission winit fork packages:
 - `fission-winit 0.30.13-fission.1`
 - `fission-accesskit-winit 0.33.1-fission.1`
 
-The winit fork fixes a macOS text input path observed through Chrome Remote Desktop from Android: typed characters could be reported as spaces when the remote Android keyboard sent composed text through an event whose hardware key code looked like Space.
+The winit fork fixes a macOS text-input bug seen through Chrome Remote Desktop from Android. When the remote Android keyboard sent composed text in an event with a Space hardware key code, typed characters could arrive as spaces.
 
-Fission should use the text supplied by the platform for text input, not infer text from a misleading hardware key. Publishing the forked package lets applications get the fix from crates.io while the upstream issue is handled separately.
+Fission now uses the text supplied by the platform instead of inferring it from a misleading hardware key. Publishing the forked package means apps can get the fix from crates.io while the upstream issue is handled separately.
 
 ## Editor-grade focus policy
 
-Applications with rich editors usually have toolbars, ribbons, sidebars, and palettes around an active text surface. Clicking those controls must run commands without necessarily moving focus away from the editor.
+Rich editors often have toolbars, ribbons, sidebars, and palettes around the active text surface. A click on one of those controls should run its command without automatically moving focus away from the editor.
 
-0.6.2 adds `FocusPolicy::PreserveCurrentOnPointer` for that case. A ribbon button can receive the pointer press and dispatch its command while preserving the current text-editor focus. That keeps editing commands, IME sessions, selections, and caret state anchored in the editor instead of forcing every toolbar command to manually restore focus afterward.
+`FocusPolicy::PreserveCurrentOnPointer` handles that case. A ribbon button receives the pointer press and dispatches its command while the editor keeps focus. Editing commands, IME sessions, selections, and the caret stay with the editor; toolbar code does not have to restore focus after every click.
 
-This is especially important for word processors, code editors, and document tools where the editor is the primary focus owner and surrounding controls act on it.
+This is useful in word processors, code editors, and document tools where surrounding controls act on the editor.
 
 ## Text selection fixes
 
-The text input path also fixes selection rendering and selection affordance behavior.
+The text-input path also fixes how selections are drawn and presented.
 
-Single-character and partial selections now stay scoped to the actual selected range instead of visually expanding to a whole line. Fission also stops presenting drag handles as if they are complete touch-selection controls when the framework cannot yet support the full drag interaction reliably.
+Single-character and partial selections now stay within the selected range instead of appearing to cover a whole line. Fission no longer shows drag handles as complete touch-selection controls when it cannot yet support the full drag interaction reliably.
 
-That is deliberately conservative: exposing a half-working native-looking handle is worse than not exposing it until the behavior is complete.
+That is deliberate. A native-looking handle that only partly works is worse than waiting until the interaction is ready.
 
 ## Static-site tabs and framework learning docs
 
-The documentation site now supports native `Tabs` and `TabItem` blocks in MDX content. The static-site renderer lowers them into static markup and the site JavaScript progressively enhances tab switching on the client.
+The documentation site now accepts `Tabs` and `TabItem` blocks in MDX. The Static site renderer emits static markup, and site JavaScript adds tab switching when the page loads in a browser.
 
-That unblocks paired examples such as the new "Fission for React developers" guide. The guide builds a todo app incrementally and shows React and Fission versions side by side, so developers can compare state, reducers, local widget state, styling through theme tokens, effects, routing, and tests without jumping between pages.
+This makes paired examples possible, including the new "Fission for React developers" guide. It builds a todo app in stages and places React and Fission side by side, so you can compare state, reducers, local widget state, theme-token styling, effects, routing, and tests without jumping between pages.
 
-`fission init` also now writes Fission app guidance into the repository root as `AGENTS.md`, or `AGENTS.fission.md` when a root agent file already exists. The generated guidance documents the widget-structure, state, routing, design-system, i18n, and validation practices that current Fission apps should follow.
+`fission init` now adds Fission app guidance at the repository root. It writes `AGENTS.md`, or `AGENTS.fission.md` if an agent file is already there. The generated file covers widget structure, state, routing, design systems, i18n, and validation.
 
 ## Editor dogfooding and tests
 
-The editor example now carries a stronger LiveTest path for text input. The test drives the editor like a human developer writing a todo application: typing, making mistakes, undoing, redoing, selecting text, copying, pasting, using shortcuts, opening files from the tree, running find/replace, and saving.
+The editor example now has a broader LiveTest for text input. It drives the editor through the work of writing a todo app: typing, correcting mistakes, undoing and redoing, selecting, copying and pasting text, using shortcuts, opening files from the tree, finding and replacing text, and saving.
 
-That test is intentionally broader than a unit test. It keeps pressure on the shell, runtime, text controller, semantics bridge, and custom editor surface at the same time.
+This is broader than a unit test because it exercises the shell, runtime, text controller, semantics bridge, and custom editor together.
 
 ## Other fixes included
 
@@ -89,20 +89,20 @@ That test is intentionally broader than a unit test. It keeps pressure on the sh
 - native video and web overlay fallback paths for unsupported targets;
 - AppKit IME configuration guards for panic-prone platform calls.
 
-These are not headline API features, but they remove failure modes that app authors would otherwise hit while building real cross-target UI.
+These are not headline API features. They remove failures that app authors would otherwise encounter when building cross-target interfaces.
 
 ## Migration notes
 
-Applications using 0.6.1 can update the Rust dependency in the usual way:
+Apps on 0.6.1 can update the Rust dependency:
 
 ```toml
 fission = { version = "0.6.2", default-features = false, features = ["desktop"] }
 ```
 
-If your application has a ribbon, toolbar, or command surface around a text editor, apply `FocusPolicy::PreserveCurrentOnPointer` to buttons that should act on the focused editor without taking focus.
+If your app has a ribbon, toolbar, or command surface around a text editor, use `FocusPolicy::PreserveCurrentOnPointer` on buttons that should act on the editor without taking focus.
 
-If you are using generated Fission apps, keep the generated `AGENTS.md` guidance under source control so future app edits follow the same structure.
+If you use a generated Fission app, keep its `AGENTS.md` guidance under source control so future changes follow the same structure.
 
 ## Verification
 
-The 0.6.2 release preparation validates the changed areas with formatting, workspace checks, focused text-input tests, widget-state interaction tests, winit shell tests, editor LiveTests, and documentation-site checks before publishing the crate set.
+Before publishing, release preparation checks formatting and the workspace, then runs focused text-input, widget-state interaction, winit shell, editor LiveTest, and documentation-site tests.

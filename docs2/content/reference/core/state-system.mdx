@@ -5,9 +5,9 @@ description: The reference contract for GlobalState, local widget state, build h
 
 # State system
 
-The state system is the behavioral backbone of a Fission app. It separates durable product state, local widget memory, build-scope context, and reducer-side effects so the same app model can run through different shells without hidden platform coupling.
+Fission keeps durable app state, local widget state, build-scope handles, and reducer effects separate. That lets the same app model run in different shells without hiding platform-specific behavior.
 
-For a step-by-step guide, read [State, handles, and providers](/docs/guides/state-handles-and-providers/). This page is the reference contract.
+For a walkthrough, read [State, handles, and providers](/docs/guides/state-handles-and-providers/). This page documents the APIs and their contracts.
 
 ## Core pieces
 
@@ -25,7 +25,7 @@ For a step-by-step guide, read [State, handles, and providers](/docs/guides/stat
 
 ## `GlobalState`
 
-`GlobalState` is implemented by the root product state managed by the runtime.
+The runtime manages one root product state that implements `GlobalState`.
 
 A `GlobalState` type must be `'static`, downcastable, `Send`, `Sync`, and `Debug`. Common primitive types and `()` implement it already. App structs usually derive or implement it directly.
 
@@ -86,19 +86,13 @@ let (ctx, _) = fission::build::current::<()>();
 
 ## `BuildCtxHandle<S>`
 
-`BuildCtxHandle<S>` is the write-side wiring handle for component conversion. It records relationships the runtime will use later.
+`BuildCtxHandle<S>` wires component conversion to behavior the runtime will use later.
 
 | Method | Purpose |
 | --- | --- |
 | `bind(action, handler)` | Creates an `ActionEnvelope` for a normal app-state reducer |
 | `register::<A, H>(handler)` | Registers a reducer handler without immediately binding a widget event |
 | `bind_local(action, field, handler)` | Binds a reducer to a retained local `StateField<T>` |
-
-Declarative `bind(...)` and `bind_local(...)` install one handler per effective
-action ID in each build while preserving the payload of every returned action
-envelope. Repeated widgets should carry their differing stable context in the
-action value. `register(...)` is different: it is explicitly multicast, so all
-handlers registered for that action type run on dispatch.
 | `request_animation_for(id, request)` | Queues an animation request for a widget id |
 | `anim_for(id)` | Creates a scoped animation helper for a target widget id |
 | `register_video(...)` | Registers a video node with the runtime |
@@ -109,11 +103,17 @@ handlers registered for that action type run on dispatch.
 | `with_resources(...)` | Gives controlled access to the build resource registry |
 | `video_controls(id)` | Creates controls for a registered video widget |
 
-`BuildCtxHandle` does not mutate app state directly. App state changes happen in reducers. The handle records that a future event should dispatch an action, update local state, start an animation, register a resource, or connect another runtime-managed behavior.
+Declarative `bind(...)` and `bind_local(...)` install one handler per effective
+action ID in each build while preserving the payload of every returned action
+envelope. Repeated widgets should carry their differing stable context in the
+action value. `register(...)` is different: it is explicitly multicast, so all
+handlers registered for that action type run on dispatch.
+
+`BuildCtxHandle` does not mutate app state. Reducers do that. The handle connects a future event to an action, local-state update, animation, resource, or other runtime-managed behavior.
 
 ## Handle lifetime
 
-`BuildCtxHandle` and `ViewHandle` are copyable handles, not raw references. They resolve through the active build scope. This lets Fission expose ergonomic `let (ctx, view) = build::current::<State>();` syntax without handing authoring code a reference that can outlive the shell-owned build data.
+`BuildCtxHandle` and `ViewHandle` are copyable handles into the active build scope, not references to app data. Components can use `let (ctx, view) = build::current::<State>();` without receiving shell-owned objects that could outlive the build.
 
 Correct usage:
 
@@ -137,11 +137,11 @@ struct BadCache<S: GlobalState> {
 }
 ```
 
-If a handle is used outside an active build pass, Fission panics with a clear scope error. That is part of the contract; it prevents stale build handles from becoming hidden global state.
+Using a handle outside an active build pass panics with a scope error. This prevents a stale build handle from becoming hidden global state.
 
 ## Local widget state
 
-Local widget state is retained state associated with a component field and widget identity.
+Local widget state is retained for a component field and widget identity.
 
 Declare it with `#[with_local_state]` and `#[local_state(default = ...)]`:
 

@@ -1,7 +1,7 @@
 ---
 layout: goal
 title: Test an iOS app in the simulator and on a device
-description: "Step-by-step Rust guide to test an iOS app in the simulator and on a device using Fission."
+description: "Test an iOS app in the simulator and on a device using Fission."
 goal: Combine reducer and provider tests, fission test smoke checks, LiveTest against the simulator and physical-device checks for hardware behaviour.
 path: /blog/test-an-ios-app-in-the-simulator-and-on-a-device/
 order: 107
@@ -17,7 +17,7 @@ outcomes:
 
 ## Create the project and add the target
 
-Install the Fission command line, create the app, and add its native target.
+Create the project and add the target used by this guide. Fission generates the native host; the app and its behaviour stay in shared Rust code.
 
 ```sh
 cargo install cargo-fission
@@ -28,7 +28,7 @@ fission add-target ios --project-dir .
 
 ## Files created by Fission
 
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/ios/`.
+This is the starter tree Fission generates. Keep shared app code in `src/`; the generated platform files handle native launch and packaging.
 
 ```text
 ios-test-an-ios-app-in-the-simulator-and-on-a-device/
@@ -42,12 +42,10 @@ ios-test-an-ios-app-in-the-simulator-and-on-a-device/
     └── ios/                  # generated iOS host
 ```
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated iOS host owns launch and packaging details; shared components describe the user task without importing iOS APIs.
+Keep app state, reducers and components in shared Rust. Put direct iOS API calls in the generated host or a typed provider, and split a feature into modules when that boundary helps.
 
 <!-- fission:step id="start-screen" -->
 ## Create the app screen
-
-Give the workflow a clear first screen before adding its platform-specific behavior. This version displays the user task and current step; the next section connects the feature and its outcome to Fission state.
 
 <Tabs>
 <TabItem label="src/app.rs">

@@ -7,7 +7,7 @@ description: Reference for the wi-fi capability API, provider contract, operatio
 
 Wi-Fi APIs are more restricted than many developers expect. Scanning can reveal location, connecting can change global device state, and some platforms deliberately avoid app-level Wi-Fi management.
 
-This reference is for the exact API shape. If you are wiring the feature into an app for the first time, start with the [Wi-Fi guide](/docs/capabilities/wifi/), then return here when you need operation names, request types, provider contracts, or platform configuration details.
+Start with the [Wi-Fi guide](/docs/capabilities/wifi/) to add the feature to your app. Return here for operation names, request and result types, provider contracts, and target configuration.
 
 ## Public API
 
@@ -39,7 +39,7 @@ Providers should return typed errors for unsupported operations, denied permissi
 
 ## Platform configuration
 
-The CLI adds Android Wi-Fi, network, nearby Wi-Fi, and older fine-location permissions where needed. iOS requires Wi-Fi information or hotspot entitlements and location usage text for some flows. Desktop providers must use the platform network APIs or return unsupported errors.
+The CLI adds Android Wi-Fi, network, nearby Wi-Fi, and older fine-location permissions where needed. Fission does not include an iOS Wi-Fi provider; a custom provider may need Wi-Fi information or hotspot entitlements and location usage text for the operations it implements. Desktop providers must use the platform network APIs or return unsupported errors.
 
 When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
 

@@ -15,24 +15,26 @@ show_adjacent_posts: true
 
 # Fission 0.13.0: stable widget identity and Apache 2.0
 
-Fission 0.13.0 removes a persistent source of subtle application bugs: ordinary
-widgets now receive deterministic identity without requiring developers to
-manually assign IDs throughout the tree. This release also changes Fission's
-sole project license from MIT to Apache License 2.0.
+Fission 0.13.0 gives ordinary widgets a stable identity automatically. You no
+longer need to add IDs throughout a static tree just to keep retained state
+attached to the same widget. This release also changes Fission's project
+licence from MIT to Apache License 2.0.
 
-This is a minor release because automatic identity changes retained runtime
-behavior and the license change affects every redistributed Fission package.
+Both changes affect more than the API surface: identity changes retained
+runtime behaviour, and the licence applies to every redistributed Fission
+package.
 
 ## Stable identity is the default
 
-Every authored widget is assigned an identity derived from one application root,
-its structural child path, its child slot, and its widget kind. Identical trees
-therefore produce identical identities and clean frame diffs. Internal wrappers,
-decorations, portals, and shell overlays no longer make authored identities drift.
+Fission derives each authored widget's identity from the application root, its
+path through the tree, its child slot, and its widget kind. The same tree gets
+the same identities and clean frame diffs. Internal wrappers, decorations,
+portals, and shell overlays no longer make the identity of an authored widget
+drift.
 
-Applications normally do not need to configure the root. Desktop, Web, mobile,
-Winit, and Terminal applications use `WidgetId::app_root()` by default and can
-set an explicit namespace when hosting multiple independent roots:
+Most apps can leave the root alone. Desktop, Web, mobile, Winit, and Terminal
+use `WidgetId::app_root()` by default. If one process hosts more than one
+independent root, give each root its own namespace:
 
 ```rust
 DesktopApp::<AppState, _>::new(App)
@@ -40,16 +42,15 @@ DesktopApp::<AppState, _>::new(App)
     .run()
 ```
 
-An explicit ID set directly on a widget remains authoritative.
+An ID set directly on a widget still takes precedence.
 
 ## Collections remain predictable
 
-Unidentified collection items retain identity by position. That is the useful
-default for fixed-order content and matches how a developer reads an ordinary
-widget tree.
+Items without IDs keep their identity by position. That works well for content
+whose order does not change.
 
-When state must follow data through insertion, filtering, or reordering, assign
-an ID only to the logical item:
+If state needs to follow an item when a collection is inserted into, filtered,
+or reordered, give the item a stable ID:
 
 ```rust
 let children = projects
@@ -61,24 +62,23 @@ let children = projects
     .collect();
 ```
 
-All automatically identified descendants are scoped beneath that explicit ID.
-Collections can freely mix explicit and automatic items: explicit state follows
-its data while unidentified state remains positional.
+Fission scopes the item's automatically identified children under that ID. A
+collection can mix explicit and automatic identities: the explicit item keeps
+its state with the data, while the rest keep their positional identity.
 
-The same authority now backs `#[local_state]`. Local values remain stable across
-rebuilds, are isolated between application roots, and are pruned when their
-widget disappears.
+`#[local_state]` uses the same identity. Local values survive rebuilds, remain
+separate between app roots, and are discarded when their widget disappears.
 
 ## Apache License 2.0 is the sole Fission license
 
-Fission and all first-party crates are now licensed exclusively under the
+Fission and all first-party crates are now licensed under the
 [Apache License 2.0](https://github.com/fission-ui/fission/blob/main/LICENSE).
-This replaces the previous MIT license and is not a dual-license arrangement.
+This replaces MIT; Fission is not dual-licensed.
 
-Every first-party Cargo manifest, crate README, repository license reference,
-documentation surface, generated template, and bundled Fission design package
-now declares `Apache-2.0`. Vendored dependencies and bundled fonts continue to
-carry their own upstream license notices.
+First-party Cargo manifests, crate READMEs, repository licence references, docs,
+generated templates, and the bundled Fission design package now say
+`Apache-2.0`. Vendored dependencies and bundled fonts keep their own upstream
+licence notices.
 
 ## Upgrade
 
@@ -93,9 +93,8 @@ fission = { version = "0.13.0", default-features = false, features = ["desktop"]
 cargo install cargo-fission --version 0.13.0 --locked
 ```
 
-Most applications need no source migration. Keep explicit IDs for reorderable
-logical collection items and widgets addressed directly by application code;
-IDs added solely because an ordinary static widget was previously unstable can
-usually be removed.
+Most apps do not need a source change. Keep explicit IDs on collection items
+that can move and on widgets your app addresses directly. You can usually
+remove IDs that were only needed because a static widget used to be unstable.
 
-Redistributors must follow the Apache License 2.0 redistribution conditions.
+If you redistribute Fission, follow the Apache License 2.0 conditions.

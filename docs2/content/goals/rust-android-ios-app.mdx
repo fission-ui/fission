@@ -15,7 +15,7 @@ outcomes:
   - Add mobile targets and check devices
 ---
 
-Share one Rust app model across Android and iOS, then add touch-friendly layouts, a native capability and installable development builds. The preview runs the shared component in a browser. Add platform capabilities through Fission services, and keep shared task data in app state so Android and iOS use the same rules.
+Sharing Rust code does not make Android and iOS identical. The app state and reducers can stay shared, while each target still needs its own host, build and device checks. The browser preview shows the shared component; it cannot confirm native launch or device-capability behaviour.
 
 Build a shared tasks app that runs on Android and iOS. Keep the same record and reducer logic on both platforms while changing only the presentation needed for a narrow touch screen.
 
@@ -49,7 +49,7 @@ harbour-mobile/
 
 `fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs` and `src/app.rs`. Add the task modules in the tree as you build the feature. Keep data shared across routes in `GlobalState`, and keep retained interaction such as a disclosure or draft field in the owning `fission_component!`. Request database, filesystem, network and session work through a reducer effect, job or service; never run host work while a component view is being built.
 
-`preview/lib.rs` is a documentation harness. The page compiles each complete `src/app.rs` component into WebAssembly so you can use the same UI while reading. Its host results are deterministic preview states; the target-specific host work described in this tutorial runs in each target project code, not in the browser preview.
+`preview/lib.rs` compiles the complete `src/app.rs` into WebAssembly so you can try the shared screen here. Its host responses are predictable; use the target-specific steps below to test real host work.
 
 <!-- fission:step id="start-screen" -->
 ## Build touch-friendly navigation

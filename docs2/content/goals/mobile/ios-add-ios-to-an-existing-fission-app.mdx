@@ -1,7 +1,7 @@
 ---
 layout: goal
 title: Add iOS to an existing Fission app
-description: "Step-by-step Rust guide to add iOS to an existing Fission app."
+description: "Add iOS to an existing Fission app."
 goal: Add the iOS target while keeping app state, reducers and shared components in the common Rust project.
 path: /blog/add-ios-to-an-existing-fission-app/
 order: 65
@@ -39,12 +39,12 @@ ios-add-ios-to-an-existing-fission-app/
     └── ios/                  # generated iOS host
 ```
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated iOS host owns launch and packaging details; shared components describe the user task without importing iOS APIs.
+Keep app state, reducers and components in shared Rust. Put direct iOS API calls in the generated host or a typed provider, and split a feature into modules when that boundary helps.
 
 <!-- fission:step id="start-screen" -->
 ## Create the app screen
 
-Give the workflow a clear first screen before adding its platform-specific behavior. This version displays the user task and current step; the next section connects the feature and its outcome to Fission state.
+The next step adds the iOS target to an existing Rust project and checks what Fission generates.
 
 <Tabs>
 <TabItem label="src/app.rs">

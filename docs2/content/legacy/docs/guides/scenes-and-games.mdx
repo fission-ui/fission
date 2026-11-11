@@ -4,14 +4,13 @@ sidebar_label: 2D and 3D scenes and games
 description: Build retained 2D or 3D scenes, add a deterministic game loop, and opt into physics only when a game needs it.
 ---
 
-Fission's scene APIs let an ordinary application add a retained 2D or 3D
-viewport without giving up Fission layout, actions, semantics, or testing. Add
-the game runtime when you need fixed-step simulation, snapshots, or replay. Add
-a physics provider only when the game actually needs one.
+Add a retained 2D or 3D viewport without giving up Fission layout, actions,
+semantics, or testing. Add the game runtime for fixed-step simulation,
+snapshots, or replay. Add a physics provider only if the game needs it.
 
-These APIs are **alpha**. The supported workflows are functional, but public
-details may change between alpha releases. Pin the prerelease crates exactly
-and read the migration notes when updating.
+These APIs are **alpha**. The workflows below work, but public details may
+change between alpha releases. Pin prerelease crates exactly and read the
+migration notes before updating.
 
 Run `fission features` to see the opt-in scene, game, asset, and physics
 features together with their current API status. Passing one of these features
@@ -57,9 +56,9 @@ and 3D providers are independently selectable.
 
 ## Build a retained scene
 
-An application owns a closed, serialisable scene value. The processor validates
-that value and prepares deterministic draw, culling, diagnostic, bounds, and
-picking results. Renderer handles and backend types do not enter the scene.
+Your app owns a serialisable scene value. The processor validates it and
+prepares draw, culling, diagnostics, bounds, and picking results. The scene
+does not contain renderer handles or backend types.
 
 ```rust,ignore
 use fission::scene2d::*;
@@ -96,9 +95,9 @@ let viewport: Widget = Scene2D::new(scene)
     .into();
 ```
 
-The same ownership model applies to `Scene3DIR`. A 3D scene can contain cubes,
-spheres, application-provided triangle meshes, and static glTF or GLB models,
-with unlit or basic metallic-roughness materials, textures, alpha policy,
+`Scene3DIR` follows the same model. A 3D scene can contain cubes, spheres,
+application-provided triangle meshes, and static glTF or GLB models. It also
+supports unlit or basic metallic-roughness materials, textures, alpha policy,
 depth, and ambient, directional, or point lights.
 
 Each scene widget defaults its stable `PresentationId` to the scene ID. When
@@ -138,32 +137,32 @@ impl Game for MyGame {
 }
 ```
 
-`GameRuntime` accepts elapsed presentation time but advances state in fixed
-steps. `GameTestHarness` controls ticks and semantic input without a window.
-Versioned snapshots preserve supported state, clock, input, and random-stream
-data; replay records the ordered input stream and rejects unsupported formats.
-`GameInputRegion` routes focused key-down and key-up transitions through the
-same reducer action, so held movement remains visible across simulation ticks.
+`GameRuntime` accepts elapsed presentation time and advances state in fixed
+steps. Use `GameTestHarness` to control ticks and semantic input without a
+window. Versioned snapshots preserve supported state, clock, input, and
+random-stream data. Replay records ordered input and rejects unsupported
+formats. `GameInputRegion` sends focused key-down and key-up transitions
+through the same reducer action, so held movement remains visible across ticks.
 
 ## Connect interaction and accessibility
 
 2D nodes can declare tap, long-press, and drag start, update, end, and cancel
-actions. The scene widget converts viewport coordinates into scene coordinates
-and carries stable scene, node, and batch-instance identities in the normal
-Fission action input. Decorative nodes remain pointer-transparent.
+actions. The scene widget converts viewport coordinates to scene coordinates
+and includes stable scene, node, and batch-instance identities in the normal
+Fission action input. Decorative nodes do not receive pointer events.
 
-For 3D, give `Scene3D` an `on_pick` action. The action receives viewport-local
-coordinates in the scene's declared viewport, including when layout resizes the
-surface; call `PreparedScene3D::pick_viewport` to obtain the stable node.
-Provide an ordinary semantic action for every important operation so keyboard,
-assistive technology, and semantic tests do not depend on visual ray selection.
+For 3D, give `Scene3D` an `on_pick` action. It receives coordinates relative to
+the scene's declared viewport, even when layout resizes the surface. Call
+`PreparedScene3D::pick_viewport` to find the stable node. Also provide a
+semantic action for every important operation so keyboard users, assistive
+technology, and semantic tests do not depend on ray selection.
 
 ## Add physics without binding game state to Rapier
 
 Create bodies with stable `PhysicsBodyId` values and Fission shapes, poses, and
-velocities. Keep the provider behind `PhysicsProvider2D` or
-`PhysicsProvider3D`. This keeps game state, queries, events, and snapshots free
-of Rapier handles and lets a later provider implement the same contract.
+velocities. Put the implementation behind `PhysicsProvider2D` or
+`PhysicsProvider3D`. Game state, queries, events, and snapshots then stay free
+of Rapier handles, and another provider can implement the same contract.
 
 The providers support fixed, kinematic, and dynamic bodies, collision and
 trigger transitions, ray and overlap queries, forces, impulses, and snapshot
@@ -171,12 +170,12 @@ restore. The 3D provider also exposes the MVP kinematic character controller.
 
 ## Assets and diagnostics
 
-Give assets stable typed IDs and a versioned `AssetBundle`. Record the source
-and digest used to build the bundle. Call `fission_assets::verify_sha256` from
-`build.rs` with the packaged bytes so a changed asset cannot leave stale bundle
-metadata in the executable. The qualification games use this pattern and pass
-the verified digest into their scene declarations. 2D scenes retain decoded
-images and batch instances. `GltfImporter` imports static glTF or GLB meshes,
+Give assets stable typed IDs and put them in a versioned `AssetBundle`. Record
+the source and digest used to build it. Call `fission_assets::verify_sha256`
+from `build.rs` with the packaged bytes; this catches stale bundle metadata
+when an asset changes. The qualification games use this pattern and pass the
+verified digest into their scene declarations. 2D scenes retain decoded images
+and batch instances. `GltfImporter` imports static glTF or GLB meshes,
 referenced textures, and the metallic-roughness values supported by the
 renderer.
 
@@ -188,9 +187,9 @@ dependency graph:
 fission-assets = "=0.1.0-alpha.1"
 ```
 
-Loading, ready, and failed states are explicit. Scene preparation returns
-diagnostics for invalid transforms, geometry, cameras, material values, assets,
-and renderer capabilities rather than silently presenting a blank viewport.
+Loading, ready, and failed states are explicit. If a transform, geometry,
+camera, material, asset, or renderer capability is invalid, scene preparation
+returns a diagnostic instead of silently showing a blank viewport.
 
 ## Run the complete examples
 

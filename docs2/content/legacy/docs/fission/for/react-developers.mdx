@@ -12,7 +12,7 @@ React and Fission both describe UI from state. The useful instincts carry over: 
 
 The boundaries are different. React component functions can own hooks, run effects after render, read context, and rely on DOM/CSS behavior. Fission components use `fission_component!` to declare props, retained local state, and a typed `view(...)` over app state. State changes happen through reducers. Outside work is requested explicitly. Shells adapt the same app model to `macOS`, `Windows`, `Linux`, `Web`, `Android`, `iOS`, `Terminal`, `Static site`, and `SSR`.
 
-This page builds one todo app in layers. Each layer has React and Fission tabs for the same idea.
+We'll build the same todo app in layers. Each step shows the React and Fission versions side by side.
 
 ## The state ownership rule
 

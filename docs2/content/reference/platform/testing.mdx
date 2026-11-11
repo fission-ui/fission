@@ -5,15 +5,7 @@ description: The target-level testing reference for macOS, Windows, Linux, Web, 
 
 # Testing
 
-This page covers target-level testing: the point where you stop asking only "does the shared app logic work?" and start asking "does this host actually launch, present, and behave correctly on this platform?"
-
-That distinction matters because Fission gives you two different testing layers.
-
-The first layer is the shared runtime. It can be tested headlessly and deterministically without opening a real browser, window, mobile host, terminal, static build, or server process.
-
-The second layer is the platform shell. That is where packaging, launch, presentation, host input, screenshots, accessibility bridges, browser integration, mobile lifecycle details, terminal constraints, static HTML output, and SSR request behavior need to be validated on a real target.
-
-A strong test strategy uses both.
+Headless tests can prove that shared app behaviour is correct. They cannot prove that the Android host launches, that a browser receives the right HTML, or that a desktop package works. Use this page to choose what to verify in the shared runtime and what must be exercised on the actual target.
 
 ## What can be tested without a real host
 

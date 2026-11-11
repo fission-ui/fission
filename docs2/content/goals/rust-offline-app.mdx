@@ -15,9 +15,9 @@ outcomes:
   - Retry sync and explain conflicts
 ---
 
-Persist Rust app state locally across native and Web targets, hydrate it once, reconcile concurrent writes and keep an offline workflow understandable. The preview demonstrates local queue and conflict states. The real app must persist changes locally, send sync work asynchronously and reconcile each result against the latest version.
+What should happen when someone edits a task on a train, then reconnects after another device has changed the same task? We will build an offline-first task list that opens from local data, accepts edits without a connection and makes queued work and conflicts visible. The browser preview demonstrates those states; the real app persists through Fission Store and sends sync work through an asynchronous effect.
 
-Build an offline-first task list that opens from local data, accepts edits without a connection and explains which changes are waiting to sync.
+Keep the local edit usable while sync is pending. When a reply arrives, compare it with the current task state before applying it so an older request cannot overwrite newer work.
 
 Install the Fission CLI and scaffold the Web, Android and iOS project:
 
@@ -49,14 +49,12 @@ harbour-offline/
 
 `fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs` and `src/app.rs`. Add the task modules in the tree as you build the feature. Keep data shared across routes in `GlobalState`, and keep retained interaction such as a disclosure or draft field in the owning `fission_component!`. Request database, filesystem, network and session work through a reducer effect, job or service; never run host work while a component view is being built.
 
-`preview/lib.rs` is a documentation harness. The page compiles each complete `src/app.rs` component into WebAssembly so you can use the same UI while reading. Its host results are deterministic preview states; the target-specific host work described in this tutorial runs in each target project code, not in the browser preview.
+`preview/lib.rs` compiles the complete `src/app.rs` into WebAssembly so you can try the shared screen here. Its host responses are predictable; use the target-specific steps below to test real host work.
 
 <!-- fission:step id="start-screen" -->
 ## Show connection and local queue state
 
-Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
-
-Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+This first preview is a task card, not an offline task list. Its copy comes through props and it uses theme tokens. The next step adds saved tasks, connection status, and the local sync queue.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -137,8 +135,7 @@ Show connection and local queue state: Confirm the initial screen names the task
 
 Load persisted state once during startup and show an explicit loading state until hydration finishes. Do not start file or database work while a component is being converted. Keep local edits available when the network request fails.
 
-The source below makes the main task interactive using retained component state and explicit controls.
-This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+This preview keeps the online toggle, queue count, and error locally. In the app, task data, revisions, and pending sync status belong in `GlobalState` because results may arrive after this screen changes.
 ### Save locally first and reject stale sync results
 
 Treat the local record as the source the screen renders. When a user edits a note, increment its revision, persist that revision locally, and show the edit immediately. Queue a sync effect only after the local write succeeds. Include the revision in the request and apply a network response only when it still matches the latest local revision; a slow response must not overwrite a newer edit.

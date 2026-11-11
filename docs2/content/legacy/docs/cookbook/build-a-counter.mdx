@@ -48,18 +48,17 @@ fn main() -> anyhow::Result<()> {
 - `fission_component!` defines a typed component and its widget tree together.
 - The `state` section makes `count` retained component state rather than app-wide `GlobalState`.
 - The inline `on_press: reduce` block keeps this one-component state transition beside the control that owns it.
-- The literal `key` gives the reducer a stable identity, while the semantic identifier makes the control accessible to tests and assistive tooling.
+- The literal `key` gives the button a stable widget identity, while the semantic identifier makes it easy for tests and assistive technology to find.
 - Theme tokens provide spacing and typography rather than baking a second visual language into the example.
 
 Use `GlobalState` when the value is part of your app model, persistence, routing, sync, or shared behavior. Use local widget state for temporary UI state like this counter, a local draft value, an open/closed flag, or a selected tab inside one component. The longer guide to this decision is [State, handles, and providers](/docs/guides/state-handles-and-providers/).
 
-## Finished state and checks
+## Run it
 
-By the end of `Build a counter`, you should have a runnable change, not just a set of snippets. Run the command shown in the page, exercise the feature once manually, and add or update the smallest test that protects the behavior.
+From the project directory, run:
 
-| Check | Expected result |
-| --- | --- |
-| Build | `cargo check` or the relevant `fission` command finishes without target-specific configuration errors. |
-| Behavior | The screen, package, server route, or test flow described by the recipe is visible and responds to input. |
-| Failure path | At least one denied, missing, invalid, or empty case renders a useful message instead of silently doing nothing. |
-| Next link | The reference page linked from the recipe explains the exact fields, commands, or types used here. |
+```bash
+cargo run
+```
+
+Press `Increment`. The number should change. The count belongs to this component instance, so removing the counter from the tree and adding it again creates a fresh count.

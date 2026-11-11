@@ -5,13 +5,13 @@ description: Build dynamic, cacheable, server-rendered web experiences with Fiss
 
 # Server-rendered sites
 
-The server shell is for web experiences that need more than static HTML but should still keep the advantages of Fission's widget model. It is useful for ecommerce stores, dashboards, catalogs, account pages, portals, documentation with dynamic sections, and any route that needs request-time data, per-session state, revalidation, or server-side actions.
+Use the server shell when a page needs request-time data or server-side actions but should still use Fission’s widget model. That includes stores, dashboards, catalogs, account pages, portals, and documentation with dynamic sections. Static HTML is enough for some routes; others need session state, revalidation, or a server action.
 
-The Pokémon Card Store example under `examples/pokemon-card-store` is the reference project. It renders a storefront from normal Fission widgets, keeps the cart in a session-private route, drains a server job before responding, declares a progressive worker for browser-side enhancement, declares a focused WASM island for the cart drawer, and can be packaged into a Docker image. Revalidated routes use the same server shell, but a page that emits signed action forms is deliberately private or request-rendered unless you move that interaction into an island.
+The reference project is `examples/pokemon-card-store`. It builds the storefront from Fission widgets, keeps the cart in a session-private route, runs a server job before responding, and uses a worker and a focused WASM island for browser-side enhancements. You can also package it as a Docker image. Revalidated routes use the same shell, but a page that emits signed action forms must be private or request-rendered unless that interaction lives in an island.
 
 ## 1. Enable the SSR target
 
-A server project declares `ssr` as a target and points `[server].entry` at the Rust function that creates the server app.
+A server project declares the `ssr` target and sets `[server].entry` to the Rust function that creates the app.
 
 ```toml
 targets = ["ssr"]
@@ -28,25 +28,11 @@ default_route_mode = "server_private"
 render_pass_limit = 4
 ```
 
-## What you should have working
-
-After this guide, you should be able to explain where `Server-rendered sites` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
-
-## Common mistakes to check
-
-| Symptom | What to check first |
-| --- | --- |
-| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
-| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
-| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
-| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
-| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
-
-The entry function is used by CLI commands such as `fission server check`, `fission server serve`, `fission server artifacts`, and Docker packaging.
+Fission uses this entry function for `fission server check`, `fission server serve`, `fission server artifacts`, and Docker packaging.
 
 ## 2. Build the server app
 
-The server app is assembled in normal Rust. This abbreviated version mirrors the structure in `examples/pokemon-card-store/src/server.rs`.
+Build the server app in ordinary Rust. This shortened version follows `examples/pokemon-card-store/src/server.rs`.
 
 ```rust
 use fission::server::{
@@ -79,9 +65,9 @@ pub fn pokemon_card_store_server() -> FissionServerApp {
 }
 ```
 
-The route widget remains the page's source of truth. Jobs describe when data is prepared before HTML is returned. Route mode describes whether the rendered page is public, revalidated, request-rendered, or session-private. Workers and islands describe browser-side enhancement without turning the whole page into one large browser app.
+The route widget remains the page’s source of truth. Jobs prepare data before HTML is returned. Route mode says whether a page is public, revalidated, rendered per request, or private to a session. Workers and islands add browser-side behaviour without turning the whole site into one large browser app.
 
-Server routes use the same `:param` segment syntax as the widget router. A route such as `/cards/:slug` receives extracted parameters in `ServerRenderContext::route_params`, so the initial state loader can fetch the correct product before the widget tree is built:
+Server routes use the widget router’s `:param` syntax. For `/cards/:slug`, the extracted value is available as `ServerRenderContext::route_params`. The initial state loader can use it to fetch the right product before building the widget tree:
 
 ```rust
 .route_widget_with_state::<StoreState, _, _>(
@@ -97,11 +83,11 @@ Server routes use the same `:param` segment syntax as the widget router. A route
 )
 ```
 
-Exact routes take precedence over dynamic routes, so `/cards/new` can still be registered as its own route before `/cards/:slug`.
+Exact routes take precedence over dynamic ones. You can register `/cards/new` as its own route alongside `/cards/:slug`.
 
 ## 3. Use a normal CLI entrypoint
 
-The binary delegates to the server shell's CLI runner.
+The binary delegates to the server shell’s CLI runner.
 
 ```rust
 use fission::server::run_from_cli;
@@ -112,7 +98,7 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-That one entrypoint supports `check`, `routes`, `serve`, `build`, and `artifacts` subcommands. Fission's top-level CLI calls those subcommands for you.
+That entrypoint supports `check`, `routes`, `serve`, `build`, and `artifacts`. Fission’s top-level CLI calls these subcommands for you.
 
 ## 4. Check, serve, and generate browser artifacts
 
@@ -134,11 +120,11 @@ Generate and compile worker and island browser artifacts:
 fission server artifacts --project-dir examples/pokemon-card-store
 ```
 
-Run these before packaging. A server route can fail because a widget cannot render server-side, a job is missing, a worker entry is invalid, or an island cannot produce a browser artifact. `check` renders routes and builds browser artifacts; `artifacts` is useful when you only want to regenerate worker and island WASM output.
+Run these checks before packaging. A route can fail because a widget cannot render on the server, a job is missing, a worker entry is invalid, or an island cannot produce a browser artifact. `check` renders routes and builds browser artifacts. Use `artifacts` when you only need to regenerate worker or island WASM output.
 
 ## 5. Package the server as a Docker image
 
-Server apps usually deploy as processes. Fission's Docker package format creates a context that builds the server app inside a Rust builder image and runs the compiled binary in a runtime image.
+Server apps usually run as processes. Fission’s Docker package format creates a build context, compiles the app in a Rust builder image, and runs the binary in a runtime image.
 
 ```toml
 [package.docker]
@@ -154,6 +140,6 @@ fission package \
   --release
 ```
 
-The generated image runs the server app with `serve --host 0.0.0.0 --port $PORT`. The artifact manifest records the Dockerfile, image metadata, generated context, configured tags, and validation checks.
+The image runs the app with `serve --host 0.0.0.0 --port $PORT`. The artifact manifest records the Dockerfile, image metadata, generated context, tags, and validation checks.
 
 For the security model, session settings, action-origin checks, and HTTP adapter hooks, continue to [Server security](/docs/guides/server-site-security/).

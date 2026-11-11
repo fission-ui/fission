@@ -15,7 +15,7 @@ outcomes:
   - Keep links and reading layout reliable
 ---
 
-Create a Rust documentation site with three-column navigation, explicit sidebars, a page outline, highlighted code, search and reference links. Search and navigation in the preview run in the browser. The final documentation site is generated as static pages, so its guides remain crawlable without a server request.
+A documentation site has two different jobs: teach a task from start to finish and let developers look up a specific API. Put everything in one flat menu and neither job is easy to scan. We will build a static site that separates Learn from Reference and still generates crawlable HTML.
 
 Create Atlas Docs with a left navigation tree, a readable article column and a right-hand page outline. Separate learning guides from reference pages so readers know whether to follow a task or look up a type.
 
@@ -124,9 +124,7 @@ Use the same sidebar format for the reference route, but link it to `/reference/
 <!-- fission:step id="start-screen" -->
 ## Organize guides around reader tasks
 
-Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
-
-Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+This first preview is a task card, not the documentation site. Its copy comes through props and its spacing and type use theme tokens. The next step adds the Learn and Reference navigation around real guide content.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -209,8 +207,7 @@ Organize guides around reader tasks: Confirm the initial screen names the task a
 
 Mount Markdown directories at explicit paths and define sidebars in TOML. Keep the page title and description in frontmatter, use heading levels in order, and put versioned or related API links after the working instructions.
 
-The source below makes the main task interactive using retained component state and explicit controls.
-This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+Keep the search query and error-preview flag local; they only affect this view. The guides and their routes are site content, configured separately so each URL can be opened directly.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->

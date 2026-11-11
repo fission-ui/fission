@@ -5,15 +5,15 @@ description: Use FileUpload for presentation, PICK_OPEN_FILES for the host picke
 
 # How do I do file uploads in Fission?
 
-A Fission file upload is split into three deliberately separate parts:
+A file upload has three parts:
 
 1. the widget renders the browse affordance;
 2. the reducer asks the host to pick files;
 3. a job or service consumes the selected file stream.
 
-Reducers never receive the selected file as a `Vec<u8>`. The picker returns metadata plus a `DataStreamId`. That handle points at a runtime-owned `FissionDataStream`, and the stream is opened by async code through `JobCtx::open_data_stream(...)`, `ServiceCtx::open_data_stream(...)`, or host capability code.
+The picker returns metadata and a `DataStreamId`, not a `Vec<u8>`. The ID points to a runtime-owned `FissionDataStream`. Async code opens it through `JobCtx::open_data_stream(...)`, `ServiceCtx::open_data_stream(...)`, or host capability code.
 
-That shape keeps large files out of app state, action payloads, logs, diagnostics, and replayable reducer paths.
+This keeps file contents out of app state, action payloads, logs, diagnostics, and reducer replay.
 
 ## 1. Render the upload control
 
@@ -40,7 +40,7 @@ fission_component!
     }
 }
 ```
-The visible filename belongs in `GlobalState` because it is product state: the user picked something and the rest of the screen may need to react to it.
+Keep the visible filename in `GlobalState` so the rest of the screen can react to the selection.
 
 ```rust
 #[derive(Debug, Clone, Default)]
@@ -61,7 +61,7 @@ pub struct PickedAttachment {
 
 ## 2. Ask the host to pick files
 
-The browse reducer emits a capability request. The shell owns the actual picker UI because it is platform-specific host behavior.
+The browse reducer requests the picker through a capability. The shell opens the platform-specific picker UI.
 
 ```rust
 use fission::prelude::*;
@@ -105,7 +105,7 @@ The desktop shell provides a default `PICK_OPEN_FILES` provider on macOS, Window
 
 ## 3. Store metadata, not bytes
 
-The success reducer reads the capability result from `ctx.input`. It stores metadata and the stream handle. It does not open the stream and does not read bytes.
+The success reducer reads the result from `ctx.input` and stores its metadata and stream handle. It does not open the stream or read file bytes.
 
 ```rust
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -136,11 +136,11 @@ fn on_attachment_picked(
 }
 ```
 
-The stream is one-shot. Once a job or service opens it, later opens fail with `FissionDataStreamErrorKind::AlreadyConsumed`. If the user picks a new file, use the new handle.
+The stream is one-shot. After a job or service opens it, another open fails with `FissionDataStreamErrorKind::AlreadyConsumed`. Picking another file gives you a new handle.
 
 ## 4. Consume the stream in a job
 
-Use a job when the upload/import is one request with one eventual result.
+Use a job when the upload or import is one request with one result.
 
 ```rust
 #[derive(Debug)]
@@ -247,7 +247,7 @@ Use `fission::core::collect_data_stream(...)` only at a boundary where a platfor
 
 ## 5. Use a service when the upload is a conversation
 
-Use a service instead of a job when the work has identity over time: resumable uploads, progress events, cancellation, virus scanning, previews, or a long-running import pipeline.
+Use a service when the upload needs a longer-lived identity, such as resumable uploads, progress events, cancellation, virus scanning, previews, or a long-running import pipeline.
 
 The reducer still passes a `DataStreamId`, but the service opens it with `ServiceCtx::open_data_stream(...)` and emits progress events through `ServiceCtx::emit(...)`.
 
@@ -261,7 +261,7 @@ while let Some(chunk) = stream.next().await {
 }
 ```
 
-A service is the right choice when the UI needs progress, pause/resume, cancellation, or multiple events from the same upload session.
+Choose a service when the UI needs progress, pause/resume, cancellation, or several events from one upload session.
 
 ## Target support
 
@@ -286,7 +286,7 @@ Large bytes in reducers make apps harder to reason about:
 - host permissions leak into app logic;
 - cancellation and backpressure are nearly impossible to model cleanly.
 
-A `DataStreamId` is enough for the UI state. The actual bytes belong to runtime-managed async code.
+Keep the `DataStreamId` in UI state; let runtime-managed async code handle the bytes.
 
 ## Related
 

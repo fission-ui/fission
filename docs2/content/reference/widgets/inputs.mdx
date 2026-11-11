@@ -1,21 +1,21 @@
 ---
 title: Input widgets
-description: The reference overview for controls and editing widgets that collect user intent and feed the action and reducer pipeline.
+description: Choose Fission controls for actions, editing, and selecting values.
 ---
 
 # Input widgets
 
-Input widgets are where user intent enters the shared app model.
+Input widgets let people change a value or trigger an action.
 
-That is what makes them different from display widgets. A display widget mostly shows state. An input widget usually reflects current state and also emits the next action that will change it.
+That is the difference from a display widget: a display widget shows state, while an input widget also tells the app what the user changed.
 
-In Fission, that means input widgets are usually bound to explicit `ActionEnvelope` values that flow into reducers, and from there into state transitions or runtime effects.
+In Fission, most input widgets send an `ActionEnvelope` to a reducer. The reducer updates state or requests an effect.
 
 ## Choosing among input widgets
 
-Use the simplest control that matches the shape of the choice.
+Use the simplest control that fits the choice.
 
-Use buttons for discrete actions. Use toggles or checkboxes for boolean state. Use sliders for continuous values. Use text inputs for free-form editing. Use selects or segmented controls when the valid choices are small and known. Use comboboxes when typing and suggestion picking need to meet.
+Use a button for an action, a checkbox or switch for a yes-or-no choice, a slider for a continuous value, and a text input for free-form editing. Use a select or segmented control when the options are known. Use a combobox when people need to type and choose from suggestions.
 
 When the interaction becomes more specialized, move to lower-level gesture, drag, or editing helpers.
 

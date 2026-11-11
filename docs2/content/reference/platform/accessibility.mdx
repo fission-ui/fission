@@ -7,9 +7,7 @@ description: Reference for Fission semantics, native accessibility bridge suppor
 
 # Accessibility reference
 
-This page is the technical contract for Fission accessibility support.
-
-Fission's shared runtime lowers accessibility information into `Op::Semantics` nodes in Core IR. Shells and renderers consume those semantics differently depending on the target.
+Fission turns accessibility information into `Op::Semantics` nodes in Core IR. Each shell and renderer maps those nodes to the target's accessibility API. This page shows what works today, what needs target-specific testing, and where the known gaps are.
 
 ## Current support matrix
 

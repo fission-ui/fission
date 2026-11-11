@@ -5,18 +5,18 @@ description: Build, test, package, and ship a Fission application through one gu
 
 # Build and ship a Fission application.
 
-Follow the same path you will use in a real project: get an app running, understand its state and rendering model, add product work, test the actual targets, and produce release artifacts.
+Follow the same path you’ll use in a real project: run an app, understand its state and rendering model, add useful product work, test your targets, and build the artifacts you’ll ship.
 
 ## Put an app on screen first
 
-The [Quickstart](/docs/learn/quickstart/) creates a desktop app, shows you which file owns the shared product model, and explains every command before asking you to add another target.
+The [Quickstart](/docs/learn/quickstart/) creates a desktop app, shows where the shared product model lives, and explains each command before adding another target.
 
 - [Open the Quickstart](/docs/learn/quickstart/)
 - [Understand the application model](/docs/learn/overview/)
 
 ## A route through the documentation
 
-Each stage ends with something you can run, inspect, or verify.
+Each stage should leave you with something concrete to run, inspect, or verify.
 
 | Stage | What you will accomplish | Evidence |
 | --- | --- | --- |
@@ -28,20 +28,20 @@ Each stage ends with something you can run, inspect, or verify.
 
 ## Find guidance by the work in front of you
 
-You do not need to read the documentation front to back.
+You don’t need to read the documentation front to back. Start with the job you’re trying to do.
 
 ### Build an interface
 
-Use the [layout and widgets guide](/docs/guides/layout-and-widgets/) for retained composition, then add [responsive behaviour](/docs/learn/responsive-ui/) and a typed [design system](/docs/guides/design-system/).
+Start with the [layout and widgets guide](/docs/guides/layout-and-widgets/), then add [responsive behaviour](/docs/learn/responsive-ui/) and a typed [design system](/docs/guides/design-system/).
 
 ### Manage application state
 
-Read [state, handles, and providers](/docs/guides/state-handles-and-providers/) to choose the correct owner, then use [resources and async](/docs/guides/resources-and-async/) for work outside pure component conversion.
+Read [state, handles, and providers](/docs/guides/state-handles-and-providers/) to decide who owns each value. Use [resources and async](/docs/guides/resources-and-async/) for work that shouldn’t happen during component conversion.
 
 ### Add platform behaviour
 
-Start with the [capability matrix](/docs/capabilities/matrix/) and use the target shell as the explicit boundary for host-specific lifecycle, input, accessibility, and delivery work.
+Check the [capability matrix](/docs/capabilities/matrix/) first. The target shell is where platform-specific lifecycle, input, accessibility, and delivery behaviour belongs.
 
 ### Diagnose and ship
 
-Follow [testing and diagnostics](/docs/guides/testing-and-diagnostics/) during development, then use [build and package](/docs/build-and-package/overview/) and the [release checklist](/docs/release-and-distribute/app-release-checklist/) for the shipped form.
+Use [testing and diagnostics](/docs/guides/testing-and-diagnostics/) as you develop, then follow [build and package](/docs/build-and-package/overview/) and the [release checklist](/docs/release-and-distribute/app-release-checklist/) to ship it.

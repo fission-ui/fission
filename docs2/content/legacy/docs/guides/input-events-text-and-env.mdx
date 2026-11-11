@@ -11,7 +11,7 @@ In Fission, those two concerns are handled explicitly.
 
 Input arrives through a shared event model instead of raw platform callbacks. Environment data such as theme, locale, viewport size, and safe-area style insets live in `Env` instead of hiding in globals. Widgets read that environment through `ViewHandle`, and shells can synchronize app-driven environment values through `.with_sync_env(...)`.
 
-This page introduces those pieces slowly, because they are part of what makes the framework portable and testable.
+These input and environment contracts are what let one app respond consistently across hosts and stay testable.
 
 ## `InputEvent` is the shared language for user input
 
@@ -218,20 +218,6 @@ Nothing about that flow requires the widgets to reach into native browser or mob
 ## Where to go next
 
 If you want the full explanation of locale, translation bundles, and theme loading, continue to [Theming and internationalization](/docs/guides/theming-and-i18n). If you need to decide whether a value belongs in `GlobalState`, local widget state, `Env`, or a provider, read [State, handles, and providers](/docs/guides/state-handles-and-providers/). If you want the deeper explanation of resources, jobs, services, and reducer-side effects, read [Resources and async](/docs/guides/resources-and-async/).
-
-## What you should have working
-
-After this guide, you should be able to explain where `Input, text, and environment` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
-
-## Common mistakes to check
-
-| Symptom | What to check first |
-| --- | --- |
-| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
-| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
-| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
-| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
-| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
 
 ## Responsive input layout
 

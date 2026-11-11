@@ -25,7 +25,7 @@ A timer is for repeated wakeups on a schedule. Updating "Last synced 12 seconds 
 
 A service is for long-lived work with identity over time. A sync session, watcher, or streaming connection is service-shaped.
 
-This page uses both timer and service because they solve different problems.
+Use a timer for repeated ticks and a service for work that stays alive and emits events; the two lifetimes are different.
 
 ## Step 2: model a ticking screen in app state
 
@@ -289,7 +289,7 @@ This is the same architectural pattern you have already seen with actions and re
 
 ## When to use a reducer-started service instead
 
-This page used `ServiceResource` because the service lifetime was tied to the screen.
+Here the screen owns the service lifetime, so `ServiceResource` starts it while the screen is present and stops it when the resource is removed.
 
 If the service should exist because of an explicit product action rather than because a subtree is mounted, start it from a reducer with `ctx.effects.start_service(...)` instead.
 
@@ -311,15 +311,12 @@ Do not forget stable resource keys. If a key changes every build, the runtime wi
 
 ## Where to go next
 
-If your repeating work depends on host permissions or device integrations, pair this page with [Run typed host work](/docs/cookbook/run-typed-host-work). If you want the deeper architecture behind jobs, services, resources, and `ReducerContext`, read [Resources and async](/docs/guides/resources-and-async).
+For host permissions or device integrations, continue with [Run typed host
+work](/docs/cookbook/run-typed-host-work). For the runtime details behind
+jobs, services, resources, and `ReducerContext`, read [Resources and
+async](/docs/guides/resources-and-async).
 
-## Finished state and checks
-
-By the end of `Keep a timer or service alive`, you should have a runnable change, not just a set of snippets. Run the command shown in the page, exercise the feature once manually, and add or update the smallest test that protects the behavior.
-
-| Check | Expected result |
-| --- | --- |
-| Build | `cargo check` or the relevant `fission` command finishes without target-specific configuration errors. |
-| Behavior | The screen, package, server route, or test flow described by the recipe is visible and responds to input. |
-| Failure path | At least one denied, missing, invalid, or empty case renders a useful message instead of silently doing nothing. |
-| Next link | The reference page linked from the recipe explains the exact fields, commands, or types used here. |
+When you run this example, check that the clock updates while its resource is
+present and stops when that resource is removed. A reducer-started service
+should follow the product action that starts it, not the visibility of a
+widget.

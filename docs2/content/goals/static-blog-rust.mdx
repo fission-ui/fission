@@ -16,13 +16,13 @@ outcomes:
   - Read a complete article and continue to the next story
 ---
 
-Build **Field Journal**, a small publication for practical Rust, product craft and the decisions that make software easier to use. A reader should be able to discover an article, understand what it covers before opening it, browse a topic, read the full post and continue when they reach the end.
+We will build **Field Journal**, a small publication about Rust, product craft, and making software easier to use. Readers can find a story, see what it covers, browse a topic, read the full article, and move on to another one.
 
-We will keep article content in dated Markdown files and let Fission generate static article, category and tag routes. The journal interface in this tutorial uses named `fission_component!` components, so search, filters, pagination and article navigation all have working behavior. Its sample articles stay in memory for the interactive lesson; the production content route renders the authored files into crawlable pages before deployment.
+Article content lives in dated Markdown files. Fission generates the article, category, and tag routes. The journal interface uses named `fission_component!` components, so search, filters, pagination, and article navigation work in the lesson preview. Those sample stories stay in memory; the production content route renders the authored files into crawlable pages.
 
 ## Create the site project
 
-Use the website template to generate the site shell, then keep each concern in a small module. The compiled lesson app under `preview/` is a browser harness; copy the `src/` files into the generated project and keep the generated site entry point and `fission.toml` as the production shell.
+Start with the website template and keep each part in a small module. The compiled app under `preview/` is only a browser harness for the lesson. Copy the `src/` files into the generated project, but keep its generated site entry point and `fission.toml` as the production shell.
 
 <Tabs>
 <TabItem label="Create Field Journal">
@@ -63,11 +63,11 @@ field-journal/
 </TabItem>
 </Tabs>
 
-The static-site shell owns route generation and page metadata. The components in `src/` own the journal experience. Keeping those boundaries clear means an editor can improve an article without changing its card layout, and the same article metadata can feed the index, taxonomy pages and sitemap.
+The Static site shell generates routes and page metadata; the components in `src/` build the journal experience. Keep those jobs separate. An editor can then change an article without touching its card layout, and the same metadata can drive the index, category pages, tag pages, and sitemap.
 
 ### Mount the blog collection
 
-Merge these settings into the template's existing `[site]` table. `base_url` lets Fission write absolute sitemap entries; `asset_dirs` copies the manually maintained feed into the final site. The blog content route creates an index, paginated archive pages, category and tag pages, and individual article URLs from the files in `content/blog/`.
+Add these settings to the template's `[site]` table. `base_url` gives Fission the full URL for sitemap entries; `asset_dirs` copies the feed into the built site. The blog route creates the index, paginated archives, category and tag pages, and article URLs from `content/blog/`.
 
 <Tabs>
 <TabItem label="Site settings and route">
@@ -106,14 +106,14 @@ template = "fission::site::blog"
 </TabItem>
 </Tabs>
 
-Fission's blog template handles static pagination and taxonomy routes. The interactive component we build below adds a live search and category controls to the reading experience. The feed is an authored asset: Fission copies it but does not invent or refresh its entries.
+Fission's blog template handles static pagination and category and tag routes. The component below adds live search and category controls to the preview. The RSS feed is still yours to maintain: Fission copies it, but does not create or update its entries.
 
 <!-- fission:step id="journal-index" -->
 ## Give the journal a real front page
 
-Start with the parts a reader needs before they choose a story: a publication identity, an editorial pick, a clear article list and enough information to judge each result. Field Journal has six articles across Rust guides, product design and field notes. Each card shows its title, category, summary, author, date and reading time; “Read story” opens the matching article instead of acting as a decorative button.
+Show readers what they need to choose a story: the publication name, a featured article, and a list with enough information to judge each result. Field Journal has six stories about Rust, product design, and field notes. Each card shows the title, category, summary, author, date, and reading time. “Read story” opens that article.
 
-The `JournalStory` record keeps those fields together. `JournalState` holds only the selected article ID because both the card and article reader need to update or read that choice. Search and filter controls will belong to the page component in the next step, since they are temporary choices for this one view.
+The `JournalStory` record keeps each article's fields together. `JournalState` stores the selected article ID because both the card and reader need it. Search and filter settings belong to the page component: they are temporary choices for this view, not article data.
 
 <Tabs>
 <TabItem label="Content and app state">
@@ -578,7 +578,7 @@ pub fn run() -> Result<(), JsValue> {
 </TabItem>
 </Tabs>
 
-`JournalStoryCard` receives one article as a prop and dispatches the selected ID through a reducer. That keeps selection as an explicit state transition: rendering the card never changes app state. `FeaturedStory` reuses the same story record but gives the lead article more space, while `FieldJournal` composes those named pieces into a responsive grid. Spacing, colors and heading sizes come from the active Fission theme, so the interface follows the site's design system instead of introducing a second set of font and color choices.
+`JournalStoryCard` receives an article as a prop and sends its ID to a reducer when selected. Building the card does not change app state; the reducer owns that transition. `FeaturedStory` uses the same record for the lead article, and `FieldJournal` arranges the components in a responsive grid. Spacing, colours, and headings come from the active Fission theme, so the site does not need a second set of visual values.
 
 <!-- fission:preview -->
 
@@ -590,11 +590,11 @@ Open the editor’s pick, read its title and first paragraph, then return to the
 <!-- fission:step id="search-and-pagination" -->
 ## Help readers find and browse stories
 
-A journal becomes hard to use when its archive grows. Add a search field that checks the title, summary, category, author and tags, then add category filters for the three sections Field Journal publishes. The result count tells the reader how much the controls narrowed the archive, and the empty state leaves the search term visible with one action that restores all stories.
+As the archive grows, readers need a way to narrow it down. Search the title, summary, category, author, and tags, then add filters for the three Field Journal categories. Show the result count. If nothing matches, keep the search term visible and offer one action to restore all stories.
 
-The search string, active category and page number are local state on `FieldJournal`: they are presentation choices, not durable article data. Changing category returns to page one. Search can make a previously selected page unavailable, so the view clamps the displayed page to the current result count. The previous/next actions repeat that calculation in their reducer, keeping the visible page valid even when the query changes.
+The search string, selected category, and page number are local state on `FieldJournal`. They affect this view, not the articles. Changing the category returns to page one. A search can also remove results from the current page, so clamp the displayed page to the available results. The previous and next reducers use the same rule.
 
-Each story card uses its stable article ID as its key. If a search or category change reorders the list, Fission can still associate a rendered card with the same article instead of treating its position as its identity.
+Use the article ID as each card's key. When a search or category filter changes the list, Fission can keep each card attached to its article instead of its old position.
 
 <Tabs>
 <TabItem label="Search the authored records">
@@ -946,7 +946,7 @@ fission_component! {
 </TabItem>
 </Tabs>
 
-Try searching for `Rust`, select **Rust guides**, and move to the next page. There are two Rust guides, so that category has one page; choose **All stories** to see both archive pages. Search for a phrase that does not occur in a title, summary, tag or author. The journal should explain why the list is empty and let you clear the filters without losing your place in the page.
+Search for `Rust`, select **Rust guides**, and try the next-page control. That category has two stories and fits on one page. Choose **All stories** to browse both archive pages. Then search for a phrase that appears nowhere in the articles. The empty state should explain what happened and let you clear the filters.
 
 <!-- fission:preview -->
 
@@ -958,14 +958,14 @@ Use the search field and category controls, then move from page one to page two.
 <!-- fission:step id="read-and-publish" -->
 ## Read the full article and publish useful metadata
 
-A card summary helps someone choose an article, but it cannot replace the article. Expand `JournalArticle` to render every authored paragraph in a comfortable reading column, show the byline and reading time beside the title, and offer a working next-story action. The article remains readable at phone widths because the body column can fill the screen while keeping a maximum reading measure on a wide display.
+The summary helps readers choose a story; it is not a substitute for the article. Update `JournalArticle` to show every paragraph in a readable column, put the byline and reading time beside the title, and add a working next-story action. On a phone, the body can fill the screen. On a wider display, keep its line length comfortable.
 
-In the real static site, each post's front matter becomes page metadata and the blog template creates the article's stable URL. Write the description for the reader and the search result: name the question the post answers and the outcome it helps someone reach. Use a single descriptive H1, headings that describe the next idea, and links to genuinely related pages. Categories should organize the publication; tags should name narrower topics that recur across articles.
+On the production site, each post's front matter supplies its metadata and the blog template gives it a stable URL. Write the description for readers and search results: say what question the article answers and what they will get from reading it. Use one descriptive H1, headings that name the next idea, and links to related pages. Use categories for the main sections and tags for narrower topics that recur.
 
 <Tabs>
 <TabItem label="Complete article reader">
 
-**Update `src/components/article_reader.rs`**. The next-story button selects a real article from the in-memory collection; on the production static blog, `show_adjacent_posts` makes the blog template render older/newer article links from published content.
+**Update `src/components/article_reader.rs`**. In the preview, the next-story button selects an article from the in-memory collection. On the production site, `show_adjacent_posts` tells the blog template to render links to the previous and next published articles.
 
 <!-- fission:file path="src/components/article_reader.rs" -->
 ```rust
@@ -1068,7 +1068,7 @@ Write the answer promised by the description. Introduce the reader's task, work 
 </TabItem>
 <TabItem label="Maintain an RSS feed">
 
-Fission copies assets from `asset_dirs`, but it does not generate RSS entries. Keep the feed's canonical URLs, titles and publication dates synchronized with the authored posts:
+Fission copies files from `asset_dirs`; it does not generate RSS entries. Keep the feed's canonical URLs, titles, and dates in sync with the published posts:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -1092,7 +1092,7 @@ Fission copies assets from `asset_dirs`, but it does not generate RSS entries. K
 
 ### Build and inspect the generated site
 
-Run the build before serving so you can confirm the content routes, feed and sitemap exist in the output directory. The route list is a useful check when a post or taxonomy page is missing: the browser cannot link to a route that the builder did not create.
+Build the site before serving it. Check that the article routes, feed, and sitemap are in the output directory. If a post or category is missing from `fission site routes`, the builder has not created a page for it.
 
 ```sh
 cargo test
@@ -1104,9 +1104,9 @@ ls dist/site/feed.xml dist/site/sitemap.xml dist/site/robots.txt
 fission site serve --project-dir . --host 127.0.0.1 --port 8123
 ```
 
-The finished blog has stable, crawlable article pages, paginated archives, category and tag routes, a generated sitemap, and an RSS feed you can update as you publish. Before deployment, open one article directly, test its older/newer links, and check the generated HTML title and description as well as the visual layout.
+You now have stable article URLs, paginated archives, category and tag pages, a sitemap, and an RSS feed you can update as you publish. Before deployment, open an article directly, test its older and newer links, and check its generated title and description as well as the layout.
 
-Keep the original reference pages close while extending this project: [Static Sites](/docs/guides/static-sites/), [Static Site Content Routes](/docs/guides/static-site-content-routes/) and [Fission Toml](/reference/config/fission-toml/).
+Use these reference pages as you extend the site: [Static Sites](/docs/guides/static-sites/), [Static Site Content Routes](/docs/guides/static-site-content-routes/), and [Fission Toml](/reference/config/fission-toml/).
 
 <!-- fission:preview -->
 <!-- fission:checkpoint -->

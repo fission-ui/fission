@@ -16,9 +16,9 @@ outcomes:
   - Run and check the same Rust screen in an iOS Simulator
 ---
 
-At Riverside Community Library, a volunteer checks books back in while another person answers questions at the desk. They both need the same loan record to say when a book is back. The returns screen also needs a way to hide completed loans while the volunteer works through the active pile.
+At Riverside Community Library, one volunteer checks books in while another helps members. They both need to see the same return status. The returns screen also needs a way to hide completed loans while the volunteer works through the active pile.
 
-We will build that desk from four sample loans. A typed reducer changes a loan from checked out to returned, and the totals update from the same data. The “include returned loans” choice belongs only to this screen, so closing and reopening the filter does not alter a loan. This first version keeps records in memory; when the app restarts, the sample loans return.
+We’ll build the desk around four sample loans. A typed reducer marks a loan returned, and the totals read from that same data. The “include returned loans” choice belongs only to this screen; changing the filter must not change a loan. These records live in memory, so restarting the app restores the sample set.
 
 ## Create an iOS project
 
@@ -48,14 +48,14 @@ riverside-library/
 </TabItem>
 </Tabs>
 
-The loan record is product data: the desk, a future member screen, and a report should all see the same return status. Keep that record in app state. The filter is only a presentation choice for this desk, so it will live in the component that owns the screen.
+The loan is app data. The desk, a member screen, and a report should all see the same return status, so keep the record in app state. The filter only affects this desk’s presentation, so it belongs in the component that owns the screen.
 
 <!-- fission:step id="start-screen" -->
 ## Lay out the returns desk
 
-A volunteer should not have to open a loan to identify it. Each row shows the book, the member who borrowed it, its due time, and whether it is still checked out. The totals summarize the same four sample loans, so even this read-only first version resembles a useful desk rather than a blank scaffold.
+A volunteer should be able to identify a loan without opening it. Each row shows the book, borrower, due time, and current status. The totals come from the same four records, so the read-only screen is already useful rather than just a blank scaffold.
 
-Add the loan type and two components to `src/app.rs`. `LoanCard` owns the presentation for one loan; `LibraryLoanDesk` arranges the cards and summary. The vertical scroll region uses the current app viewport height so all four loans remain reachable on a phone, and its accessible name tells VoiceOver what the region contains.
+Add the loan type and two components to `src/app.rs`. `LoanCard` presents one loan; `LibraryLoanDesk` arranges the cards and summary. The scroll region uses the app’s viewport height so every loan remains reachable on a phone. Its accessible name tells VoiceOver what the region contains.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -236,11 +236,11 @@ Find Ada’s copy of `The Rust Programming Language` and confirm that it is stil
 <!-- fission:step id="return-a-book" -->
 ## Update the loan record with a reducer
 
-When a book comes back, the status is no longer just a detail on this screen. The loan summary and every component reading that loan should now report the return. Put the list in `LibraryState`, which implements `GlobalState`, and make “Mark returned” a typed action. The reducer finds one loan by its stable ID, changes its status, and records a short confirmation for the desk.
+When a book comes back, every part of the app that reads the loan should see the return. Put the list in `LibraryState` (`GlobalState`) and make **Mark returned** a typed action. Its reducer finds a loan by stable ID, updates its status, and records a confirmation for the desk.
 
-The filter has a different lifetime. A volunteer may turn it on to review returns, then turn it off to focus on the books still out. That choice does not belong in `LibraryState` because it should not change what another screen sees. `LibraryLoanDesk` retains it locally, and its button only changes which rows are visible.
+The filter has a different lifetime. A volunteer may show returns, then hide them to focus on books still out. It doesn’t belong in `LibraryState`, because another screen should not inherit this desk’s display choice. `LibraryLoanDesk` retains the filter locally; its button only changes which rows are visible.
 
-Replace the read-only `src/app.rs` with the version below. `LoanSummary` reads the shared records, `LoanCard` dispatches the return action, and `LibraryLoanDesk` owns the local filter. Since the cards use each loan’s ID as their key, filtering the list does not give a different book the previous row’s widget identity.
+Replace the read-only `src/app.rs` with the version below. `LoanSummary` reads shared records, `LoanCard` dispatches the return action, and `LibraryLoanDesk` owns the local filter. Each card is keyed by loan ID, so filtering the list won’t give one book another book’s widget identity.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -538,7 +538,7 @@ Mark Noah’s `Programming Rust` loan as returned. The “On loan” total shoul
 <!-- fission:step id="run-on-ios" -->
 ## Run and verify the returns desk on iOS
 
-The same `LibraryLoanDesk` component can run in the browser and in the native iOS shell. Fission does not need a second screen written in Swift: the host starts the Rust app and supplies the device window. Replace the generated app’s `CounterApp` references in `src/lib.rs` with the library desk and its shared state. The generated `src/main.rs` continues to call `run_mobile` for iOS.
+The browser and native iOS shell use the same `LibraryLoanDesk`; there is no second screen to write in Swift. The host starts the Rust app and supplies the device window. Replace the generated `CounterApp` references in `src/lib.rs` with the desk and shared state. Leave `src/main.rs` to call `run_mobile` for iOS.
 
 <Tabs>
 <TabItem label="src/lib.rs">
@@ -605,7 +605,7 @@ fission run --target ios --device <device-id> --project-dir .
 </TabItem>
 </Tabs>
 
-Start with `cargo test`. The reducer tests verify the record change directly, including an unknown loan ID that should not alter any loan. Then run the desk in an iOS Simulator: return Noah’s book, check that the summary updates, and hide returned loans. Rotate the Simulator or use a smaller window to reach every row by scrolling. The simulator checks the Fission shell; installing a release on a physical iPhone also requires the signing setup described in the [iOS deployment guide](/blog/package-and-prepare-a-fission-ios-app-for-testflight/).
+Run `cargo test` first. The reducer tests check the record change and confirm that an unknown loan ID changes nothing. Then run the desk in an iOS Simulator: return Noah’s book, check the updated summary, and hide returned loans. Rotate the Simulator or shrink its window to verify that every row remains reachable. A physical iPhone release also needs the signing setup in the [iOS deployment guide](/blog/package-and-prepare-a-fission-ios-app-for-testflight/).
 
 ## Continue learning
 

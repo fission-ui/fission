@@ -7,9 +7,7 @@ description: Ask the host to do platform-specific work without hiding side effec
 
 Sooner or later, every real app needs something that the operating system, browser, or device must do on its behalf. Opening a native file picker, opening an external web address, or handing a product-specific flow to the host are common examples.
 
-In Fission, this is called host work.
-
-Host work means work that belongs on the shell side of the app boundary rather than inside your deterministic core app logic. Your reducer can decide that a file picker should open, but the reducer is not the file picker. The shell host performs that operation and sends the typed result back.
+Fission calls this host work: a reducer decides when a file picker should open, but the shell opens it and returns a typed result. This keeps platform-specific execution at the host boundary while reducers handle the state transition.
 
 This recipe walks through a practical case: letting the user import a text file. Along the way, it also answers an important design question: when should you use a capability, when should you use a job, and when should you use a resource?
 
@@ -104,11 +102,9 @@ fn on_import_pressed(
 }
 ```
 
-This is the defining capability pattern in Fission.
-
 The reducer does not open the file picker directly. Instead, it records a typed request through `ctx.effects.capability(...)`. After the reducer returns, the shell host performs the work. When the host finishes, the runtime dispatches the success or failure action you bound with `on_ok(...)` or `on_err(...)`.
 
-This is why reducers stay deterministic even when the product needs real platform integration.
+The reducer stays synchronous and deterministic; the host operation runs after it returns.
 
 ## Step 4: read the capability result and hand off app-owned work
 
@@ -262,13 +258,4 @@ Do not store raw platform callback state all over your widget tree. Convert it i
 
 If your next feature needs repeated background work instead of a one-shot host action, continue with [Keep a timer or service alive](/docs/cookbook/keep-a-timer-or-service-alive). If you want the deeper architecture behind effects, jobs, services, and resources, read [Resources and async](/docs/guides/resources-and-async).
 
-## Finished state and checks
-
-By the end of `Run typed host work`, you should have a runnable change, not just a set of snippets. Run the command shown in the page, exercise the feature once manually, and add or update the smallest test that protects the behavior.
-
-| Check | Expected result |
-| --- | --- |
-| Build | `cargo check` or the relevant `fission` command finishes without target-specific configuration errors. |
-| Behavior | The screen, package, server route, or test flow described by the recipe is visible and responds to input. |
-| Failure path | At least one denied, missing, invalid, or empty case renders a useful message instead of silently doing nothing. |
-| Next link | The reference page linked from the recipe explains the exact fields, commands, or types used here. |
+Run the example and confirm that the host operation starts only after its action is dispatched. Test the returned value and the error path with a memory host before trying the real device or service.

@@ -5,7 +5,7 @@ description: Learn how Fission moves an app from a built artifact to a signed pa
 
 # Release lifecycle details
 
-A Fission project can produce more than a runnable binary. It can also produce the files, metadata, checks, and receipts you need to ship that binary through a store, a static host, an object store, or a release page. This page explains the release workflow from a developer's point of view.
+Shipping a Fission app takes more than producing a runnable binary. You may also need release files, metadata, checks, and receipts for a store, static host, object store, or release page. Here's how the release workflow brings them together.
 
 You do not need to memorize every provider rule before you start. The important idea is that Fission keeps the release process explicit. Each command does one job, writes inspectable output, and gives you a clear error when something is missing.
 
@@ -49,7 +49,7 @@ repeatable automation.
 
 ## Lifecycle fit and verification
 
-This page belongs to the setup, learn, build, test, and publish lifecycle. Use it to decide the next concrete action, then verify the action before moving to the next stage.
+Once packaging finishes, check the artifact and its manifest before sending it to a store or release provider. Keep the readiness result, validation output and distribution receipt with the build so you can see exactly what was shipped.
 
 | Stage question | Verification |
 | --- | --- |

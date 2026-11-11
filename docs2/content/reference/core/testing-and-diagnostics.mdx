@@ -5,9 +5,7 @@ description: The reference contract for reducer tests, headless runtime tests, l
 
 # Testing and diagnostics
 
-This page is the technical map for how Fission verifies user interface behavior.
-
-The framework supports several testing layers because user interface bugs live at several layers. A reducer bug is not the same thing as a layout bug, a live shell bug, or a rendering-pipeline regression. Good reference documentation should help you choose the smallest tool that still matches the problem.
+Fission has different tests for different kinds of failure. A reducer test will not catch a layout bug, and a headless runtime test will not prove that a shell launches on a phone. Start with the smallest test that covers the behaviour you are changing; this page shows where each test fits.
 
 ## Testing layers
 

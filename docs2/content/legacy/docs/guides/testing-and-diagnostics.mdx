@@ -5,11 +5,9 @@ description: Learn how reducer tests, headless harness tests, live shell tests, 
 
 # Testing and diagnostics
 
-User interface code needs testing for a simple reason: user interface bugs are rarely only about one pure function returning the wrong value.
+UI bugs are rarely just a pure function returning the wrong value. They can involve state transitions, focus order, layout, scrolling, overlays, timing, rendering, or the platform host. Fission keeps those runtime stages inspectable so you can test the layer where the bug lives.
 
-A real user interface bug can involve state transitions, focus order, layout, scrolling, overlays, timing, rendering, or platform hosting. That is exactly why Fission puts so much emphasis on determinism and inspectable runtime stages. The framework is trying to make user interface behavior testable at the layer where the bug actually lives.
-
-This guide walks through the testing layers in the order that usually pays off best:
+Start with the cheapest test that can answer the question, then move closer to the real host when you need more confidence:
 
 1. reducer tests,
 2. headless harness tests,
@@ -76,7 +74,7 @@ That is the right layer for questions such as:
 - Does the semantic tree contain the right label and role?
 - After typing text, does the reconverted user interface show the expected result?
 
-Why is this layer so valuable? Because it exercises the real runtime model while staying much faster and more controllable than a live shell test.
+It exercises the real runtime model while staying faster and more controllable than a live shell test.
 
 `fission-test` provides tools such as `TestHarness`, `HeadlessApp`, and `TestDriver`. They give you predictable build, lower, layout, pump, and query flows. The driver can tap, type, scroll, and inspect visible text or semantics in process.
 
@@ -185,20 +183,6 @@ Finally, avoid diagnostics spam without a question. Enable the categories that m
 ## Where to go next
 
 If you want the shell-side picture for target generation, host launchers, and public shell builders, read [Platform shells, command-line interface, and testing](/docs/guides/platform-shells-cli-and-testing). If you want the async model behind many live app behaviors, continue to [Resources and async](/docs/guides/resources-and-async).
-
-## What you should have working
-
-After this guide, you should be able to explain where `Testing and diagnostics` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
-
-## Common mistakes to check
-
-| Symptom | What to check first |
-| --- | --- |
-| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
-| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
-| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
-| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
-| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
 
 ## Golden images and visual fidelity
 

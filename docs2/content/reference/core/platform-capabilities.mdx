@@ -60,7 +60,7 @@ Use the [Capability matrix](/reference/capabilities/matrix/) to compare platform
 | `haptics` | `VIBRATE` | none | Desktop haptics are hardware/provider-specific. |
 | `microphone` | `RECORD_AUDIO` | `NSMicrophoneUsageDescription` | Desktop packages may need microphone metadata. |
 | `bluetooth` | Legacy and Android 12+ Bluetooth permissions, optional Bluetooth features | `NSBluetoothAlwaysUsageDescription` | Some operations need additional product policy review. |
-| `wifi` | Wi-Fi/network permissions, nearby Wi-Fi, older fine-location permission, optional Wi-Fi features | Wi-Fi info/hotspot entitlements, location usage where needed | iOS and desktop Wi-Fi management is constrained. |
+| `wifi` | Wi-Fi/network permissions, nearby Wi-Fi, older fine-location permission, optional Wi-Fi features | Wi-Fi info/hotspot entitlements, location usage where needed | The built-in iOS host uses `UnsupportedWifiHost`; generated entitlements do not add a provider. A custom provider remains subject to iOS policy. Desktop support depends on the provider. |
 | `volume-control` | `MODIFY_AUDIO_SETTINGS` | none | iOS and web do not expose broad system-volume control. |
 
 Clipboard has no generated platform config in the built-in declaration. Notifications and deep links are shell setup because route names, notification categories, service workers, associated domains, push identifiers, and URL schemes are product-owned. Fission should not invent those values.

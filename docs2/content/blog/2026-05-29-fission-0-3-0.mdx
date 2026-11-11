@@ -10,26 +10,26 @@ categories:
   - Releases
 ---
 
-Fission 0.3.0 made the framework more useful for real products by improving media loading, native capability providers, platform launch behavior, GPU-first web rendering, iOS safe-area handling, static and server site workflows, Docker packaging, and security controls.
+Fission 0.3.0 focused on the gaps that show up when an app has to do more than render a screen. It improved media loading, native capability providers, platform launch behaviour, GPU-first Web rendering, iOS safe areas, Static site and SSR workflows, Docker packaging, and security controls.
 
-This release is best understood as a productization pass. It closed gaps that appear when examples stop being demos and start behaving like app surfaces a user can actually exercise.
+The common thread is making these paths usable in an app a person can actually use. A feature that works only in a demo is not finished.
 
 
-Image handling moved from a simple widget field toward typed image sources and renderer-managed loading. Remote images, loading behavior, error behavior, cache policy, intrinsic sizing, and renderer refresh paths became part of the model. The product browser example used real remote data to prove this path and expose layout issues that would not show up in a toy counter.
+Image handling moved beyond a source field on a widget. Typed image sources and renderer-managed loading now cover remote images, loading and error states, cache policy, intrinsic sizing, and refresh behaviour. The product browser example uses real remote data, which exposed layout issues a counter demo would never find.
 
-Capabilities also became much more concrete. Fission added native hosts and generated target metadata for capability families, then introduced the field inspector example to exercise them across macOS, web, iOS, and Android. The release included macOS development app bundles so capability prompts and native entitlements behave like an app instead of a random binary. It also added fixes for web passkeys, scheduled notifications, native macOS notifications, and iOS simulator dispatch linkage.
+Capabilities became more concrete too. Fission added native hosts and generated target metadata for capability families, then added the field-inspector example to exercise them on macOS, Web, iOS, and Android. Development app bundles on macOS mean capability prompts and native entitlements behave as they do in an app, rather than in a loose executable. The release also fixed Web passkeys, scheduled notifications, native macOS notifications, and iOS simulator dispatch linkage.
 
-Rendering quality improved across web and iOS. Web moved toward a GPU-first path, with Canvas2D software rendering kept as fallback. Software frames were rendered at device scale where needed so browser output no longer looked blurry. iOS received safe-area and text-layout fixes, plus fallback handling for cases where the native GPU path cannot be used.
+Web and iOS rendering improved as well. Web moved to a GPU-first path, keeping Canvas2D software rendering as a fallback. Software frames now render at device scale where needed, so browser output is not blurry on high-density screens. iOS received safe-area and text-layout fixes, plus a fallback for cases where the native GPU path is unavailable.
 
-0.3.0 also introduced the server shell and revalidated site model. Static pages, server-rendered routes, signed action forms, progressive workers, browser islands, session-backed state, cache controls, and Docker packaging were added around a Pokemon card store example. The point was to bridge static site output, server-rendered pages, progressive browser behavior, and typed Fission state without turning the app into a separate web framework.
+This release also introduced the server shell and a revised site model. A Pokémon card-store example brings together static pages, SSR routes, signed action forms, progressive workers, browser islands, session-backed state, cache controls, and Docker packaging. The point is to combine static output, server-rendered pages, browser interaction, and typed Fission state without asking you to build a separate web framework around the app.
 
-Packaging and deployment work continued. Docker image support was added for static and server sites, with artifact manifests, registry publishing, and documentation for packaging workflows. The CLI became more capable as an application lifecycle tool rather than only a launcher.
+Packaging and deployment moved forward with Docker images for Static site and SSR projects, artifact manifests, registry publishing, and packaging guides. The CLI is becoming a tool for the full app lifecycle, not just a way to launch a project.
 
-Security received direct attention in the server shell. The release added signed server action forms, runtime security configuration, cache tests, session and island coverage, and documentation for server rendering and security workflow. That is important because server-side interactivity increases the cost of ambiguous behavior. The framework needs to make unsafe paths visible and controlled.
+The server shell also needed clear security boundaries. This release added signed server-action forms, runtime security configuration, cache tests, session and island coverage, and guidance for SSR security. Server-side interaction raises the cost of getting a boundary wrong, so the framework needs to make those boundaries visible and controllable.
 
-Fission 0.3.0 is the release where the platform story became significantly more complete: real media loading, native capabilities, sharper web and iOS rendering, server rendering, sessions, browser bridges, Docker packaging, and security documentation all landed together.
+Fission 0.3.0 brought several important parts of the platform together: real media loading, native capabilities, better Web and iOS rendering, SSR, sessions, browser bridges, Docker packaging, and security guidance.
 
 ## What this means for developers
 
 
-If you are evaluating Fission, use the release as a checklist rather than a marketing claim: create or open an app, run the documented command, inspect the generated files, and add one small test around the behavior you plan to depend on. The framework should make that path explicit. When it does not, the documentation or tooling needs to improve until the risk is visible and actionable.
+If your app depends on remote media, native device access, or server-rendered pages, this release gives you more of that path to try. Start with the example closest to your use case, run it on the target you care about, and check its security and packaging steps before building on it.

@@ -15,7 +15,7 @@ outcomes:
   - Keep the draft after validation errors
 ---
 
-Harbour Supply’s support team needs enough detail to investigate a delayed or damaged shipment without asking the customer to repeat the story. The form collects a reply address, a short subject, and an order-specific message. You will keep a draft when local validation finds a problem, then pass a valid request to a server delivery job. The browser preview stops before sending email, so you can try the full interaction safely.
+Harbour Supply’s support team needs enough detail to investigate a delayed or damaged shipment without making the customer repeat the story. The form asks for a reply address, a short subject, and an order-specific message. We’ll keep the draft when validation finds a problem and send valid requests to a server job. The browser preview never sends email, so you can try the interaction safely.
 
 Install the Fission CLI and scaffold the SSR project:
 
@@ -44,14 +44,12 @@ harbour-contact/
 └── tests/                      # project-specific flow checks
 ```
 
-Keep request validation in `server/contact.rs` and email delivery in the job under `effects/contact.rs`. The component owns the visible draft and correction messages. This preview validates and confirms in memory; the deployed SSR route must validate its signed form action again before queuing delivery.
+Keep request validation in `server/contact.rs` and email delivery in `effects/contact.rs`. The component owns the visible draft and correction messages. The preview validates and confirms in memory. A deployed SSR route must validate its signed form action again before queuing delivery.
 
 <!-- fission:step id="start-screen" -->
 ## Create labelled contact fields
 
-Ask for details support can act on: who is writing, where they can receive a reply, which shipment needs attention, and what went wrong. Keeping those answers separate lets validation point to the exact field that needs work.
-
-Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+Ask for details support can act on: who is writing, where to reply, which shipment needs attention, and what went wrong. Separate fields let validation point to the exact answer that needs fixing.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -142,16 +140,16 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Create labelled contact fields: Confirm the screen asks for the information support needs to investigate an order or delivery issue.
+Check that every field has a visible label and that the form asks for enough information to investigate a delivery issue.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
 ## Validate and confirm a submission
 
-Use labelled fields and native form submission. Validate the name, email and message on the server before requesting the send job. Keep submitted values that are safe to preserve when validation fails, and put the error next to the field it describes.
+Use labelled fields and native form submission. The server validates the name, email, and message before it queues the send job. When validation fails, keep the safe submitted values and put each error next to its field.
 
-The draft stays on the page when a field needs correction. That matters for a customer who has already looked up an order number and written a careful explanation. The preview applies the same basic checks in memory; in production, the signed SSR form action must validate again before the delivery job starts. The form can be taller than a phone viewport, so a vertical `Scroll` keeps the submit action reachable without shrinking the fields.
+Keep the draft when a field needs correction. The customer may already have looked up an order number and written a careful explanation. The preview applies basic checks in memory; production must validate the signed SSR form action again before starting delivery. The form can be taller than a phone screen, so a vertical `Scroll` keeps the submit action reachable without shrinking the fields.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
@@ -353,17 +351,16 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Validate and confirm a submission: First try a short message or malformed email and read the correction. Then submit a delivery request with a valid reply address and useful order details; the preview confirms that it is ready while keeping the draft visible.
+Submit a malformed email or a message that is too short. Check that the error explains what to fix and the rest of the draft stays in place. Then submit a valid request; the preview should mark it ready without sending email.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
 ## Keep the request available when validation fails
 
-After the SSR route accepts a valid request, represent delivery as pending, complete or failed, and never block the UI while the job runs. A no-JavaScript submission follows the same validation path and returns a complete HTML response with a status message announced to assistive technology.
+Once the SSR route accepts a valid request, delivery can be pending, complete, or failed. Don’t block the UI while the job runs. A submission without JavaScript follows the same validation path and returns a complete HTML response with a status announced to assistive technology.
 
-Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
-The preview applies name, email, subject and message checks before accepting the request. The accepted result stays in memory, so no email is sent. In the deployed SSR route, return the submitted draft on validation errors, then dispatch valid messages to an asynchronous delivery job and report its real outcome.
+The preview checks the name, email, subject, and message before accepting a request. Its result stays in memory, so no email is sent. In production, return the submitted draft on validation errors, queue valid messages as asynchronous work, and report the job’s actual outcome. Keep all I/O out of component conversion; reducers own state transitions and start the work without blocking the UI.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
@@ -565,7 +562,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Keep the request available when validation fails: Remove the `@` from the reply address or shorten the message, submit again, and confirm the rest of the request remains in place. Correct the field and submit; the local preview records a ready state but does not send email.
+Remove the `@` from the reply address and submit again. The error should appear beside that field while the subject and message remain. Correct it and submit; the preview records a ready state but does not send email.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -581,7 +578,7 @@ fission build --target ssr --project-dir .
 fission test --target ssr --project-dir .
 ```
 
-Expected result: The form explains field errors, confirms accepted messages, and keeps the draft after failure.
+The form should explain field errors, confirm accepted messages, and keep the draft after a failed submission.
 
 ## Related Fission reference
 

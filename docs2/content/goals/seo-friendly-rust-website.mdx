@@ -15,7 +15,7 @@ outcomes:
   - Inspect HTML and discovery files
 ---
 
-Set up a Rust website for search with descriptive titles, page summaries, canonical URLs, social metadata, structured data, a sitemap and robots rules. Metadata checks in the preview illustrate the page states. The production values must be rendered into each page’s HTML so search crawlers can read them without running JavaScript.
+A search result is a promise. If its title and summary do not match the page people open, the metadata is not helping anyone. We will set route-specific titles, summaries, canonical links, social metadata, structured data and discovery files, then inspect the HTML Fission emits.
 
 Turn Northstar's product site into pages that accurately describe their topic in search results and previews. Search optimisation starts with useful page content and metadata that matches what a visitor finds after opening the link.
 
@@ -107,9 +107,7 @@ The custom `SitePage` remains a named `fission_component!`; site metadata and ro
 <!-- fission:step id="start-screen" -->
 ## Write for one search intent
 
-Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
-
-Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+This first preview is a task card, not Northstar's product site. Its copy comes through props and it uses theme tokens. Next, choose one search intent and make the visible page content answer it before adding route metadata.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -190,8 +188,7 @@ Write for one search intent: Confirm the initial screen names the task and its n
 
 Set a site title, short site description, canonical base URL, sitemap and robots output in fission.toml. Add page-specific titles and descriptions in Markdown frontmatter. A page title should describe that page, not repeat the company name alone.
 
-The source below makes the main task interactive using retained component state and explicit controls.
-This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+The selected page and failed-metadata flag only drive this preview, so keep them local. Put the title, description, canonical URL, and structured data with the route that renders the matching content.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->

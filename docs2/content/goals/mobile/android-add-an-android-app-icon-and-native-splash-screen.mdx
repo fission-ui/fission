@@ -1,7 +1,7 @@
 ---
 layout: goal
 title: Add an Android app icon and native splash screen
-description: "Step-by-step Rust guide to add an Android app icon and native splash screen using Fission."
+description: "Add an Android app icon and native splash screen using Fission."
 goal: Configure generated launcher assets and splash settings, then inspect both in an Android emulator.
 path: /blog/add-an-android-app-icon-and-native-splash-screen/
 order: 38
@@ -17,7 +17,7 @@ outcomes:
 
 ## Create the project and add the target
 
-Install the Fission command line, create the app, and add its native target.
+Create the project and add the target used by this guide. Fission generates the native host; the app and its behaviour stay in shared Rust code.
 
 ```sh
 cargo install cargo-fission
@@ -28,7 +28,7 @@ fission add-target android --project-dir .
 
 ## Files created by Fission
 
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/android/`.
+This is the starter tree Fission generates. Keep shared app code in `src/`; the generated platform files handle native launch and packaging.
 
 ```text
 android-add-an-android-app-icon-and-native-splash-screen/
@@ -42,12 +42,12 @@ android-add-an-android-app-icon-and-native-splash-screen/
     └── android/              # generated Android host
 ```
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android host owns launch and packaging details; shared components describe the user task without importing Android APIs.
+Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
 
 <!-- fission:step id="start-screen" -->
 ## Create the app screen
 
-Start with a screen that gives this task a clear home. The first version keeps the user’s goal and current step visible; the following steps connect the screen to the state change or host capability the task needs.
+The first Fission frame is where onboarding and longer loading states belong; Android’s native splash is only a brief launch screen. Start with the app screen, then configure the launcher icon and splash assets separately.
 
 <Tabs>
 <TabItem label="src/app.rs">

@@ -7,7 +7,8 @@ slug: /widgets/button-variant
 
 `ButtonVariant` is the visual emphasis setting for [`Button`](/reference/widgets/button).
 
-It answers a simple design question: how loudly should this action speak? In a real app, not every button should look equally important. The variant lets you express primary, secondary, and low-emphasis actions without changing the underlying action flow.
+Use it to distinguish the main action from secondary or low-emphasis actions.
+The selected variant changes the presentation, not the action itself.
 
 ## Example
 
@@ -65,15 +66,14 @@ Do not treat variants as random styling choices. If every action on a screen is 
 
 Keep the meaning of each variant stable across your product. If `Filled` means "commit the main action" on one screen but "tiny utility action" on another, users have to relearn the hierarchy every time.
 
-## Production checklist
+## Check the button in context
 
-For `ButtonVariant`, review the action hierarchy and consequence before treating the control as finished. The goal is to make importance visible without turning every action into the loudest action on the screen.
+Make the action hierarchy visible without making every button compete for
+attention.
 
 - If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
 - Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
 - Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
-
-If a screen starts repeating the same `ButtonVariant` setup, extract a named component around this widget. That keeps the reference API small while making product code easier to read and safer for generated code to copy.
 
 ## Related
 

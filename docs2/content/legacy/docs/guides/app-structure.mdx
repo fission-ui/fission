@@ -5,9 +5,9 @@ description: Organize a Fission app around typed state, explicit reducers, reusa
 
 # App structure
 
-A Fission app is easiest to maintain when each file has one job. State describes what the product knows. Reducers describe how that state changes. Widgets describe what the user sees. Shell entrypoints start the same shared app on macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, or SSR targets.
+Keep each file focused and the app is easier to change. State says what the product knows, reducers say how that changes, and widgets describe what the user sees. Shell entrypoints start that same shared app on macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR.
 
-By the end of this guide, you should know where to put the first screen, where to put actions and reducers, when to split widgets into modules, and what should stay out of `main.rs`.
+This guide shows where the first screen, actions, and reducers belong, when to split a widget into its own module, and what to keep out of `main.rs`.
 
 ## 1. Start from the generated files
 
@@ -37,7 +37,7 @@ The exact target folders depend on which targets you add. The important split is
 | [`fission.toml`](/reference/config/fission-toml/) | Fission project metadata, targets, capabilities, site/release references, and package configuration. |
 | `platforms/<target>/` | Generated host files for web, Android, iOS, or other targets. Review them, but do not move product logic there. |
 
-If you remember one rule, make it this: product behavior belongs in shared Rust modules, not in generated platform folders.
+The main rule is simple: product behaviour belongs in shared Rust modules, not generated platform folders.
 
 ## 2. Give the app state a clear shape
 
@@ -54,11 +54,11 @@ pub struct TodoState {
 }
 ```
 
-Avoid storing the same fact in two forms unless there is a strong reason. If a value can be derived cheaply from state, use a selector or helper instead of storing another copy.
+Don’t store the same fact twice without a good reason. If you can cheaply derive a value from state, use a selector or helper instead of keeping another copy in sync.
 
 ## 3. Put actions and reducers next to the state they change
 
-Reducers should be easy to find during code review. For a small app, keeping actions and reducers in `src/app.rs` is fine. As the app grows, move them into modules by feature:
+Keep reducers easy to find in code review. It’s fine to put actions and reducers in `src/app.rs` while the app is small. As it grows, group them by feature:
 
 ```text
 src/
@@ -92,11 +92,11 @@ fn on_add_todo(state: &mut TodoState) {
 }
 ```
 
-Use `#[fission_action]` for manual action structs when the action is part of a public API, reused across several modules, or needs a documented data shape. Use `#[fission_reducer]` for the common case where one reducer owns one action.
+Use `#[fission_action]` when an action is part of a public API, shared across modules, or needs a documented data shape. For the common case, `#[fission_reducer]` lets one reducer own its action.
 
 ## 4. Build screens from real widget structs
 
-Prefer reusable widget structs over large helper functions that return `Widget` directly. This keeps examples and production apps aligned with the framework model.
+Prefer reusable widget structs to large helper functions that return `Widget`. That keeps production code aligned with how Fission models retained UI.
 
 ```rust
 
@@ -120,11 +120,11 @@ fission_component!
     }
 }
 ```
-Small helper functions are still useful for pure formatting or repeated literal values. They should not become a second component system beside `Widget` conversions.
+Small helpers are still useful for formatting and repeated values. Just don’t let them turn into a second component system beside `Widget` conversions.
 
 ## 5. Use selectors for derived view data
 
-A selector is a small piece of code that turns product state into view-ready data. It keeps `component conversion` readable and avoids mutating state while building the UI.
+A selector turns product state into data the view can use. It keeps component conversion readable without mutating state during the build.
 
 ```rust
 pub struct TodoListItemVm {
@@ -144,11 +144,11 @@ fn visible_todos(state: &TodoState) -> Vec<TodoListItemVm> {
 }
 ```
 
-Use selectors for formatted strings, filtered lists, button-disabled decisions, empty states, and responsive view models. Do not use selectors to perform host work, mutate state, or dispatch actions.
+Use selectors for formatted strings, filtered lists, disabled-state decisions, empty states, and responsive view models. Don’t use them for host work, state changes, or dispatching actions.
 
 ## 6. Keep entrypoints small
 
-`src/main.rs` should start the shell and then get out of the way:
+Keep `src/main.rs` thin: start the shell, then hand control to the shared app.
 
 ```rust
 use fission::prelude::*;
@@ -159,17 +159,17 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-As targets are added, generated host entrypoints should also call into the shared app instead of duplicating screens or reducers. That keeps macOS, Windows, Linux, Web, Android, iOS, Terminal, and test entrypoints running the same product behavior.
+Generated host entrypoints should do the same as you add targets. They call the shared app instead of copying screens and reducers, so every target runs the same product behaviour.
 
 ## 7. Add target-specific code only at the host boundary
 
-Some code really is target-specific: notification providers, camera providers, URL scheme registration, native packaging files, browser service workers, or platform release metadata. Put that code in the shell/provider layer or generated platform files, not in random widgets.
+Some code is genuinely target-specific: notification and camera providers, URL scheme registration, native packaging, browser service workers, and release metadata. Keep it at the shell/provider boundary or in the generated platform files, not scattered through widgets.
 
-If a widget needs to know whether a feature is available, store the result in state after a capability check and render from that state. Do not scatter `cfg(target_os = ...)` through product widgets unless the widget itself truly cannot exist on the target.
+If a widget needs to know whether a feature is available, check the capability, store the result in state, and render from that. Don’t scatter `cfg(target_os = ...)` through product widgets unless the widget genuinely cannot exist on that target.
 
 ## 8. Split modules when review becomes hard
 
-A file is too large when a reviewer cannot quickly answer these questions:
+A file is too large when a reviewer can’t quickly answer:
 
 - Which state does this feature own?
 - Which actions can change it?
@@ -177,15 +177,11 @@ A file is too large when a reviewer cannot quickly answer these questions:
 - Which widgets render that state?
 - Which effects leave the app and enter the host?
 
-Split by feature before the file becomes a dumping ground. A good feature module has its state, reducers, selectors, and widgets close together. Shared design-system components can live in a separate `components/` module.
+Split by feature before the file becomes a dumping ground. Keep a feature’s state, reducers, selectors, and widgets close together. Shared design-system components can live in `components/`.
 
 ## Where to go next
 
-Read [Runtime model](/docs/learn/runtime-model/) for the state-action-reducer loop. Read [State, handles, and providers](/docs/guides/state-handles-and-providers/) before deciding whether a value belongs in `GlobalState`, local widget state, `Env`, or a provider. Read [Layout and widgets](/docs/guides/layout-and-widgets/) for screen composition. Read [Platform capabilities](/docs/guides/platform-capabilities/) before adding host-owned features.
-
-## What you should have working
-
-After this guide, you should be able to explain where `App structure` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
+Read [Runtime model](/docs/learn/runtime-model/) for the state-action-reducer loop, [State, handles, and providers](/docs/guides/state-handles-and-providers/) for state ownership, and [Layout and widgets](/docs/guides/layout-and-widgets/) for composition. Before adding host-owned features, check [Platform capabilities](/docs/guides/platform-capabilities/).
 
 ## Common mistakes to check
 

@@ -1,7 +1,7 @@
 ---
 layout: goal
 title: Schedule local notifications on iOS
-description: "Step-by-step Rust guide to schedule local notifications on iOS using Fission."
+description: "Schedule local notifications on iOS using Fission."
 goal: Request permission at an appropriate moment, schedule and cancel notifications, and handle the user’s response.
 path: /blog/schedule-local-notifications-on-ios/
 order: 86
@@ -17,7 +17,7 @@ outcomes:
 
 ## Create the project and add the target
 
-Install the Fission command line, create the app, and add its native target.
+Create a shared Rust app and add the iOS target. Fission generates the native host; keep the app behaviour in Rust.
 
 ```sh
 cargo install cargo-fission
@@ -29,7 +29,7 @@ fission add-capability notifications --project-dir .
 
 ## Files created by Fission
 
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/ios/`.
+Fission creates this starter tree. Shared Rust code stays in `src/`; the generated host under `platforms/ios/` handles iOS launch and packaging.
 
 ```text
 ios-schedule-local-notifications-on-ios/
@@ -43,12 +43,12 @@ ios-schedule-local-notifications-on-ios/
     └── ios/                  # generated iOS host
 ```
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated iOS host owns launch and packaging details; shared components describe the user task without importing iOS APIs.
+Keep app behaviour in shared Rust. Add a feature module only when it creates a useful boundary, and keep iOS APIs behind the generated host.
 
 <!-- fission:step id="start-screen" -->
 ## See where the browser stops
 
-A browser cannot reach the device provider for this feature, so this preview is intentionally read-only. It explains where the browser stops and where the native app takes over; it never claims that a permission prompt or hardware action succeeded. In the following steps, we will connect the user action to Fission’s capability request and handle the result returned by the target.
+The browser preview cannot schedule a local notification on an iPhone. It shows the app screen only; the next step sends the request through Fission’s native provider.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -126,16 +126,16 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Use this read-only preview to identify the boundary between the website and the native app. No device request has been made. The next step follows the actual request path and shows how the app should handle a result from its platform provider.
+This preview does not schedule a notification. Continue below to connect the action to Fission’s provider.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
 ## Connect the Notifications provider to the user action
 
-This is the real Fission request path for this feature. Keep permission and hardware work outside the component view: the component dispatches one intent, the reducer queues the request, and success or error reducers store the returned result.
+Keep notification scheduling out of component conversion. The screen dispatches an action, a reducer queues the request, and separate reducers store success or failure.
 
-Start with task data and status in the app state. Keep a text-field draft, open flag or selected tab in the owning component instead of duplicating that temporary state here:
+Keep the scheduled-notification result and status in app state. Keep temporary UI choices, such as open flags or selected tabs, local to their component:
 
 ```rust
 #[derive(Debug, Default)]
@@ -148,7 +148,7 @@ struct NotificationState {
 impl GlobalState for NotificationState {}
 ```
 
-Handle successful and failed results separately so the screen can explain denied permission, cancellation, unsupported hardware and provider errors:
+Keep a denied or failed request distinct from a scheduled notification so the screen can tell the user what happened:
 
 ```rust
 #[fission_reducer(NotificationShown)]
@@ -163,7 +163,7 @@ fn on_notification_failed(state: &mut NotificationState, error: NotificationErro
 }
 ```
 
-Queue the operation after the user presses the named control. The host completes asynchronously and dispatches the matching reducer:
+When the user schedules a notification, the reducer queues the request. The host responds asynchronously, and Fission dispatches the matching success or error action:
 
 ```rust
 ctx.effects
@@ -185,7 +185,7 @@ ctx.effects
     ));
 ```
 
-Bind the user action from a reusable Fission component. Keep the visible label in the same control so it works with touch, keyboard and assistive technology:
+Keep the action and visible label together in the button so touch, keyboard and assistive-technology users get the same control:
 
 ```rust
 fission_component!
@@ -204,9 +204,9 @@ fission_component!
 }
 ```
 
-The [complete Notifications guide](/docs/capabilities/notifications/) explains configuration and expected platform behaviour. Test a successful memory-provider response and an unavailable or denied response before relying on the physical-device check below. The preview is read-only. The native target uses Fission’s provider to perform the request and report the result.
+The [Notifications guide](/docs/capabilities/notifications/) covers configuration and target behaviour. Use the memory provider to test success and error handling, then check the permission flow and scheduled notification on a supported iPhone. The web preview does not schedule a notification.
 
-Keep platform-only code behind the generated target boundary or a typed provider; the shared component should describe the user task rather than call an operating-system API directly.
+Keep iOS notification calls in the host or typed provider. The shared component schedules through Fission.
 
 
 

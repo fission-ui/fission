@@ -1,7 +1,7 @@
 ---
 layout: goal
 title: Build a server-rendered login page in Rust
-description: Build a Rust SSR sign-in flow with accessible fields, server-side validation, signed form actions, rotated sessions and safe return navigation.
+description: Build a server-rendered Rust login page with accessible fields, server-side validation, signed form actions, rotating sessions, and safe return navigation.
 goal: Let a user sign in, understand failures and reach the page they originally requested
 path: /blog/build-a-login-page-in-rust/
 order: 6
@@ -15,9 +15,9 @@ outcomes:
   - Keep authentication and redirects on the server
 ---
 
-Build a Rust SSR sign-in flow with accessible fields, server-side validation, signed form actions, rotated sessions and safe return navigation. The browser preview uses one fixed sample account and keeps its signed-in state in memory. It never sends credentials; the SSR form action still needs to verify the account and create the session on the server.
+Harbour Supply staff often open the app from a shift alert or an order task. After they sign in, send them back to that page—but only when the destination is on this site. Validate the fields and keep the credentials on the server. Use the same rejection message for an unknown email and a wrong password so the form does not reveal whether an account exists.
 
-Harbour Supply warehouse staff arrive through links from shift alerts and order tasks. The sign-in route should return each teammate to that local destination after authentication, while a generic rejection message prevents the screen from confirming whether an email belongs to an account. The browser preview checks a fixed demo account in memory; credentials and session creation stay on the server.
+The browser preview uses a fixed demo account to show the flow. It does not send credentials or create a session; the SSR app performs those checks on the server.
 
 Install the Fission CLI and scaffold the SSR project:
 
@@ -46,14 +46,14 @@ harbour-auth/
 └── tests/                      # project-specific flow checks
 ```
 
-Keep cookie handling in `auth/session.rs` and credential lookup in `server/login.rs`. The sign-in component owns only the values visible in this form. In production, the server checks a password hash, rotates the session after success, and sends the user only to a verified local return path.
+Keep cookie handling in `auth/session.rs` and credential lookup in `server/login.rs`. The form component owns the values it displays; it does not own the authenticated session. In production, the server verifies a password hash, rotates the session after sign-in and accepts only a checked local return path.
 
 <!-- fission:step id="start-screen" -->
 ## Add labelled email and password fields
 
-Keep the first screen calm: warehouse staff should recognize which account to use and why the app needs them to sign in. Bind the visible fields to this component before wiring submission.
+Start with the two fields a staff member needs and label them clearly. At this point the form only collects a work email and password; it does not submit them yet.
 
-Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+Pass the page copy in as props, then read spacing, colour and type from the active theme through `cx.view.env()`. That keeps this form aligned with the rest of the app.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -137,9 +137,9 @@ Add labelled email and password fields: Confirm the initial screen names the tas
 <!-- fission:step id="main-flow" -->
 ## Validate input and show submission state
 
-Keep credential checks on the server. Validate the submitted fields there, sign the action token, and rotate the session after a successful authentication. Return a clear field-level error for an invalid submission without echoing a password or telling an attacker which account exists.
+The preview now lets you try the sign-in flow with a fixed account. Use `demo@harbour.example` and `CedarPeak-2026` to see the signed-in screen. Change either value and the preview shows the same generic rejection. This is only an in-memory demo; no credentials leave the browser.
 
-The sample account is demo@harbour.example with password CedarPeak-2026. Submit those values to open the warehouse shift screen; change either value to see the same generic rejection a server should return for unknown credentials. This deterministic check is local to the preview. In the SSR app, verify the password hash, rate-limit failures, rotate the session, and keep the return path on the server.
+In the SSR app, the server must validate the submitted fields, verify the password hash, rate-limit failures and rotate the session after success. Show a useful field-level error, but do not echo a password or disclose whether an email is registered.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
@@ -310,10 +310,11 @@ Validate input and show submission state: Sign in with the sample account, then 
 <!-- fission:step id="edge-state" -->
 ## Keep authentication and redirects on the server
 
-Accept a return destination only when it is a local path on this application. Preserve the entered email after a recoverable validation error, but clear secrets. Test an invalid password, a missing field, a session rotation and a hostile external return URL.
+Treat the return destination as untrusted input. Accept it only when it is a local path on this application; otherwise an attacker could send a signed-in user to an unrelated site. After a recoverable error, keep the email so the user does not have to type it again, but clear the password.
 
-Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
-The sign-in preview accepts only the displayed sample account and stores the result in component state. On the server, use the same generic rejection for an unknown email or incorrect password, and never send password values back in rendered HTML.
+Component conversion should not perform I/O. Use a reducer for the state transition and queue server or host work through an asynchronous effect, job, capability or service. That keeps the UI responsive and makes success and failure explicit.
+
+The preview accepts only its displayed sample account and stores the result in component state. A real server should return the same rejection for an unknown email and an incorrect password. Never put a password into rendered HTML.
 
 Configure the server-managed session cookie in `fission.toml`:
 
@@ -326,7 +327,7 @@ secure = true
 same_site = "lax"
 ```
 
-Fission signs and protects the session cookie. Your authentication service still verifies credentials and stores the authenticated user id server-side; the cookie does not prove who the user is by itself.
+Fission signs and protects the session cookie. Your authentication service is still responsible for verifying the credentials and storing the authenticated user ID on the server. The cookie protects session data; it does not verify a user's identity on its own.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
@@ -496,7 +497,7 @@ Keep authentication and redirects on the server: Submit an unknown account and c
 
 ## Run, test and build the finished project
 
-From the project root, run the checks in order:
+Run the checks from the project root:
 
 ```sh
 fission doctor --project-dir .
@@ -506,7 +507,7 @@ fission build --target ssr --project-dir .
 fission test --target ssr --project-dir .
 ```
 
-Expected result: The preview blocks obviously invalid input and shows recoverable failure feedback without sending credentials. Connect an SSR form action to your authentication service, then accept only a local return URL after the server confirms the user.
+The preview should accept the sample account and show a recoverable error for anything else without sending credentials. For the real SSR flow, connect the form action to your authentication service and accept a local return path only after the server confirms the user.
 
 ## Related Fission reference
 

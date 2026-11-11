@@ -15,7 +15,7 @@ outcomes:
   - Handle permissions across host targets
 ---
 
-Build a Rust file manager that chooses a directory safely, browses entries and streams file reads and writes with progress across desktop, mobile and Web. The preview shows directory-selection states without reading the host filesystem. Use Fission’s filesystem capability from an asynchronous service or effect in the real app.
+The browser preview cannot read your files, and a file picker must not be replaced with guessed paths. It demonstrates directory-selection states without touching the host filesystem. In a real app, Fission’s asynchronous filesystem capability handles reads and writes while the screen stays responsive.
 
 Build a file browser that asks the host to choose a directory, lists entries, opens a text file and saves a change with visible progress.
 
@@ -52,14 +52,12 @@ harbour-files/
 
 `fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs` and `src/app.rs`. Add the task modules in the tree as you build the feature. Keep data shared across routes in `GlobalState`, and keep retained interaction such as a disclosure or draft field in the owning `fission_component!`. Request database, filesystem, network and session work through a reducer effect, job or service; never run host work while a component view is being built.
 
-`preview/lib.rs` is a documentation harness. The page compiles each complete `src/app.rs` component into WebAssembly so you can use the same UI while reading. Its host results are deterministic preview states; the target-specific host work described in this tutorial runs in each target project code, not in the browser preview.
+`preview/lib.rs` compiles the complete `src/app.rs` into WebAssembly so you can try the shared screen here. Its host responses are predictable; use the target-specific steps below to test real host work.
 
 <!-- fission:step id="start-screen" -->
 ## Render the folder path and its contents
 
-Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
-
-Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+This first preview is a task card, not a file browser. Its copy comes through props and its spacing uses theme tokens. Next, render the folder path and sample entries; the real app requests file access through Fission's filesystem capability.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -141,8 +139,7 @@ Render the folder path and its contents: Confirm the initial screen names the ta
 
 Use the filesystem capability instead of assuming a path can be read directly. Treat the selected directory as a user-granted handle, validate each child name, and keep reads and writes in asynchronous jobs so large files do not freeze the interface.
 
-The source below makes the main task interactive using retained component state and explicit controls.
-This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+`documents_open`, `selected_file`, and `has_error` only drive this screen's simulated path, selection, and error. In a real file browser, request access through Fission's filesystem capability and keep results in app state if another route needs them.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->

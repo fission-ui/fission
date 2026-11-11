@@ -5,21 +5,21 @@ description: Persist typed values, run SQLite queries, compose transactions acro
 
 # Storage and SQLite
 
-Fission gives applications one storage model across desktop, mobile, Web, Terminal, and SSR. The default provider is SQLite. On native targets the database is an ordinary application-data file; on Web the official SQLite WebAssembly build runs in a worker and persists through the Origin Private File System (OPFS). SSR uses a server-side SQLite database. A static site has no runtime store, so a site-only build does not expose these APIs.
+Fission uses one storage API on desktop, mobile, Web, Terminal, and SSR, with SQLite as the default provider. Native targets use an application-data file. Web runs the official SQLite WebAssembly build in a worker and persists through the Origin Private File System (OPFS). SSR uses a server-side database. Static sites have no runtime store, so these APIs aren’t available in a site-only build.
 
-Storage is opt-in, so applications that do not use it do not compile SQLite or ship its Web worker and Wasm binary. In a CLI-managed project, enable it with:
+Storage is opt-in. Apps that don’t use it don’t compile SQLite or ship its Web worker and Wasm binary. In a CLI-managed project, enable it with:
 
 ```console
 fission add-capability storage --project-dir .
 ```
 
-The capability declaration is required even when the Cargo manifest is managed manually because it also installs the Web worker, bridge, and SQLite WASM assets. The official Fission build commands inspect the resolved Web dependency graph and stop before compilation if `store-sqlite-web` and the `storage` capability disagree. Running the command above is idempotent and enables `store-sqlite-native` for native targets and `store-sqlite-web` for Web alongside the configured target features.
+Keep the capability declaration even if you manage Cargo yourself: it also installs the Web worker, bridge, and SQLite WASM assets. Fission’s build commands check the resolved Web dependency graph and stop before compilation if `store-sqlite-web` and the `storage` capability disagree. The command above is safe to rerun. It enables `store-sqlite-native` for native targets and `store-sqlite-web` for Web alongside the selected target features.
 
-Storage is requested as an effect. Reducers remain synchronous and deterministic: they describe the operation, then handle its success or failure through another action.
+Request storage through an effect. Reducers stay synchronous: they describe the operation, then handle its success or failure in a later action.
 
 ## Typed values in Fission's table
 
-The high-level API uses a framework-owned table named `fission`. Keys are namespaced and typed at the Rust boundary. Values are serialized by Fission, so providers receive an opaque `StoreValue` rather than depending on an application's Rust type.
+The high-level API uses a Fission-owned table named `fission`. Keys are namespaced and typed in Rust. Fission serializes values, so providers receive an opaque `StoreValue` rather than depending on your Rust types.
 
 ```rust
 const SETTINGS: &str = "settings";
@@ -54,13 +54,13 @@ batch
 ctx.effects.store().batch(batch).on_ok(ActionEnvelope::from(DraftSaved));
 ```
 
-`StoreScope::Application` is the default. Session, user, and named scopes let one namespace safely hold values owned by a different session or signed-in user without inventing key prefixes.
+`StoreScope::Application` is the default. Use session, user, or named scopes when values belong to a different session or signed-in user. That gives you the right ownership without inventing key prefixes.
 
 In the callback reducer, `ctx.input.store_value::<T>()` decodes a successful `get`. `ctx.input.store_error()` returns a typed provider error. The other operations can read their typed capability result directly when needed.
 
 ## Use SQLite without hiding SQLite
 
-The portable value API is convenient, but it is not a replacement for relational storage. `ctx.effects.sql()` exposes parameterized execution, queries, transactions, and migrations.
+The portable value API is convenient, but it doesn’t replace relational storage. Use `ctx.effects.sql()` for parameterized statements, queries, transactions, and migrations.
 
 ```rust
 let statement = SqlStatement::new(
@@ -88,11 +88,11 @@ if let Some(rows) = ctx.input.sql_rows() {
 }
 ```
 
-Always bind application data. Do not construct SQL by interpolating values into the SQL string.
+Always bind application data. Don’t interpolate values into the SQL string.
 
 ## Build one transaction across modules
 
-`SqlTransaction` owns its statements and is deliberately passable. Its mutation methods take `&mut self`, so the code that starts a transaction does not need to know every query that other application modules will contribute.
+`SqlTransaction` owns its statements and can be passed between modules. Its mutation methods take `&mut self`, so the code that starts the transaction doesn’t need to know every query another module will add.
 
 ```rust
 fn add_audit_write(transaction: &mut SqlTransaction, message: String) {
@@ -118,11 +118,11 @@ ctx.effects
     .on_ok(ActionEnvelope::from(ProjectCommitted));
 ```
 
-The provider executes every step in one SQLite transaction and returns one ordered result per step. Any failing step rolls the whole transaction back.
+The provider runs every step in one SQLite transaction and returns one ordered result per step. If a step fails, SQLite rolls the whole transaction back.
 
 ## Migrations
 
-Migrations are ordered by their integer version. Fission applies migrations newer than SQLite's current `user_version`, updates that version inside the same transaction, and rolls back the migration set if any script fails.
+Migrations use integer versions. Fission applies versions newer than SQLite’s `user_version`, updates the version in the same transaction, and rolls back the migration set if any script fails.
 
 ```rust
 let mut migrations = SqlMigrations::new();
@@ -142,20 +142,20 @@ ctx.effects.sql().migrate(migrations);
 
 ## Providers and compile-time target support
 
-The storage capability selects the provider appropriate to each configured target. Native targets use `store-sqlite-native`; Web uses `store-sqlite-web`. The CLI manages both features for multi-target projects. `site` deliberately selects neither, so a static-site-only project cannot enable storage through the capability.
+The storage capability selects the provider for each configured target. Native targets use `store-sqlite-native`; Web uses `store-sqlite-web`. The CLI manages both in multi-target projects. `site` selects neither, so a static-site-only project can’t enable runtime storage through this capability.
 
-Before a Web run, build, test, or package operation, Fission verifies that the capability, resolved Cargo features, bootstrap initialization, and generated SQLite assets agree. Missing generated assets are restored when the capability is declared. A feature enabled directly or transitively without the capability is rejected with the `fission add-capability storage` command before Rust compilation starts. Builds that bypass the Fission CLI still receive a typed configuration error from the Web provider instead of a wasm-bindgen trap if the JavaScript bridge is absent.
+Before a Web run, build, test, or package, Fission checks that the capability, Cargo features, bootstrap, and generated SQLite assets agree. It restores missing generated assets when the capability is declared. If you enable the feature directly or transitively without the capability, the CLI stops before Rust compilation and tells you to run `fission add-capability storage`. A build outside the Fission CLI still gets a typed configuration error from the Web provider if the JavaScript bridge is missing; it won’t fail with a `wasm-bindgen` trap.
 
-Web SQLite uses SQLite's `opfs-wl` VFS. Separate tabs and windows keep independent SQLite connections while Web Locks coordinate access to the same application database. The generated bridge is idempotent within one page, and the database path is derived from `app.app_id`, so two Fission applications hosted on one origin do not accidentally share storage. The first run after upgrading from the earlier SAH-pool implementation migrates its existing database automatically; pages still running the older build must be closed during that one-time migration.
+Web SQLite uses SQLite’s `opfs-wl` VFS. Tabs and windows keep separate connections; Web Locks coordinate access to the same app database. The generated bridge is idempotent within a page, and the path comes from `app.app_id`, so two Fission apps on one origin don’t accidentally share a database. The first run after upgrading from the older SAH-pool implementation migrates the database automatically. Close pages still running the old build during that one-time migration.
 
-The Web host must enable cross-origin isolation because `opfs-wl` uses `SharedArrayBuffer` and `Atomics.waitAsync`. `fission run`, `fission serve-web`, and the generated browser test server emit the required headers:
+The Web host must enable cross-origin isolation because `opfs-wl` uses `SharedArrayBuffer` and `Atomics.waitAsync`. `fission run`, `fission serve-web`, and the generated browser test server set the required headers:
 
 ```text
 Cross-Origin-Opener-Policy: same-origin
 Cross-Origin-Embedder-Policy: require-corp
 ```
 
-Production hosting must emit the same headers for the application and its same-origin assets. If the headers or required browser APIs are absent, Fission reports an actionable storage initialization error instead of silently falling back to a non-persistent or single-tab store.
+Production hosting must set the same headers for the app and its same-origin assets. If the headers or browser APIs are missing, Fission reports a storage initialization error. It won’t silently fall back to non-persistent or single-tab storage.
 
 Applications can replace the default while keeping the same API:
 
@@ -165,9 +165,9 @@ DesktopApp::<AppState, _>::new(App)
     .run()
 ```
 
-A key/value-only implementation uses `with_store_provider` and implements `StoreProvider`. A provider passed to `with_sql_store_provider` must implement `SqlStoreProvider`; code cannot accidentally configure a provider without SQL for an application that asks for it.
+A key/value-only provider uses `with_store_provider` and implements `StoreProvider`. A provider passed to `with_sql_store_provider` must implement `SqlStoreProvider`, so an app that needs SQL can’t accidentally receive a provider without it.
 
-Provider selection is build configuration. If an application constructs providers dynamically, Fission cannot prove the chosen runtime value in advance, but the shell fails at startup or returns a typed `Unavailable` error rather than silently discarding an operation.
+Provider selection is build configuration. If the app chooses a provider dynamically, Fission can’t verify that choice ahead of time. The shell will fail at startup or return a typed `Unavailable` error rather than silently dropping the operation.
 
 ## Target behavior
 

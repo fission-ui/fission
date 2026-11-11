@@ -18,7 +18,7 @@ outcomes:
 
 At Harbor Street depot, Nightjar Couriers records who received a package and which loading bay they used. The handoff should remain saveable indoors or after a driver declines location; coordinates are optional evidence, not a prerequisite.
 
-We will request foreground location only when the driver adds the optional pin. Android can grant approximate access even when precise access was requested, so the screen displays the returned accuracy and lets the driver decide whether the point is useful. This flow never tracks the driver in the background.
+We’ll request foreground location only when the driver chooses to add the optional pin. Android may grant approximate access even when the app asks for precise access, so the screen shows the returned accuracy and lets the driver decide whether the point is useful. There is no background tracking in this flow.
 
 ## Create the Android project
 
@@ -49,18 +49,18 @@ nightjar-handoff/
 </TabItem>
 </Tabs>
 
-The screen and its handoff rules live in shared Rust code. Android supplies the permission prompt and location provider through Fission’s geolocation capability; the shared component does not call Android APIs directly.
+Keep the screen and handoff rules in shared Rust code. Fission’s geolocation capability uses Android’s permission prompt and location provider; the shared component does not call Android APIs directly.
 
 <!-- fission:step id="location-access" -->
 ## Add an optional, one-time location pin
 
-Fission separates the driver’s choice from platform work. The component binds buttons to reducers. A reducer queues a geolocation effect, and a result reducer stores the permission or position after the host replies. The view itself never starts a permission prompt or blocks while a location lookup runs.
+The driver’s choice and the platform request are separate. Buttons dispatch reducers; a reducer queues the geolocation effect, and another reducer stores the permission or position when the host replies. The view never opens a permission prompt or waits for a location lookup.
 
-Android and the browser report permission differently, so the screen separates permission requests, status checks, and position lookups. **Request location access** asks Android to show its permission UI. That request is asynchronous: the host may return the permission state it saw before the driver finished answering. After the prompt closes, **Refresh access status** reads the current state. On Android, the pin button becomes available after this check confirms access, so a pending prompt is never treated as approval.
+Android and the browser report permission differently, so the screen keeps requests, status checks, and position lookups separate. **Request location access** opens Android’s permission UI. The request is asynchronous, and the host may first return the state from before the driver answered. Once the prompt closes, **Refresh access status** reads the current state. On Android, the pin button stays unavailable until that check confirms access; a pending prompt is not approval.
 
-The browser host reports its current state without opening a prompt. If that state is **Prompt**, the preview allows **Add handoff pin** because the browser opens its location prompt when the position lookup runs. The same component therefore demonstrates both hosts while keeping their different permission steps visible.
+The browser host reports its current state without opening a prompt. When it reports **Prompt**, the preview enables **Add handoff pin**; the browser asks for permission when the position lookup starts. The component works with both hosts while making their different permission steps clear.
 
-Android 12 and later let a person choose approximate access. Fission requests the foreground coarse and fine permissions together when <code>precise</code> is true, but the operating system still decides what to grant. The returned <code>accuracy_meters</code> value tells the app how much confidence to place in the pin. A delivery record can keep the depot and loading-bay name if that accuracy is too broad.
+Android 12 and later let people grant approximate access. When <code>precise</code> is true, Fission requests both foreground coarse and fine permissions, but Android decides what to grant. The returned <code>accuracy_meters</code> value tells the app how much confidence to place in the pin. If the location is too broad, the handoff can still keep its depot and loading-bay name.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -476,7 +476,7 @@ pub fn run() -> Result<(), JsValue> {
 </TabItem>
 </Tabs>
 
-The position request asks the host for a fresh, high-accuracy reading, with a ten-second timeout and a short cache age. These are request preferences, not guarantees: the device may return an older or less precise result. The screen therefore displays the returned accuracy and keeps the depot name and notes unchanged if the lookup fails.
+The position request asks for a fresh, high-accuracy reading, with a ten-second timeout and a short cache age. Those are preferences, not guarantees: the device may return an older or less precise result. That is why the screen shows the reported accuracy and leaves the depot name and notes alone if lookup fails.
 
 <!-- fission:preview -->
 
@@ -487,7 +487,7 @@ In the browser preview, refresh access first. If the browser reports **Prompt**,
 
 ## Verify the Android permission choices
 
-Run the generated app on an emulator and test each choice from a known permission state. Use Android Settings to reset the app’s location permission between runs so the next request shows the first-use prompt.
+Run the generated app on an emulator and test each choice from a known permission state. Reset the app’s location permission in Android Settings between runs to see the first-use prompt again.
 
 <Tabs>
 <TabItem label="Run on Android">
@@ -507,6 +507,6 @@ fission run --target android --project-dir .
 </TabItem>
 </Tabs>
 
-Approximate access is still a successful permission result; do not label it as a failure or silently request more access. If a pin is not useful at the reported accuracy, the driver can keep the named stop and complete the handoff. This guide requests foreground access only. It does not add <code>ACCESS_BACKGROUND_LOCATION</code>.
+Approximate access is still permission granted. Don’t report it as a failure or silently ask for more. If the pin is not useful at that accuracy, the driver can keep the named stop and complete the handoff. This guide only requests foreground access; it does not add <code>ACCESS_BACKGROUND_LOCATION</code>.
 
 For platform behavior, see Android’s [runtime location permission guide](https://developer.android.com/develop/sensors-and-location/location/permissions/runtime) and [approximate location guidance](https://developer.android.com/develop/sensors-and-location/location/permissions#approximate-request). For Fission’s portable provider contract, see the [Geolocation capability guide](/docs/capabilities/geolocation/) and the [Geolocation reference](/reference/capabilities/geolocation/).

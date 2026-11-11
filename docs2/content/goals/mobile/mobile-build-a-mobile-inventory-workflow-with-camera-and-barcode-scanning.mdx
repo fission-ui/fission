@@ -1,7 +1,7 @@
 ---
 layout: goal
 title: Build a mobile inventory app with Rust, camera and barcode scanning
-description: "Build a mobile inventory workflow in Rust with Fission: scan product barcodes, record a cycle count, attach shelf-photo evidence, and recover when camera access is unavailable."
+description: "Build an Android and iOS inventory workflow for barcode counts and shelf-photo evidence, with a clear recovery path if camera access is unavailable."
 goal: "Reconcile a shelf count against the inventory record, attach optional photo evidence, and stage a clear stock adjustment without changing the saved quantity prematurely."
 path: /blog/build-a-mobile-inventory-workflow-with-camera-and-barcode-scanning/
 order: 112
@@ -18,7 +18,7 @@ outcomes:
 
 At Cedar Ridge Outfitters, the closing team checks the shelves in aisle C before the weekly stock report is sent. The inventory system says there are **18 Trail tarps** in bin **C-12**. A staff member scans the shelf label, counts the units by hand, and finds 17. They attach a quick shelf photo so the morning manager can investigate the missing tarp.
 
-The important part is that **17 does not immediately overwrite 18**. The app records a proposed count and its difference, then leaves it ready for the normal stock-review service. A blurry label can be entered manually, a camera denial does not block the count, and an unknown SKU cannot change another product’s quantity.
+Keep the count staged: **17 does not overwrite 18**. The app records the proposed count and its difference for the stock-review service. Staff can enter a blurry label manually, a camera denial does not block the count, and an unknown SKU cannot change another product’s quantity.
 
 The browser preview does not pretend to scan a label or take a shelf photo. Use the manual SKU field there to select a real item from the count sheet, enter the quantity you found, and stage the difference. In the Android and iOS app, the same screen adds the native scanner and camera actions. Those actions go through Fission capabilities, so the operating system can ask for permission and return an actual result.
 

@@ -11,29 +11,29 @@ categories:
   - Releases
 ---
 
-Fission 0.4.1 is a focused patch release on top of the 0.4 authoring API. It keeps the `impl From<Component> for Widget` model intact and improves the runtime, shell, server, static-site, and mobile-target behavior needed by production hosts and generated apps.
+Fission 0.4.1 is a patch release for the 0.4 authoring API. The `impl From<Component> for Widget` model stays the same. This release fixes and extends the runtime, shells, server and Static site paths, and generated mobile projects.
 
-The main runtime-shell addition is the scoped route/action plumbing needed by host shells. Fission 0.4.0 introduced the low-level scoped raw action primitives with `ActionScopeId`, `ActionScope`, and `ActionInput::ScopedRaw`. Fission 0.4.1 builds on that foundation by adding shell route-change actions, route-location data, route handler registration, and router helpers that host shells can use to connect scoped guest dispatch to normal application reducers.
+The main runtime and shell change is route-aware action dispatch. Version 0.4.0 introduced the lower-level scoped action types: `ActionScopeId`, `ActionScope`, and `ActionInput::ScopedRaw`. Version 0.4.1 adds route-change actions, route-location data, route-handler registration, and router helpers. Together, these let a host associate guest UI actions with the right runtime and route while still using normal application reducers.
 
 ## Scoped route actions for runtime shells
 
 0.4.1 adds `RouteLocation` and `ShellRouteChanged`, plus shell builder APIs for registering route handlers.
 
-`RouteLocation` is a browser-compatible route location structure with a required `pathname` and optional `host`, `hash`, `hostname`, `href`, `origin`, `port`, `protocol`, and `search` fields. `ShellRouteChanged` is a built-in action that shells can dispatch when the host route changes.
+`RouteLocation` carries a browser-compatible location: `pathname` is required, while `host`, `hash`, `hostname`, `href`, `origin`, `port`, `protocol`, and `search` are optional. Shells can dispatch the built-in `ShellRouteChanged` action when the host route changes.
 
-Runtime shell builders now expose `with_route_handler(...)`, allowing applications and host shells to register a reducer for route changes without inventing their own shell-specific action transport. The router widget also gained builder-style construction helpers for common route table setup.
+Runtime shell builders now expose `with_route_handler(...)`. An application or host shell can register a reducer for route changes without creating another shell-specific action transport. The `Router` widget also gained builder helpers for common route-table setup.
 
-This matters for shells that mount generated or remote guest UI. Normal applications still use typed actions and reducers. Host shells can combine the 0.4.0 scoped raw action surface with the 0.4.1 route-change layer to keep mounted guest UI associated with the correct runtime and route state.
+This is useful when a shell mounts generated or remote guest UI. Ordinary app code still uses typed actions and reducers; the host can use the scoped action and route-change APIs to dispatch each interaction to the right runtime and route.
 
-0.4.1 also fixes the desktop notification-response builder so `on_notification_response(...)` correctly returns the builder for chained configuration.
+The desktop notification-response builder now returns itself from `on_notification_response(...)`, so chained configuration works as expected.
 
 ## Server and static rendering fixes
 
-The server and static site paths received the bulk of the patch work.
+Most of the patch work was in SSR and Static site rendering.
 
-0.4.1 adds server static app mounts, SSR environment hooks, cache invalidation APIs, prefix server routes, structured route data, route response status support, and safer server handler execution off runtime threads.
+Version 0.4.1 adds static app mounts on the server, SSR environment hooks, cache invalidation, prefixed server routes, structured route data, route response statuses, and safer execution of server handlers away from runtime threads.
 
-The static and server renderers also gained better lowering for:
+The Static site and SSR renderers also handle these more reliably:
 
 - static forms;
 - links and responsive images;
@@ -44,17 +44,17 @@ The static and server renderers also gained better lowering for:
 - markdown image rendering;
 - cache ids.
 
-These changes make the server shell more useful for real apps that mix static pages, server-rendered routes, forms, markdown content, route metadata, and embedded static app surfaces.
+That makes the server shell more useful for apps that combine static pages, server-rendered routes, forms, Markdown, route metadata, and embedded static app surfaces.
 
 ## Mobile target and package fixes
 
-The CLI target scaffolding and mobile package scripts were tightened.
+We also tightened the CLI's mobile target scaffolding and package scripts.
 
-0.4.1 fixes target feature synchronization when existing projects already contain mobile platform folders, hardens generated Android and iOS scaffolds, and adds executable mobile package script tests. The Android and iOS generated package paths now carry more of the platform metadata and script behavior needed for reliable local packaging and simulator/emulator runs.
+Version 0.4.1 fixes feature synchronisation for projects that already have mobile platform folders, improves the generated Android and iOS scaffolds, and adds executable tests for mobile package scripts. The generated projects now include more of the metadata and script behaviour needed to package locally and run in a simulator or emulator.
 
 ## Rendering and markdown fixes
 
-The release includes smaller rendering and content fixes that came out of the server/static work:
+The server and Static site work also surfaced a few smaller rendering and content fixes:
 
 - Vello clipping helper formatting was cleaned up.
 - Off-path image widget expectations were adjusted.
@@ -63,7 +63,7 @@ The release includes smaller rendering and content fixes that came out of the se
 
 ## Verification added in the patch
 
-The tag includes tests or focused verification for the new or fixed behavior:
+The release adds tests or focused checks for the changed paths:
 
 - mobile scaffold and executable package script coverage;
 - markdown viewer behavior;
@@ -73,10 +73,10 @@ The tag includes tests or focused verification for the new or fixed behavior:
 
 ## Migration notes
 
-Most 0.4.0 applications should move to 0.4.1 without code changes.
+Most apps on 0.4.0 can move to 0.4.1 without changing their code.
 
-Applications that need to react to host route changes can register a reducer with `with_route_handler(...)` and handle `ShellRouteChanged`. Hosts that mount guest UI can continue using the 0.4 scoped raw action APIs and pair them with route actions where they need route-aware dispatch.
+To react to host route changes, register a reducer with `with_route_handler(...)` and handle `ShellRouteChanged`. A host that mounts guest UI can keep using the scoped raw-action APIs from 0.4.0 and add the route actions when dispatch needs to follow route state.
 
-Server-rendered or statically generated sites should prefer 0.4.1 when they rely on route status, structured route metadata, prefixed routes, markdown images, responsive images, static forms, or mounted static app islands.
+For SSR and Static site projects, use 0.4.1 if you need route statuses, structured route metadata, prefixed routes, Markdown or responsive images, static forms, or mounted static app surfaces.
 
-Mobile projects should regenerate or resync target scaffolds if they need the updated package scripts and target feature handling.
+If a mobile project needs the updated package scripts or target feature handling, regenerate or resync its target scaffold.

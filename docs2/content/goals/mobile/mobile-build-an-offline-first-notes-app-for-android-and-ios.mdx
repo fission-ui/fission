@@ -50,16 +50,16 @@ field-notes/
 </TabItem>
 </Tabs>
 
-`fission add-capability storage` enables Fission’s SQLite provider for native targets. The app model and screen remain in `src/`; the generated platform folders launch and package that shared app. This keeps a worksite note from developing two different save or edit behaviors.
+`fission add-capability storage` enables Fission’s SQLite provider on native targets. Keep the model and screens in `src/`; the generated platform folders launch and package the same app. That way Android and iOS don’t grow separate save and edit behaviour.
 
 <!-- fission:step id="note-records" -->
 ## Shape a note around a real field visit
 
-A technician writing notes between sites needs to know which job a note belongs to, what they observed, when it was recorded, and whether it still needs to sync. A title and a paragraph alone are not enough once a notebook contains more than a handful of entries.
+Between sites, a technician needs to know which job a note belongs to, what they saw, when they recorded it, and whether it still needs to sync. A title and paragraph stop being enough once the notebook has more than a few entries.
 
-We will build **Harbour Field Notes** for a maintenance crew. Each record has a stable id, worksite, title, observation, update time, local revision, and sync status. The sample entries describe a gate inspection, a rooftop inverter, and a loading-dock drain. These values give the list and detail view useful information to show before we add editing.
+We’ll build **Harbour Field Notes** for a maintenance crew. Each record has a stable ID, worksite, title, observation, update time, local revision, and sync status. The sample notes cover a gate inspection, rooftop inverter, and loading-dock drain. That gives the list and detail view something useful to show before we add editing.
 
-Start with the record type and a small screen that helps a technician find the note they need. `FieldNoteListItem` and `FieldNotesWorkspace` are named `fission_component!` components, so the screen has clear reusable boundaries instead of an anonymous tree.
+Start with the record type and a screen that helps the technician find a note. `FieldNoteListItem` and `FieldNotesWorkspace` are named `fission_component!` components, so the screen has reusable boundaries instead of one anonymous tree.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -294,7 +294,7 @@ pub fn run() -> Result<(), JsValue> {
 </TabItem>
 </Tabs>
 
-The first screen already shows the decisions a technician makes in the field: which site a note belongs to, what changed, and whether a copy is waiting to sync. Next, we will let the technician search and edit records while keeping each note’s local revision attached to that same record.
+The first screen shows the decisions a technician makes in the field: which site a note belongs to, what changed, and whether it still needs to sync. Next, we’ll add search and editing while keeping each local revision attached to its note.
 
 <!-- fission:preview -->
 <!-- /fission:step -->
@@ -302,11 +302,11 @@ The first screen already shows the decisions a technician makes in the field: wh
 <!-- fission:step id="offline-editing" -->
 ## Create, search, and edit notes without a connection
 
-The list and the detail panel both read the same `FieldNotesState`. Selecting a row changes one stable note id, and editing writes a new revision to that record. The **Save on this device** action does not pretend a server accepted anything; it updates the local working copy and marks the note as waiting to sync.
+The list and detail panel both read `FieldNotesState`. Selecting a row changes the selected note ID; editing creates a new revision. **Save on this device** updates the local working copy and marks it waiting to sync. It does not claim a server accepted anything.
 
-Search belongs to the workspace because it only changes which rows are visible. The notes, selected id, and edit draft belong to app state because other parts of the screen depend on them. Starting a new note clears the search first, so the technician can see the new record as soon as it is saved. A technician can start a note, enter the site and observation, and save it before the phone has a signal. A blank title, site, or observation leaves the draft open and explains what needs attention.
+Search belongs to the workspace because it only changes which rows are visible. Notes, the selected ID, and edit draft belong in app state because several parts of the screen use them. Starting a new note clears search so the new record stays visible after saving. A technician can write and save before the phone has a signal. A blank title, site, or observation keeps the draft open and explains what to fix.
 
-Read the save reducer before trying the preview. It validates the draft, assigns a new stable id when creating a note, increments the revision when editing, and keeps the note’s sync status truthful. Selecting another row is disabled while a draft is open, so an unfinished observation cannot disappear because of an accidental tap.
+The save reducer validates the draft, assigns a stable ID to a new note, increments the revision on edit, and keeps sync status truthful. Selecting another row is disabled while a draft is open, so an unfinished observation can’t disappear after an accidental tap.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -1093,7 +1093,7 @@ pub fn run() -> Result<(), JsValue> {
 </TabItem>
 </Tabs>
 
-`FieldNotesWorkspace` derives the search results and waiting count from the records in `FieldNotesState`. The row and detail components receive the same `FieldNote`, while reducers own selection and saving. If the selected note falls outside the search, the first matching result becomes the detail view too; the page will not leave an unrelated note open. Try searching for **inverter**, edit its observation, and save it. Its revision advances and it waits to sync, while the other notes keep their own contents. Starting a new note clears the search, so the new record remains visible after you save it.
+`FieldNotesWorkspace` derives search results and the waiting count from `FieldNotesState`. The row and detail components receive the same `FieldNote`; reducers own selection and saving. If search hides the selected note, the first matching result becomes the detail view too. The page won’t leave an unrelated note open. Search for **inverter**, edit its observation, and save. Its revision advances and it waits to sync; the other notes stay unchanged. Starting a new note clears search so the new record remains visible.
 
 <!-- fission:preview -->
 
@@ -1105,9 +1105,9 @@ Search for “inverter”, edit the observation, and save it. Then choose **New 
 <!-- fission:step id="sqlite-and-sync" -->
 ## Persist each revision and ignore stale sync results
 
-The browser preview keeps edits in memory so its controls work without a native SQLite host. It opens with three representative site visits so you can try search and editing immediately. The native app should start with an empty in-memory list and load its records from SQLite; sample visits belong in a deliberate onboarding or demo mode, not in a technician's work history. In the native app, **Saved on this device** means SQLite committed the note locally. Only then should an upload job consider that revision for remote sync. If the write fails, keep the editor open and report the storage error; do not tell the technician the note was saved.
+The browser preview keeps edits in memory and starts with three sample site visits. The native app should start with an empty list and load notes from SQLite; sample visits belong in an explicit demo mode, not in a technician’s work history. In the native app, **Saved on this device** means SQLite committed the note. Only then can an upload job sync that revision. If the write fails, keep the editor open and report the storage error; don’t say the note was saved.
 
-Start with a migration that stores the note id, worksite, title, observation, revision, and sync status. The revision is essential: if revision 5 is sent while a technician writes revision 6, a late response for revision 5 must not mark the newer text as synced. SQLite records `updated_at` as UTC text; format that value for the device's locale before showing it in a native screen. The browser preview uses short display strings so the example stays focused on editing and sync state.
+Start with a migration for the note ID, worksite, title, observation, revision, and sync status. The revision matters: if revision 5 is sent while the technician writes revision 6, a late response for revision 5 must not mark the newer text as synced. SQLite stores `updated_at` as UTC text; format it for the device’s locale before showing it. The browser preview uses shorter display strings to keep the example focused on editing and sync state.
 
 <Tabs>
 <TabItem label="Create the table and run the migration">
@@ -1447,7 +1447,7 @@ cx.build.register::<FieldNoteSyncStatusStored, _>(reduce!(field_note_sync_status
 </TabItem>
 </Tabs>
 
-The browser preview's **Save on this device** reducer updates memory so its controls work without a native storage host. In the native app, bind that button to `SaveFieldNoteToSqlite` below instead. It validates and snapshots the draft, disables editing while SQLite is writing, and changes the visible note only after `FieldNoteStored` confirms the commit. The SQLite effect runs outside the reducer, so it never blocks a frame; on failure, `FieldNotesStorageFailed` re-enables the editor and keeps its draft. The sync job sends the note id and revision with its request; success returns those same values in an action. The reducer below checks the in-memory revision before touching SQLite, the `WHERE` clause checks it again in the database, and the final reducer checks once more before showing the note as synced.
+The preview’s **Save on this device** reducer updates memory because there is no native storage host. In the native app, bind the button to `SaveFieldNoteToSqlite`. It validates and snapshots the draft, disables editing during the write, and updates the visible note only after `FieldNoteStored` confirms the commit. The SQLite effect runs outside the reducer, so it doesn’t block a frame. On failure, `FieldNotesStorageFailed` re-enables the editor and keeps the draft. The sync job sends the note ID and revision; success returns both. The reducers check that revision before the write, in the SQL `WHERE` clause, and again before marking the note synced.
 
 Test the boundary deliberately: send revision 5, edit the note to revision 6, then deliver revision 5’s success. The visible text must stay at revision 6 and remain waiting to sync. Also test an empty database, a failed local write, an offline save, and a process restart with a pending revision.
 

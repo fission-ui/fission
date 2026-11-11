@@ -5,7 +5,7 @@ description: Learn how Fission handles motion, overlays, embedded media, and the
 
 # Media, animation, portals, and 3D
 
-This page groups together four topics that often feel "special" in user interface work.
+Media, animation, portals, and 3D each cross a different runtime boundary. This guide shows where Fission handles each one and when to reach for it.
 
 Animation changes over time. Portals and overlays appear above the normal page flow. Media and embeds may depend on host-managed surfaces. Three-dimensional scenes feel like they belong to a separate rendering world.
 
@@ -173,17 +173,3 @@ For 3D, watch scope. Treat the scene as a bounded part of the interface, not as 
 ## Where to go next
 
 If you want the underlying explanation of layout, viewport reasoning, and screen composition first, read [Layout and widgets](/docs/guides/layout-and-widgets). If you want the async and runtime side of jobs, timers, and long-lived work, continue to [Resources and async](/docs/guides/resources-and-async).
-
-## What you should have working
-
-After this guide, you should be able to explain where `Media, animation, portals, and 3D` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
-
-## Common mistakes to check
-
-| Symptom | What to check first |
-| --- | --- |
-| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
-| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
-| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
-| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
-| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |

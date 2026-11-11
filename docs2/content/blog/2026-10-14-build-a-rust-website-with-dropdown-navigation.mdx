@@ -14,9 +14,10 @@ categories:
 
 # Build a Rust website with dropdown navigation
 
-This tutorial builds a small product website entirely with Rust and Fission. It has a home page, two product pages, an about page and a **Products** dropdown in the global header. The finished site is ordinary crawlable HTML: its links still work when scripting is unavailable, while Fission supplies the responsive menu, keyboard behaviour and progressive enhancement.
-
-You will create the project, replace the starter routes with Markdown content, configure the navigation, run the site locally and produce the same static files you would deploy.
+This tutorial builds a small product site with Rust and Fission: a home page,
+two product pages, an about page, and a responsive **Products** dropdown. The
+pages and links are ordinary generated HTML. JavaScript only enhances the menu
+and its keyboard behaviour.
 
 ## What you will build
 
@@ -30,7 +31,7 @@ The final routes are:
 /about/
 ```
 
-The project remains small because content and navigation have separate jobs:
+The project stays small because the content files and navigation each have one job:
 
 ```text
 harbour-site/
@@ -58,7 +59,7 @@ fission init harbour-site --template website
 cd harbour-site
 ```
 
-The website template starts with designed Rust page components. This tutorial uses Fission's content routes instead because they give every page the same responsive site header and make a navigation tree declarative. You can mix content routes and custom Fission pages later when a page needs a more bespoke layout.
+The website template starts with designed Rust page components. Here we'll use content routes instead: they give every page the same responsive header and let us declare navigation in `fission.toml`. You can mix content routes with custom Fission pages later when one page needs its own layout.
 
 ## 2. Use the site builder as the entrypoint
 
@@ -71,13 +72,13 @@ pub fn build_site() -> anyhow::Result<()> {
 }
 ```
 
-Keep the generated `src/main.rs` unchanged. It calls `build_site()` for the Static site target.
+Leave the generated `src/main.rs` as it is. It calls `build_site()` for the Static site target.
 
-The other generated Rust modules are no longer referenced, so you may remove `src/design.rs`, `src/footer.rs`, `src/navigation.rs`, `src/page.rs` and `src/state.rs`. You may also remove the generated `build.rs`, `design/` and `i18n/` files for this content-only version. Leaving them in place is harmless, but removing them makes the project shape easier to understand.
+The other generated Rust modules are no longer used. You can remove `src/design.rs`, `src/footer.rs`, `src/navigation.rs`, `src/page.rs`, and `src/state.rs`. For this content-only site, you can also remove `build.rs`, `design/`, and `i18n/`. Leaving them there will not break the project, but deleting unused files makes it clearer what this version needs.
 
 ## 3. Configure the pages and dropdown
 
-Open `fission.toml`. Keep the generated `targets` and `[app]` values, then replace the generated `[site]` table with the following configuration. Replace the example URL before deploying the site.
+In `fission.toml`, keep the generated `targets` and `[app]` values and replace the `[site]` table with this configuration. Change the example URL before you deploy.
 
 ```toml
 [site]
@@ -129,7 +130,7 @@ template = "fission::site::documentation"
 
 If the generated file contains `routes = []` inside `[site]`, remove that line before adding `[[site.routes]]`. TOML cannot describe the same setting as both an inline array and a table array.
 
-The parent **Products** item deliberately has its own `href`. It is both a normal link and the owner of the dropdown. That gives people, browsers and crawlers a useful destination even when the enhanced menu is not open.
+The **Products** parent has its own `href`, so it works as a normal link as well as the dropdown trigger. Visitors and crawlers can reach the overview page even when the enhanced menu is closed.
 
 ## 4. Add the page content
 
@@ -207,11 +208,11 @@ We build calm software that helps a small team finish the work it set out to do.
 [See the products](/products/)
 ```
 
-These are deliberately small pages. The important part is that every route has a specific title, a useful description, a clear heading and ordinary links to the next relevant page.
+The pages are intentionally small. Give each route its own title and description, a clear heading, and ordinary links to the next useful page.
 
 ## 5. Check the route set
 
-Ask Fission which routes it will generate:
+Check the routes Fission is going to generate:
 
 ```sh
 fission site routes --project-dir .
@@ -223,7 +224,7 @@ You should see the five routes listed at the start of this tutorial. Then run th
 fission site check --project-dir .
 ```
 
-The check resolves the content, validates internal links and catches configuration or rendering failures before you open a browser.
+This resolves the content, checks internal links, and catches configuration or rendering errors before you open a browser.
 
 ## 6. Serve and test the website
 
@@ -236,7 +237,7 @@ fission site serve \
   --port 8123
 ```
 
-Open `http://127.0.0.1:8123/` and check the site as a visitor would:
+Open `http://127.0.0.1:8123/` and try the site:
 
 1. Open **Products** and follow each product link.
 2. Use `Tab`, `Shift+Tab`, `Enter`, `Space`, `Escape` and the arrow keys in the navigation.
@@ -244,7 +245,7 @@ Open `http://127.0.0.1:8123/` and check the site as a visitor would:
 4. Open `/products/mobile/` directly and refresh it.
 5. Disable scripting temporarily and confirm that the parent navigation links and every page still work.
 
-The dropdown is generated by the site shell from `[[site.nav.children]]`. You do not need to write a separate JavaScript menu, duplicate the links for mobile or manually coordinate focus state.
+The site shell builds the dropdown from `[[site.nav.children]]`. You do not need a separate JavaScript menu, a second set of mobile links, or custom focus-state wiring.
 
 ## 7. Build the deployable output
 
@@ -254,7 +255,7 @@ Produce the static site:
 fission site build --project-dir .
 ```
 
-The configured `dist/site` directory now contains the generated HTML, shared CSS, progressive-enhancement assets, `sitemap.xml` and `robots.txt`. Preview and deploy that directory as one unit; do not edit generated files to change the website.
+The `dist/site` directory now contains the generated HTML, shared CSS, progressive-enhancement assets, `sitemap.xml`, and `robots.txt`. Preview and deploy that directory as a unit. Do not edit the generated files; make changes to the source content and configuration instead.
 
 For a packaged artifact with a manifest, run:
 
@@ -267,4 +268,4 @@ fission package \
 
 ## Where to go next
 
-You now have a complete Rust website with real pages and responsive dropdown navigation. Continue with the [Static sites guide](/docs/guides/static-sites/) when you want custom Rust pages, sidebars, search, themes or a shared footer. Use [Static site custom pages](/docs/guides/static-site-custom-pages/) when a marketing page needs a bespoke Fission widget layout while the rest of the site remains content-driven.
+You now have a working Rust website with real pages and responsive dropdown navigation. Continue with the [Static sites guide](/docs/guides/static-sites/) to add custom Rust pages, sidebars, search, themes, or a shared footer. Use [Static site custom pages](/docs/guides/static-site-custom-pages/) when one marketing page needs its own Fission widget layout and the rest of the site can stay content-driven.

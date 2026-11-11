@@ -1,7 +1,7 @@
 ---
 layout: goal
 title: Share one Fission app core between Android and iOS
-description: "Step-by-step Rust guide to share one Fission app core between Android and iOS."
+description: "Share one Fission app core between Android and iOS."
 goal: Keep state, reducers, routes, reusable widgets and services in common Rust code with thin target entry points.
 path: /blog/share-one-fission-app-core-between-android-and-ios/
 order: 109
@@ -40,12 +40,12 @@ mobile-share-one-fission-app-core-between-android-and-ios/
     └── ios/                  # generated iOS host
 ```
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android and iOS hosts own launch and packaging details; shared components describe the user task without importing either platform API.
+Keep routes, app state, reducers, and reusable components in the Rust core. The generated Android and iOS hosts contain platform-owned launch and packaging configuration.
 
 <!-- fission:step id="start-screen" -->
 ## Create the app screen
 
-Give the workflow a clear first screen before adding its platform-specific behavior. This version displays the user task and current step; the next section connects the feature and its outcome to Fission state.
+This preview is a task card, not the app screen. The next step adds Android and iOS hosts and checks the shared app on both.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -141,7 +141,7 @@ Add the target to the existing project; do not run fission init over the app. Ke
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-The compiled preview changes browser-local state only; it does not perform this task on an Android Emulator or iOS Simulator, inspect your toolchain or access native hardware. Use the commands below to verify the generated project on the target.
+The website preview only changes browser-local state. It cannot launch an Android Emulator or iOS Simulator, check toolchains, or access device hardware. Use the target commands below for those checks.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -181,7 +181,7 @@ fission test --target ios --project-dir .
 
 ### Current references
 
-These references explain the API contract behind the example and the target-specific behavior to verify:
+Use these for the shared state and component APIs used by the app:
 
 - [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
 - [Fission component and widget reference](/reference/widgets/catalog/)

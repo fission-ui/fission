@@ -1,7 +1,7 @@
 ---
 layout: goal
 title: Build an offline-first Android workflow
-description: "Step-by-step Rust guide to build an offline-first Android workflow using Fission."
+description: "Build an offline-first Android workflow using Fission."
 goal: Queue user-visible local changes, reconnect through jobs and effects, and prevent stale server responses overwriting newer edits.
 path: /blog/build-an-offline-first-android-workflow/
 order: 57
@@ -17,7 +17,7 @@ outcomes:
 
 ## Create the project and add the target
 
-Install the Fission command line, create the app, and add its native target.
+Create the project and add the target used by this guide. Fission generates the native host; the app and its behaviour stay in shared Rust code.
 
 ```sh
 cargo install cargo-fission
@@ -29,7 +29,7 @@ fission add-capability storage --project-dir .
 
 ## Files created by Fission
 
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/android/`.
+This is the starter tree Fission generates. Keep shared app code in `src/`; the generated platform files handle native launch and packaging.
 
 ```text
 android-build-an-offline-first-android-workflow/
@@ -43,12 +43,12 @@ android-build-an-offline-first-android-workflow/
     └── android/              # generated Android host
 ```
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android host owns launch and packaging details; shared components describe the user task without importing Android APIs.
+Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
 
 <!-- fission:step id="start-screen" -->
 ## Create the app screen
 
-Start with a screen that gives this task a clear home. The first version keeps the user’s goal and current step visible; the following steps connect the screen to the state change or host capability the task needs.
+Start with a note the user can edit offline. The next step saves each change locally before syncing; if the request fails, the edit stays on the device and can be retried later.
 
 <Tabs>
 <TabItem label="src/app.rs">

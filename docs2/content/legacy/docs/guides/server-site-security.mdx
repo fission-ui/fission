@@ -5,13 +5,13 @@ description: Understand the server-shell protections Fission applies automatical
 
 # Server security
 
-A Fission server app is still a Rust HTTP service. Fission renders widget routes, drains jobs, signs server actions, manages the route-local browser bridge, and serves generated assets, but you still choose the deployment server, reverse proxy, authentication layer, database, and operational controls.
+Fission server apps are Rust HTTP services. Fission renders widget routes, drains jobs, signs server actions, manages the route-local browser bridge, and serves generated assets. You still choose the HTTP server, reverse proxy, authentication layer, database, and operational controls around it.
 
-The safe mental model is simple: Fission protects the framework boundary automatically, and your application protects the product boundary. Fission can reject a forged server action token; it cannot know whether a particular user is allowed to buy a card, edit an order, or open an admin page unless your reducer, service, or surrounding HTTP stack checks that rule.
+Keep this distinction clear: Fission protects its framework boundary; your app protects its product boundary. Fission can reject a forged action token. It can’t know whether a user may buy a card, edit an order, or open an admin page unless your reducer, service, or HTTP stack checks that rule.
 
 ## What Fission protects automatically
 
-Fission server applies a set of default protections around the code it generates and the HTTP requests it handles.
+Fission applies these protections to generated code and incoming requests:
 
 | Area | Automatic behavior |
 | --- | --- |
@@ -28,11 +28,11 @@ Fission server applies a set of default protections around the code it generates
 | Island DOM replacement | Fission widget islands render HTML through the Fission HTML renderer; replacement operations are still checked by the bridge protocol before application. |
 | Session cookies | Session cookies are `HttpOnly`. When `signing_key_env` is set, cookie values are signed and tampered cookies are rejected. |
 
-These protections are framework-level guard rails. You still need product tests for permission checks, tenant isolation, payment rules, inventory transitions, and any provider-specific API call you make from jobs or services.
+These are framework guard rails, not a replacement for your product’s authorization rules. Test permissions, tenant isolation, payment rules, inventory transitions, and provider-specific calls from jobs and services.
 
 ## Configure sessions deliberately
 
-`ServerPrivate` routes receive an opaque session id through `ctx.session.id()`. Use that id as a key into your own server-side store. Do not put user data inside the cookie.
+`ServerPrivate` routes receive an opaque session ID through `ctx.session.id()`. Use it to look up data in your server-side store. Don’t put user data in the cookie.
 
 ```toml
 [server.sessions]
@@ -42,25 +42,11 @@ secure = true
 same_site = "lax"
 ```
 
-## What you should have working
-
-After this guide, you should be able to explain where `Server security` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
-
-## Common mistakes to check
-
-| Symptom | What to check first |
-| --- | --- |
-| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
-| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
-| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
-| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
-| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
-
-In local HTTP development, `secure = false` is acceptable. In production HTTPS deployments, set `secure = true` and provide `SHOP_SESSION_SECRET` through your process manager, container platform, or CI secret store. Use `same_site = "strict"` for apps that never need cross-site form or identity-provider flows. Use `same_site = "none"` only when cross-site embedding or auth redirects require it; Fission requires `secure = true` for that mode.
+For local HTTP development, `secure = false` is fine. In production over HTTPS, set `secure = true` and provide `SHOP_SESSION_SECRET` through your process manager, container platform, or CI secret store. Use `same_site = "strict"` if the app never needs cross-site form or identity-provider flows. Use `same_site = "none"` only when cross-site embedding or auth redirects need it; Fission requires `secure = true` in that mode.
 
 ## Restrict action origins
 
-Server action tokens stop forgery and tampering, but origin checks are still useful when the server knows the public origins that may submit actions.
+Action tokens prevent forgery and tampering. An origin allow-list adds another useful check when you know which public origins should submit actions.
 
 ```rust
 let renderer = ServerRenderer::configured(app)?
@@ -68,11 +54,11 @@ let renderer = ServerRenderer::configured(app)?
     .with_allowed_action_origin("https://www.cards.example");
 ```
 
-If no allowed origins are configured, Fission accepts requests without an `Origin` header because normal same-origin form posts and some command-line tests do not send one. A production host can be stricter by configuring allowed origins and by adding middleware in the HTTP adapter layer.
+Without configured origins, Fission accepts requests that have no `Origin` header. Same-origin form posts and some command-line tests don’t send one. Production hosts can be stricter with an allow-list and HTTP adapter middleware.
 
 ## Use the existing Rust HTTP ecosystem
 
-Fission does not need to build its own middleware ecosystem. The server shell exposes adapters so you can run a `ServerRenderer` inside the HTTP stack you already use.
+You don’t need a new middleware ecosystem for Fission. The server shell has adapters that let you run `ServerRenderer` inside the HTTP stack you already use.
 
 Hyper is available with the normal `server` feature:
 
@@ -105,7 +91,7 @@ let app = Router::new()
     .layer(RateLimitLayer::new(120, Duration::from_secs(60)));
 ```
 
-That same pattern applies to authentication, tracing, request ids, compression, timeout, body-limit, CORS, and provider-specific middleware. Put cross-cutting HTTP policy in the HTTP framework. Put typed application behavior in Fission reducers, jobs, and services.
+Use the same pattern for authentication, tracing, request IDs, compression, timeouts, body limits, CORS, and provider-specific middleware. Keep cross-cutting HTTP policy in the HTTP framework and typed product behaviour in Fission reducers, jobs, and services.
 
 ## Use hooks at the right layer
 
@@ -117,11 +103,11 @@ There are three useful hook points.
 | Server renderer builder | Action origin allow-list, cache provider, action signer, viewport defaults, render pass limit | `ServerRenderer` configuration before serving |
 | App model | Permission checks, tenant checks, cart rules, inventory updates, cache invalidation requests | Fission reducers, jobs, and services |
 
-Do not put product authorization only in a button's visibility. Hiding a button improves the UI, but the reducer or service that performs the mutation must still check whether the current session/user is allowed to do it.
+Don’t enforce product authorization only by hiding a button. That improves the UI, but the reducer or service performing the mutation must still check whether the current session or user is allowed to do it.
 
 ## Harden cache behavior
 
-Public cache entries must never contain private data. Use `ServerPrivate` when a route depends on session, account, tenant, cart, or permission state. Use `Revalidated` only for full pages that are safe to share.
+Public cache entries must never contain private data. Use `ServerPrivate` for routes that depend on a session, account, tenant, cart, or permission. Use `Revalidated` only for pages safe to share.
 
 For shared deployments, prefer a cache pipeline:
 
@@ -161,11 +147,11 @@ If the same binary serves multiple hostnames behind infrastructure that sets for
 trust_proxy_headers = true
 ```
 
-Only do this when your proxy overwrites `X-Forwarded-Proto` and `X-Forwarded-Host`. Do not trust forwarded headers from the public internet directly.
+Only enable this when your proxy overwrites `X-Forwarded-Proto` and `X-Forwarded-Host`. Never trust forwarded headers sent directly from the public internet.
 
 ## Test security paths explicitly
 
-Add tests for the cases attackers and operational mistakes are likely to exercise.
+Test the cases attackers and operational mistakes are likely to trigger:
 
 | Test | Expected result |
 | --- | --- |
@@ -179,4 +165,4 @@ Add tests for the cases attackers and operational mistakes are likely to exercis
 | Worker operation outside policy | Bridge validation rejects the operation |
 | Tampered signed session cookie | New session is created and the tampered value is ignored |
 
-The server shell includes framework tests for these behaviors. Your app should add tests for the product-specific checks the framework cannot infer.
+The server shell tests these framework behaviours. Your app still needs tests for product rules the framework can’t infer.

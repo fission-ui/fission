@@ -26,14 +26,14 @@ cd ios-build-an-ios-dashboard-with-fission-charts
 fission add-target ios --project-dir .
 ```
 
-The generated host handles launch and packaging. The dashboard and its state stay in shared Rust code, so the same components can render in the browser preview and in the iOS app.
+The generated host handles launch and packaging. Keep the dashboard and its state in shared Rust code; the browser preview and iOS app use the same components.
 
 <!-- fission:step id="start-screen" -->
 ## Give the dispatcher a clear view of the shift
 
-At 8:42 on a weekday morning, the Central depot is preparing its next wave of departures. The dispatcher needs a quick answer to three questions: how many trips are scheduled, are vehicles leaving on time, and which routes need help now? We will build that screen for Northstar Transit. The values are sample records stored in memory; there is no service call hidden behind the preview.
+At 8:42, Central depot is preparing its next wave of departures. The dispatcher needs to know how many trips are scheduled, whether vehicles are leaving on time, and which routes need help. We’ll build that screen for Northstar Transit. The preview uses sample records in memory; it does not make a hidden service call.
 
-Keep the first screen focused on decisions. Three metrics summarise today’s operation, while the route review section explains what the dispatcher can do about the two most urgent items. `TransitMetric` and `RouteReviewRow` are named components because they express reusable parts of this screen and keep the main dashboard readable.
+Keep the screen focused on decisions. Three metrics summarise today’s operation, and the route review section gives the dispatcher a next step for the two most urgent items. `TransitMetric` and `RouteReviewRow` are named components because they are useful, reusable parts of this screen; they also keep the dashboard readable.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -167,9 +167,9 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:step id="main-flow" -->
 ## Compare on-time departures across a date range
 
-The shift metrics tell the dispatcher what is happening now, but they do not show whether this morning is unusual. A chart can answer that question, provided its data matches the question. We will plot the percentage of scheduled departures that left within five minutes. Percentages are more useful here than raw trip counts because the number of scheduled services changes from day to day.
+The shift metrics show what is happening now. They don’t tell the dispatcher whether today is unusual. For that, we’ll plot the percentage of scheduled departures that left within five minutes. A percentage is more useful than a raw trip count because the number of scheduled services changes every day.
 
-The **7 days** and **30 days** buttons use sample values for their selected window. The average badge and sentence are calculated from the same values that draw the bars, so changing the range cannot leave the chart and its summary out of sync. The selected range belongs to this component alone, so Fission’s retained local state is the smallest suitable state bucket. If several routes later share a date filter, move that shared choice into app state and load its data through an effect.
+The **7 days** and **30 days** buttons select sample data for that window. The badge and sentence use the same values as the bars, so the chart and summary cannot drift apart when the range changes. This selection belongs to this component, so retained local state is the right fit. If several screens later share a date filter, move it into app state and load the matching data through an effect.
 
 <Tabs>
 <TabItem label="src/analytics.rs">
@@ -304,9 +304,9 @@ Switch between seven and thirty days. The chart labels, average badge, and sente
 <!-- fission:step id="edge-state" -->
 ## Check the dashboard on an iPhone
 
-Run the app in an iOS Simulator and check it first at a phone width, then at a wider iPad size. The metric cards should wrap into readable rows, route notes should keep their status, and the chart should retain its labels without squeezing the plot into a narrow strip. Use VoiceOver to confirm that the chart’s surrounding label and average explain the same information as the bars.
+Run the app in an iOS Simulator at phone width, then at a wider iPad size. The metric cards should wrap into readable rows, route notes should keep their status, and chart labels should remain legible. Use VoiceOver to check that the chart’s label and average convey the same information as the bars.
 
-The preview uses a fixed sample set, so it does not pretend to load live transit data. When a service supplies the real rates, keep its loading, no-service and error results visible in this same chart section. Build those states from actual request outcomes, and keep the last valid summary on screen while a new date range loads.
+The preview uses fixed samples; it does not claim to load live transit data. When a service supplies real rates, show loading, no-service, and error results in this chart section. Derive those states from the request outcome, and keep the last valid summary visible while another date range loads.
 
 Run the native target from the generated project root:
 
@@ -317,7 +317,7 @@ fission test --target ios --project-dir .
 fission build --target ios --project-dir . --release
 ```
 
-`fission doctor` reports missing Xcode tools or Rust targets, `fission run` launches a simulator, and `fission test` checks that the generated host starts. A simulator build does not verify device signing or physical-device behavior.
+`fission doctor` checks for missing Xcode tools and Rust targets, `fission run` launches a simulator, and `fission test` checks that the generated host starts. A simulator build does not verify signing or behaviour on a physical device.
 
 For chart options and shared state decisions, continue with the [Fission Charts reference](/reference/charts/overview/) and the [state, handles and providers guide](/docs/guides/state-handles-and-providers/).
 <!-- /fission:checkpoint -->

@@ -5,15 +5,13 @@ description: Learn how theme, locale, and translation bundles flow through Env, 
 
 # Theming and internationalization
 
-A serious app needs two kinds of flexibility very early.
-
-It needs to control how the interface looks, and it needs to control what language the interface speaks.
+An app needs to control how the interface looks and what language it uses.
 
 In Fission, both concerns are explicit. Theme values and translated text do not live in hidden global state. They live in `Env`, the shared environment that widgets read through `ViewHandle`.
 
 That design matters for the same reason explicit state matters elsewhere in the framework. If the current theme and locale are visible inputs, the user interface stays predictable, tests can provide known values, and the same app model can behave consistently across macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR.
 
-This page covers both the architecture and the Rust you need to make it work. You do not need to know all of Rust before reading it. Whenever the examples use Rust-specific syntax, the prose will explain what that syntax is doing.
+You don't need to know every corner of Rust to set up themes or translations. We'll explain the Fission-specific parts as we use them and keep the examples grounded in code you can put straight into an app.
 
 ## Start with theming from first principles
 
@@ -88,7 +86,7 @@ This pattern is simple and deterministic. The same translations are bundled into
 
 ## The translation files themselves
 
-This guide uses YAML plus `include_str!` because YAML is readable and works well with the current public `TranslationBundle` contract.
+The example keeps YAML in checked-in files and loads them with `include_str!`. That keeps translations readable in the project and works with Fission's `TranslationBundle` API.
 
 YAML is a text format for structured data. In this simple case, each file is just a flat map from message keys to translated strings.
 
@@ -125,25 +123,11 @@ Add `serde_yaml` to your app:
 serde_yaml = "0.9"
 ```
 
-## What you should have working
-
-After this guide, you should be able to explain where `Theming and internationalization` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
-
-## Common mistakes to check
-
-| Symptom | What to check first |
-| --- | --- |
-| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
-| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
-| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
-| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
-| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
-
 You do not need to think of this as "Fission requires YAML." It does not. Fission only requires that you eventually provide a `HashMap<String, String>` inside a `TranslationBundle`. This guide uses YAML because it is approachable for human-edited translation files.
 
 ## Load translation files into `Env`
 
-Now let us build the translation environment step by step.
+Now let's build the translation environment step by step.
 
 ```rust
 use std::collections::HashMap;

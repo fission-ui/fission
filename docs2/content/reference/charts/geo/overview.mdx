@@ -6,9 +6,9 @@ description: Fission Charts reference for the Geo family.
 
 # Geo
 
-The Geo family contains 20 renderer-backed chart variants. Use this page as the entry point for choosing the right variant, then open the variant page for the screenshot, data shape, Rust API notes, and example code.
+This family has 20 chart variants. Pick one that matches your data. Each page has a screenshot, data shape, API notes, and code you can adapt.
 
-The chart family is still ordinary Fission UI. Each variant is constructed from typed Rust data, participates in layout and theme decisions, and can be driven by app state, reducers, resources, jobs, or services just like any other widget.
+Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
 
 ![Capacity regions map screenshot](/img/charts/map-capacity-regions.png)
 
@@ -39,11 +39,11 @@ The chart family is still ordinary Fission UI. Each variant is constructed from 
 
 ## Choosing within this family
 
-Start with the user's question, not the visual effect. Pick the simplest variant that makes the answer clear, add interaction only when it reduces work for the user, and keep animation purposeful enough that it explains a change rather than decorating the page.
+First decide what the user needs to compare or understand. Pick the simplest chart that shows it; add interaction only when it helps, and use animation only when it explains a change.
 
 ## Authoring from a Fission component
 
-Use this reference page as the chart expression inside ordinary Fission component conversion. The chart is a `Widget`, so it can sit inside a `Card`, `Grid`, `Scroll`, responsive page section, or any other layout container.
+Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
 
 ```rust
 use fission::prelude::*;
@@ -65,14 +65,14 @@ fission_component!
     }
 }
 ```
-Keep expensive data loading outside component conversion. A reducer, job, service, or server route should prepare the typed chart data, then the component should read that state and construct the chart deterministically.
+Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
 ## Options, accessibility, and diagnostics
 
-| Area | What to decide | How to verify |
+| Area | What to decide | How to check it |
 | --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series type shown in the example. | Unit test the mapping separately from rendering. |
-| Options | Choose axes, legends, labels, animation, and interaction based on the user's task. | Add a screenshot test when changing visual behavior. |
-| Accessibility | Provide a clear title and adjacent summary text for important trends or outliers. | Inspect the generated semantics and make sure the chart is understandable without color alone. |
-| Failure handling | Render an empty, loading, or error state before constructing the chart if data is unavailable. | Test empty data, partial data, and failed fetches. |
-| Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
+| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
+| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
+| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
+| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
+| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |

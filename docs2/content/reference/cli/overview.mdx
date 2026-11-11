@@ -14,7 +14,7 @@ If you are learning Fission, think of the command-line interface as the bridge b
 - your shared app model, which stays the same across platforms, and
 - the shell hosts, which package and launch that shared app in a macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, or SSR target.
 
-This page explains how to use that bridge well.
+The command reference below follows that project loop, from scaffolding to release.
 
 ## How the command-line interface fits into a real workflow
 
@@ -104,7 +104,9 @@ These are the files most people open first:
 | `assets/app-icon.png` | image asset | Seeds the default application icon | Generated hosts reuse it as their starting icon asset |
 | `platforms/<target>/README.md` | generated notes | Explains prerequisites and host-specific commands for that target | Read this whenever you add a new target |
 
-The key idea is that only some of those files describe your app. Files under `src/` are the shared product logic. Files under `platforms/` are host-specific scaffolding. The command-line interface keeps those concerns separate because Fission itself keeps the shared app model separate from the platform shell that runs it.
+Only some of these files describe your app. `src/` holds shared product
+logic; `platforms/` holds generated host scaffolding. That matches Fission's
+split between the shared app model and the shell that runs it.
 
 On an existing project, treat the table as "created if missing." Existing files are preserved. The main required output is [`fission.toml`](/reference/config/fission-toml/), because commands such as `fission run --project-dir . --target web` use it to know which targets belong to the app.
 
@@ -142,7 +144,9 @@ The current target values are:
 | `ios` | iOS host | `platforms/ios/` with simulator bundle files, script, and README |
 | `terminal` | Terminal host | terminal-shell entrypoint and package path |
 
-In practice, many projects start with the default desktop scaffold and then add `web`, `android`, or `ios` when that host becomes relevant to the product. The important thing is not the order. The important thing is that the same shared app can be validated through each real host.
+Many projects start with the desktop scaffold and add `web`, `android`, or
+`ios` when they need those hosts. The order does not matter; validate the same
+shared app through each host you plan to ship.
 
 ## Checking your machine with `fission doctor`
 

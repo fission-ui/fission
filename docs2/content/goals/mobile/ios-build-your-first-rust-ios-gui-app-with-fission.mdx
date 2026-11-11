@@ -16,13 +16,13 @@ outcomes:
   - Check the pickup workflow in an iOS Simulator and on a device
 ---
 
-At the lunch rush, a barista needs to see which drinks are still being made and which customers can come to the counter. We will build a pickup board for North Pier Coffee. It starts with four believable tickets, counts orders by status, and lets staff move a ticket from preparation to pickup without losing track of the rest of the queue.
+During the lunch rush, a barista needs to know which drinks are still being made and which customers can come to the counter. We will build a pickup board for North Pier Coffee with four sample orders, a count for each status, and actions to move an order from preparation to pickup.
 
-The order data stays in memory in this first app, so it resets when the process closes. That keeps the first iOS project focused on the screen and its state changes. The same Rust component runs in the browser preview and in Fission's native iOS shell.
+Order data stays in memory, so it resets when the app closes. That keeps this first iOS project focused on the screen and its state changes. The same Rust component runs in the browser preview and Fission's native iOS shell.
 
 ## Create an iOS project
 
-Create a Fission app and add its iOS target. If Xcode, the simulator runtime, or Rust's iOS targets are not installed yet, follow the [Rust and iOS development setup guide](/blog/set-up-rust-ios-development-with-fission/) first.
+Create a Fission app and add its iOS target. If Xcode, the Simulator runtime, or Rust's iOS targets are not installed yet, start with the [Rust and iOS development setup guide](/blog/set-up-rust-ios-development-with-fission/).
 
 <Tabs>
 <TabItem label="Create the app">
@@ -48,16 +48,19 @@ north-pier-coffee/
 </TabItem>
 </Tabs>
 
-Keep the order model and screen in `src/app.rs`. Fission generates the native host under `platforms/ios`; it launches the shared Rust app but does not need a second copy of the pickup queue.
+Keep the order model and screen in `src/app.rs`. Fission generates the native host under `platforms/ios`; it launches the shared Rust app and does not need a second copy of the queue.
 
 <!-- fission:step id="first-screen" -->
 ## Put the pickup details on each order card
 
-A pickup board must answer three questions at a glance: whose order is this, what should be in the bag, and whether it is ready. We will start with four tickets across those statuses. Keeping the order number visible gives the barista a second way to confirm a handoff when two customers have similar names.
+The pickup board needs to answer three questions: whose order is this, what
+goes in the bag, and is it ready? Start with four tickets in different states.
+The order number gives the barista another way to confirm a handoff when two
+customers have similar names.
 
-Add an order status, a small order record, and a reusable card component. The first screen is read-only; in the next step we will move status changes into shared app state so the summary and each card stay in sync.
+Add an order status, a small order record, and a reusable card. This first screen is read-only. In the next step, status changes will go into shared app state so the summary and each card stay in sync.
 
-An iPhone cannot show a long queue all at once. The board puts its content in a vertical `Scroll` region, then gives that region an accessible name so VoiceOver users can identify and move through the pickup queue.
+An iPhone cannot show a long queue at once. The board uses a vertical `Scroll` region and gives it an accessible name, so VoiceOver users can find and move through the pickup queue.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -231,13 +234,13 @@ Find order #204 for Maya and read back both drinks. The summary should show two 
 <!-- fission:step id="move-orders-through-pickup" -->
 ## Move orders through the pickup queue
 
-An order's status affects both its card and the counts above the list, so keep those facts together in `CafeQueueState`. A typed reducer advances one order by its stable ID. The board's “hide collected” choice is different: it only changes how this screen is displayed, so it belongs to the board component's local state rather than the shared order data.
+An order's status affects its card and the counts above the list, so keep that data together in `CafeQueueState`. A typed reducer advances an order by its stable ID. “Hide collected” only changes this screen, so it belongs in the board component's local state, not in the shared order data.
 
-The reusable `PickupOrderCard` reads the shared order and offers the next useful action: a preparing order can be marked ready, and a ready order can be marked collected. Once collected, the card replaces its button with a handoff confirmation. Giving each card its order ID keeps its widget identity stable when the filter changes the list.
+The reusable `PickupOrderCard` shows the next useful action: mark a preparing order ready, or mark a ready order collected. After collection, the card shows a handoff confirmation instead of a button. The order ID keeps each card's identity stable when the filter changes the list.
 
-The screen keeps the vertical scroll region around the whole board, including the counts and filter. On a smaller phone, staff can reach every ticket without shrinking its text or hiding the summary controls.
+The vertical scroll region contains the whole board, including its counts and filter. On a smaller phone, staff can reach every ticket without shrinking the text or losing the summary controls.
 
-Try #204 in the preview: its first tap changes the status and moves one count from Preparing to Ready for pickup; its second tap records the handoff. “Hide collected orders” only filters the visible cards. It does not delete tickets or change their status, so the staff member can bring the completed orders back with “Show the full queue.”
+Try order #204 in the preview. The first tap changes its status and moves one count from Preparing to Ready for pickup; the second records the handoff. “Hide collected orders” only filters the cards. It does not delete an order or change its status, and “Show the full queue” brings it back.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -515,7 +518,7 @@ Advance #204 to ready and check that the prepared count drops to one while the r
 <!-- fission:step id="run-on-ios" -->
 ## Run the pickup board in the iOS Simulator
 
-`fission init` points `src/lib.rs` at its starter `CounterApp`. Replace that wiring with `CafePickupBoard` and `CafeQueueState`, then launch the iOS target. The native shell starts the same shared component that you used in the browser preview; no Swift screen needs to duplicate the order rules.
+`fission init` points `src/lib.rs` at the starter `CounterApp`. Replace it with `CafePickupBoard` and `CafeQueueState`, then launch the iOS target. The native shell starts the same shared component used in the browser preview; there is no need to duplicate the order rules in Swift.
 
 <Tabs>
 <TabItem label="src/lib.rs">
@@ -574,7 +577,7 @@ fission run --target ios --device <device-id> --project-dir .
 </TabItem>
 </Tabs>
 
-On the simulator, move one order through both actions and confirm the totals change at each step. Then try the screen with VoiceOver and a larger text setting: the order number, customer, items, status, and next action should remain understandable without relying on color or a precise gesture. `fission test` checks the generated iOS host; it does not replace those task-specific checks.
+In the Simulator, move an order through both actions and check that the totals update each time. Then turn on VoiceOver and increase the text size. The order number, customer, items, status, and next action should still make sense without relying on colour or a precise gesture. `fission test` checks the generated iOS host; it does not replace these checks of the actual workflow.
 <!-- /fission:step -->
 
 ## Continue learning

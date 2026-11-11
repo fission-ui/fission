@@ -17,9 +17,9 @@ aliases:
   - /docs/learn/interactive-counter/
 ---
 
-Build a sprint-planning app in Rust for Harborline's Northstar checkout launch. We will start with the screen a teammate sees when a sprint has no work, add real tasks that open on their own routes, then let the team create and move work through the sprint. Each step leaves you with a useful screen; the final app keeps its task data and navigation in sync even when you use the browser's Back button.
+We’re building a sprint-planning app in Rust for Harborline’s Northstar checkout launch. Start with an empty sprint, add tasks with their own routes, then create and move work through the board. Each step leaves a working screen, and the browser’s Back button restores the task for the route you return to.
 
-The preview controls stay collapsed while you read. Open a step's result when you want to try the screen, then close it to return to the tutorial's full reading width. The app keeps changes in memory: its success and error messages come from the same validation and state transitions you would keep when a backend is added.
+The preview stays collapsed while you read. Open a step to try its screen, then close it to get the full reading width back. The app keeps changes in memory. Its validation and state transitions are real, but adding a backend is outside this tutorial.
 
 Install the Fission CLI and scaffold a Web project:
 
@@ -48,14 +48,14 @@ harbour-workspace/
 └── tests/                      # project-specific flow checks
 ```
 
-`fission init` generates the project manifest and starter app files; `fission add-target web` adds the browser target. As the board grows, move the shared task model and reducers into `state.rs`, and keep each screen or reusable component in its own module. Data used by both the board and detail route belongs in `GlobalState`; short-lived text or filter selections belong to the component that owns them. A component's view describes what to render, while a reducer performs the state change after a user action.
+`fission init` creates the project and starter app; `fission add-target web` adds the browser target. Keep the shared task model and reducers in `state.rs`, and put each screen or reusable component in its own module. The board and detail route share task data through `GlobalState`; short-lived text and filter choices belong to their component. Views describe what to render. Reducers make the state changes after user actions.
 
 <!-- fission:step id="start-screen" -->
 ## Lay out the workspace and explain the empty sprint
 
-A blank board is still a real product state. Someone opening Northstar for the first time should know which project and sprint they are viewing, whether work has been planned, and what will appear after the first task is added. Render those parts before adding task cards; that gives us a useful layout to extend in the next step.
+A blank board is still a real state, not a reason to show an empty scaffold. Someone opening Northstar should know which project and sprint they’re looking at, whether work has been planned, and what will appear after the first task is added. Build that layout first; we’ll add task cards in the next step.
 
-`SprintMetric` is a small reusable component for the three summaries. `TaskWorkspace` owns the screen composition, reads its colors and spacing from Fission's current theme, and gives the empty state enough context to explain what is missing. There is no inert button here: the app tells the team what to do, and we make that action work when the form arrives in the final step.
+`SprintMetric` is reusable for the three summaries. `TaskWorkspace` composes the screen, reads colour and spacing from Fission’s active theme, and explains what is missing. There’s no dead button: the app explains what to do, and the final step makes that action work.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -185,16 +185,16 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Render the preview and look at it as a teammate joining an empty sprint. The project and sprint should be clear, the three counts should agree that no work is planned, and the empty state should explain what information will appear when a task is added.
+Open the preview as a teammate joining an empty sprint. Check that the project and sprint are clear, all three counts show no planned work, and the empty state explains what will appear after adding a task.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
 ## Open a task from the sprint board
 
-Now the board needs records that a teammate can actually open. Store the three checkout launch tasks in `TaskBoardState`, which implements `GlobalState` because both the list and detail page read the same records. Each card links to `/tasks/:id`; the route carries the selected task's id, while the shared state supplies its title, owner and delivery context.
+Now add tasks a teammate can open. `TaskBoardState` implements `GlobalState` because both the list and detail page read the same records. Each card links to `/tasks/:id`. The route carries the task ID; shared state supplies its title, owner, and delivery context.
 
-The detail route is built with `RouterParams`, so a URL such as `/tasks/241` can select task 241 without copying task data into a second screen. Fission's Web shell reports browser history changes to `route_changed`, which updates the router's current path. Try a card, then use Back and Forward: the URL and the page should move together.
+`RouterParams` reads the ID from a URL such as `/tasks/241`, so the detail screen doesn’t need a second copy of the task. Fission’s Web shell reports browser history changes to `route_changed`, which updates the router’s path. Open a card, then try Back and Forward. The URL and screen should move together.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -439,9 +439,9 @@ Open “Finalize checkout empty state.” Confirm the address ends in `/tasks/24
 <!-- fission:step id="edge-state" -->
 ## Add validated work and move it through the sprint
 
-A useful board also needs to accept the next piece of work. Keep the title and context drafts inside `SprintTaskBoard`, because no other screen needs them before the teammate submits the form. Keep saved tasks and feedback in `TaskBoardState`, because the board and detail route must see the same result.
+The board also needs to accept new work. Keep title and context drafts in `SprintTaskBoard`; no other screen needs them before submission. Keep saved tasks and feedback in `TaskBoardState`, so the board and detail route see the same result.
 
-`AddSprintTask` checks the title before changing the sprint. If the title is too short, the reducer returns an actionable error and leaves the task list untouched. A valid title creates a new Ready task, then reports its assigned id. From the detail route, `AdvanceSprintTask` moves it to the next lane. These are local state changes, so the preview shows realistic validation without pretending to contact a server. The same reducer boundary is where a production app can later request an asynchronous save.
+`AddSprintTask` checks the title before changing the sprint. A title that is too short returns an error and leaves the list alone. A valid title creates a Ready task and reports its ID. From the detail route, `AdvanceSprintTask` moves it to the next lane. The preview exercises real validation and state changes without pretending to contact a server. A production app can request an asynchronous save from the same reducer boundary.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -1079,7 +1079,7 @@ fission build --target web --project-dir .
 fission test --target web --project-dir .
 ```
 
-Expected result: Northstar has a readable empty state, three realistic task routes, validated task creation, status transitions and browser history that returns to the correct screen.
+Northstar should now have a useful empty state, three task routes, validated task creation, status transitions, and browser history that returns to the right screen.
 
 ## Related Fission reference
 

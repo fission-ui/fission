@@ -5,17 +5,17 @@ description: Fission keeps reducers synchronous so state transitions are determi
 
 # Why are reducers not async?
 
-Reducers are synchronous because they define the immediate state transition of the app.
+Reducers are synchronous because they define the app’s immediate state transition.
 
-When an action reaches a reducer, Fission should be able to answer one question deterministically: given this previous state and this action, what is the next state and what runtime work was requested?
+When an action reaches a reducer, Fission needs a clear answer: given this state and this action, what changes now, and what work should run next?
 
-If reducers were async, that question would become much harder. State updates could suspend halfway through. Two actions could interleave through unrelated awaits. A widget tree could be rebuilt against a partial transition. Tests would need to drive hidden scheduling decisions instead of asserting clear state changes.
+If reducers were async, state could stop halfway through an update. Other actions could run while one reducer was waiting, and the UI could rebuild against a partial transition. Tests would have to reproduce hidden scheduling instead of checking a clear state change.
 
-Fission avoids that class of bugs by making reducers finish quickly and synchronously.
+Reducers finish quickly and synchronously, so that whole class of bugs is avoided.
 
 ## The reducer contract
 
-A reducer may:
+A reducer can:
 
 - validate the action;
 - update `GlobalState`;
@@ -31,13 +31,13 @@ A reducer must not:
 - keep long-running background processes alive;
 - mutate runtime internals such as scroll offsets, sockets, or stream registries directly.
 
-That does not mean Fission avoids async work. It means async work is modeled explicitly.
+That doesn’t mean Fission avoids async work. It means the work is explicit and its result comes back through the state-transition path.
 
 ## Jobs handle finite async work
 
-A job is a one-shot request with one success or failure result.
+A job is one request with one success or failure result.
 
-Use a job for tasks such as:
+Use a job for work such as:
 
 - uploading one file;
 - importing one document;
@@ -87,13 +87,13 @@ fn on_save_succeeded(
 }
 ```
 
-The important point is that every state change still happens in reducers. The job performs outside work; it does not mutate UI state directly.
+The key point is that state still changes in reducers. The job does the outside work; it never mutates UI state itself.
 
 ## Services handle long-lived work
 
 A service is a long-lived async conversation.
 
-Use a service when the work has identity over time:
+Use a service when the work keeps its identity over time:
 
 - language server sessions;
 - background sync connections;
@@ -102,7 +102,7 @@ Use a service when the work has identity over time:
 - subscriptions;
 - device sessions.
 
-A reducer starts or stops the service, and service events return through reducers. That preserves a single state-transition path even when the external process emits many events.
+A reducer starts or stops the service, and each service event comes back through a reducer. State therefore has one update path, even when an external process sends many events.
 
 ```rust
 let slot = ServiceSlot::singleton(LANGUAGE_SERVICE);
@@ -135,56 +135,56 @@ A command is not a service start. It is one message sent to a service that alrea
 
 ## Capabilities handle host-owned work
 
-Capabilities are for work the host owns: open a native URL, open a file picker, read geolocation, use biometrics, scan a barcode, or access platform clipboard data.
+Capabilities are for work owned by the host: opening a native URL or file picker, reading location, using biometrics, scanning a barcode, or accessing the platform clipboard.
 
-Reducers ask for the capability. The shell performs it. The result returns through `ctx.input.capability_ok(...)` or `ctx.input.capability_error(...)`.
+The reducer requests the capability, the shell performs it, and the result returns through `ctx.input.capability_ok(...)` or `ctx.input.capability_error(...)`.
 
-This keeps host policy out of app logic. The app declares intent; the shell decides how that target can satisfy it.
+This keeps host policy out of app logic. The app says what it needs; the shell handles what that target can do.
 
 File uploads are the clearest example: the reducer requests `PICK_OPEN_FILES`, receives file metadata and a `DataStreamId`, then passes the stream handle to a job or service. The reducer never reads the bytes.
 
 ## Resources handle mounted lifetimes
 
-Some async work should exist because a widget subtree exists, not because one event fired.
+Some async work should exist because a widget subtree exists, not because a user fired an event.
 
-That is what resources are for. A component can declare a `JobResource`, `ServiceResource`, or `TimerResource` during conversion. The declaration is data, so conversion stays side-effect free. The runtime reconciles resources after conversion and starts, preserves, restarts, or stops the work according to stable keys and dependency payloads.
+That’s what resources are for. A component can declare a `JobResource`, `ServiceResource`, or `TimerResource` during conversion. It is only a declaration; conversion stays side-effect free. The runtime reconciles resources afterwards and starts, preserves, restarts, or stops work based on stable keys and dependency payloads.
 
-Use resources when lifetime follows UI structure:
+Use resources when the work follows UI structure:
 
 - poll while a panel is open;
 - scan a tree while a workspace screen is mounted;
 - keep a service alive for one route;
 - refresh data when route params change.
 
-Use reducer effects when lifetime follows a specific action.
+Use reducer effects when the work follows a specific action.
 
 ## Why this makes complex apps more reliable
 
-The separation gives Fission useful mechanical properties.
+This separation makes a few important things easier.
 
 ### State transitions are atomic
 
-A reducer either finishes and produces the next state, or it does not. There is no `await` point where the app can render a half-updated state.
+A reducer finishes and produces the next state before another action is processed. There is no `await` where the app can render a half-updated state.
 
 ### Async ordering is explicit
 
-Every async result re-enters the app as an action with typed input. You can inspect which reducer handles success, failure, progress, cancellation, and service events.
+Every async result comes back as an action with typed input. You can see which reducer handles success, failure, progress, cancellation, and service events.
 
 ### UI rendering stays side-effect free
 
-Widget conversion describes the tree. It does not accidentally start uploads, open dialogs, create sockets, or write files because a rebuild happened.
+Widget conversion describes the tree. A rebuild won’t accidentally start an upload, open a dialog, create a socket, or write a file.
 
 ### Tests become narrower
 
-You can test reducers as pure state transitions. You can test jobs and services as async units. You can test the integration path by asserting that a reducer emits a specific effect and that a later result action updates state correctly.
+Test reducers as state transitions and jobs or services as async units. To test the whole path, assert that a reducer emits the expected effect and a later result action updates state correctly.
 
 ### Backpressure and large data stay out of state
 
-Streams, files, images, and other large payloads stay behind runtime handles. Jobs and services consume them in chunks, so reducers do not become memory-management code.
+Streams, files, images, and other large payloads stay behind runtime handles. Jobs and services consume them in chunks; reducers don’t become memory-management code.
 
 ### Platform differences stay at the shell boundary
 
-The same reducer can ask for a file picker, geolocation, or clipboard access on every target. The shell is where platform support, permissions, native UI, and unsupported-operation errors live.
+The same reducer can request a file picker, location, or clipboard on every target. Platform support, permissions, native UI, and unsupported-operation errors stay in the shell.
 
 ## Choosing the right abstraction
 
@@ -205,7 +205,7 @@ If you are unsure, ask two questions:
 
 ## What async reducers would make worse
 
-Async reducers look convenient at first, but they blur too many boundaries:
+Async reducers look convenient at first. The problem is that they blur several boundaries:
 
 - state updates can interleave unpredictably;
 - cancellation becomes unclear after partial mutation;
@@ -214,7 +214,7 @@ Async reducers look convenient at first, but they blur too many boundaries:
 - tests must simulate scheduler behavior instead of asserting transitions;
 - target-specific host work spreads across application reducers.
 
-Fission keeps reducers synchronous to avoid these failure modes. The async APIs are not a workaround for that rule. They are the rule made explicit.
+Fission keeps reducers synchronous to avoid these failures. The async APIs aren’t a workaround; they make the boundary explicit.
 
 ## Related
 

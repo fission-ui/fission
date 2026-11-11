@@ -1,7 +1,7 @@
 ---
 layout: goal
 title: Build a desktop work-order app in Rust
-description: Build a practical desktop service desk in Rust with a repair queue, safety checklist, work-order status flow and shift notes using Fission components.
+description: Build a Rust desktop work-order app with a repair queue, safety checklist, status flow, and shift notes using Fission.
 goal: Help warehouse staff move equipment repairs from diagnosis through safe customer handoff
 path: /blog/build-a-desktop-application-in-rust/
 order: 12
@@ -15,15 +15,15 @@ outcomes:
   - Add shift notes to the right job and run the app as a desktop window
 ---
 
-A repair desk has to answer practical questions quickly: which machine is waiting, where is it, who reported it, what has already been checked, and what must happen before the equipment is returned? A task list cannot answer those questions unless the work itself is represented clearly.
+Repair work gets hard to follow when the queue, checklist and shift notes each tell a different story. The app needs to show which machine needs attention, where it is, what has already been checked and what still needs to happen before it goes back into service.
 
-We will build **Harbour Desk**, a desktop work-order workspace for a warehouse maintenance team. It includes four current jobs, a queue, location and due-window details, safety and repair checks, status changes, and notes that stay attached to the selected order. Each action changes the work order in the app state; there are no pretend save or hardware buttons. The browser preview keeps this sample data in memory for the current session. The native desktop window uses the same shared Rust app and is where a production app would connect its real store or service.
+We will build **Harbour Desk**, a desktop work-order app for a warehouse maintenance team. It has four jobs, a searchable queue, locations and due windows, safety and repair checks, status changes, and notes attached to the selected order. The buttons change the work order in app state; none of them pretend to save or use hardware. The browser preview keeps its sample data in memory for the current session. The native desktop window runs the same Rust app, where a production version can connect a real store or service.
 
-The interface is split into small named `fission_component!` components. `ServiceDeskState` owns work-order data because the queue, summary cards, and detail panel all read or change the same records. Each reducer describes one action, such as selecting an order or marking an inspection step complete. This makes it possible to explain the screen and verify each state change without hiding important behavior in a large anonymous widget tree.
+The app is split into named `fission_component!` components. `ServiceDeskState` owns the work orders because the queue, summary cards and detail panel all need the same records. Each reducer handles one action, such as selecting an order or finishing an inspection step. That keeps the rules visible and makes each state change easier to test.
 
 ## Create the desktop project
 
-`fission init` creates a desktop-ready Rust project, including the desktop entrypoint. The example adds `models.rs`, `state.rs`, and focused component modules under `src/`. You can run the new scaffold before adding code; once the app is assembled at the end, `fission run` starts the Harbour Desk window.
+`fission init` creates the desktop project and its entrypoint. We will add the work-order model, shared state and focused component modules under `src/`. You can run the empty scaffold first; after adding the app, `fission run` opens Harbour Desk as a desktop window.
 
 <Tabs>
 <TabItem label="Create the project">
@@ -61,16 +61,16 @@ harbour-service-desk/
 </TabItem>
 </Tabs>
 
-The generated `src/main.rs` calls the library’s `run_desktop` function. Add the modules there instead of moving the whole app into `main.rs`; the same app component can then be hosted by Fission’s desktop shell and by the browser preview used in this guide.
+The generated `src/main.rs` calls `run_desktop` from the library. Keep the module declarations and shared app setup in the library instead of moving everything into `main.rs`. The desktop shell and this guide's browser preview can then run the same app component.
 
 <!-- fission:step id="service-desk-layout" -->
 ## Shape the work orders and the first screen
 
-Start with the records the maintenance team actually handles. A work order has a stable ID, a reference such as `WO-2483`, a location, a requester, a due window, a priority, an explicit status, an inspection checklist, and any notes already left by another shift. Keeping those values in a model means the queue and the detail view describe the same job instead of each keeping a separate copy.
+Start with a work order: give it a stable ID, a reference such as `WO-2483`, a location, a requester, a due window, a priority, a status, an inspection checklist and any notes from the previous shift. The queue and detail panel should read the same record. If each keeps its own copy, they can disagree.
 
-For this first checkpoint, the page is read-only and the first work order is already selected. That gives the reader a clear place to start: the queue explains what needs attention, and the detail panel shows the selected job’s location, due window, checklist, and existing notes. We use theme tokens for spacing, surfaces, borders, and type weight. The queue and detail panels share the available width on a desktop and stack when the preview becomes narrow.
+The first checkpoint is read-only, with the first work order selected. The queue shows what needs attention; the detail panel shows the selected job's location, due window, checklist and notes. We will use theme tokens for spacing, surfaces, borders and type. The queue and detail panel sit side by side on a desktop and stack when the preview narrows.
 
-The snippets below form one small project. Start with the work-order records and default state, add the reusable cards and sidebar, then compose them into `WorkOrderDesk`. Each component has one job: `WorkOrderQueueCard` summarizes a repair, `WorkOrderDetailPanel` explains the selected repair, and `ServiceDeskSidebar` identifies the current workspace.
+These snippets make up one project. Add the work-order records and default state first, then the reusable cards and sidebar, and finally compose them in `WorkOrderDesk`. Each component has one job: `WorkOrderQueueCard` summarizes a repair, `WorkOrderDetailPanel` shows the selected repair, and `ServiceDeskSidebar` identifies the workspace.
 
 
 <Tabs>
@@ -685,7 +685,7 @@ pub fn run() -> Result<(), JsValue> {
 
 </Tabs>
 
-The detail panel reports the job’s due window and location beside its inspection checklist. The progress value is calculated from the same checklist that appears below it, so the summary cannot drift away from the steps a technician sees. `MetricCard` and the queue card receive their data as props; they do not create competing copies of work-order state.
+The detail panel shows the due window and location beside the checklist. Its progress value is calculated from those same steps, so the summary cannot drift from what the technician sees. `MetricCard` and the queue card receive data through props; neither keeps a second copy of the work order.
 
 <!-- fission:preview -->
 
@@ -697,11 +697,11 @@ Look through Harbour Desk’s four jobs. Find the conveyor motor order and confi
 <!-- fission:step id="work-order-flow" -->
 ## Select jobs and enforce the repair workflow
 
-Now add the actions staff need during a shift. Clicking **Open details** selects a work order by its stable ID. The queue and detail panel both read that ID from `ServiceDeskState`, so changing selection updates the whole screen at once. We do not keep a separate selected row inside each card: selection is app data that several parts of the screen must agree on.
+Now add the actions staff use during a shift. **Open details** selects a work order by its stable ID. The queue and detail panel both read the selection from `ServiceDeskState`, so one change updates the whole screen. We do not store the selected row inside each card; every part of the screen needs to agree on the same selection.
 
-The checklist is interactive, but its state is still part of the work order. The **Mark ready for pickup** action stays visible while a repair is in progress. If someone tries it too early, the reducer explains which checks remain and leaves the order in progress. That is a real workflow validation, not a button for manufacturing an error. After the technician finishes each check, the same action advances the repair.
+The checklist can change, but it still belongs to the work order. **Mark ready for pickup** stays available while a repair is in progress. If someone selects it before the checks are done, the reducer says what remains and leaves the order in progress. Once the checks are complete, the same action moves it to **Ready for pickup**.
 
-Read the reducer before trying the preview. A reducer receives current state and an action, finds the target work order, and performs one transition. The UI calls the reducer through `with_reducer!`; it does not mutate a record while a component is being converted into a view. This separation is useful even in a small app because the same rules apply whether the action came from a mouse, a keyboard shortcut, or another screen.
+The reducer receives the current state and action, finds the work order, then applies one transition. The UI calls it through `with_reducer!`; it does not change a record while the component is being converted into a view. The same rule applies whether the action comes from a mouse, a keyboard shortcut or another screen.
 
 
 <Tabs>
@@ -1058,7 +1058,7 @@ fission_component! {
 
 </Tabs>
 
-Use the preview to open **WO-2483** and press **Mark ready for pickup** while two checks remain. The order should stay in progress and explain what is unfinished. Then complete the return-roller replacement and five-minute safety test, and press the action again. With all four checks complete, the order moves to **Ready for pickup**. Selecting another job displays its own checklist and status, confirming that each action targets the selected record.
+Open **WO-2483** in the preview and press **Mark ready for pickup** while two checks remain. The order should stay in progress and tell you what is unfinished. Complete the return-roller replacement and five-minute safety test, then try again. The order should move to **Ready for pickup**. Select another job to check that its own checklist and status appear and that actions apply to the selected record.
 
 <!-- fission:preview -->
 
@@ -1070,11 +1070,11 @@ Select WO-2483, request pickup before its last two checks are complete, then fin
 <!-- fission:step id="shift-notes" -->
 ## Add shift notes without losing the selected job
 
-A technician often needs to leave context for the next person: what part was fitted, what still needs a second look, or why a job is waiting. A note should be attached to a particular work order, not displayed as a free-floating message at the top of the page.
+The next technician needs to know what part was fitted, what still needs another look, or why a job is waiting. Keep each note on its work order rather than adding a message that floats at the top of the page.
 
-The note draft is keyed by work-order ID in `ServiceDeskState`. That choice lets a technician start a note, select another job to check its history, and return without silently losing the first draft. The `TextInput` sends text changes to a reducer, and **Add note** validates trimmed text before appending a note to the selected order. An empty submission produces a useful field-level message; a valid submission appears in that order’s timeline and clears only that order’s draft.
+The draft is keyed by work-order ID in `ServiceDeskState`. A technician can start a note, open another job and return without losing the first draft. `TextInput` sends edits to a reducer. **Add note** trims and validates the text before adding it to the selected work order. An empty note shows a useful message; a saved note appears in that order's history and clears only that order's draft.
 
-The browser example keeps notes in the running app state; closing the preview resets the sample data. When you connect a native app to durable storage or a service, keep the same reducer boundary and request the operation through an asynchronous effect or job. That way the UI can show a real loading or error state without blocking the desktop event loop. This tutorial stops at the working in-memory workflow so the state transitions stay visible and testable.
+The browser example keeps notes in app memory, so closing the preview resets the sample data. For durable storage or a service, keep the reducer boundary and request the work through an asynchronous effect or job. Then the UI can show loading or an error without blocking the desktop event loop. This tutorial keeps the workflow in memory so the state changes are easy to see and test.
 
 
 <Tabs>
@@ -1840,9 +1840,9 @@ fission_component! {
 
 </Tabs>
 
-A work-order search is the last piece of the workspace. It searches the reference, equipment description, location, requester, priority, and status, so staff can start with the information they have. As the query changes, the first matching job becomes selected. If nothing matches, the queue explains that and the detail area invites the reader to clear the search.
+Search is the last piece of the workspace. It checks the reference, equipment description, location, requester, priority and status, so staff can start with whatever information they have. As the query changes, the first matching job is selected. If there is no match, the queue says so and the detail panel offers a way to clear the search.
 
-The note draft remains keyed by work-order ID, so changing the search or selecting another repair does not attach a note to the wrong record. The same reducers drive the browser preview and the desktop window.
+The draft stays keyed by work-order ID, so a search or selection change cannot attach it to the wrong repair. The browser preview and desktop window use the same reducers.
 
 <!-- fission:preview -->
 
@@ -1851,7 +1851,7 @@ Search for `scanner dock` and record the parts update. Return to WO-2483, add a 
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-The final screen and search component are shown above. Run the full app locally by adding the module declarations and desktop launch function to the generated library. The generated `main.rs` already calls this function in a fresh `fission init` project.
+The final screen and search component are above. Add the module declarations and desktop launch function to the generated library, then run the app. A fresh `fission init` project already has a `main.rs` that calls this function.
 
 <Tabs>
 <TabItem label="src/lib.rs">
@@ -1891,11 +1891,11 @@ fission test --target linux --project-dir .
 </TabItem>
 </Tabs>
 
-Start by searching for the scanner dock and recording the parts update. Then return to the conveyor motor order, add a shift note, finish its remaining inspections, and mark it ready for pickup. The sample records stay in memory so you can inspect each transition; a production app can connect these reducer actions to durable storage or a service.
+Search for the scanner dock and record the parts update. Then return to the conveyor motor, add a shift note, finish its inspections and mark it ready for pickup. The sample records stay in memory so you can inspect each transition. A production app can connect the same reducer actions to storage or a service.
 
 ## Where to go next
 
-- [Fission’s desktop target guide](/reference/platform/targets/) explains how shared app code runs inside the desktop host.
-- [Platform capabilities](/docs/guides/platform-capabilities/) covers how to request host work without starting it during component conversion.
-- [Filesystem capability](/reference/capabilities/file-system/) documents native file access and target-specific behavior when your product needs local documents.
-- [Testing and diagnostics](/docs/guides/testing-and-diagnostics/) shows how to verify real user flows on a target.
+- [Desktop target reference](/reference/platform/targets/) explains how shared app code runs inside the desktop host.
+- [Platform capabilities](/docs/guides/platform-capabilities/) explains how to request host work without starting it during component conversion.
+- [Filesystem capability](/reference/capabilities/file-system/) covers native file access and target-specific behaviour for local documents.
+- [Testing and diagnostics](/docs/guides/testing-and-diagnostics/) shows how to check real user flows on a target.
