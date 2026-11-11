@@ -2317,6 +2317,15 @@ fn pending_work_redraw_interval(
     }
 }
 
+fn text_input_blink_enabled(
+    override_setting: Option<&str>,
+    software_renderer_active: bool,
+) -> bool {
+    override_setting
+        .map(|value| !matches!(value.to_ascii_lowercase().as_str(), "0" | "false" | "no"))
+        .unwrap_or(!software_renderer_active)
+}
+
 fn resize_is_unsettled(pending_resize: bool, needs_settled_frame: bool, live_resize: bool) -> bool {
     pending_resize || needs_settled_frame || live_resize
 }
@@ -5644,9 +5653,7 @@ where
         let mut last_frame_time = Instant::now();
         let mut test_animations_paused = false;
         let mut pending_test_clock_advance_ms: Option<u64> = None;
-        let blink_enabled = std::env::var("FISSION_TEXTINPUT_BLINK")
-            .map(|v| !matches!(v.to_ascii_lowercase().as_str(), "0" | "false" | "no"))
-            .unwrap_or(true);
+        let blink_override = std::env::var("FISSION_TEXTINPUT_BLINK").ok();
         let blink_period = Duration::from_millis(
             std::env::var("FISSION_TEXTINPUT_BLINK_MS")
                 .ok()
@@ -7607,7 +7614,27 @@ where
                         }
                     }
 
-                    // Cursor blink: toggle visibility and request a redraw.
+                    let software_renderer_active = {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            render_state.as_ref().is_some_and(|state| {
+                                matches!(&state.main_renderer, MainRenderer::Software)
+                            })
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            web_renderer.as_ref().is_some_and(|renderer| {
+                                matches!(renderer, WebRenderer::Canvas2d(_))
+                            })
+                        }
+                    };
+                    let blink_enabled = text_input_blink_enabled(
+                        blink_override.as_deref(),
+                        software_renderer_active,
+                    );
+
+                    // Keep the caret visible on CPU renderers. Blinking it would invalidate and
+                    // rerasterize the entire retained frame every half-second.
                     if blink_enabled {
                         if let Some(id) = blink_focus_id {
                             if now.duration_since(last_blink_toggle) >= blink_period {
@@ -10881,9 +10908,10 @@ mod tests {
         rect_visible_in_scroll_ancestors, repeating_animation_redraw_interval, resize_is_unsettled,
         resolve_build_viewport, resolve_selector_record, should_present_startup_clear_frame,
         surface_acquire_recovery, sync_tracked_target_texture_size_to_surface,
-        texture_plans_fit_device_limits, visual_rect_for_node, web_effective_render_scale,
-        window_insets_from_safe_area_frames, windows_shell_execute_succeeded, windows_wide,
-        BrowserDefaults, LiveResizeController, SurfaceAcquireRecovery, WindowViewportState,
+        text_input_blink_enabled, texture_plans_fit_device_limits, visual_rect_for_node,
+        web_effective_render_scale, window_insets_from_safe_area_frames,
+        windows_shell_execute_succeeded, windows_wide, BrowserDefaults, LiveResizeController,
+        SurfaceAcquireRecovery, WindowViewportState,
     };
     use crate::pipeline::{software_frame_needs_raster, CompositorTexturePlan};
     use crate::InvalidationSet;
@@ -10899,6 +10927,16 @@ mod tests {
     use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
     use fission_test_driver::{TestPointerKind, TestPointerPhase, TestScrollDeltaMode};
     use wgpu::PresentMode;
+
+    #[test]
+    fn software_renderer_keeps_the_caret_static_unless_blink_is_explicitly_enabled() {
+        assert!(!text_input_blink_enabled(None, true));
+        assert!(text_input_blink_enabled(None, false));
+        assert!(text_input_blink_enabled(Some("1"), true));
+        assert!(text_input_blink_enabled(Some("true"), true));
+        assert!(!text_input_blink_enabled(Some("0"), false));
+        assert!(!text_input_blink_enabled(Some("false"), false));
+    }
 
     #[test]
     fn key_down_preserves_produced_text_independently_of_logical_key() {

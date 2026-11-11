@@ -115,7 +115,7 @@ The render pipeline (`Pipeline`) manages incremental updates:
 | `FISSION_MAX_FPS` | `60` | Maximum frame rate (throttled via `WaitUntil`). |
 | `FISSION_RENDERER` | `auto` | Select the renderer. Native targets accept `auto`, `native-vello-gpu`, `native-vello-cpu`, or `native-software`. Web accepts `auto`, `webgpu-vello`, or `canvas2d-software` via `globalThis.FISSION_RENDERER` or the `?fission_renderer=` query parameter. |
 | `FISSION_VELLO_USE_CPU` | `false` | Native compatibility escape hatch that asks Vello to use its CPU mode while still presenting through the GPU surface. |
-| `FISSION_TEXTINPUT_BLINK` | `true` | Enable/disable cursor blinking in text inputs. |
+| `FISSION_TEXTINPUT_BLINK` | Renderer-dependent | Enable/disable cursor blinking in text inputs. Blinking defaults on for GPU renderers and off for CPU software renderers; set to `1` to opt into blinking on a software renderer. |
 | `FISSION_TEXTINPUT_BLINK_MS` | `530` | Cursor blink period in milliseconds. |
 | `FISSION_USE_SYSTEM_FONTS` | `false` | Include system fonts in the font collection. |
 | `FISSION_TEXT_TRACE` | `false` | Enable text input latency tracing to stderr. |
