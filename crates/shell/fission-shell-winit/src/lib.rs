@@ -8659,6 +8659,19 @@ where
 
                             #[cfg(target_arch = "wasm32")]
                             let post_layout_started = Instant::now();
+                            if let (Some(ir), Some(layout)) =
+                                (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref())
+                            {
+                                match runtime.reconcile_focus_with_layout(ir, layout) {
+                                    Ok(true) => invalidations.mark_build(),
+                                    Ok(false) => {}
+                                    Err(err) => {
+                                        eprintln!(
+                                            "Runtime post-layout focus reconciliation error: {err:?}"
+                                        );
+                                    }
+                                }
+                            }
                             let refresh_hover = invalidations.build
                                 || layout_updates > 0
                                 || pipeline.scroll_offsets_changed(&runtime.runtime_state.scroll);
@@ -11281,6 +11294,79 @@ mod tests {
         assert_eq!(
             node.visibility,
             fission_test_driver::VisibilityState::FullyVisible
+        );
+    }
+
+    #[test]
+    fn get_tree_excludes_semantics_from_inactive_responsive_branches() {
+        let root = WidgetId::explicit("responsive-root");
+        let compact_branch = WidgetId::explicit("compact-branch");
+        let compact_input = WidgetId::explicit("compact-input");
+        let expanded_branch = WidgetId::explicit("expanded-branch");
+        let expanded_input = WidgetId::explicit("expanded-input");
+        let input_semantics = || {
+            Op::Semantics(Semantics {
+                role: Role::TextInput,
+                identifier: Some("slide.text.input".into()),
+                focusable: true,
+                value: Some("Draft".into()),
+                ..Semantics::default()
+            })
+        };
+        let box_op = || {
+            Op::Layout(LayoutOp::Box {
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            })
+        };
+
+        let mut ir = CoreIR::new();
+        ir.add_node(compact_input, input_semantics(), Vec::new());
+        ir.add_node(compact_branch, box_op(), vec![compact_input]);
+        ir.add_node(expanded_input, input_semantics(), Vec::new());
+        ir.add_node(expanded_branch, box_op(), vec![expanded_input]);
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::Responsive {
+                query: fission_ir::op::ResponsiveQuery::Viewport,
+                cases: vec![fission_ir::op::ResponsiveCondition {
+                    min_width: None,
+                    max_width: Some(600.0),
+                }],
+            }),
+            vec![compact_branch, expanded_branch],
+        );
+        ir.set_root(root);
+
+        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(1_100.0, 700.0));
+        for (id, rect) in [
+            (root, LayoutRect::new(0.0, 0.0, 1_100.0, 700.0)),
+            (expanded_branch, LayoutRect::new(0.0, 0.0, 1_100.0, 700.0)),
+            (expanded_input, LayoutRect::new(20.0, 20.0, 320.0, 36.0)),
+        ] {
+            snapshot.nodes.insert(
+                id,
+                LayoutNodeGeometry {
+                    rect,
+                    content_size: LayoutSize::new(rect.width(), rect.height()),
+                },
+            );
+        }
+
+        let records = collect_semantic_records(&ir, &snapshot, &ScrollStateMap::default());
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id, expanded_input);
+        assert_eq!(
+            records[0].node.identifier.as_deref(),
+            Some("slide.text.input")
         );
     }
 

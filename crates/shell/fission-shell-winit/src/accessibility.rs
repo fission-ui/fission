@@ -468,7 +468,8 @@ mod imp {
                 .iter()
                 .filter_map(|(id, node)| {
                     (matches!(node.op, Op::Semantics(_))
-                        && !fission_core::hit_test::is_interaction_inert(ir, *id))
+                        && !fission_core::hit_test::is_interaction_inert(ir, *id)
+                        && fission_core::hit_test::is_in_active_responsive_branch(ir, layout, *id))
                     .then_some(*id)
                 })
                 .collect::<Vec<_>>();
@@ -507,6 +508,11 @@ mod imp {
                     node.set_children(child_ids);
                     self.nodes.push((access_id, node));
                     vec![access_id]
+                }
+                Op::Layout(LayoutOp::Responsive { .. }) => {
+                    fission_core::hit_test::active_responsive_child(self.ir, self.layout, node_id)
+                        .map(|child| self.collect_subtree(child, inside_semantics))
+                        .unwrap_or_default()
                 }
                 Op::Paint(PaintOp::DrawText { text, .. }) if !text.is_empty() => {
                     let access_id = self.node_id_for(node_id);
@@ -569,6 +575,11 @@ mod imp {
                     .iter()
                     .flat_map(|child| self.collect_selection_region_subtree(*child))
                     .collect(),
+                Op::Layout(LayoutOp::Responsive { .. }) => {
+                    fission_core::hit_test::active_responsive_child(self.ir, self.layout, node_id)
+                        .map(|child| self.collect_selection_region_subtree(child))
+                        .unwrap_or_default()
+                }
                 Op::Paint(PaintOp::DrawText { .. } | PaintOp::DrawRichText { .. }) => Vec::new(),
                 Op::Semantics(semantics) if include_semantics(semantics) => {
                     self.collect_subtree(node_id, true)

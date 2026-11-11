@@ -73,6 +73,48 @@ struct FocusBarrierFrame {
     restore_target: Option<WidgetId>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FocusSemanticAnchor {
+    role: fission_ir::Role,
+    identifier: String,
+}
+
+fn focus_semantic_anchor(ir: &CoreIR, node_id: WidgetId) -> Option<FocusSemanticAnchor> {
+    let Some(Op::Semantics(semantics)) = ir.nodes.get(&node_id).map(|node| &node.op) else {
+        return None;
+    };
+    (semantics.focusable && !semantics.disabled).then(|| {
+        semantics
+            .identifier
+            .as_ref()
+            .map(|identifier| FocusSemanticAnchor {
+                role: semantics.role,
+                identifier: identifier.clone(),
+            })
+    })?
+}
+
+fn focus_candidates(
+    ir: &CoreIR,
+    anchor: &FocusSemanticAnchor,
+    layout: Option<&LayoutSnapshot>,
+) -> Vec<WidgetId> {
+    crate::hit_test::get_all_focusable_nodes(ir)
+        .into_iter()
+        .filter(|id| layout.is_none_or(|layout| layout.get_node_geometry(*id).is_some()))
+        .filter(|id| {
+            matches!(
+                ir.nodes.get(id).map(|node| &node.op),
+                Some(Op::Semantics(semantics))
+                    if semantics.focusable
+                        && !semantics.disabled
+                        && semantics.role == anchor.role
+                        && semantics.identifier.as_deref() == Some(anchor.identifier.as_str())
+            )
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ScrollIntoViewOutcome {
     Applied { changed: bool },
@@ -155,6 +197,9 @@ pub struct Runtime {
     pending_text_form_validation: Vec<String>,
     /// Active focus barriers and the targets restored as each barrier closes.
     focus_barriers: Vec<FocusBarrierFrame>,
+    /// Semantic identity used to restore focus when a responsive rebuild
+    /// replaces the focused widget with another widget serving the same role.
+    focus_semantic_anchor: Option<FocusSemanticAnchor>,
     /// Monotonically increasing counter for deterministic request id generation.
     pub next_req_id: u64,
     /// Declarative runtime resources that currently exist.
@@ -185,6 +230,7 @@ impl Default for Runtime {
             pending_text_scroll: Vec::new(),
             pending_text_form_validation: Vec::new(),
             focus_barriers: Vec::new(),
+            focus_semantic_anchor: None,
             next_req_id: 0,
             active_resources: HashMap::new(),
             next_resource_generation: 1,
@@ -229,6 +275,29 @@ impl Runtime {
             focus_barriers_in_tree_order, get_all_focusable_nodes, is_descendant_or_self,
             is_enabled_focus_node, preferred_focus_node_in_scope,
         };
+
+        let mut focus_changed = false;
+        if let Some(focused) = self.runtime_state.interaction.focused {
+            if let Some(anchor) = focus_semantic_anchor(ir, focused) {
+                self.focus_semantic_anchor = Some(anchor);
+            } else if !ir.nodes.contains_key(&focused) {
+                if let Some(anchor) = self.focus_semantic_anchor.clone() {
+                    let candidates = focus_candidates(ir, &anchor, None);
+                    let replacement = (candidates.len() == 1)
+                        .then(|| candidates.first().copied())
+                        .flatten();
+                    let pending_anchor = (candidates.len() > 1).then_some(anchor);
+                    focus_changed |= self.set_focused_widget(
+                        ir,
+                        replacement,
+                        crate::TextEditSource::Programmatic,
+                    )?;
+                    self.focus_semantic_anchor = pending_anchor.or_else(|| {
+                        replacement.and_then(|replacement| focus_semantic_anchor(ir, replacement))
+                    });
+                }
+            }
+        }
 
         let focused = self.runtime_state.interaction.focused;
         self.runtime_state
@@ -323,10 +392,44 @@ impl Runtime {
         };
 
         if current == next {
-            return Ok(false);
+            return Ok(focus_changed);
         }
 
-        self.set_focused_widget(ir, next, crate::TextEditSource::Programmatic)
+        focus_changed |= self.set_focused_widget(ir, next, crate::TextEditSource::Programmatic)?;
+        Ok(focus_changed)
+    }
+
+    /// Reconciles focus after layout so only focus targets in the active
+    /// responsive branches can retain keyboard focus.
+    pub fn reconcile_focus_with_layout(
+        &mut self,
+        ir: &CoreIR,
+        layout: &LayoutSnapshot,
+    ) -> Result<bool> {
+        let current = self.runtime_state.interaction.focused;
+        if let Some(current) = current {
+            if let Some(anchor) = focus_semantic_anchor(ir, current) {
+                self.focus_semantic_anchor = Some(anchor);
+            }
+        }
+
+        let current_is_active = current.is_some_and(|id| layout.get_node_geometry(id).is_some());
+        let mut changed = false;
+        if !current_is_active {
+            if let Some(anchor) = self.focus_semantic_anchor.clone() {
+                let candidates = focus_candidates(ir, &anchor, Some(layout));
+                let replacement = (candidates.len() == 1)
+                    .then(|| candidates.first().copied())
+                    .flatten();
+                changed |=
+                    self.set_focused_widget(ir, replacement, crate::TextEditSource::Programmatic)?;
+                self.focus_semantic_anchor =
+                    replacement.and_then(|replacement| focus_semantic_anchor(ir, replacement));
+            }
+        }
+
+        changed |= self.reconcile_focus(ir)?;
+        Ok(changed)
     }
 
     pub fn caret_from_point_in_text(
@@ -998,6 +1101,7 @@ impl Runtime {
         };
 
         let Some(container_id) = self.resolve_scroll_container(request, ir, layout) else {
+            Self::emit_scroll_container_chain_diag(request, ir, layout);
             Self::emit_scroll_into_view_diag("missing_container", request, None);
             return ScrollIntoViewOutcome::Retry;
         };
@@ -1209,6 +1313,48 @@ impl Runtime {
                     "scroll_into_view:{kind}:target={:?}:container={:?}",
                     request.target,
                     container.or(request.container)
+                ),
+                target: Some(request.target.as_u128()),
+                position: None,
+            },
+        );
+    }
+
+    fn emit_scroll_container_chain_diag(
+        request: &ScrollIntoViewRequest,
+        ir: &CoreIR,
+        layout: &LayoutSnapshot,
+    ) {
+        let mut ancestors = Vec::new();
+        let mut current = ir.nodes.get(&request.target).and_then(|node| node.parent);
+        while let Some(node_id) = current {
+            let Some(node) = ir.nodes.get(&node_id) else {
+                ancestors.push(format!("{node_id:?}:missing_ir_node"));
+                break;
+            };
+            let op = match &node.op {
+                Op::Layout(LayoutOp::Scroll { direction, .. }) => {
+                    format!("Scroll({direction:?})")
+                }
+                Op::Layout(LayoutOp::Responsive { .. }) => "Responsive".to_string(),
+                Op::Layout(_) => "Layout".to_string(),
+                Op::Semantics(_) => "Semantics".to_string(),
+                Op::Structural(_) => "Structural".to_string(),
+                Op::Paint(_) => "Paint".to_string(),
+            };
+            let measured = layout.get_node_geometry(node_id).is_some();
+            ancestors.push(format!("{node_id:?}:{op}:measured={measured}"));
+            current = node.parent;
+        }
+        diag::emit(
+            diag::DiagCategory::Input,
+            diag::DiagLevel::Debug,
+            diag::DiagEventKind::InputEvent {
+                kind: format!(
+                    "scroll_into_view:container_search:target={:?}:axis={:?}:ancestors=[{}]",
+                    request.target,
+                    request.axis,
+                    ancestors.join(" -> ")
                 ),
                 target: Some(request.target.as_u128()),
                 position: None,
@@ -1615,7 +1761,7 @@ impl Runtime {
         use crate::scrollbar::scrollbar_hit_test;
         use crate::ui::custom_render::downcast_render_object;
 
-        self.reconcile_focus(ir)?;
+        self.reconcile_focus_with_layout(ir, layout)?;
         crate::input::update_focus_modality(&mut self.runtime_state.interaction, &event);
         let cancelled_pointer_sequence = crate::input::gesture::cancel_unavailable_pointer_sequence(
             ir,
@@ -2925,6 +3071,7 @@ impl Runtime {
         }
 
         self.runtime_state.interaction.set_focused(next);
+        self.focus_semantic_anchor = next.and_then(|node_id| focus_semantic_anchor(ir, node_id));
         // Focus rings follow the way focus moved: keyboard navigation shows them, a click hides
         // them, and programmatic focus keeps whichever the user was last using.
         match source {

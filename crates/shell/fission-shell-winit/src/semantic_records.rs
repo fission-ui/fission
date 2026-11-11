@@ -80,7 +80,8 @@ pub(crate) fn collect_semantic_records(
         .iter()
         .filter_map(|(id, node)| {
             (matches!(node.op, fission_ir::Op::Semantics(_))
-                && !fission_core::hit_test::is_interaction_inert(ir, *id))
+                && !fission_core::hit_test::is_interaction_inert(ir, *id)
+                && fission_core::hit_test::is_in_active_responsive_branch(ir, snap, *id))
             .then_some(*id)
         })
         .collect();
