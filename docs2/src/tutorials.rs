@@ -194,6 +194,10 @@ fn prepare_preview_workspaces(
                         .files
                         .values()
                         .any(|source| source.contains("serde")),
+                    preview
+                        .files
+                        .values()
+                        .any(|source| source.contains("serde_yaml")),
                 )
                 .as_bytes(),
             )?;
@@ -767,6 +771,7 @@ fn tutorial_manifest(
     workspace_root: &Path,
     include_charts: bool,
     include_serde: bool,
+    include_serde_yaml: bool,
 ) -> String {
     let fission = workspace_root.join("crates/authoring/fission");
     let fission_features = if include_charts {
@@ -776,6 +781,11 @@ fn tutorial_manifest(
     };
     let serde_dependency = if include_serde {
         "serde = { version = \"1\", features = [\"derive\"] }\n"
+    } else {
+        ""
+    };
+    let serde_yaml_dependency = if include_serde_yaml {
+        "serde_yaml = \"0.9\"\n"
     } else {
         ""
     };
@@ -792,7 +802,7 @@ crate-type = ["cdylib", "rlib"]
 anyhow = "1"
 console_error_panic_hook = "0.1"
 fission = {{ path = "{}", default-features = false, features = [{fission_features}] }}
-{serde_dependency}wasm-bindgen = "0.2"
+{serde_dependency}{serde_yaml_dependency}wasm-bindgen = "0.2"
 "#,
         fission.display()
     )
