@@ -47,13 +47,30 @@ let popover = Popover {
 
 Notice that the trigger's own button handles the open and close action. That keeps the event flow explicit.
 
+If the same popup is controlled by sibling buttons, register their stable ids so a tap reaches the selected button through the dismissal backdrop:
+
+```rust
+let popover = Popover {
+    id: WidgetId::explicit("font_controls"),
+    is_open: view.state().font_menu_open,
+    on_close: Some(close_font_menu),
+    trigger: font_family_button.into(),
+    content: font_menu.into(),
+    motion: None,
+}
+.with_additional_anchors([font_size_button_id])
+.into();
+```
+
+The primary trigger is registered automatically. Additional anchors keep their own actions and do not also dispatch the backdrop's close action.
+
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `id` | `WidgetId` | Stable identity for the anchor and portal entry. | Required. The widget derives an internal anchor id from this value. |
 | `is_open` | `bool` | Whether the popup content should be visible. | When `false`, only the trigger is rendered. |
-| `on_close` | `Option<ActionEnvelope>` | Action dispatched when the optional backdrop is tapped. | If set, the widget adds a transparent full-screen backdrop behind the popup. |
+| `on_close` | `Option<ActionEnvelope>` | Action dispatched when the optional backdrop is tapped outside a registered anchor. | If set, the widget adds a transparent full-screen backdrop behind the popup. |
 | `trigger` | `Widget` | Inline anchor and activation owner. | Supply an actionable semantic widget such as `Button` or `Pressable`; Popover never wraps or replaces its action. |
 | `content` | `Widget` | Popup body shown in the flyout layer when open. | Positioned relative to the trigger and clamped within the viewport. |
 
@@ -68,6 +85,8 @@ This is why popovers are a good fit for controls inside toolbars, tables, and de
 Keep a popover focused on one local task. If it grows into a long workflow, a modal or routed page is usually clearer. Also do not hide essential instructions inside a popover that only appears after an extra click.
 
 The trigger owns opening and closing the popover. Use a button, pressable, or another semantic interaction widget inside `trigger` and dispatch the controlled-state action from that widget. Keeping one activation owner avoids nested controls and duplicate dispatch for custom triggers.
+
+For toolbars with separate sibling controls that switch the popup's content, call `with_additional_anchors` with those controls' stable ids. This keeps the first tap useful while preserving outside-tap dismissal everywhere else.
 
 ## Production checklist
 

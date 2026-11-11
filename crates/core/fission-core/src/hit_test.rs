@@ -453,6 +453,17 @@ fn hit_test_recursive(
     let node = ir.nodes.get(&node_id)?;
     let geom = layout.get_node_geometry(node_id)?;
 
+    if let Op::Semantics(semantics) = &node.op {
+        let pointer_is_passthrough = semantics.pointer_passthrough.iter().any(|target| {
+            layout
+                .get_node_geometry(*target)
+                .map_or(false, |target_geom| target_geom.rect.contains(point))
+        });
+        if pointer_is_passthrough {
+            return None;
+        }
+    }
+
     if matches!(
         &node.op,
         Op::Structural(

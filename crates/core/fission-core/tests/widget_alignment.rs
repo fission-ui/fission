@@ -3,8 +3,8 @@ use fission_core::env::{Env, RuntimeState};
 use fission_core::internal::build_layout_tree;
 use fission_core::ui::widgets::text::{InlineWidgetSpan, RichTextChild, RichTextSpan};
 use fission_core::ui::{
-    Button, ButtonVariant, Checkbox, Container, LazyColumn, LazyColumnBuilder, Radio, RichText,
-    Row, Scroll, Slider, Spacer, Text, Widget,
+    Button, ButtonVariant, Checkbox, Container, LazyColumn, LazyColumnBuilder, Positioned, Radio,
+    RichText, Row, Scroll, SemanticsRegion, Slider, Spacer, Text, Widget, ZStack,
 };
 use fission_ir::op::{FlexDirection, Length};
 use fission_ir::{CoreIR, LayoutOp, Op, Role, WidgetId};
@@ -595,5 +595,94 @@ fn lazy_column_keeps_wide_content_inside_a_horizontal_scroller() {
     assert!(
         list_content.width() >= 700.0,
         "wide list content should extend beyond the horizontal viewport: {list_content:?}"
+    );
+}
+
+#[test]
+fn overlay_backdrop_passes_pointer_input_to_registered_anchor() {
+    let anchor_id = WidgetId::explicit("alignment.popover-sibling-trigger");
+    let backdrop_id = WidgetId::explicit("alignment.popover-backdrop");
+    let anchor = Button {
+        id: Some(anchor_id),
+        child: Some(Text::new("Font size").into()),
+        on_press: Some(fission_core::ActionEnvelope {
+            id: fission_core::ActionId::from_u128(3),
+            payload: Vec::new(),
+        }),
+        semantics: Some(fission_ir::Semantics {
+            role: Role::Button,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let backdrop = SemanticsRegion {
+        id: Some(backdrop_id),
+        pointer_passthrough: vec![anchor_id],
+        actions: fission_ir::ActionSet {
+            entries: vec![fission_ir::ActionEntry {
+                trigger: fission_ir::ActionTrigger::Default,
+                action_id: 7,
+                payload_data: Some(Vec::new()),
+            }],
+        },
+        child: Some(
+            Container::new(Spacer::default())
+                .width(300.0)
+                .height(100.0)
+                .into(),
+        ),
+        ..Default::default()
+    };
+    let overlay = Positioned {
+        left: Some(0.0),
+        top: Some(0.0),
+        right: Some(0.0),
+        bottom: Some(0.0),
+        child: Some(backdrop.into()),
+        ..Default::default()
+    };
+    let root = Container::new(ZStack {
+        children: vec![anchor.into(), overlay.into()],
+        ..Default::default()
+    })
+    .width(300.0)
+    .height(100.0);
+    let (ir, snapshot) = layout_from_widget_at_size(
+        root.into(),
+        Arc::new(SimpleMeasurer),
+        LayoutSize::new(300.0, 100.0),
+    );
+    let anchor_rect = snapshot
+        .get_node_geometry(anchor_id)
+        .expect("anchor geometry")
+        .rect;
+    let (x, y) = rect_center(anchor_rect);
+    let scroll_map = RuntimeState::default().scroll;
+
+    let hit = fission_core::hit_test::hit_test(
+        &ir,
+        &snapshot,
+        &scroll_map,
+        fission_layout::LayoutPoint::new(x, y),
+    )
+    .expect("pointer hit");
+    let parents = parent_map(&ir);
+    let mut node_id = Some(hit);
+    let mut action_owner = None;
+    while let Some(id) = node_id {
+        if matches!(
+            ir.nodes.get(&id).map(|node| &node.op),
+            Some(Op::Semantics(semantics)) if !semantics.actions.entries.is_empty()
+        ) {
+            action_owner = Some(id);
+            break;
+        }
+        node_id = parents.get(&id).copied();
+    }
+    assert_eq!(
+        action_owner,
+        Some(anchor_id),
+        "tap should reach the registered trigger action; direct hit={hit:?}, op={:?}",
+        ir.nodes.get(&hit).map(|node| &node.op)
     );
 }
