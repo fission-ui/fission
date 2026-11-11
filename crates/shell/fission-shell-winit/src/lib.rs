@@ -111,6 +111,8 @@ use web_time::Instant;
 mod compositor;
 use compositor::TextureLayerCompositor;
 mod accessibility;
+#[cfg(not(target_arch = "wasm32"))]
+mod accessibility_adapter;
 use accessibility::AccessibilityBridge;
 mod pipeline;
 mod platform_motion_preference;

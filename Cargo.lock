@@ -2837,22 +2837,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fission-accesskit-winit"
-version = "0.33.1-fission.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3eedc8942090cd55b5fc4064a6eafb5035f62d1d5e6fff6a9ffcd4f27fb6cdd6"
-dependencies = [
- "accesskit",
- "accesskit_android",
- "accesskit_ios",
- "accesskit_macos",
- "accesskit_unix",
- "accesskit_windows",
- "fission-winit",
- "raw-window-handle",
-]
-
-[[package]]
 name = "fission-assets"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -3443,6 +3427,11 @@ name = "fission-shell-winit"
 version = "0.15.1"
 dependencies = [
  "accesskit",
+ "accesskit_android",
+ "accesskit_ios",
+ "accesskit_macos",
+ "accesskit_unix",
+ "accesskit_windows",
  "anyhow",
  "arboard",
  "base64",
@@ -3453,7 +3442,6 @@ dependencies = [
  "core-graphics",
  "dispatch",
  "fission-3d",
- "fission-accesskit-winit",
  "fission-core",
  "fission-diagnostics",
  "fission-ir",

@@ -3,6 +3,7 @@ mod imp {
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::sync::{Arc, Mutex};
 
+    use crate::accessibility_adapter::Adapter;
     use accesskit::{
         Action, ActionData, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler,
         HasPopup as AccessHasPopup, Invalid as AccessInvalid, Live, Node, NodeId,
@@ -10,7 +11,6 @@ mod imp {
         TextDirection as AccessTextDirection, TextPosition, TextSelection, Toggled, Tree, TreeId,
         TreeUpdate,
     };
-    use accesskit_winit::Adapter;
     #[cfg(test)]
     use fission_core::event::ImeEvent;
     #[cfg(test)]
