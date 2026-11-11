@@ -22,6 +22,8 @@ fn semantic_relationship_types_are_available_from_the_prelude() {
 fn semantic_key_action_types_are_available_from_the_facade_and_prelude() {
     let action = fission::KeyAction::new(fission::KeyCode::Char('x'), 7);
     let _: fission::core::KeyBinding = action.binding.clone();
+    let _: fission::core::event::KeyBinding = action.binding.clone();
+    let _: fission::core::event::KeyAction = action.clone();
 
     use fission::prelude::*;
     let action = KeyAction::new(KeyCode::Char('k'), 8);
