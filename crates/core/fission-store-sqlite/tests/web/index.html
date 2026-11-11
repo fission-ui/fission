@@ -369,7 +369,9 @@
           peerResult.otherWriters === "other-workspace,peer-other" &&
           reopenedWriters === peerResult.writers;
         document.body.dataset.status = passed ? "passed" : "failed";
-        document.body.textContent = `${reopenedWriters}|${peerResult.otherWriters}`;
+        document.body.textContent = passed
+          ? `${reopenedWriters}|${peerResult.otherWriters}`
+          : "named database browser checks failed";
         iframe.remove();
         globalThis.__FISSION_SQLITE_BRIDGE__.close();
       }
