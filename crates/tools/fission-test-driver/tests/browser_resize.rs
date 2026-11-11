@@ -60,6 +60,20 @@ fn web_bridge_json_round_trips_remain_bounded_after_repeated_queries() -> anyhow
     let increment = client.resolve_selector(SelectorQuery::label("Increment"))?;
     assert_eq!(increment.label.as_deref(), Some("Increment"));
 
+    // Reproduce the app's repeated missing-selector response followed by a pump. In the large
+    // Zoffice app, this pattern reached the bridge trap around request 51.
+    for _ in 0..32 {
+        assert!(client
+            .resolve_selector(SelectorQuery::label("No matching widget"))
+            .is_err());
+        client.pump()?;
+    }
+    let poll_diagnostics = client
+        .browser_evaluate_json("globalThis.__FISSION_TEST__.pollDiagnostics()")?
+        .as_u64()
+        .unwrap();
+    assert_eq!(poll_diagnostics & 0b11, 3);
+
     let stage_perf = client.browser_evaluate_json("globalThis.__FISSION_LAST_FRAME_STAGE_PERF")?;
     assert_eq!(stage_perf["renderer"], "canvas2d-software");
     assert!(stage_perf["softwareSceneRecordingMs"].is_number());

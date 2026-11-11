@@ -13,11 +13,17 @@ enum PendingResponse {
 }
 
 const MAX_PENDING_RESPONSES: usize = 1024;
+const POLL_STAGE_ENTERED: u32 = 1;
+const POLL_STAGE_RESPONSE_READY: u32 = 2;
+const POLL_STAGE_JSON_READY: u32 = 3;
 
 thread_local! {
     static NEXT_REQUEST_ID: Cell<u32> = const { Cell::new(1) };
     static RESPONSES: RefCell<HashMap<u32, PendingResponse>> = RefCell::new(HashMap::new());
     static FRAME: Cell<Option<WebTestFrame>> = const { Cell::new(None) };
+    // Test-only poll trace: (request_id << 2) | stage. Numeric so it can be read
+    // after a trapped JSON response without allocating another JS value.
+    static LAST_POLL_STAGE: Cell<u32> = const { Cell::new(0) };
 }
 
 /// Called only after a successful Web renderer submission. The bridge owns
@@ -50,11 +56,20 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     // The bridge uses JSON strings for payloads so command and response data do not allocate
     // wasm-bindgen externref handles, regardless of their size or shape.
     let poll = Closure::wrap(Box::new(move |request_id: u32| -> String {
-        match poll_response(request_id) {
+        record_poll_stage(request_id, POLL_STAGE_ENTERED);
+        let response = poll_response(request_id);
+        record_poll_stage(request_id, POLL_STAGE_RESPONSE_READY);
+        let json = match response {
             Some(response) => response_json_string(&response),
             None => "null".to_owned(),
-        }
+        };
+        record_poll_stage(request_id, POLL_STAGE_JSON_READY);
+        json
     }) as Box<dyn FnMut(u32) -> String>);
+
+    let poll_diagnostics = Closure::wrap(
+        Box::new(|| -> u32 { LAST_POLL_STAGE.with(Cell::get) }) as Box<dyn FnMut() -> u32>
+    );
 
     let frame = Closure::wrap(Box::new(move || -> String {
         FRAME
@@ -84,6 +99,12 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     if Reflect::set(&bridge, &JsValue::from_str("submit"), submit.as_ref()).is_err()
         || Reflect::set(&bridge, &JsValue::from_str("poll"), poll.as_ref()).is_err()
         || Reflect::set(
+            &bridge,
+            &JsValue::from_str("pollDiagnostics"),
+            poll_diagnostics.as_ref(),
+        )
+        .is_err()
+        || Reflect::set(
             &js_sys::global(),
             &JsValue::from_str("__FISSION_TEST__"),
             &bridge,
@@ -95,8 +116,15 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
 
     submit.forget();
     poll.forget();
+    poll_diagnostics.forget();
     frame.forget();
     true
+}
+
+fn record_poll_stage(request_id: u32, stage: u32) {
+    LAST_POLL_STAGE.with(|last| {
+        last.set(request_id.wrapping_shl(2) | (stage & 0b11));
+    });
 }
 
 fn submit_command(command: Result<TestCommand, String>, proxy: &EventLoopProxy<TestEvent>) -> u32 {
