@@ -36,15 +36,21 @@ impl Default for ParleyBrush {
 
 const SIMPLE_CACHE_CAP: usize = 4096;
 const RICH_CACHE_CAP: usize = 2048;
+const RICH_SHAPE_CACHE_CAP: usize = 512;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct RichCacheKey {
+struct RichShapeKey {
     text: String,
     base_size_bits: u32,
     base_color_rgba: [u8; 4],
-    width_bits: Option<u32>,
     styles: Vec<RichStyleKey>,
     inline_boxes: Vec<InlineBoxKey>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct RichCacheKey {
+    shape: Arc<RichShapeKey>,
+    width_bits: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -69,6 +75,18 @@ struct InlineBoxKey {
     index: usize,
     width_bits: u32,
     height_bits: u32,
+}
+
+fn emit_text_layout_performance(text_len: usize, is_rich: bool, start: Instant) {
+    diag::emit(
+        diag::DiagCategory::Paint,
+        diag::DiagLevel::Debug,
+        diag::DiagEventKind::TextLayoutPerformance {
+            text_len: text_len as u32,
+            is_rich,
+            duration_ns: start.elapsed().as_nanos() as u64,
+        },
+    );
 }
 
 #[derive(Clone, Debug)]
@@ -288,8 +306,11 @@ pub struct VelloTextMeasurer {
     layout_cx: Mutex<LayoutContext<ParleyBrush>>,
     // Simple cache for single-style text grouped by metrics key.
     simple_cache: Mutex<HashMap<(u32, Option<u32>), HashMap<String, Arc<Layout<ParleyBrush>>>>>,
-    // Cache for rich text layouts
+    // Width-specific rich text layouts.
     rich_cache: Mutex<HashMap<RichCacheKey, Arc<Layout<ParleyBrush>>>>,
+    // Shaped runs can be reused when intrinsic and constrained measurements ask
+    // for the same text at different widths; only line breaking depends on width.
+    rich_shape_cache: Mutex<HashMap<Arc<RichShapeKey>, Arc<Layout<ParleyBrush>>>>,
     default_family: String,
 }
 
@@ -300,6 +321,7 @@ impl VelloTextMeasurer {
             layout_cx: Mutex::new(LayoutContext::new()),
             simple_cache: Mutex::new(HashMap::new()),
             rich_cache: Mutex::new(HashMap::new()),
+            rich_shape_cache: Mutex::new(HashMap::new()),
             default_family: "system-ui".to_string(),
         }
     }
@@ -313,6 +335,7 @@ impl VelloTextMeasurer {
             layout_cx: Mutex::new(LayoutContext::new()),
             simple_cache: Mutex::new(HashMap::new()),
             rich_cache: Mutex::new(HashMap::new()),
+            rich_shape_cache: Mutex::new(HashMap::new()),
             default_family: family.into(),
         }
     }
@@ -707,191 +730,232 @@ impl VelloTextMeasurer {
             .map(Self::inline_box_key)
             .collect::<Vec<_>>();
 
-        let cache_key = RichCacheKey {
+        let shape_key = Arc::new(RichShapeKey {
             text: text.to_string(),
             base_size_bits: base_size.to_bits(),
             base_color_rgba: [base_color.r, base_color.g, base_color.b, base_color.a],
-            width_bits: Self::width_bits(width),
             styles: style_keys,
             inline_boxes: inline_box_keys,
+        });
+        let cache_key = RichCacheKey {
+            shape: shape_key.clone(),
+            width_bits: Self::width_bits(width),
         };
 
         {
             let cache = self.rich_cache.lock().unwrap();
             if let Some(layout) = cache.get(&cache_key) {
-                let duration = start.elapsed().as_nanos() as u64;
-                diag::emit(
-                    diag::DiagCategory::Paint,
-                    diag::DiagLevel::Debug,
-                    diag::DiagEventKind::TextLayoutPerformance {
-                        text_len: text.len() as u32,
-                        is_rich: true,
-                        duration_ns: duration,
-                    },
-                );
+                emit_text_layout_performance(text.len(), true, start);
                 return layout.clone();
             }
         }
 
-        let mut font_cx = self.font_cx.lock().unwrap();
-        let mut layout_cx = self.layout_cx.lock().unwrap();
+        let cached_shape = {
+            self.rich_shape_cache
+                .lock()
+                .unwrap()
+                .get(&shape_key)
+                .cloned()
+        };
+        let shaped_layout = if let Some(layout) = cached_shape {
+            layout
+        } else {
+            let mut font_cx = self.font_cx.lock().unwrap();
+            let mut layout_cx = self.layout_cx.lock().unwrap();
 
-        let mut builder = layout_cx.ranged_builder(&mut font_cx, text, 1.0, false);
-        builder.push_default(StyleProperty::FontSize(base_size));
-        builder.push_default(StyleProperty::FontFamily(FontFamily::Source(Cow::Owned(
-            self.default_family.clone(),
-        ))));
-        let brush = ParleyBrush([base_color.r, base_color.g, base_color.b, base_color.a]);
-        builder.push_default(StyleProperty::Brush(brush));
-        for inline_box in inline_boxes {
-            builder.push_inline_box(InlineBox {
-                kind: InlineBoxKind::InFlow,
-                id: inline_box.id,
-                index: inline_box.index,
-                width: inline_box.width,
-                height: inline_box.height,
-            });
-        }
-
-        for (range, style) in styles {
-            let brush = ParleyBrush([style.color.r, style.color.g, style.color.b, style.color.a]);
-            builder.push(StyleProperty::Brush(brush), range.clone());
-            builder.push(StyleProperty::FontSize(style.font_size), range.clone());
-            if style.font_family.is_some() || !style.typography.font_fallback.is_empty() {
-                let stack = self.font_stack_with_default(
-                    style.font_family.as_deref(),
-                    style.typography.font_fallback.iter().map(String::as_str),
-                );
-                builder.push(
-                    StyleProperty::FontFamily(FontFamily::Source(Cow::Owned(stack))),
-                    range.clone(),
-                );
-            }
-            if let Some(locale) = &style.locale {
-                builder.push(
-                    StyleProperty::Locale(Language::parse(locale).ok()),
-                    range.clone(),
-                );
-            }
-            builder.push(
-                StyleProperty::FontWeight(FontWeight::new(style.font_weight as f32)),
-                range.clone(),
-            );
-            builder.push(
-                StyleProperty::FontStyle(parley_font_style(style.font_style)),
-                range.clone(),
-            );
-            if let Some(line_height) = style.line_height {
-                builder.push(
-                    StyleProperty::LineHeight(LineHeight::Absolute(line_height)),
-                    range.clone(),
-                );
-            }
-            if style.letter_spacing != 0.0 {
-                builder.push(
-                    StyleProperty::LetterSpacing(style.letter_spacing),
-                    range.clone(),
-                );
-            }
-            if style.typography.word_spacing != 0.0 {
-                builder.push(
-                    StyleProperty::WordSpacing(style.typography.word_spacing),
-                    range.clone(),
-                );
-            }
-            let (word_break, overflow_wrap) = match style.typography.line_break {
-                fission_ir::op::TextLineBreakPolicy::Auto
-                | fission_ir::op::TextLineBreakPolicy::Normal => {
-                    (WordBreak::Normal, OverflowWrap::Normal)
-                }
-                fission_ir::op::TextLineBreakPolicy::Strict => {
-                    (WordBreak::KeepAll, OverflowWrap::Normal)
-                }
-                fission_ir::op::TextLineBreakPolicy::Loose => {
-                    (WordBreak::Normal, OverflowWrap::Anywhere)
-                }
-                fission_ir::op::TextLineBreakPolicy::Anywhere => {
-                    (WordBreak::BreakAll, OverflowWrap::Anywhere)
-                }
+            // Another caller may have shaped this text while this one waited
+            // for the shared Parley contexts.
+            let cached_shape = {
+                self.rich_shape_cache
+                    .lock()
+                    .unwrap()
+                    .get(&shape_key)
+                    .cloned()
             };
-            builder.push(StyleProperty::WordBreak(word_break), range.clone());
-            builder.push(
-                StyleProperty::OverflowWrap(
-                    if matches!(
-                        style.typography.hyphenation,
-                        fission_ir::op::TextHyphenation::Auto
-                    ) && overflow_wrap == OverflowWrap::Normal
-                    {
-                        OverflowWrap::BreakWord
-                    } else {
-                        overflow_wrap
-                    },
-                ),
-                range.clone(),
-            );
-            if style.underline || style.typography.decoration.lines.underline {
-                builder.push(StyleProperty::Underline(true), range.clone());
-            }
-            if style.typography.decoration.lines.line_through {
-                builder.push(StyleProperty::Strikethrough(true), range.clone());
-            }
-            if let Some(thickness) = style.typography.decoration.thickness {
-                if style.underline || style.typography.decoration.lines.underline {
-                    builder.push(StyleProperty::UnderlineSize(Some(thickness)), range.clone());
+            if let Some(layout) = cached_shape {
+                layout
+            } else {
+                let mut builder = layout_cx.ranged_builder(&mut font_cx, text, 1.0, false);
+                builder.push_default(StyleProperty::FontSize(base_size));
+                builder.push_default(StyleProperty::FontFamily(FontFamily::Source(Cow::Owned(
+                    self.default_family.clone(),
+                ))));
+                let brush = ParleyBrush([base_color.r, base_color.g, base_color.b, base_color.a]);
+                builder.push_default(StyleProperty::Brush(brush));
+                for inline_box in inline_boxes {
+                    builder.push_inline_box(InlineBox {
+                        kind: InlineBoxKind::InFlow,
+                        id: inline_box.id,
+                        index: inline_box.index,
+                        width: inline_box.width,
+                        height: inline_box.height,
+                    });
                 }
-                if style.typography.decoration.lines.line_through {
-                    builder.push(
-                        StyleProperty::StrikethroughSize(Some(thickness)),
-                        range.clone(),
-                    );
-                }
-            }
-            if let Some(color) = style.typography.decoration.color {
-                let brush = ParleyBrush([color.r, color.g, color.b, color.a]);
-                if style.underline || style.typography.decoration.lines.underline {
-                    builder.push(
-                        StyleProperty::UnderlineBrush(Some(brush.clone())),
-                        range.clone(),
-                    );
-                }
-                if style.typography.decoration.lines.line_through {
-                    builder.push(
-                        StyleProperty::StrikethroughBrush(Some(brush)),
-                        range.clone(),
-                    );
-                }
-            }
-            if !style.typography.font_features.is_empty() {
-                let source = style
-                    .typography
-                    .font_features
-                    .iter()
-                    .map(|feature| format!("'{}' {}", feature.tag, feature.value))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                builder.push(
-                    StyleProperty::FontFeatures(FontFeatures::Source(Cow::Owned(source))),
-                    range.clone(),
-                );
-            }
-            if !style.typography.font_variations.is_empty() {
-                let source = style
-                    .typography
-                    .font_variations
-                    .iter()
-                    .map(|variation| format!("'{}' {}", variation.axis, variation.value))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                builder.push(
-                    StyleProperty::FontVariations(FontVariations::Source(Cow::Owned(source))),
-                    range.clone(),
-                );
-            }
-        }
 
-        let mut layout = builder.build(text);
-        layout.break_all_lines(width);
-        let layout_arc = Arc::new(layout);
+                for (range, style) in styles {
+                    let brush =
+                        ParleyBrush([style.color.r, style.color.g, style.color.b, style.color.a]);
+                    builder.push(StyleProperty::Brush(brush), range.clone());
+                    builder.push(StyleProperty::FontSize(style.font_size), range.clone());
+                    if style.font_family.is_some() || !style.typography.font_fallback.is_empty() {
+                        let stack = self.font_stack_with_default(
+                            style.font_family.as_deref(),
+                            style.typography.font_fallback.iter().map(String::as_str),
+                        );
+                        builder.push(
+                            StyleProperty::FontFamily(FontFamily::Source(Cow::Owned(stack))),
+                            range.clone(),
+                        );
+                    }
+                    if let Some(locale) = &style.locale {
+                        builder.push(
+                            StyleProperty::Locale(Language::parse(locale).ok()),
+                            range.clone(),
+                        );
+                    }
+                    builder.push(
+                        StyleProperty::FontWeight(FontWeight::new(style.font_weight as f32)),
+                        range.clone(),
+                    );
+                    builder.push(
+                        StyleProperty::FontStyle(parley_font_style(style.font_style)),
+                        range.clone(),
+                    );
+                    if let Some(line_height) = style.line_height {
+                        builder.push(
+                            StyleProperty::LineHeight(LineHeight::Absolute(line_height)),
+                            range.clone(),
+                        );
+                    }
+                    if style.letter_spacing != 0.0 {
+                        builder.push(
+                            StyleProperty::LetterSpacing(style.letter_spacing),
+                            range.clone(),
+                        );
+                    }
+                    if style.typography.word_spacing != 0.0 {
+                        builder.push(
+                            StyleProperty::WordSpacing(style.typography.word_spacing),
+                            range.clone(),
+                        );
+                    }
+                    let (word_break, overflow_wrap) = match style.typography.line_break {
+                        fission_ir::op::TextLineBreakPolicy::Auto
+                        | fission_ir::op::TextLineBreakPolicy::Normal => {
+                            (WordBreak::Normal, OverflowWrap::Normal)
+                        }
+                        fission_ir::op::TextLineBreakPolicy::Strict => {
+                            (WordBreak::KeepAll, OverflowWrap::Normal)
+                        }
+                        fission_ir::op::TextLineBreakPolicy::Loose => {
+                            (WordBreak::Normal, OverflowWrap::Anywhere)
+                        }
+                        fission_ir::op::TextLineBreakPolicy::Anywhere => {
+                            (WordBreak::BreakAll, OverflowWrap::Anywhere)
+                        }
+                    };
+                    builder.push(StyleProperty::WordBreak(word_break), range.clone());
+                    builder.push(
+                        StyleProperty::OverflowWrap(
+                            if matches!(
+                                style.typography.hyphenation,
+                                fission_ir::op::TextHyphenation::Auto
+                            ) && overflow_wrap == OverflowWrap::Normal
+                            {
+                                OverflowWrap::BreakWord
+                            } else {
+                                overflow_wrap
+                            },
+                        ),
+                        range.clone(),
+                    );
+                    if style.underline || style.typography.decoration.lines.underline {
+                        builder.push(StyleProperty::Underline(true), range.clone());
+                    }
+                    if style.typography.decoration.lines.line_through {
+                        builder.push(StyleProperty::Strikethrough(true), range.clone());
+                    }
+                    if let Some(thickness) = style.typography.decoration.thickness {
+                        if style.underline || style.typography.decoration.lines.underline {
+                            builder
+                                .push(StyleProperty::UnderlineSize(Some(thickness)), range.clone());
+                        }
+                        if style.typography.decoration.lines.line_through {
+                            builder.push(
+                                StyleProperty::StrikethroughSize(Some(thickness)),
+                                range.clone(),
+                            );
+                        }
+                    }
+                    if let Some(color) = style.typography.decoration.color {
+                        let brush = ParleyBrush([color.r, color.g, color.b, color.a]);
+                        if style.underline || style.typography.decoration.lines.underline {
+                            builder.push(
+                                StyleProperty::UnderlineBrush(Some(brush.clone())),
+                                range.clone(),
+                            );
+                        }
+                        if style.typography.decoration.lines.line_through {
+                            builder.push(
+                                StyleProperty::StrikethroughBrush(Some(brush)),
+                                range.clone(),
+                            );
+                        }
+                    }
+                    if !style.typography.font_features.is_empty() {
+                        let source = style
+                            .typography
+                            .font_features
+                            .iter()
+                            .map(|feature| format!("'{}' {}", feature.tag, feature.value))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        builder.push(
+                            StyleProperty::FontFeatures(FontFeatures::Source(Cow::Owned(source))),
+                            range.clone(),
+                        );
+                    }
+                    if !style.typography.font_variations.is_empty() {
+                        let source = style
+                            .typography
+                            .font_variations
+                            .iter()
+                            .map(|variation| format!("'{}' {}", variation.axis, variation.value))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        builder.push(
+                            StyleProperty::FontVariations(FontVariations::Source(Cow::Owned(
+                                source,
+                            ))),
+                            range.clone(),
+                        );
+                    }
+                }
+
+                let mut layout = builder.build(text);
+                // Shape independent of the wrapping constraint. A later
+                // intrinsic or bounded measurement can clone this shaped data
+                // and only recompute its line breaks.
+                layout.break_all_lines(None);
+                let layout = Arc::new(layout);
+                let mut cache = self.rich_shape_cache.lock().unwrap();
+                if cache.len() >= RICH_SHAPE_CACHE_CAP {
+                    if let Some(first_key) = cache.keys().next().cloned() {
+                        cache.remove(&first_key);
+                    }
+                }
+                cache.insert(shape_key.clone(), layout.clone());
+                layout
+            }
+        };
+
+        let layout_arc = if width.is_none() {
+            shaped_layout
+        } else {
+            let mut layout = (*shaped_layout).clone();
+            layout.break_all_lines(width);
+            Arc::new(layout)
+        };
 
         {
             let mut cache = self.rich_cache.lock().unwrap();
@@ -903,16 +967,7 @@ impl VelloTextMeasurer {
             cache.insert(cache_key, layout_arc.clone());
         }
 
-        let duration = start.elapsed().as_nanos() as u64;
-        diag::emit(
-            diag::DiagCategory::Paint,
-            diag::DiagLevel::Debug,
-            diag::DiagEventKind::TextLayoutPerformance {
-                text_len: text.len() as u32,
-                is_rich: true,
-                duration_ns: duration,
-            },
-        );
+        emit_text_layout_performance(text.len(), true, start);
 
         layout_arc
     }
@@ -1498,6 +1553,69 @@ mod tests {
             wrapped_height > one_line_height * 1.5,
             "wrapped text should report multi-line height; one_line={one_line_height}, wrapped={wrapped_height}"
         );
+    }
+
+    #[test]
+    fn rich_layout_reuses_shaping_when_only_the_wrap_width_changes() {
+        let measurer = measurer();
+        let runs = vec![text_run(
+            "A field service team keeps each technician's work in one clear timeline.",
+            18.0,
+            24.0,
+        )];
+        let rich = VelloTextMeasurer::rich_layout_input_from_ir_runs(&runs);
+
+        let natural = measurer.layout_rich(
+            &rich.text,
+            rich.base_size,
+            rich.base_color,
+            &rich.styles,
+            &rich.inline_boxes,
+            None,
+        );
+        let shape_key = measurer
+            .rich_shape_cache
+            .lock()
+            .unwrap()
+            .keys()
+            .next()
+            .cloned()
+            .expect("unwrapped rich text should be cached");
+        let wrapped = measurer.layout_rich(
+            &rich.text,
+            rich.base_size,
+            rich.base_color,
+            &rich.styles,
+            &rich.inline_boxes,
+            Some(200.0),
+        );
+        let width_first = VelloTextMeasurer::new(Arc::new(Mutex::new(FontContext::new())));
+        let independently_wrapped = width_first.layout_rich(
+            &rich.text,
+            rich.base_size,
+            rich.base_color,
+            &rich.styles,
+            &rich.inline_boxes,
+            Some(200.0),
+        );
+
+        assert!(wrapped.len() > natural.len());
+        assert!(wrapped.width() <= 200.5);
+        assert_eq!(wrapped.len(), independently_wrapped.len());
+        assert!((wrapped.width() - independently_wrapped.width()).abs() < 0.01);
+        assert!((wrapped.height() - independently_wrapped.height()).abs() < 0.01);
+        assert_eq!(measurer.rich_shape_cache.lock().unwrap().len(), 1);
+        assert_eq!(measurer.rich_cache.lock().unwrap().len(), 2);
+        assert!(Arc::ptr_eq(
+            &shape_key,
+            measurer
+                .rich_shape_cache
+                .lock()
+                .unwrap()
+                .keys()
+                .next()
+                .unwrap()
+        ));
     }
 
     #[test]
