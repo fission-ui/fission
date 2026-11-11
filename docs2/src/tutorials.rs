@@ -10,6 +10,8 @@ use std::sync::Mutex;
 use std::thread;
 
 const TUTORIAL_BUILD_PARALLELISM_ENV: &str = "FISSION_TUTORIAL_BUILD_PARALLELISM";
+const WEB_WASM_SIMD_ENV: &str = "FISSION_WEB_WASM_SIMD";
+const WEB_WASM_TARGET_RUSTFLAGS: &str = "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS";
 const DEFAULT_TUTORIAL_BUILD_PARALLELISM: usize = 10;
 const MAX_TUTORIAL_BUILD_PARALLELISM: usize = 64;
 
@@ -48,6 +50,7 @@ pub fn build_all(project_dir: &Path) -> Result<()> {
     let content_dir = project_dir.join("content/goals");
     let documents = load_goals(&content_dir)?;
     let parallelism = tutorial_build_parallelism()?;
+    let (wasm_simd, wasm_target_rustflags) = tutorial_web_wasm_simd()?;
     eprintln!(
         "Preparing {} goal tutorial(s) from documentation source...",
         documents.len(),
@@ -111,7 +114,12 @@ pub fn build_all(project_dir: &Path) -> Result<()> {
     let workspace_root = project_dir
         .parent()
         .context("docs2 must live below the Fission workspace")?;
-    let cache_context = preview_cache_context(workspace_root, project_dir)?;
+    let cache_context = preview_cache_context(
+        workspace_root,
+        project_dir,
+        wasm_simd,
+        wasm_target_rustflags.as_deref(),
+    )?;
 
     let first_target = project_dir.join("target/tutorial-wasm");
     if !first_target.exists() {
@@ -137,13 +145,24 @@ pub fn build_all(project_dir: &Path) -> Result<()> {
     let (previews, workspaces) =
         prepare_preview_workspaces(project_dir, workspace_root, previews, &cache_context)?;
     let cargo_target = project_dir.join("target/tutorial-wasm");
-    compile_preview_workspaces(&workspaces, &previews, &cargo_target, parallelism)?;
+    compile_preview_workspaces(
+        &workspaces,
+        &previews,
+        &cargo_target,
+        parallelism,
+        wasm_target_rustflags.as_deref(),
+    )?;
     let workers = parallelism.min(previews.len());
     eprintln!(
         "Packaging {} unique Web preview(s) with {workers} worker(s); set {TUTORIAL_BUILD_PARALLELISM_ENV} to change concurrency.",
         previews.len(),
     );
-    package_previews(&previews, &cargo_target, workers)
+    package_previews(
+        &previews,
+        &cargo_target,
+        workers,
+        wasm_target_rustflags.as_deref(),
+    )
 }
 
 fn prepare_preview_workspaces(
@@ -266,6 +285,7 @@ fn compile_preview_workspaces(
     previews: &[PreparedPreview],
     cargo_target: &Path,
     parallelism: usize,
+    wasm_target_rustflags: Option<&str>,
 ) -> Result<()> {
     for workspace in workspaces {
         let uncached = workspace
@@ -311,8 +331,11 @@ fn compile_preview_workspaces(
         for (_, package) in &uncached {
             command.arg("--package").arg(package);
         }
+        let mut command = command.env("CARGO_TARGET_DIR", cargo_target);
+        if let Some(flags) = wasm_target_rustflags {
+            command = command.env(WEB_WASM_TARGET_RUSTFLAGS, flags);
+        }
         let output = command
-            .env("CARGO_TARGET_DIR", cargo_target)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
@@ -378,6 +401,7 @@ fn package_previews(
     previews: &[PreparedPreview],
     cargo_target: &Path,
     workers: usize,
+    wasm_target_rustflags: Option<&str>,
 ) -> Result<()> {
     let next_preview = AtomicUsize::new(0);
     let cancelled = AtomicBool::new(false);
@@ -395,9 +419,14 @@ fn package_previews(
                     let Some(preview) = previews.get(preview_index) else {
                         break;
                     };
-                    if let Err(error) =
-                        build_preview(cargo_target, preview, preview_index, previews.len(), worker)
-                    {
+                    if let Err(error) = build_preview(
+                        cargo_target,
+                        preview,
+                        preview_index,
+                        previews.len(),
+                        worker,
+                        wasm_target_rustflags,
+                    ) {
                         errors
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -451,12 +480,138 @@ fn tutorial_build_parallelism() -> Result<usize> {
     Ok(value)
 }
 
+fn tutorial_web_wasm_simd() -> Result<(bool, Option<String>)> {
+    let enabled = match std::env::var(WEB_WASM_SIMD_ENV) {
+        Ok(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" | "simd" | "simd128" => true,
+            "0" | "false" | "no" | "off" | "scalar" => false,
+            _ => bail!("{WEB_WASM_SIMD_ENV} must be `simd` (the default) or `scalar`"),
+        },
+        Err(std::env::VarError::NotPresent) => true,
+        Err(error) => return Err(error).context("failed to read Web SIMD setting"),
+    };
+
+    let global_rustflags = if let Some(value) = std::env::var_os("CARGO_ENCODED_RUSTFLAGS") {
+        Some(("CARGO_ENCODED_RUSTFLAGS", value))
+    } else {
+        std::env::var_os("RUSTFLAGS").map(|value| ("RUSTFLAGS", value))
+    };
+    if let Some((variable, value)) = global_rustflags {
+        let value = value
+            .into_string()
+            .map_err(|_| anyhow::anyhow!("{variable} must contain UTF-8 Rust compiler flags"))?;
+        let flags = if variable == "CARGO_ENCODED_RUSTFLAGS" {
+            value.split('\u{1f}').map(str::to_owned).collect::<Vec<_>>()
+        } else {
+            shell_words::split(&value).with_context(|| format!("failed to parse {variable}"))?
+        };
+        match tutorial_target_feature_state(&flags, "simd128") {
+            Some(true) if enabled => return Ok((enabled, None)),
+            Some(false) if !enabled => return Ok((enabled, None)),
+            Some(_) => bail!(
+                "{WEB_WASM_SIMD_ENV} conflicts with {variable}; update its `target-feature` flags or remove it"
+            ),
+            None if enabled => bail!(
+                "{variable} overrides Cargo's target-specific Web flags; add `-C target-feature=+simd128` there or set {WEB_WASM_SIMD_ENV}=scalar"
+            ),
+            None => return Ok((enabled, None)),
+        }
+    }
+
+    let existing = std::env::var(WEB_WASM_TARGET_RUSTFLAGS).ok();
+    let flags = tutorial_update_simd_flags(existing.as_deref().unwrap_or_default(), enabled)?;
+    if !flags.is_empty() || existing.is_some() {
+        Ok((enabled, Some(flags)))
+    } else {
+        Ok((enabled, None))
+    }
+}
+
+fn tutorial_target_feature_state(flags: &[String], feature: &str) -> Option<bool> {
+    let mut last_features = None;
+    let mut index = 0;
+    while index < flags.len() {
+        let value = if flags[index] == "-C" {
+            index += 1;
+            flags
+                .get(index)
+                .and_then(|argument| argument.strip_prefix("target-feature="))
+        } else {
+            flags[index].strip_prefix("-Ctarget-feature=")
+        };
+        if let Some(value) = value {
+            last_features = Some(value.to_owned());
+        }
+        index += 1;
+    }
+    last_features.and_then(|features| {
+        features
+            .split(',')
+            .filter_map(|entry| {
+                let (enabled, name) = match entry.as_bytes().first().copied()? {
+                    b'+' => (true, &entry[1..]),
+                    b'-' => (false, &entry[1..]),
+                    _ => return None,
+                };
+                (name == feature).then_some(enabled)
+            })
+            .last()
+    })
+}
+
+fn tutorial_update_simd_flags(flags: &str, enabled: bool) -> Result<String> {
+    let arguments = shell_words::split(flags).context("failed to parse Web target Rust flags")?;
+    let mut retained = Vec::with_capacity(arguments.len() + 2);
+    let mut last_features = None;
+    let mut index = 0;
+    while index < arguments.len() {
+        if arguments[index] == "-C" {
+            if let Some(value) = arguments.get(index + 1) {
+                if let Some(features) = value.strip_prefix("target-feature=") {
+                    last_features = Some(features.to_owned());
+                    index += 2;
+                    continue;
+                }
+            }
+        } else if let Some(features) = arguments[index].strip_prefix("-Ctarget-feature=") {
+            last_features = Some(features.to_owned());
+            index += 1;
+            continue;
+        }
+        retained.push(arguments[index].clone());
+        index += 1;
+    }
+
+    let mut features = last_features
+        .as_deref()
+        .unwrap_or_default()
+        .split(',')
+        .filter(|entry| {
+            !matches!(
+                entry.strip_prefix('+').or_else(|| entry.strip_prefix('-')),
+                Some("simd128")
+            )
+        })
+        .filter(|entry| !entry.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if enabled {
+        features.push("+simd128".into());
+    }
+    if !features.is_empty() {
+        retained.push("-C".into());
+        retained.push(format!("target-feature={}", features.join(",")));
+    }
+    Ok(shell_words::join(retained))
+}
+
 fn build_preview(
     cargo_target: &Path,
     preview: &PreparedPreview,
     preview_index: usize,
     preview_count: usize,
     worker: usize,
+    wasm_target_rustflags: Option<&str>,
 ) -> Result<()> {
     let first = preview
         .outputs
@@ -490,6 +645,7 @@ fn build_preview(
             &preview.stage_dir,
             output,
             cargo_target,
+            wasm_target_rustflags,
         )?;
         if let Some(parent) = preview.cache_marker.parent() {
             fs::create_dir_all(parent)?;
@@ -548,9 +704,22 @@ fn preview_bootstrap_module(output: &Path) -> Result<Option<String>> {
     Ok(Some(module.to_owned()))
 }
 
-fn preview_cache_context(workspace_root: &Path, project_dir: &Path) -> Result<String> {
+fn preview_cache_context(
+    workspace_root: &Path,
+    project_dir: &Path,
+    wasm_simd: bool,
+    wasm_target_rustflags: Option<&str>,
+) -> Result<String> {
     let mut hasher = PreviewCacheHasher::default();
-    hasher.field(b"fission-tutorial-preview-cache-v1");
+    hasher.field(b"fission-tutorial-preview-cache-v2");
+    hasher.field(if wasm_simd {
+        b"wasm-simd128"
+    } else {
+        b"wasm-scalar"
+    });
+    if let Some(flags) = wasm_target_rustflags {
+        hasher.field(flags.as_bytes());
+    }
     for relative in [
         "Cargo.toml",
         "Cargo.lock",
@@ -747,14 +916,20 @@ fn compile_preview(
     stage_dir: &Path,
     output: &Path,
     cargo_target: &Path,
+    wasm_target_rustflags: Option<&str>,
 ) -> Result<()> {
-    let output_result = Command::new("wasm-pack")
+    let mut command = Command::new("wasm-pack");
+    command
         .arg("build")
         .arg(stage_dir)
         .args(["--target", "web", "--release", "--out-dir"])
         .arg(output.join("pkg"))
         .env("CARGO_TARGET_DIR", cargo_target)
-        .env("CARGO_BUILD_JOBS", "1")
+        .env("CARGO_BUILD_JOBS", "1");
+    if let Some(flags) = wasm_target_rustflags {
+        command.env(WEB_WASM_TARGET_RUSTFLAGS, flags);
+    }
+    let output_result = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()

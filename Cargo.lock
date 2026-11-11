@@ -2940,6 +2940,7 @@ dependencies = [
  "fission-test-driver",
  "serde",
  "serde_json",
+ "shell-words",
  "ureq",
  "url",
 ]
@@ -3070,6 +3071,7 @@ dependencies = [
  "fission-design-system-codegen",
  "fission-test-driver",
  "serde_json",
+ "shell-words",
 ]
 
 [[package]]
