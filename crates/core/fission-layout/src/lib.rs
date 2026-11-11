@@ -631,7 +631,6 @@ struct IncrementalLayoutReuseState {
 #[derive(Debug, Default)]
 struct LayoutGraphUpdate {
     changed: bool,
-    order_changed: bool,
     changed_rich_text: Vec<WidgetId>,
 }
 
@@ -692,6 +691,27 @@ impl LayoutGraphState {
         self.rebuild_topology(validation);
     }
 
+    // Node insertion/removal can reorder the flattened graph without changing
+    // nearby paragraphs. Retain cache entries for IDs whose text is unchanged;
+    // width remains part of each cache key and is checked during lookup.
+    fn changed_rich_text_nodes(&self, input_nodes: &[LayoutInputNode]) -> Vec<WidgetId> {
+        let next_nodes = input_nodes
+            .iter()
+            .map(|node| (node.id, node))
+            .collect::<HashMap<_, _>>();
+
+        self.nodes
+            .iter()
+            .filter_map(|(id, current)| {
+                let changed = match next_nodes.get(id) {
+                    Some(next) => current.rich_text != next.rich_text,
+                    None => current.rich_text.is_some(),
+                };
+                changed.then_some(*id)
+            })
+            .collect()
+    }
+
     fn update_nodes(&mut self, input_nodes: &[LayoutInputNode]) -> LayoutGraphUpdate {
         let order_matches = self.node_order.len() == input_nodes.len()
             && self
@@ -700,12 +720,12 @@ impl LayoutGraphState {
                 .zip(input_nodes)
                 .all(|(current, next)| *current == next.id);
         if !order_matches {
+            let changed_rich_text = self.changed_rich_text_nodes(input_nodes);
             self.replace_all_nodes(input_nodes);
             self.rebuild_topology(LayoutGraphValidationState::default());
             return LayoutGraphUpdate {
                 changed: true,
-                order_changed: true,
-                changed_rich_text: Vec::new(),
+                changed_rich_text,
             };
         }
 
@@ -714,11 +734,11 @@ impl LayoutGraphState {
         let mut changed_rich_text = Vec::new();
         for node in input_nodes {
             let Some(current) = self.nodes.get(&node.id) else {
+                let changed_rich_text = self.changed_rich_text_nodes(input_nodes);
                 self.replace_all_nodes(input_nodes);
                 self.rebuild_topology(LayoutGraphValidationState::default());
                 return LayoutGraphUpdate {
                     changed: true,
-                    order_changed: true,
                     changed_rich_text,
                 };
             };
@@ -745,7 +765,6 @@ impl LayoutGraphState {
         }
         LayoutGraphUpdate {
             changed: true,
-            order_changed: false,
             changed_rich_text,
         }
     }
@@ -1384,9 +1403,7 @@ impl LayoutEngine {
         }
 
         let update = self.graph_state.update_nodes(input_nodes);
-        if update.order_changed {
-            self.resolved_paragraph_cache.lock().unwrap().clear();
-        } else if !update.changed_rich_text.is_empty() {
+        if !update.changed_rich_text.is_empty() {
             let mut cache = self.resolved_paragraph_cache.lock().unwrap();
             for node_id in update.changed_rich_text {
                 cache.remove_node(node_id);

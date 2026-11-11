@@ -339,6 +339,75 @@ fn resolved_paragraph_cache_reuses_only_matching_node_runs_and_width() {
 }
 
 #[test]
+fn reordered_graph_reuses_unchanged_paragraphs_and_invalidates_changed_runs() {
+    let root = WidgetId::from_u128(24);
+    let paragraph_id = WidgetId::from_u128(25);
+    let sibling_id = WidgetId::from_u128(26);
+    let mut root_node = box_node(root, None, vec![paragraph_id, sibling_id]);
+    root_node.width = Some(100.0);
+    root_node.height = Some(100.0);
+    let mut paragraph = box_node(paragraph_id, Some(root), vec![]);
+    paragraph.rich_text = Some(vec![text_run("A paragraph whose geometry can be cached.")]);
+    let sibling = box_node(sibling_id, Some(root), vec![]);
+    let initial_nodes = vec![root_node.clone(), paragraph.clone(), sibling.clone()];
+
+    let measurer = Arc::new(CountingParagraphMeasurer::default());
+    let mut engine = LayoutEngine::new().with_measurer(measurer.clone());
+    let initial = engine
+        .compute_layout(&initial_nodes, root, LayoutSize::new(100.0, 100.0), &|_| {
+            0.0
+        })
+        .expect("initial paragraph layout");
+    assert_eq!(measurer.resolve_calls.load(Ordering::SeqCst), 1);
+
+    let reordered_nodes = vec![root_node.clone(), sibling.clone(), paragraph.clone()];
+    engine.update(&reordered_nodes);
+    let reordered = engine
+        .compute_layout(
+            &reordered_nodes,
+            root,
+            LayoutSize::new(100.0, 100.0),
+            &|_| 0.0,
+        )
+        .expect("reordered paragraph layout");
+    assert_eq!(
+        measurer.resolve_calls.load(Ordering::SeqCst),
+        1,
+        "moving unchanged text around unrelated nodes should retain its cached geometry"
+    );
+
+    paragraph.rich_text = Some(vec![text_run(
+        "An edited paragraph must resolve fresh geometry after the graph is reordered.",
+    )]);
+    let changed_nodes = vec![root_node, paragraph, sibling];
+    engine.update(&changed_nodes);
+    let changed = engine
+        .compute_layout(&changed_nodes, root, LayoutSize::new(100.0, 100.0), &|_| {
+            0.0
+        })
+        .expect("changed paragraph layout");
+    assert_eq!(measurer.resolve_calls.load(Ordering::SeqCst), 2);
+    assert!(
+        changed
+            .get_resolved_paragraph(paragraph_id)
+            .unwrap()
+            .size
+            .height
+            > reordered
+                .get_resolved_paragraph(paragraph_id)
+                .unwrap()
+                .size
+                .height,
+        "changed runs must not return a cached paragraph from before the reorder"
+    );
+    assert_eq!(
+        initial.get_resolved_paragraph(paragraph_id),
+        reordered.get_resolved_paragraph(paragraph_id),
+        "an unchanged paragraph retains its geometry while surrounding node order changes"
+    );
+}
+
+#[test]
 fn resolved_paragraph_cache_obeys_entry_and_byte_limits() {
     let mut cache = ResolvedParagraphCache::default();
     let paragraph = Arc::new(ResolvedParagraphLayout::empty(Some(100.0)));
