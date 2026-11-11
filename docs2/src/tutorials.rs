@@ -173,11 +173,7 @@ fn prepare_preview_workspaces(
             let stage_dir = workspace_dir.join(&member_name);
             fs::create_dir_all(&stage_dir)?;
             for (relative, contents) in &preview.files {
-                let stage_path = if relative == "preview/lib.rs" {
-                    Path::new("src/lib.rs")
-                } else {
-                    Path::new(relative)
-                };
+                let stage_path = preview_stage_path(relative);
                 let destination = stage_dir.join(stage_path);
                 if let Some(parent) = destination.parent() {
                     fs::create_dir_all(parent)?;
@@ -198,6 +194,10 @@ fn prepare_preview_workspaces(
                         .files
                         .values()
                         .any(|source| source.contains("serde_yaml")),
+                    preview
+                        .files
+                        .values()
+                        .any(|source| source.contains("fission_design_system_codegen")),
                 )
                 .as_bytes(),
             )?;
@@ -584,6 +584,7 @@ fn preview_cache_context(workspace_root: &Path, project_dir: &Path) -> Result<St
         "crates/rendering/fission-render",
         "crates/shell/fission-shell-web",
         "crates/tools/fission-diagnostics",
+        "crates/tools/fission-design-system-codegen",
     ];
     for relative in dependency_dirs {
         let path = workspace_root.join(relative);
@@ -766,14 +767,27 @@ fn copy_dir(source: &Path, destination: &Path) -> Result<()> {
     Ok(())
 }
 
+fn preview_stage_path(relative: &str) -> &Path {
+    if relative == "preview/lib.rs" {
+        // Keep the runnable preview entry point separate from a tutorial's
+        // real `src/lib.rs`, which may configure native shells and therefore
+        // cannot also be the WASM entry point.
+        Path::new("src/preview.rs")
+    } else {
+        Path::new(relative)
+    }
+}
+
 fn tutorial_manifest(
     package: &str,
     workspace_root: &Path,
     include_charts: bool,
     include_serde: bool,
     include_serde_yaml: bool,
+    include_design_system_codegen: bool,
 ) -> String {
     let fission = workspace_root.join("crates/authoring/fission");
+    let design_system_codegen = workspace_root.join("crates/tools/fission-design-system-codegen");
     let fission_features = if include_charts {
         "\"web\", \"charts\""
     } else {
@@ -789,6 +803,14 @@ fn tutorial_manifest(
     } else {
         ""
     };
+    let design_system_codegen_dependency = if include_design_system_codegen {
+        format!(
+            "\n[build-dependencies]\nfission-design-system-codegen = {{ path = \"{}\" }}\n",
+            design_system_codegen.display()
+        )
+    } else {
+        String::new()
+    };
     format!(
         r#"[package]
 name = "{package}"
@@ -796,6 +818,7 @@ version = "0.0.0"
 edition = "2021"
 
 [lib]
+path = "src/preview.rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
@@ -803,7 +826,7 @@ anyhow = "1"
 console_error_panic_hook = "0.1"
 fission = {{ path = "{}", default-features = false, features = [{fission_features}] }}
 {serde_dependency}{serde_yaml_dependency}wasm-bindgen = "0.2"
-"#,
+{design_system_codegen_dependency}"#,
         fission.display()
     )
 }
@@ -881,6 +904,29 @@ mod tests {
 
         assert_eq!(first, shifted);
         fs::remove_dir_all(stage_dir).unwrap();
+    }
+
+    #[test]
+    fn preview_entrypoint_does_not_replace_the_tutorial_library() {
+        assert_eq!(
+            preview_stage_path("preview/lib.rs"),
+            Path::new("src/preview.rs")
+        );
+        assert_eq!(preview_stage_path("src/lib.rs"), Path::new("src/lib.rs"));
+    }
+
+    #[test]
+    fn tutorial_manifest_enables_only_requested_build_dependencies() {
+        let workspace = Path::new("/fission-workspace");
+        let with_codegen = tutorial_manifest("tutorial", workspace, false, false, false, true);
+        let without_codegen = tutorial_manifest("tutorial", workspace, false, false, false, false);
+
+        assert!(with_codegen.contains("path = \"src/preview.rs\""));
+        assert!(with_codegen.contains("[build-dependencies]"));
+        assert!(with_codegen.contains("fission-design-system-codegen"));
+        assert!(without_codegen.contains("path = \"src/preview.rs\""));
+        assert!(!without_codegen.contains("[build-dependencies]"));
+        assert!(!without_codegen.contains("fission-design-system-codegen"));
     }
 
     #[test]
