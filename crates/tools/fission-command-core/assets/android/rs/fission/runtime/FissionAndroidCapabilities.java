@@ -2,6 +2,7 @@ package rs.fission.runtime;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Context;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
@@ -11,6 +12,11 @@ import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.pm.PackageManager;
+import android.print.PageRange;
+import android.print.PrintAttributes;
+import android.print.PrintDocumentAdapter;
+import android.print.PrintDocumentInfo;
+import android.print.PrintManager;
 import android.graphics.ImageFormat;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -34,6 +40,7 @@ import android.util.Size;
 import android.view.Surface;
 
 import java.nio.ByteBuffer;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -522,5 +529,89 @@ public final class FissionAndroidCapabilities {
                 location.hasSpeed() ? location.getSpeed() : Double.NaN,
                 (double) location.getTime()
         };
+    }
+
+    public static String printPdf(Activity activity, byte[] pdf, String jobName) throws Exception {
+        if (Build.VERSION.SDK_INT < 19) {
+            throw new UnsupportedOperationException("Android system printing requires Android 4.4 or newer");
+        }
+        if (activity == null || pdf == null || pdf.length < 5
+                || pdf[0] != '%' || pdf[1] != 'P' || pdf[2] != 'D' || pdf[3] != 'F' || pdf[4] != '-') {
+            throw new IllegalArgumentException("Fission printing requires a valid PDF document");
+        }
+
+        final String displayName = jobName == null || jobName.trim().isEmpty() ? "Fission document" : jobName.trim();
+        final byte[] document = pdf.clone();
+        final CountDownLatch started = new CountDownLatch(1);
+        final AtomicReference<String> jobId = new AtomicReference<>();
+        final AtomicReference<Throwable> failure = new AtomicReference<>();
+        activity.runOnUiThread(() -> {
+            try {
+                PrintManager manager = (PrintManager) activity.getSystemService(Context.PRINT_SERVICE);
+                if (manager == null) {
+                    throw new UnsupportedOperationException("Android PrintManager is not available");
+                }
+                PrintDocumentAdapter adapter = new PrintDocumentAdapter() {
+                    @Override public void onLayout(
+                            PrintAttributes oldAttributes,
+                            PrintAttributes newAttributes,
+                            CancellationSignal cancellationSignal,
+                            LayoutResultCallback callback,
+                            Bundle extras) {
+                        if (cancellationSignal.isCanceled()) {
+                            callback.onLayoutCancelled();
+                            return;
+                        }
+                        PrintDocumentInfo info = new PrintDocumentInfo.Builder(displayName)
+                                .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+                                .setPageCount(PrintDocumentInfo.PAGE_COUNT_UNKNOWN)
+                                .build();
+                        callback.onLayoutFinished(info, oldAttributes == null || !newAttributes.equals(oldAttributes));
+                    }
+
+                    @Override public void onWrite(
+                            PageRange[] pages,
+                            android.os.ParcelFileDescriptor destination,
+                            CancellationSignal cancellationSignal,
+                            WriteResultCallback callback) {
+                        if (cancellationSignal.isCanceled()) {
+                            callback.onWriteCancelled();
+                            return;
+                        }
+                        if (pages == null || pages.length != 1 || !PageRange.ALL_PAGES.equals(pages[0])) {
+                            callback.onWriteFailed("This Android host cannot filter the selected PDF page range.");
+                            return;
+                        }
+                        try (FileOutputStream output = new FileOutputStream(destination.getFileDescriptor())) {
+                            output.write(document);
+                            callback.onWriteFinished(new PageRange[] { PageRange.ALL_PAGES });
+                        } catch (Throwable error) {
+                            callback.onWriteFailed(error.toString());
+                        }
+                    }
+                };
+                android.print.PrintJob job = manager.print(
+                        displayName,
+                        adapter,
+                        new PrintAttributes.Builder().build());
+                if (job == null) {
+                    throw new IllegalStateException("Android did not create a print job");
+                }
+                jobId.set(job.getId().flattenToString());
+            } catch (Throwable error) {
+                failure.set(error);
+            } finally {
+                started.countDown();
+            }
+        });
+        if (!started.await(30, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("Android print sheet did not start in time");
+        }
+        Throwable error = failure.get();
+        if (error != null) {
+            if (error instanceof Exception) throw (Exception) error;
+            throw new RuntimeException(error);
+        }
+        return jobId.get();
     }
 }

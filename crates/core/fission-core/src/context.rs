@@ -72,6 +72,7 @@ use crate::platform_passkey::{
     PasskeyAuthenticationRequest, PasskeyRegistrationRequest, AUTHENTICATE_PASSKEY,
     CANCEL_PASSKEY_OPERATION, GET_PASSKEY_AVAILABILITY, REGISTER_PASSKEY,
 };
+use crate::platform_print::{PrintPdfRequest, PRINT_PDF};
 use crate::platform_volume::{
     VolumeAdjustRequest, VolumeSetRequest, VolumeStream, ADJUST_VOLUME_LEVEL, GET_VOLUME_LEVEL,
     SET_VOLUME_LEVEL,
@@ -348,6 +349,16 @@ impl<'a, S: GlobalState> Effects<'a, S> {
     /// from a user action on hosts that expose files through opaque handles.
     pub fn file_system(&mut self) -> FileSystemEffects<'_, 'a, S> {
         FileSystemEffects { effects: self }
+    }
+
+    /// Submits a generated PDF to the active host's print service.
+    ///
+    /// Call this from a user action. The request may carry PDF bytes or a
+    /// one-shot data stream. The host result reports submission, presentation
+    /// of a print surface, or cancellation; it never claims that printing has
+    /// physically completed.
+    pub fn print_pdf(&mut self, request: PrintPdfRequest) -> EffectBuilder<'_, 'a, S> {
+        self.capability(PRINT_PDF, request)
     }
 
     /// Accesses the typed persistent store configured by the active shell.

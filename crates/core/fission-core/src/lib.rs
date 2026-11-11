@@ -72,6 +72,7 @@ pub mod platform_haptics;
 pub mod platform_microphone;
 pub mod platform_nfc;
 pub mod platform_passkey;
+pub mod platform_print;
 pub mod platform_volume;
 pub mod platform_wifi;
 pub mod registry;
@@ -537,6 +538,10 @@ pub mod public {
         PasskeyUserVerification, RegisterPasskeyCapability, AUTHENTICATE_PASSKEY,
         CANCEL_PASSKEY_OPERATION, GET_PASSKEY_AVAILABILITY, REGISTER_PASSKEY,
     };
+    pub use crate::platform_print::{
+        PrintError, PrintOutcome, PrintPageRange, PrintPdfCapability, PrintPdfRequest,
+        PrintPdfResult, PRINT_PDF,
+    };
     pub use crate::platform_volume::{
         AdjustVolumeLevelCapability, GetVolumeLevelCapability, SetVolumeLevelCapability,
         VolumeAdjustDirection, VolumeAdjustRequest, VolumeError, VolumeLevel, VolumeSetRequest,
@@ -770,6 +775,10 @@ pub use platform_passkey::{
     PasskeyResidentKeyRequirement, PasskeyTransport, PasskeyUser, PasskeyUserVerification,
     RegisterPasskeyCapability, AUTHENTICATE_PASSKEY, CANCEL_PASSKEY_OPERATION,
     GET_PASSKEY_AVAILABILITY, REGISTER_PASSKEY,
+};
+pub use platform_print::{
+    PrintError, PrintOutcome, PrintPageRange, PrintPdfCapability, PrintPdfRequest, PrintPdfResult,
+    PRINT_PDF,
 };
 pub use platform_volume::{
     AdjustVolumeLevelCapability, GetVolumeLevelCapability, SetVolumeLevelCapability,

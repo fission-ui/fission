@@ -138,6 +138,8 @@ mod web_file_system;
 mod web_input;
 #[cfg(target_arch = "wasm32")]
 mod web_links;
+#[cfg(target_arch = "wasm32")]
+mod web_print;
 use native_surface::NativeSurfaceRegistry;
 mod navigation;
 pub use navigation::{WebNavigationConfig, WebRouteStrategy};
@@ -157,6 +159,8 @@ mod file_picker;
 ))]
 mod file_system;
 mod geolocation;
+#[cfg(not(target_arch = "wasm32"))]
+mod native_print;
 pub use geolocation::{GeolocationHost, MemoryGeolocationHost, UnsupportedGeolocationHost};
 mod haptics;
 pub use haptics::{HapticHost, MemoryHapticHost, UnsupportedHapticHost};
@@ -199,11 +203,15 @@ mod android_capabilities;
 #[cfg(all(target_os = "android", feature = "filesystem"))]
 mod android_file_system;
 #[cfg(target_os = "android")]
+mod android_print;
+#[cfg(target_os = "android")]
 mod android_text_input;
 #[cfg(target_os = "ios")]
 mod ios_capabilities;
 #[cfg(all(target_os = "ios", feature = "filesystem"))]
 mod ios_file_system;
+#[cfg(target_os = "ios")]
+mod ios_print;
 #[cfg(target_os = "macos")]
 mod macos_capabilities;
 #[cfg(target_arch = "wasm32")]
@@ -311,12 +319,14 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
     {
         web_capabilities::register_web_operation_capabilities(async_registry);
         web_file_picker::register_web_file_picker(async_registry);
+        web_print::register_web_print_capability(async_registry);
         #[cfg(feature = "filesystem")]
         web_file_system::register_web_file_system_capabilities(async_registry);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     {
+        native_print::register_native_print_capability(async_registry);
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         file_picker::register_file_picker_capability(async_registry);
         #[cfg(any(target_os = "android", target_os = "ios"))]
