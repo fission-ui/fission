@@ -48,9 +48,9 @@ use crate::platform_filesystem::{
     CreateDirectoryRequest, DirectoryPermissionRequest, ForgetDirectoryRequest,
     ListDirectoryRequest, PickDirectoryRequest, PickSaveFileRequest, ReadFileRequest,
     ReleaseDirectoryRequest, RemoveEntryRequest, RestoreDirectoryRequest, StatEntryRequest,
-    WriteFileRequest, CREATE_DIRECTORY, DIRECTORY_PERMISSION, FORGET_DIRECTORY, LIST_DIRECTORY,
-    PICK_DIRECTORY, PICK_SAVE_FILE, READ_FILE, RELEASE_DIRECTORY, REMOVE_ENTRY, RESTORE_DIRECTORY,
-    STAT_ENTRY, WRITE_FILE,
+    WriteFileRequest, WritePickedFileRequest, CREATE_DIRECTORY, DIRECTORY_PERMISSION,
+    FORGET_DIRECTORY, LIST_DIRECTORY, PICK_DIRECTORY, PICK_SAVE_FILE, READ_FILE, RELEASE_DIRECTORY,
+    REMOVE_ENTRY, RESTORE_DIRECTORY, STAT_ENTRY, WRITE_FILE, WRITE_PICKED_FILE,
 };
 use crate::platform_geolocation::{
     GeolocationPermissionRequest, GeolocationPositionRequest, GET_CURRENT_POSITION,
@@ -1097,7 +1097,7 @@ impl<'a, 'b, S: GlobalState> FileSystemEffects<'a, 'b, S> {
     }
 
     /// Opens a host save dialog and returns the user-selected destination.
-    /// The result location is `None` when the user cancels.
+    /// The destination is `None` when the user cancels.
     pub fn pick_save_file(self, request: PickSaveFileRequest) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(PICK_SAVE_FILE, request)
     }
@@ -1128,6 +1128,11 @@ impl<'a, 'b, S: GlobalState> FileSystemEffects<'a, 'b, S> {
 
     pub fn write(self, request: WriteFileRequest) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(WRITE_FILE, request)
+    }
+
+    /// Writes bytes or a stream to a writable file selected by `pick_save_file`.
+    pub fn write_picked_file(self, request: WritePickedFileRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(WRITE_PICKED_FILE, request)
     }
 
     pub fn create_directory(self, request: CreateDirectoryRequest) -> EffectBuilder<'a, 'b, S> {

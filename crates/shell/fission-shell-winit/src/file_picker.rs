@@ -1,7 +1,9 @@
 use fission_core::{
     Bytes, CapabilityCtx, FileSystemError, FileSystemLocation, FissionDataStreamError,
     FissionDataStreamErrorKind, PickOpenFilesError, PickOpenFilesRequest, PickOpenFilesResult,
-    PickSaveFileRequest, PickSaveFileResult, PickedFile, PICK_OPEN_FILES, PICK_SAVE_FILE,
+    PickSaveFileRequest, PickSaveFileResult, PickedFile, SaveFileDestination,
+    WritePickedFileRequest, WritePickedFileResult, PICK_OPEN_FILES, PICK_SAVE_FILE,
+    WRITE_PICKED_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
 use futures_core::Stream;
@@ -28,6 +30,12 @@ pub fn register_file_picker_capability(async_registry: &mut AsyncRegistry) {
             pick_save_file_with(request, show_native_save_dialog)
         },
     );
+    async_registry.register_operation_capability(
+        WRITE_PICKED_FILE,
+        |_request: WritePickedFileRequest, _| async move {
+            Err::<WritePickedFileResult, _>(FileSystemError::unsupported("write_picked_file"))
+        },
+    );
 }
 
 fn show_native_save_dialog(
@@ -48,9 +56,12 @@ fn pick_save_file_with(
     request: PickSaveFileRequest,
     select_destination: impl FnOnce(&PickSaveFileRequest) -> Result<Option<PathBuf>, FileSystemError>,
 ) -> Result<PickSaveFileResult, FileSystemError> {
-    let location = select_destination(&request)?
-        .map(|path| FileSystemLocation::path(path.to_string_lossy().into_owned()));
-    Ok(PickSaveFileResult { location })
+    let destination = select_destination(&request)?.map(|path| {
+        SaveFileDestination::Location(FileSystemLocation::path(
+            path.to_string_lossy().into_owned(),
+        ))
+    });
+    Ok(PickSaveFileResult { destination })
 }
 
 fn pick_open_files(
@@ -277,15 +288,17 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            result.location,
-            Some(FileSystemLocation::path("/tmp/report.pdf"))
+            result.destination,
+            Some(SaveFileDestination::Location(FileSystemLocation::path(
+                "/tmp/report.pdf",
+            )))
         );
     }
 
     #[test]
-    fn save_picker_represents_cancellation_as_an_empty_location() {
+    fn save_picker_represents_cancellation_as_no_destination() {
         let result = pick_save_file_with(PickSaveFileRequest::default(), |_| Ok(None)).unwrap();
-        assert_eq!(result.location, None);
+        assert_eq!(result.destination, None);
     }
 
     #[test]

@@ -64,14 +64,31 @@ ctx.effects
     .on_err(ctx.effects.bind(SaveDestinationFailed, reduce_with!(on_save_destination_failed)));
 ```
 
-The successful result contains `location: None` if the user cancels. A chosen
-destination is returned as a host path that can be passed to `write` or to an
-export job. The native picker is available on macOS, Windows, and Linux. Web
-currently reports `unsupported` because its browser save picker produces an
-opaque writable file handle that cannot yet be represented by
-`FileSystemLocation`; Android and iOS also report `unsupported` until their
-document providers expose save-destination selection through this API. A
-cancelled dialog is not an error.
+The successful result contains `destination: None` if the user cancels. The
+native picker on macOS, Windows, and Linux returns a
+`SaveFileDestination::Location`, which can be passed to `write`. The Web picker
+returns a `SaveFileDestination::WritableFile`; its opaque browser handle is
+written with `write_picked_file` rather than treated as a filesystem path.
+Browsers without `showSaveFilePicker`, Android, and iOS return a typed
+`unsupported` error. A cancelled dialog is not an error.
+
+```rust
+if let Some(SaveFileDestination::WritableFile(file)) = result.destination {
+    ctx.effects
+        .file_system()
+        .write_picked_file(WritePickedFileRequest {
+            file,
+            source: FileWriteSource::Bytes(report_bytes),
+        })
+        .on_ok(ctx.effects.bind(ReportWritten, reduce_with!(on_report_written)))
+        .on_err(ctx.effects.bind(ReportWriteFailed, reduce_with!(on_report_write_failed)));
+}
+```
+
+For a native `Location`, use `WriteFileRequest` and set `overwrite: true` only
+when replacing an existing file is intended. For large browser exports,
+`WritePickedFileRequest::source` can be `FileWriteSource::Stream` to keep memory
+use bounded while data is written.
 
 ## Work with a directory handle
 

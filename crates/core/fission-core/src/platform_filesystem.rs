@@ -170,6 +170,27 @@ pub struct PickDirectoryResult {
     pub directory: Option<DirectoryHandle>,
 }
 
+/// Opaque browser-owned writable file selected by a Save dialog.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WritableFileHandle {
+    pub id: WritableFileHandleId,
+    /// Display name supplied by the host; this is not a filesystem path.
+    pub name: String,
+}
+
+/// Runtime-owned identity for a browser-selected writable file.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct WritableFileHandleId(pub u64);
+
+/// Destination selected by a Save dialog.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SaveFileDestination {
+    /// Native host path, writable through the ordinary filesystem operations.
+    Location(FileSystemLocation),
+    /// Opaque host file handle, writable through `write_picked_file`.
+    WritableFile(WritableFileHandle),
+}
+
 /// Requests a native file-save dialog.
 ///
 /// Hosts that cannot expose a writable file destination should return an
@@ -189,9 +210,8 @@ pub struct PickSaveFileRequest {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PickSaveFileResult {
-    /// `None` means the user dismissed the save dialog. Native hosts return a
-    /// path in their host filesystem namespace.
-    pub location: Option<FileSystemLocation>,
+    /// `None` means the user dismissed the save dialog.
+    pub destination: Option<SaveFileDestination>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -302,6 +322,18 @@ pub struct WriteFileRequest {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WriteFileResult {
+    pub byte_len: u64,
+}
+
+/// Writes data to a writable file handle returned by `pick_save_file`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WritePickedFileRequest {
+    pub file: WritableFileHandle,
+    pub source: FileWriteSource,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WritePickedFileResult {
     pub byte_len: u64,
 }
 
@@ -423,6 +455,13 @@ filesystem_capability!(
     "fission.fs.write_file"
 );
 filesystem_capability!(
+    WritePickedFileCapability,
+    WritePickedFileRequest,
+    WritePickedFileResult,
+    WRITE_PICKED_FILE,
+    "fission.fs.write_picked_file"
+);
+filesystem_capability!(
     CreateDirectoryCapability,
     CreateDirectoryRequest,
     (),
@@ -493,7 +532,19 @@ mod tests {
         let legacy = serde_json::from_str::<PickSaveFileRequest>("{}").unwrap();
         assert_eq!(legacy, PickSaveFileRequest::default());
 
-        let result = PickSaveFileResult { location: None };
+        let result = PickSaveFileResult { destination: None };
+        let bytes = serde_json::to_vec(&result).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<PickSaveFileResult>(&bytes).unwrap(),
+            result
+        );
+
+        let result = PickSaveFileResult {
+            destination: Some(SaveFileDestination::WritableFile(WritableFileHandle {
+                id: WritableFileHandleId(7),
+                name: "report.pdf".into(),
+            })),
+        };
         let bytes = serde_json::to_vec(&result).unwrap();
         assert_eq!(
             serde_json::from_slice::<PickSaveFileResult>(&bytes).unwrap(),

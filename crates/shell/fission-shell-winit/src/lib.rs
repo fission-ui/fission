@@ -387,6 +387,14 @@ fn register_unsupported_file_picker_capability(async_registry: &mut AsyncRegistr
             ))
         },
     );
+    async_registry.register_operation_capability(
+        fission_core::WRITE_PICKED_FILE,
+        |_request: fission_core::WritePickedFileRequest, _| async move {
+            Err::<fission_core::WritePickedFileResult, _>(
+                fission_core::FileSystemError::unsupported("write_picked_file"),
+            )
+        },
+    );
 }
 
 fn collect_startup_deep_links(config: &DeepLinkConfig) -> Vec<DeepLink> {
