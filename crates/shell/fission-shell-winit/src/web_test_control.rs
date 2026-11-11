@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use fission_test_driver::{TestCommand, TestEvent, TestResponse, WebTestFrame, WebTestFramePhase};
-use js_sys::{Object, Reflect};
+use js_sys::{Function, Object, Reflect};
 use wasm_bindgen::prelude::*;
 use winit::event_loop::EventLoopProxy;
 
@@ -24,6 +24,7 @@ thread_local! {
     static NEXT_REQUEST_ID: Cell<u32> = const { Cell::new(1) };
     static RESPONSES: RefCell<HashMap<u32, PendingResponse>> = RefCell::new(HashMap::new());
     static FRAME: Cell<Option<WebTestFrame>> = const { Cell::new(None) };
+    static POLL_JSON: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Called only after a successful Web renderer submission. The bridge owns
@@ -53,19 +54,36 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         submit_command(command, &submit_proxy)
     }) as Box<dyn FnMut(String) -> u32>);
 
-    // The bridge uses JSON strings for payloads so command and response data do not allocate
-    // wasm-bindgen externref handles, regardless of their size or shape.
-    let poll = Closure::wrap(Box::new(move |request_id: u32| -> String {
-        record_poll_stage(request_id, POLL_STAGE_ENTERED);
-        let response = poll_response(request_id);
-        record_poll_stage(request_id, POLL_STAGE_RESPONSE_READY);
-        let json = match response {
-            Some(response) => response_json_string(&response),
-            None => "null".to_owned(),
-        };
-        record_poll_stage(request_id, POLL_STAGE_JSON_READY);
-        json
-    }) as Box<dyn FnMut(u32) -> String>);
+    // Invoke exported scalar WebAssembly functions through a small JavaScript
+    // adapter. The app-level LiveTest bridge has many unrelated Wasm closures;
+    // keeping poll out of that closure trampoline avoids its long-session OOB
+    // failure while the request and response bytes remain JSON strings.
+    let exports = wasm_bindgen::exports();
+    let poll_json_len = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_poll_json_len"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
+    let poll_json_ptr = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_poll_json_ptr"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
+    if !poll_json_len.is_function() || !poll_json_ptr.is_function() {
+        return false;
+    }
+    let poll_adapter = Function::new_with_args(
+        "pollJsonLen,pollJsonPtr,memory",
+        "return function(requestId) { const length = pollJsonLen(requestId) >>> 0; const address = pollJsonPtr() >>> 0; return new TextDecoder().decode(new Uint8Array(memory.buffer, address, length)); }",
+    );
+    let Ok(poll) = poll_adapter.call3(
+        &JsValue::NULL,
+        &poll_json_len,
+        &poll_json_ptr,
+        &wasm_bindgen::memory(),
+    ) else {
+        return false;
+    };
 
     let poll_diagnostics =
         Closure::wrap(
@@ -100,7 +118,7 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     Object::define_property(&bridge, &JsValue::from_str("frame"), &descriptor);
     let poll_stage_address = std::ptr::addr_of!(LAST_POLL_STAGE) as usize;
     if Reflect::set(&bridge, &JsValue::from_str("submit"), submit.as_ref()).is_err()
-        || Reflect::set(&bridge, &JsValue::from_str("poll"), poll.as_ref()).is_err()
+        || Reflect::set(&bridge, &JsValue::from_str("poll"), &poll).is_err()
         || Reflect::set(
             &bridge,
             &JsValue::from_str("pollDiagnostics"),
@@ -130,10 +148,34 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     }
 
     submit.forget();
-    poll.forget();
     poll_diagnostics.forget();
     frame.forget();
     true
+}
+
+#[cfg(fission_web_test_control)]
+#[wasm_bindgen]
+pub fn fission_web_test_poll_json_len(request_id: u32) -> u32 {
+    record_poll_stage(request_id, POLL_STAGE_ENTERED);
+    let response = poll_response(request_id);
+    record_poll_stage(request_id, POLL_STAGE_RESPONSE_READY);
+    let json = match response {
+        Some(response) => response_json_string(&response),
+        None => "null".to_owned(),
+    };
+    POLL_JSON.with(|buffer| {
+        let mut buffer = buffer.borrow_mut();
+        buffer.clear();
+        buffer.extend_from_slice(json.as_bytes());
+        record_poll_stage(request_id, POLL_STAGE_JSON_READY);
+        buffer.len() as u32
+    })
+}
+
+#[cfg(fission_web_test_control)]
+#[wasm_bindgen]
+pub fn fission_web_test_poll_json_ptr() -> u32 {
+    POLL_JSON.with(|buffer| buffer.borrow().as_ptr() as usize as u32)
 }
 
 fn record_poll_stage(request_id: u32, stage: u32) {

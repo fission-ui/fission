@@ -55,21 +55,24 @@ value does not modify the shell's state.
 Production builds expose neither the bridge nor this getter. No review-specific
 global is involved.
 
-LiveTest drivers use `submit(json)` and `poll(id)`. Both methods exchange JSON
-strings across Wasm; `poll` returns the JSON text `null` while the response is
-pending. This avoids allocating JavaScript handles for command fields or nested
-semantic nodes. Completed response entries are removed when collected, and at
-most 1,024 requests may be pending or uncollected at once.
+LiveTest drivers use `submit(json)` and `poll(id)`. `submit` passes command JSON
+to Wasm as a string. `poll` decodes the response JSON from the module's linear
+memory and returns it as a string; it returns the JSON text `null` while the
+response is pending. The poll path calls scalar Wasm exports directly instead
+of going through a wasm-bindgen closure. This avoids allocating JavaScript
+handles for command fields or nested semantic nodes. Completed response entries
+are removed when collected, and at most 1,024 requests may be pending or
+uncollected at once.
 
 For a trapped poll in an opt-in test build, `pollDiagnostics()` returns a number
 whose high bits are the last request ID and whose low two bits identify the last
 completed poll stage: `1` entered response lookup, `2` received a response, and
 `3` serialized its JSON string. A value stuck at stage `1` points to response
-lookup; stage `2` points to serialization; stage `3` means the closure prepared
-the string before the Wasm return conversion. The same value is stored at the
-byte offset `pollDiagnosticsAddress` in the exposed `memory.buffer`, so a browser
-harness can inspect it directly even if another Wasm callback traps. These
-memory diagnostics are available only when the test bridge is enabled.
+lookup; stage `2` points to serialization; stage `3` means the response JSON
+bytes are ready in linear memory. The same value is stored at the byte offset
+`pollDiagnosticsAddress` in the exposed `memory.buffer`, so a browser harness
+can inspect it directly even if another Wasm callback traps. These memory
+diagnostics are available only when the test bridge is enabled.
 
 Web renderer diagnostics also publish the most recent stage timings as
 `window.__FISSION_LAST_FRAME_STAGE_PERF`. On the Canvas2D software path,

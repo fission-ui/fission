@@ -1,9 +1,11 @@
 # Web LiveTest bridge WebAssembly bounds trap
 
-Status: still open. Bridge commands, responses, and frame snapshots now cross
-the Wasm boundary as JSON strings, avoiding `JsValue` payload allocation. The
-focused Chromium regression passes the reported selector-and-pump sequence, but
-the full Zoffice editor-open flow still traps under Fission `bcec7df5`.
+Status: targeted bridge fix is on the branch; full Zoffice qualification is
+pending. `poll` now reaches scalar Wasm exports through a JavaScript adapter
+instead of the wasm-bindgen closure trampoline, and reads JSON response bytes
+from linear memory. The focused Chromium regression passes this path. The full
+Zoffice flow reproduced a closure-entry trap at request 49 on `ae722d99`; the
+latest bridge change still needs that full app retest.
 
 ## Reproduction evidence
 
@@ -21,12 +23,22 @@ request 50 and after the trap. Earlier value-transport attempts also failed in
 so the underlying cause is not yet isolated and cannot be attributed only to
 externref payload conversion.
 
+On `ae722d99`, the raw linear-memory marker read as request 46, stage 3
+(`(46 << 2) | 3 == 187`), before request 47's `ResolveSelector` poll trapped.
+The poll closure's wasm-bindgen state remained stable (`a=1`, `b=5774816`,
+`cnt=1`) before and after the trap, but its Rust body was not entered. This
+narrows the failure to closure entry rather than response lookup or JSON
+serialization. The latest change removes that closure from the poll path; its
+full-app result is not yet verified.
+
 ## Bridge changes
 
-- LiveTest uses `submit(json)` and `poll(id)` for all commands and responses.
-  `poll` returns JSON text `null` while work is pending. The frame getter also
-  returns a JSON string, parsed by the native browser driver after the Wasm call.
-  No bridge payload uses a JavaScript object across the Wasm boundary.
+- LiveTest uses `submit(json)` and `poll(id)` for commands and responses.
+  `poll` calls scalar Wasm exports directly and decodes the response JSON from
+  module memory; it returns JSON text `null` while work is pending. The frame
+  getter also returns a JSON string, parsed by the native browser driver after
+  the Wasm call. No bridge payload uses a JavaScript object across the Wasm
+  boundary.
 - `pollDiagnostics()` exposes a numeric request/stage marker in test builds. The
   same value is stored at a published byte offset in the test Wasm memory, so a
   harness can read it directly even when another callback traps. This can
@@ -44,8 +56,8 @@ externref payload conversion.
 The regression passes in Chromium against a fresh `examples/web-smoke` build
 with `FISSION_WEB_TEST_CONTROL=1`. The Web shell compiles for wasm32 and the
 focused browser test covers repeated queries, the selector-and-pump cadence,
-and the response cap. In the Zoffice retest, Fission `bcec7df5` preserved the
-custom worker, and PersonalDB completed workspace creation and schema reopen,
-but request 51 still trapped in `poll`; a subsequent `submit` trapped in
-`__wbindgen_malloc`. The app-level bridge issue remains open pending poll-stage
-diagnostics and another full LiveTest run.
+direct-memory diagnostics, and the response cap. Zoffice's `bcec7df5` and
+`ae722d99` retests preserved the custom worker and completed PersonalDB
+workspace creation and schema install, but the editor-open flow still trapped
+before entering the poll body. The direct-export poll path awaits a full Zoffice
+LiveTest result.
