@@ -11897,6 +11897,31 @@ mod tests {
         )
         .expect("semantic parent should resolve");
         assert_eq!(app_record.node.children, vec![app_open.to_string()]);
+
+        let missing_query =
+            fission_test_driver::SelectorQuery::semantic_identifier("missing.control");
+        let detailed =
+            match resolve_selector_record(&pipeline, &ScrollStateMap::default(), &missing_query) {
+                Err(error) => error,
+                Ok(_) => panic!("missing selector should fail"),
+            };
+        let fission_test_driver::TestResponse::SelectorError { failure } = detailed else {
+            panic!("missing selector should return a selector error");
+        };
+        assert!(!failure.candidates.is_empty());
+
+        let quiet = match resolve_selector_record(
+            &pipeline,
+            &ScrollStateMap::default(),
+            &missing_query.without_candidates(),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("quiet missing selector should fail"),
+        };
+        let fission_test_driver::TestResponse::SelectorError { failure } = quiet else {
+            panic!("quiet missing selector should return a selector error");
+        };
+        assert!(failure.candidates.is_empty());
     }
 
     #[test]

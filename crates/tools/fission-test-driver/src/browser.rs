@@ -601,14 +601,22 @@ impl BrowserController {
     ) -> Result<TestResponse> {
         let started = Instant::now();
         let timeout = Duration::from_millis(timeout_ms);
+        let diagnostic_query = query.clone().with_candidates();
+        let polling_query = query.without_candidates();
         loop {
             let response = self.send_bridge_command(TestCommand::ResolveSelector {
-                query: query.clone(),
+                query: polling_query.clone(),
             })?;
             if selector_wait_matches(&condition, &response) {
                 return Ok(TestResponse::Ok {});
             }
             if started.elapsed() >= timeout {
+                let response = self.send_bridge_command(TestCommand::ResolveSelector {
+                    query: diagnostic_query.clone(),
+                })?;
+                if selector_wait_matches(&condition, &response) {
+                    return Ok(TestResponse::Ok {});
+                }
                 let candidates = match response {
                     TestResponse::SelectorResolved { node } => vec![SelectorCandidate {
                         node,
@@ -620,7 +628,7 @@ impl BrowserController {
                 return Ok(TestResponse::SelectorError {
                     failure: SelectorFailure {
                         kind: SelectorFailureKind::Timeout,
-                        selector: query,
+                        selector: diagnostic_query,
                         candidates,
                         message: format!(
                             "timed out after {timeout_ms}ms waiting for browser selector"
