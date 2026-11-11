@@ -66,7 +66,10 @@ whose high bits are the last request ID and whose low two bits identify the last
 completed poll stage: `1` entered response lookup, `2` received a response, and
 `3` serialized its JSON string. A value stuck at stage `1` points to response
 lookup; stage `2` points to serialization; stage `3` means the closure prepared
-the string before the Wasm return conversion.
+the string before the Wasm return conversion. The same value is stored at the
+byte offset `pollDiagnosticsAddress` in the exposed `memory.buffer`, so a browser
+harness can inspect it directly even if another Wasm callback traps. These
+memory diagnostics are available only when the test bridge is enabled.
 
 Web renderer diagnostics also publish the most recent stage timings as
 `window.__FISSION_LAST_FRAME_STAGE_PERF`. On the Canvas2D software path,

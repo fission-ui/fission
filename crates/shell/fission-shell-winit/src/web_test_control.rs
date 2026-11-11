@@ -1,5 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use fission_test_driver::{TestCommand, TestEvent, TestResponse, WebTestFrame, WebTestFramePhase};
@@ -17,13 +18,12 @@ const POLL_STAGE_ENTERED: u32 = 1;
 const POLL_STAGE_RESPONSE_READY: u32 = 2;
 const POLL_STAGE_JSON_READY: u32 = 3;
 
+static LAST_POLL_STAGE: AtomicU32 = AtomicU32::new(0);
+
 thread_local! {
     static NEXT_REQUEST_ID: Cell<u32> = const { Cell::new(1) };
     static RESPONSES: RefCell<HashMap<u32, PendingResponse>> = RefCell::new(HashMap::new());
     static FRAME: Cell<Option<WebTestFrame>> = const { Cell::new(None) };
-    // Test-only poll trace: (request_id << 2) | stage. Numeric so it can be read
-    // after a trapped JSON response without allocating another JS value.
-    static LAST_POLL_STAGE: Cell<u32> = const { Cell::new(0) };
 }
 
 /// Called only after a successful Web renderer submission. The bridge owns
@@ -67,9 +67,11 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         json
     }) as Box<dyn FnMut(u32) -> String>);
 
-    let poll_diagnostics = Closure::wrap(
-        Box::new(|| -> u32 { LAST_POLL_STAGE.with(Cell::get) }) as Box<dyn FnMut() -> u32>
-    );
+    let poll_diagnostics =
+        Closure::wrap(
+            Box::new(|| -> u32 { LAST_POLL_STAGE.load(Ordering::Relaxed) })
+                as Box<dyn FnMut() -> u32>,
+        );
 
     let frame = Closure::wrap(Box::new(move || -> String {
         FRAME
@@ -96,12 +98,25 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     }
     let bridge = Object::new();
     Object::define_property(&bridge, &JsValue::from_str("frame"), &descriptor);
+    let poll_stage_address = std::ptr::addr_of!(LAST_POLL_STAGE) as usize;
     if Reflect::set(&bridge, &JsValue::from_str("submit"), submit.as_ref()).is_err()
         || Reflect::set(&bridge, &JsValue::from_str("poll"), poll.as_ref()).is_err()
         || Reflect::set(
             &bridge,
             &JsValue::from_str("pollDiagnostics"),
             poll_diagnostics.as_ref(),
+        )
+        .is_err()
+        || Reflect::set(
+            &bridge,
+            &JsValue::from_str("pollDiagnosticsAddress"),
+            &JsValue::from_f64(poll_stage_address as f64),
+        )
+        .is_err()
+        || Reflect::set(
+            &bridge,
+            &JsValue::from_str("memory"),
+            &wasm_bindgen::memory(),
         )
         .is_err()
         || Reflect::set(
@@ -122,9 +137,10 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
 }
 
 fn record_poll_stage(request_id: u32, stage: u32) {
-    LAST_POLL_STAGE.with(|last| {
-        last.set(request_id.wrapping_shl(2) | (stage & 0b11));
-    });
+    LAST_POLL_STAGE.store(
+        request_id.wrapping_shl(2) | (stage & 0b11),
+        Ordering::Relaxed,
+    );
 }
 
 fn submit_command(command: Result<TestCommand, String>, proxy: &EventLoopProxy<TestEvent>) -> u32 {

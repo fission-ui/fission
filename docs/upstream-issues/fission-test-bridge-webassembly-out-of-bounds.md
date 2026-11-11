@@ -27,9 +27,10 @@ externref payload conversion.
   `poll` returns JSON text `null` while work is pending. The frame getter also
   returns a JSON string, parsed by the native browser driver after the Wasm call.
   No bridge payload uses a JavaScript object across the Wasm boundary.
-- `pollDiagnostics()` exposes a numeric request/stage marker in test builds so a
-  future reproduction can distinguish response lookup, JSON serialization, and
-  the Wasm string return conversion after a trapped call.
+- `pollDiagnostics()` exposes a numeric request/stage marker in test builds. The
+  same value is stored at a published byte offset in the test Wasm memory, so a
+  harness can read it directly even when another callback traps. This can
+  distinguish response lookup, JSON serialization, and string return conversion.
 - Completed responses are moved out of the pending map instead of cloned. The
   map is capped at 1,024 pending or uncollected requests; overflow returns an
   actionable error and does not enqueue a command.

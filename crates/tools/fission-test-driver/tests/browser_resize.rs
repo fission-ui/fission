@@ -73,6 +73,10 @@ fn web_bridge_json_round_trips_remain_bounded_after_repeated_queries() -> anyhow
         .as_u64()
         .unwrap();
     assert_eq!(poll_diagnostics & 0b11, 3);
+    let poll_diagnostics_from_memory = client.browser_evaluate_json(
+        "(() => { const bridge=globalThis.__FISSION_TEST__; return new DataView(bridge.memory.buffer).getUint32(bridge.pollDiagnosticsAddress,true); })()",
+    )?.as_u64().unwrap();
+    assert_eq!(poll_diagnostics_from_memory, poll_diagnostics);
 
     let stage_perf = client.browser_evaluate_json("globalThis.__FISSION_LAST_FRAME_STAGE_PERF")?;
     assert_eq!(stage_perf["renderer"], "canvas2d-software");
