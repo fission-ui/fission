@@ -24,6 +24,20 @@ fn capture(c: &LiveTestClient, name: &str, width: u32) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn capture_webgpu_diagnostic(c: &LiveTestClient, name: &str, width: u32) -> anyhow::Result<()> {
+    // Chromium's headless page screenshot does not reliably read the WebGPU swap chain.
+    // Preserve the capture for diagnosis, but do not treat its pixels as renderer readback.
+    let png = c.capture_screenshot_png()?;
+    let image = image::load_from_memory(&png)?.to_rgba8();
+    assert_eq!((image.width(), image.height()), (width, 900));
+    if let Some(dir) = std::env::var_os("FISSION_RESIZE_OUTPUT") {
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(dir.join(format!("{name}-{width}.png")), png)?;
+    }
+    Ok(())
+}
+
 #[test]
 #[ignore = "requires FISSION_RESIZE_WEB_URL, installed Chromium, and loopback sockets"]
 fn canvas_same_session_state_route_frames_raw_bridge_timeout_and_recovery() -> anyhow::Result<()> {
@@ -188,7 +202,7 @@ fn webgpu_renderer_resizes_without_recreating_mapped_config_buffer() -> anyhow::
         assert_eq!(resized["canvas"]["pixel_width"], width);
         assert_eq!(resized["canvas"]["pixel_height"], 900);
         assert_eq!(resized["frame"]["phase"], "submitted");
-        capture(&client, &format!("webgpu-step-{step}"), width)?;
+        capture_webgpu_diagnostic(&client, &format!("webgpu-step-{step}"), width)?;
     }
     Ok(())
 }
