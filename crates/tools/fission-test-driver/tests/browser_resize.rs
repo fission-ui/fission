@@ -54,6 +54,10 @@ fn web_bridge_value_round_trips_remain_bounded_after_repeated_queries() -> anyho
             .any(|item| item.text == "Fission web smoke"));
     }
 
+    // Semantic trees use a JSON-string response across the Wasm boundary so large nested node
+    // arrays do not require one externref handle per field while serde_wasm_bindgen builds them.
+    assert!(!client.get_tree()?.is_empty());
+
     let bounded = client.browser_evaluate_json(
         "(() => { const bridge=globalThis.__FISSION_TEST__; const requests=[]; const command={cmd:'SimulateResize',width:390,height:900}; for(let i=0;i<1024;i++) requests.push(bridge.submitValue(command)); const overflow=bridge.submitValue(command); const rejected=bridge.pollValue(overflow); const collected=requests.every(id=>bridge.pollValue(id)?.status==='Error'); return {count:requests.length,overflow,rejected:rejected?.message,collected}; })()",
     )?;

@@ -13,6 +13,7 @@ enum PendingResponse {
 }
 
 const MAX_PENDING_RESPONSES: usize = 1024;
+const MAX_TEXT_ITEMS_FOR_VALUE_RESPONSE: usize = 128;
 
 thread_local! {
     static NEXT_REQUEST_ID: Cell<u32> = const { Cell::new(1) };
@@ -47,9 +48,9 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         submit_command(command, &submit_proxy)
     }) as Box<dyn FnMut(String) -> u32>);
 
-    // The value-based functions avoid encoding every command and response as
-    // an intermediate UTF-8 string. Keep the string functions for older test
-    // drivers that have not yet switched to the value protocol.
+    // The value-based functions avoid encoding ordinary commands and responses as intermediate
+    // UTF-8 strings. Large collections use one JSON string to avoid allocating a large graph of
+    // wasm-bindgen externref handles. Keep the original string functions for older test drivers.
     let submit_value_proxy = proxy.clone();
     let submit_value = Closure::wrap(Box::new(move |command: JsValue| -> u32 {
         let command = serde_wasm_bindgen::from_value::<TestCommand>(command)
@@ -76,12 +77,7 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
 
     let poll_value = Closure::wrap(Box::new(move |request_id: u32| -> JsValue {
         match poll_response(request_id) {
-            Some(response) => serde_wasm_bindgen::to_value(&response).unwrap_or_else(|error| {
-                serde_wasm_bindgen::to_value(&TestResponse::Error {
-                    message: format!("response serialization failed: {error}"),
-                })
-                .unwrap_or(JsValue::NULL)
-            }),
+            Some(response) => poll_value_response(&response),
             None => JsValue::NULL,
         }
     }) as Box<dyn FnMut(u32) -> JsValue>);
@@ -168,6 +164,41 @@ fn submit_command(command: Result<TestCommand, String>, proxy: &EventLoopProxy<T
         responses.borrow_mut().insert(request_id, response);
     });
     request_id
+}
+
+fn response_uses_json_string_bridge(response: &TestResponse) -> bool {
+    match response {
+        // A semantic tree contains a Vec of nodes, each with many string fields. Materializing
+        // that nested graph as individual JsValues can exhaust wasm-bindgen's externref handles
+        // on large applications. Carry one JSON string across the Wasm boundary instead.
+        TestResponse::Tree { .. } | TestResponse::SelectorError { .. } => true,
+        TestResponse::Text { items } => items.len() > MAX_TEXT_ITEMS_FOR_VALUE_RESPONSE,
+        TestResponse::Ok {}
+        | TestResponse::Screenshot { .. }
+        | TestResponse::MotionStatus { .. }
+        | TestResponse::SelectorResolved { .. }
+        | TestResponse::Error { .. } => false,
+    }
+}
+
+fn poll_value_response(response: &TestResponse) -> JsValue {
+    if response_uses_json_string_bridge(response) {
+        let serialized = serde_json::to_string(response).unwrap_or_else(|error| {
+            serde_json::json!({
+                "status": "Error",
+                "message": format!("response serialization failed: {error}")
+            })
+            .to_string()
+        });
+        return JsValue::from_str(&serialized);
+    }
+
+    serde_wasm_bindgen::to_value(response).unwrap_or_else(|error| {
+        serde_wasm_bindgen::to_value(&TestResponse::Error {
+            message: format!("response serialization failed: {error}"),
+        })
+        .unwrap_or(JsValue::NULL)
+    })
 }
 
 fn poll_response(request_id: u32) -> Option<TestResponse> {

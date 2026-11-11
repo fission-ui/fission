@@ -1,8 +1,9 @@
 # Web LiveTest bridge WebAssembly bounds trap
 
-Status: bridge mitigation and a focused regression are pushed on
-`feature/docs2-goal-oriented-site`; the Zoffice long-running editor-open
-reproduction still needs to be rerun against the patch.
+Status: large Web LiveTest responses now cross the Wasm boundary as one JSON
+string, avoiding per-field `JsValue` allocation. The focused Chromium regression
+passes with a semantic-tree query. The Zoffice editor-open reproduction still
+needs to be rerun against the patch.
 
 ## Reproduction evidence
 
@@ -20,18 +21,24 @@ the cause.
   `submitValue` / `pollValue`, avoiding the extra JSON-string conversion on each
   bridge call. The original string methods remain for compatibility with older
   test drivers.
+- Large semantic-tree and selector-error responses, plus text results above 128
+  items, use one JSON string for the response. Small responses retain the direct
+  JS-value path. The native browser driver accepts both formats. This avoids
+  building a large nested graph of wasm-bindgen externref handles for apps with
+  many rendered nodes.
 - Completed responses are moved out of the pending map instead of cloned. The
   map is capped at 1,024 pending or uncollected requests; overflow returns an
   actionable error and does not enqueue a command.
 - The browser regression performs 128 repeated asynchronous text queries,
-  fills and drains the pending-response cap, and confirms the bridge still
-  answers afterward.
+  requests a semantic tree, fills and drains the pending-response cap, and
+  confirms the bridge still answers afterward.
 
 ## Verification and remaining evidence
 
-The regression passed in Chromium against `examples/web-smoke`, built with
-`FISSION_WEB_TEST_CONTROL=1`. The Web shell and test driver compiled for their
-respective targets, and the test-driver library suite passed. This synthetic
-browser run does not reproduce Zoffice's long-running PersonalDB editor-open
-flow, so the reported app-level trap is not considered resolved until that
-exact LiveTest passes against the pushed bridge change.
+The regression passed in Chromium against a fresh `examples/web-smoke` build
+with `FISSION_WEB_TEST_CONTROL=1`, including the semantic-tree response path.
+The Web shell compiled for wasm32, the browser-driver decoder unit test passed,
+and the test-driver integration target compiled. This synthetic browser run does
+not reproduce Zoffice's PersonalDB editor-open flow, so the app-level trap is
+not considered resolved until that exact LiveTest passes against the pushed
+bridge change.

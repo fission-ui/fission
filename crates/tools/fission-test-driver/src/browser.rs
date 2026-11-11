@@ -740,8 +740,7 @@ impl BrowserController {
                 .pointer("/result/value")
                 .filter(|response| !response.is_null())
             {
-                return serde_json::from_value(response.clone())
-                    .context("failed to decode Fission browser test response");
+                return decode_bridge_response(response.clone());
             }
             if Instant::now() >= deadline {
                 return Err(anyhow!(
@@ -837,6 +836,19 @@ impl BrowserController {
             let errors = std::mem::take(&mut self.client.errors);
             Err(anyhow!("browser reported errors:\n{}", errors.join("\n")))
         }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn decode_bridge_response(value: Value) -> Result<TestResponse> {
+    match value {
+        // Large semantic collections cross the Wasm boundary as one JSON string to avoid
+        // allocating a large graph of wasm-bindgen externref handles. Parse it in the native
+        // driver, where the response already needs to become a Rust TestResponse.
+        Value::String(json) => {
+            serde_json::from_str(&json).context("failed to decode string Fission browser response")
+        }
+        value => serde_json::from_value(value).context("failed to decode Fission browser response"),
     }
 }
 
@@ -1448,6 +1460,24 @@ mod tests {
 
         let reduced = standard.reduced_motion();
         assert!(reduced.prefers_reduced_motion);
+    }
+
+    #[test]
+    fn browser_bridge_decodes_both_value_and_json_string_responses() {
+        assert!(matches!(
+            decode_bridge_response(json!({"status":"Ok"})).unwrap(),
+            TestResponse::Ok {}
+        ));
+
+        let encoded_tree = serde_json::to_string(&json!({
+            "status": "Tree",
+            "nodes": []
+        }))
+        .unwrap();
+        assert!(matches!(
+            decode_bridge_response(Value::String(encoded_tree)).unwrap(),
+            TestResponse::Tree { nodes } if nodes.is_empty()
+        ));
     }
 
     #[test]
