@@ -89,3 +89,16 @@ and raw bridge resize, recover in the same session, and check owned resource
 cleanup. Set `FISSION_RESIZE_OUTPUT` to retain PNG evidence. Run the internal
 `production_canvas_has_no_test_control` test against a separately compiled
 non-opt-in fixture using `FISSION_RESIZE_PRODUCTION_URL`.
+
+The WebGPU resize regression uses the same opt-in fixture, served with
+`?fission_renderer=webgpu-vello`, and requires a browser with a working WebGPU
+adapter. It grows and shrinks the renderer in one Chromium session, exercising
+the intermediate-texture config upload that previously recreated a mapped
+buffer on every size change:
+
+```sh
+FISSION_RESIZE_WEBGPU_URL=http://127.0.0.1:8123/?fission_renderer=webgpu-vello \
+  cargo test -p fission-test-driver --test browser_resize \
+  webgpu_renderer_resizes_without_recreating_mapped_config_buffer \
+  -- --ignored --nocapture
+```

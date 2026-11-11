@@ -165,6 +165,34 @@ fn canvas_same_session_state_route_frames_raw_bridge_timeout_and_recovery() -> a
 }
 
 #[test]
+#[ignore = "requires FISSION_RESIZE_WEBGPU_URL, WebGPU-enabled Chromium, and loopback sockets"]
+fn webgpu_renderer_resizes_without_recreating_mapped_config_buffer() -> anyhow::Result<()> {
+    let url = std::env::var("FISSION_RESIZE_WEBGPU_URL")?;
+    let client = LiveTestClient::launch_browser(BrowserTestOptions::new(&url).fission_canvas())?;
+    let report = client
+        .browser_report()
+        .ok_or_else(|| anyhow::anyhow!("browser report is unavailable"))?;
+    assert_eq!(
+        report.renderer.as_deref(),
+        Some("webgpu-vello"),
+        "the fixture must exercise the WebGPU renderer: {report:?}"
+    );
+
+    let initial = observe(&client)?;
+    assert_eq!(initial["frame"]["phase"], "submitted");
+    for width in [390, 1280, 390] {
+        client.simulate_resize(width, 900)?;
+        let resized = observe(&client)?;
+        assert_eq!(resized["width"], width);
+        assert_eq!(resized["height"], 900);
+        assert_eq!(resized["canvas"]["pixel_width"], width);
+        assert_eq!(resized["canvas"]["pixel_height"], 900);
+        assert_eq!(resized["frame"]["phase"], "submitted");
+    }
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires FISSION_RESIZE_DOM_URL, installed Chromium, and loopback sockets"]
 fn static_dom_host_resize_without_bridge_and_scale_contract() -> anyhow::Result<()> {
     let url = std::env::var("FISSION_RESIZE_DOM_URL")?;
