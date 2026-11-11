@@ -750,6 +750,7 @@ enum MainRenderer {
 struct WebCanvasPresenter {
     canvas: HtmlCanvasElement,
     context: CanvasRenderingContext2d,
+    cpu_renderer: fission_render_vello::cpu::CpuRenderer,
     report: RendererReport,
 }
 
@@ -768,6 +769,7 @@ impl WebCanvasPresenter {
         Ok(Self {
             canvas,
             context,
+            cpu_renderer: fission_render_vello::cpu::CpuRenderer::new(),
             report: RendererReport::new(
                 "canvas2d-software",
                 web_renderer_request(),
@@ -8860,8 +8862,9 @@ where
                                                     .expect(
                                                     "retained render scene missing before render",
                                                 );
-                                                let Ok(rgba) =
-                                                    fission_render_vello::cpu::render_to_rgba8(
+                                                let Ok(rgba) = presenter
+                                                    .cpu_renderer
+                                                    .render_to_rgba8(
                                                         retained_scene,
                                                         render_target_size.0,
                                                         render_target_size.1,

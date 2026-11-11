@@ -15,6 +15,71 @@ use vello_cpu::{PaintType, Pixmap, RenderContext, Resources};
 
 use crate::{CpuPainter, Painter, VelloRenderer, VelloTextMeasurer};
 
+/// Reusable state for rendering frames with Vello's CPU backend.
+///
+/// Keep one instance per software renderer so Vello can retain glyph
+/// preparation resources across frames. The scene recording context is reset
+/// between frames and resized only when the output dimensions change.
+pub struct CpuRenderer {
+    context: Option<RenderContext>,
+    context_size: Option<(u16, u16)>,
+    resources: Resources,
+}
+
+impl CpuRenderer {
+    /// Create a CPU renderer with empty retained resources.
+    pub fn new() -> Self {
+        Self {
+            context: None,
+            context_size: None,
+            resources: Resources::new(),
+        }
+    }
+
+    /// Render `scene` into premultiplied RGBA8 bytes over `background`.
+    pub fn render_to_rgba8(
+        &mut self,
+        scene: &RenderScene,
+        width: u32,
+        height: u32,
+        background: RenderColor,
+        scale_factor: f64,
+        measurer: Arc<VelloTextMeasurer>,
+    ) -> Result<Vec<u8>> {
+        let width = pixmap_dimension(width, "width")?;
+        let height = pixmap_dimension(height, "height")?;
+        let dimensions = (width, height);
+
+        match self.context.as_mut() {
+            Some(context) if self.context_size == Some(dimensions) => context.reset(),
+            Some(context) => context.reset_and_resize(width, height),
+            None => self.context = Some(RenderContext::new(width, height)),
+        }
+        self.context_size = Some(dimensions);
+        // Images are registered for this frame while glyph preparation data is
+        // retained by Resources for later frames.
+        self.resources.clear_images();
+
+        let pixmap = render_scene_to_pixmap(
+            self.context.as_mut().expect("context initialized above"),
+            &mut self.resources,
+            scene,
+            width,
+            height,
+            background,
+            scale_factor,
+            measurer,
+        )?;
+        Ok(pixmap.take_rgba8(ImageAlphaType::AlphaPremultiplied))
+    }
+}
+
+impl Default for CpuRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Render `scene` into a pixmap over `background`.
 pub fn render_to_pixmap(
     scene: &RenderScene,
@@ -29,11 +94,31 @@ pub fn render_to_pixmap(
 
     let mut ctx = RenderContext::new(width, height);
     let mut resources = Resources::new();
+    render_scene_to_pixmap(
+        &mut ctx,
+        &mut resources,
+        scene,
+        width,
+        height,
+        background,
+        scale_factor,
+        measurer,
+    )
+}
+
+fn render_scene_to_pixmap(
+    ctx: &mut RenderContext,
+    resources: &mut Resources,
+    scene: &RenderScene,
+    width: u16,
+    height: u16,
+    background: RenderColor,
+    scale_factor: f64,
+    measurer: Arc<VelloTextMeasurer>,
+) -> Result<Pixmap> {
+    let mut pixmap = Pixmap::new(width, height);
     {
-        let mut painter = CpuPainter {
-            ctx: &mut ctx,
-            resources: &mut resources,
-        };
+        let mut painter = CpuPainter { ctx, resources };
         // Drawn into the scene rather than used as a clear colour, so a backdrop filter at the
         // root sees the background exactly as it would on the GPU.
         painter.fill_rect(
@@ -50,8 +135,7 @@ pub fn render_to_pixmap(
     }
 
     ctx.flush();
-    let mut pixmap = Pixmap::new(width, height);
-    ctx.render(&mut pixmap, &mut resources);
+    ctx.render(&mut pixmap, resources);
     Ok(pixmap)
 }
 
@@ -64,13 +148,47 @@ pub fn render_to_rgba8(
     scale_factor: f64,
     measurer: Arc<VelloTextMeasurer>,
 ) -> Result<Vec<u8>> {
-    Ok(
-        render_to_pixmap(scene, width, height, background, scale_factor, measurer)?
-            .take_rgba8(ImageAlphaType::AlphaPremultiplied),
-    )
+    CpuRenderer::new().render_to_rgba8(scene, width, height, background, scale_factor, measurer)
 }
 
 fn pixmap_dimension(value: u32, axis: &str) -> Result<u16> {
     u16::try_from(value.max(1))
         .map_err(|_| anyhow!("CPU render target {axis} {value} exceeds the 65535 pixel limit"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fission_layout::LayoutRect;
+    use parley::FontContext;
+    use std::sync::Mutex;
+
+    fn measurer() -> Arc<VelloTextMeasurer> {
+        Arc::new(VelloTextMeasurer::new(Arc::new(Mutex::new(
+            FontContext::new(),
+        ))))
+    }
+
+    #[test]
+    fn reused_context_matches_one_shot_after_resize() {
+        let scene = RenderScene::new(LayoutRect::new(0.0, 0.0, 24.0, 16.0));
+        let background = RenderColor {
+            r: 12,
+            g: 34,
+            b: 56,
+            a: 255,
+        };
+        let measurer = measurer();
+        let mut renderer = CpuRenderer::new();
+
+        for (width, height) in [(24, 16), (48, 32), (24, 16)] {
+            let reused = renderer
+                .render_to_rgba8(&scene, width, height, background, 1.0, measurer.clone())
+                .unwrap();
+            let one_shot =
+                render_to_rgba8(&scene, width, height, background, 1.0, measurer.clone()).unwrap();
+
+            assert_eq!(reused, one_shot);
+        }
+    }
 }
