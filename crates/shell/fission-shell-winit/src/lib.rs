@@ -11652,6 +11652,15 @@ mod tests {
         let record = resolve_selector_record(&pipeline, &ScrollStateMap::default(), &query)
             .expect("scoped selector should resolve");
         assert_eq!(record.node.identifier.as_deref(), Some("app.open"));
+        assert_eq!(record.node.children, Vec::<String>::new());
+
+        let app_record = resolve_selector_record(
+            &pipeline,
+            &ScrollStateMap::default(),
+            &fission_test_driver::SelectorQuery::semantic_identifier("mounted.app"),
+        )
+        .expect("semantic parent should resolve");
+        assert_eq!(app_record.node.children, vec![app_open.to_string()]);
     }
 
     #[test]

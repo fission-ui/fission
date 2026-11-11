@@ -100,119 +100,131 @@ pub(crate) fn collect_semantic_records(
     semantic_ids
         .into_iter()
         .filter_map(|id| {
-            let node = ir.nodes.get(&id)?;
-            let fission_ir::Op::Semantics(semantics) = &node.op else {
-                return None;
-            };
-            let logical = snap
-                .get_node_rect(id)
-                .unwrap_or_else(|| LayoutRect::new(0.0, 0.0, 0.0, 0.0));
-            let visual = visual_rect_for_node(ir, snap, scroll, id);
-            let visible = clipped_visible_rect_for_node(ir, snap, scroll, id);
-            let visibility = visibility_state(visual, visible);
-            let visible_bounds = visible.map(bounds_from_rect);
-            let legacy_bounds = visible_bounds.unwrap_or(fission_test_driver::Bounds {
-                x: 0.0,
-                y: 0.0,
-                width: 0.0,
-                height: 0.0,
-            });
-            let value_present = semantics
-                .value
-                .as_deref()
-                .map(|value| !value.is_empty())
-                .unwrap_or(false);
-            let value = if semantics.masked {
-                None
-            } else {
-                semantics.value.clone()
-            };
-            let semantic_node = fission_test_driver::SemanticNode {
-                identifier: semantics.identifier.clone(),
-                widget_id: id.to_string(),
-                stable_node_id: id.to_string(),
-                parent: nearest_semantic_parent(ir, id).map(|parent| parent.to_string()),
-                children: semantic_children.remove(&id).unwrap_or_default(),
-                role: format!("{:?}", semantics.role),
-                label: semantics.label.clone(),
-                value,
-                value_present,
-                focusable: semantics.focusable,
-                sequential_focusable: semantics.is_sequentially_focusable(),
-                text_editable: semantics.supports_text_editing(),
-                disabled: semantics.disabled,
-                read_only: semantics.read_only,
-                checked: semantics.checked,
-                selected: semantics.selected,
-                expanded: semantics.expanded,
-                has_popup: semantics.has_popup.map(|value| format!("{value:?}")),
-                orientation: semantics.orientation.map(|value| format!("{value:?}")),
-                modal: semantics.modal,
-                required: semantics.required,
-                invalid: matches!(
-                    semantics.validation_state,
-                    fission_ir::TextFieldValidationState::Invalid
-                ),
-                controls: semantics.controls.iter().map(ToString::to_string).collect(),
-                labelled_by: semantics
-                    .labelled_by
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect(),
-                described_by: semantics
-                    .described_by
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect(),
-                active_descendant: semantics.active_descendant.map(|id| id.to_string()),
-                actions: semantics
-                    .actions
-                    .entries
-                    .iter()
-                    .map(|entry| format!("{:?}", entry.trigger))
-                    .collect(),
-                text_selection: semantics.text_selection,
-                masked: semantics.masked,
-                scrollable_x: semantics.scrollable_x,
-                scrollable_y: semantics.scrollable_y,
-                logical_bounds: bounds_from_rect(logical),
-                visible_bounds,
-                visibility,
-                x: legacy_bounds.x,
-                y: legacy_bounds.y,
-                width: legacy_bounds.width,
-                height: legacy_bounds.height,
-            };
-            Some(SemanticRecord {
-                id,
-                semantics: semantics.clone(),
-                node: semantic_node,
-            })
+            let children = semantic_children.remove(&id).unwrap_or_default();
+            semantic_record_for_node(ir, snap, scroll, id, children)
         })
         .collect()
 }
 
-pub(crate) fn selector_matches(
-    record: &SemanticRecord,
+fn semantic_record_for_node(
+    ir: &CoreIR,
+    snap: &fission_layout::LayoutSnapshot,
+    scroll: &fission_core::ScrollStateMap,
+    id: WidgetId,
+    children: Vec<String>,
+) -> Option<SemanticRecord> {
+    let node = ir.nodes.get(&id)?;
+    let fission_ir::Op::Semantics(semantics) = &node.op else {
+        return None;
+    };
+    let logical = snap
+        .get_node_rect(id)
+        .unwrap_or_else(|| LayoutRect::new(0.0, 0.0, 0.0, 0.0));
+    let visual = visual_rect_for_node(ir, snap, scroll, id);
+    let visible = clipped_visible_rect_for_node(ir, snap, scroll, id);
+    let visibility = visibility_state(visual, visible);
+    let visible_bounds = visible.map(bounds_from_rect);
+    let legacy_bounds = visible_bounds.unwrap_or(fission_test_driver::Bounds {
+        x: 0.0,
+        y: 0.0,
+        width: 0.0,
+        height: 0.0,
+    });
+    let value_present = semantics
+        .value
+        .as_deref()
+        .map(|value| !value.is_empty())
+        .unwrap_or(false);
+    let value = if semantics.masked {
+        None
+    } else {
+        semantics.value.clone()
+    };
+    let semantic_node = fission_test_driver::SemanticNode {
+        identifier: semantics.identifier.clone(),
+        widget_id: id.to_string(),
+        stable_node_id: id.to_string(),
+        parent: nearest_semantic_parent(ir, id).map(|parent| parent.to_string()),
+        children,
+        role: format!("{:?}", semantics.role),
+        label: semantics.label.clone(),
+        value,
+        value_present,
+        focusable: semantics.focusable,
+        sequential_focusable: semantics.is_sequentially_focusable(),
+        text_editable: semantics.supports_text_editing(),
+        disabled: semantics.disabled,
+        read_only: semantics.read_only,
+        checked: semantics.checked,
+        selected: semantics.selected,
+        expanded: semantics.expanded,
+        has_popup: semantics.has_popup.map(|value| format!("{value:?}")),
+        orientation: semantics.orientation.map(|value| format!("{value:?}")),
+        modal: semantics.modal,
+        required: semantics.required,
+        invalid: matches!(
+            semantics.validation_state,
+            fission_ir::TextFieldValidationState::Invalid
+        ),
+        controls: semantics.controls.iter().map(ToString::to_string).collect(),
+        labelled_by: semantics
+            .labelled_by
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        described_by: semantics
+            .described_by
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        active_descendant: semantics.active_descendant.map(|id| id.to_string()),
+        actions: semantics
+            .actions
+            .entries
+            .iter()
+            .map(|entry| format!("{:?}", entry.trigger))
+            .collect(),
+        text_selection: semantics.text_selection,
+        masked: semantics.masked,
+        scrollable_x: semantics.scrollable_x,
+        scrollable_y: semantics.scrollable_y,
+        logical_bounds: bounds_from_rect(logical),
+        visible_bounds,
+        visibility,
+        x: legacy_bounds.x,
+        y: legacy_bounds.y,
+        width: legacy_bounds.width,
+        height: legacy_bounds.height,
+    };
+    Some(SemanticRecord {
+        id,
+        semantics: semantics.clone(),
+        node: semantic_node,
+    })
+}
+
+fn selector_matches_semantics(
+    id: WidgetId,
+    semantics: &Semantics,
     selector: &fission_test_driver::Selector,
 ) -> bool {
     match selector {
         fission_test_driver::Selector::SemanticIdentifier { identifier }
         | fission_test_driver::Selector::AccessibilityIdentifier { identifier } => {
-            record.node.identifier.as_deref() == Some(identifier.as_str())
+            semantics.identifier.as_deref() == Some(identifier.as_str())
         }
         fission_test_driver::Selector::TestId { test_id } => {
-            record.node.identifier.as_deref() == Some(test_id.as_str())
+            semantics.identifier.as_deref() == Some(test_id.as_str())
         }
         fission_test_driver::Selector::WidgetId { widget_id } => {
-            record.id == parse_widget_selector(widget_id)
+            id == parse_widget_selector(widget_id)
         }
         fission_test_driver::Selector::RoleLabel { role, label } => {
-            record.node.role.eq_ignore_ascii_case(role)
-                && record.node.label.as_deref() == Some(label.as_str())
+            format!("{:?}", semantics.role).eq_ignore_ascii_case(role)
+                && semantics.label.as_deref() == Some(label.as_str())
         }
         fission_test_driver::Selector::Label { label } => {
-            record.node.label.as_deref() == Some(label.as_str())
+            semantics.label.as_deref() == Some(label.as_str())
         }
     }
 }
@@ -270,21 +282,55 @@ pub(crate) fn resolve_selector_record(
         ));
     };
 
-    let all = collect_semantic_records(ir, snap, scroll);
-    let scoped = if let Some(scope_query) = &query.scope {
-        let scope = resolve_selector_record(pipeline, scroll, scope_query)?;
-        all.into_iter()
-            .filter(|record| is_descendant_of(ir, record.id, scope.id))
-            .collect()
+    let scope_id = query
+        .scope
+        .as_ref()
+        .map(|scope_query| resolve_selector_record(pipeline, scroll, scope_query))
+        .transpose()?
+        .map(|scope| scope.id);
+
+    // Selector actions usually resolve a unique identifier. Avoid building and
+    // measuring every semantic node for that common path: large retained trees
+    // can contain thousands of nodes, and each node's visibility needs an
+    // ancestor walk through clipping and scroll containers.
+    let mut matched_ids: Vec<_> = ir
+        .nodes
+        .iter()
+        .filter_map(|(id, node)| {
+            let fission_ir::Op::Semantics(semantics) = &node.op else {
+                return None;
+            };
+            (selector_matches_semantics(*id, semantics, &query.selector)
+                && scope_id.is_none_or(|scope| is_descendant_of(ir, *id, scope))
+                && !fission_core::hit_test::is_interaction_inert(ir, *id)
+                && fission_core::hit_test::is_in_active_responsive_branch(ir, snap, *id))
+            .then_some(*id)
+        })
+        .collect();
+    matched_ids.sort_by_key(|id| id.as_u128());
+    let matched: Vec<SemanticRecord> = matched_ids
+        .into_iter()
+        .filter_map(|id| {
+            semantic_record_for_node(ir, snap, scroll, id, semantic_children_for(ir, snap, id))
+        })
+        .collect();
+
+    let scoped = if matched.is_empty() {
+        // Keep the existing diagnostic candidate list when a selector misses.
+        // This slower path is only needed to explain a failed selector; valid
+        // selector actions no longer pay to materialize the whole tree.
+        let all = collect_semantic_records(ir, snap, scroll);
+        match scope_id {
+            Some(scope) => all
+                .into_iter()
+                .filter(|record| is_descendant_of(ir, record.id, scope))
+                .collect(),
+            None => all,
+        }
     } else {
-        all
+        matched.clone()
     };
 
-    let matched: Vec<SemanticRecord> = scoped
-        .iter()
-        .filter(|record| selector_matches(record, &query.selector))
-        .cloned()
-        .collect();
     if matched.is_empty() {
         return Err(selector_failure(
             query.clone(),
@@ -298,19 +344,18 @@ pub(crate) fn resolve_selector_record(
     }
 
     let visible_matched: Vec<SemanticRecord> = matched
-        .iter()
+        .into_iter()
         .filter(|record| {
             query.include_hidden
                 || record.node.visibility != fission_test_driver::VisibilityState::Hidden
         })
-        .cloned()
         .collect();
     if visible_matched.is_empty() {
         return Err(selector_failure(
             query.clone(),
             fission_test_driver::SelectorFailureKind::FoundButNotVisible,
             "selector matched node(s), but none are visible",
-            matched
+            scoped
                 .into_iter()
                 .map(|record| (record, Some("matched but hidden".into())))
                 .collect(),
@@ -357,6 +402,40 @@ pub(crate) fn resolve_selector_record(
     }
 
     Ok(visible_matched.into_iter().next().unwrap())
+}
+
+fn semantic_children_for(
+    ir: &CoreIR,
+    snap: &fission_layout::LayoutSnapshot,
+    parent_id: WidgetId,
+) -> Vec<String> {
+    let mut children = Vec::new();
+    let mut stack = ir
+        .nodes
+        .get(&parent_id)
+        .map(|node| node.children.clone())
+        .unwrap_or_default();
+
+    while let Some(id) = stack.pop() {
+        let Some(node) = ir.nodes.get(&id) else {
+            continue;
+        };
+        if matches!(node.op, fission_ir::Op::Semantics(_)) {
+            if !fission_core::hit_test::is_interaction_inert(ir, id)
+                && fission_core::hit_test::is_in_active_responsive_branch(ir, snap, id)
+                && nearest_semantic_parent(ir, id) == Some(parent_id)
+            {
+                children.push(id);
+            }
+            // Descendant semantics belong to this semantic node, so they are
+            // not children of `parent_id` in the flattened accessibility tree.
+            continue;
+        }
+        stack.extend(node.children.iter().copied());
+    }
+
+    children.sort_by_key(|id| id.as_u128());
+    children.into_iter().map(|id| id.to_string()).collect()
 }
 
 pub(crate) fn selector_center(record: &SemanticRecord) -> Option<LayoutPoint> {
