@@ -1511,7 +1511,12 @@ impl Runtime {
         // yet adopted the pre-layout reconciliation hook. Production shells
         // call `reconcile_ir` before layout, making this pass idempotent.
         self.reconcile_ir(ir);
-        let mut needs_follow_up_frame = refresh_hover && self.refresh_hover_state(ir, layout);
+        // Scroll offsets can outlive the content and viewport sizes they were
+        // created for. Clamp them against this completed layout before using
+        // them for scroll-into-view or rendering. A changed offset needs a
+        // follow-up frame so layout and paint use the reconciled value.
+        let mut needs_follow_up_frame = self.clamp_scroll_offsets_to_layout(ir, layout);
+        needs_follow_up_frame |= refresh_hover && self.refresh_hover_state(ir, layout);
         needs_follow_up_frame |= self.apply_pending_scroll_into_view(ir, layout);
         needs_follow_up_frame |= self.reveal_new_active_descendants(ir, layout);
         needs_follow_up_frame |= self.apply_pending_selection_regions(ir);
@@ -1562,6 +1567,40 @@ impl Runtime {
 
         self.runtime_state.hero.positions = current_heroes;
         needs_follow_up_frame
+    }
+
+    fn clamp_scroll_offsets_to_layout(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) -> bool {
+        let mut changed = false;
+        for (id, node) in &ir.nodes {
+            let Op::Layout(LayoutOp::Scroll { direction, .. }) = &node.op else {
+                continue;
+            };
+            let Some(current_offset) = self.runtime_state.scroll.offsets.get(id).copied() else {
+                continue;
+            };
+            let Some(geometry) = layout.get_node_geometry(*id) else {
+                continue;
+            };
+            let (content_extent, viewport_extent) = match direction {
+                FlexDirection::Row => (geometry.content_size.width, geometry.rect.width()),
+                FlexDirection::Column => (geometry.content_size.height, geometry.rect.height()),
+            };
+            if !(content_extent.is_finite() && viewport_extent.is_finite()) {
+                continue;
+            }
+
+            let max_offset = (content_extent - viewport_extent).max(0.0);
+            let next_offset = if current_offset.is_finite() {
+                current_offset.clamp(0.0, max_offset)
+            } else {
+                0.0
+            };
+            if current_offset != next_offset {
+                self.runtime_state.scroll.set_offset(*id, next_offset);
+                changed = true;
+            }
+        }
+        changed
     }
 
     fn apply_pending_selection_regions(&mut self, ir: &CoreIR) -> bool {
