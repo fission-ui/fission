@@ -54,6 +54,13 @@ presentation. Mutating a returned snapshot does not modify the shell's state.
 Production builds expose neither the bridge nor this getter. No review-specific
 global is involved.
 
+Web renderer diagnostics also publish the most recent stage timings as
+`window.__FISSION_LAST_FRAME_STAGE_PERF`. On the Canvas2D software path,
+`softwareRenderMs` measures CPU rasterization and `canvasUploadMs` measures
+canvas resizing, `ImageData` creation, and `putImageData`. These separate fields
+help distinguish expensive scene work from transfer to the browser canvas;
+`renderPresentMs` remains the total for both stages.
+
 The driver verifies actual browser metrics, canvas CSS/backing dimensions and
 the matching submitted-frame acknowledgement, crosses two browser animation
 frames for paint, and checks again before capture. A changed viewport requires
