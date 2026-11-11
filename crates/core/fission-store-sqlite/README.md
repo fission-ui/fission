@@ -13,7 +13,7 @@ The CLI installs and validates the browser worker, bridge, SQLite WASM module an
 ## Providers
 
 - `SqliteStore` uses bundled SQLite through `rusqlite` on native targets. `FISSION_STORE_PATH` can override the application-data database path.
-- `WebSqliteStore` runs the official SQLite WASM build in a worker and persists through the `opfs-wl` VFS. The database is origin-scoped and namespaced by the Fission application ID.
+- `WebSqliteStore` runs the official SQLite WASM build in a worker and persists through the `opfs-wl` VFS. The default database is origin-scoped and namespaced by the Fission application ID.
 
 Web storage requires cross-origin isolation headers:
 
@@ -25,6 +25,29 @@ Cross-Origin-Embedder-Policy: require-corp
 Separate tabs use independent SQLite connections coordinated through Web Locks. Keep migrations bounded and close pages running an older storage build during a one-time backend migration.
 
 The provider implements both `StoreProvider` and `SqlStoreProvider`, so typed key/value operations, parameterised SQL, migrations and transactions use one database authority. Static-site builds have no runtime storage; SSR storage is server-side.
+
+### Isolated Web databases
+
+Use a stable name when an application owns several independent databases, such
+as one PersonalDB database per workspace. Each name selects its own OPFS file,
+worker, and cross-tab writer lock. The name is hashed by the browser host before
+it is used to construct a filename. The no-argument constructor continues to
+open the application's existing default database.
+
+```rust,ignore
+let workspace_store = WebSqliteStore::open_database(workspace_database_id)?;
+workspace_store.migrate(workspace_migrations).await?;
+workspace_store.close()?; // A later request reopens the same named database.
+```
+
+Use the same name to reopen that workspace database in a later session. Do not
+use a temporary file path or a user-facing label as the key: renaming either
+would select a different database. Named databases do not import or migrate
+the application's legacy default `store.sqlite3` file.
+Call `close()` after pending work completes to release the worker and writer
+lock. Closing a handle with an open worker-owned transaction rolls that
+transaction back; subsequent requests on the handle create a new worker for
+the same OPFS database.
 
 ### Worker-owned Web transactions
 

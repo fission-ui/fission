@@ -14,29 +14,74 @@ use wasm_bindgen_futures::JsFuture;
 extern "C" {
     #[wasm_bindgen(catch, js_namespace = globalThis, js_name = __fissionSqliteRequest)]
     fn sqlite_request(request: JsValue) -> Result<js_sys::Promise, JsValue>;
+
+    #[wasm_bindgen(catch, js_namespace = globalThis, js_name = __fissionSqliteCloseDatabase)]
+    fn sqlite_close_database(database_name: JsValue) -> Result<bool, JsValue>;
 }
 
 /// Browser provider. The generated Web bootstrap installs its worker bridge
 /// before starting the Fission application.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct WebSqliteStore;
+#[derive(Clone, Debug, Default)]
+pub struct WebSqliteStore {
+    database_name: Option<String>,
+}
 
 impl WebSqliteStore {
     pub fn new() -> Self {
-        Self
+        Self {
+            database_name: None,
+        }
+    }
+
+    /// Opens a database isolated from the application's default database and
+    /// from every other named database. Use a stable, application-owned name
+    /// such as a workspace ID. The browser host hashes the name before using
+    /// it to select an OPFS file, so names are never interpreted as paths.
+    pub fn open_database(name: impl Into<String>) -> Result<Self, SqlError> {
+        let name = name.into();
+        if name.trim().is_empty() || name.len() > 1024 {
+            return Err(SqlError::new(
+                SqlErrorKind::InvalidParameter,
+                "Web SQLite database names must contain 1 to 1024 UTF-8 bytes",
+            ));
+        }
+        Ok(Self {
+            database_name: Some(name),
+        })
+    }
+
+    /// Closes this handle's browser worker and releases its writer lock. A
+    /// later request on this handle (or another handle with the same name)
+    /// starts a fresh worker and reopens the same OPFS database. Call this
+    /// after pending operations complete; an open transaction is rolled back
+    /// when its worker is closed.
+    pub fn close(&self) -> Result<(), SqlError> {
+        ensure_sqlite_bridge().map_err(sql_error)?;
+        let database_name = self
+            .database_name
+            .as_deref()
+            .map(JsValue::from_str)
+            .unwrap_or(JsValue::UNDEFINED);
+        sqlite_close_database(database_name)
+            .map(|_| ())
+            .map_err(js_error)
+            .map_err(sql_error)
     }
 
     /// Begins a worker-owned transaction which remains open across requests.
-    /// Requests from other browser contexts receive `SqlErrorKind::Busy` until
-    /// this transaction commits or rolls back.
+    /// Requests for this same database from other browser contexts receive
+    /// `SqlErrorKind::Busy` until this transaction commits or rolls back.
     pub async fn begin_transaction(
         &self,
         options: WebSqliteTransactionOptions,
     ) -> Result<WebSqliteTransaction, SqlError> {
         let result: TransactionIdResponse =
-            request("sql_tx_begin", options).await.map_err(sql_error)?;
+            request(self.database_name.as_deref(), "sql_tx_begin", options)
+                .await
+                .map_err(sql_error)?;
         Ok(WebSqliteTransaction {
             id: result.transaction_id,
+            database_name: self.database_name.clone(),
             closed: false,
         })
     }
@@ -173,6 +218,7 @@ pub enum WebSqliteChangesetConflictPolicy {
 /// A transaction handle bound by the worker to the browser tab that created it.
 pub struct WebSqliteTransaction {
     id: String,
+    database_name: Option<String>,
     closed: bool,
 }
 
@@ -183,6 +229,7 @@ impl WebSqliteTransaction {
 
     pub async fn execute(&mut self, statement: SqlStatement) -> Result<SqlExecuteResult, SqlError> {
         request(
+            self.database_name.as_deref(),
             "sql_tx_execute",
             TransactionStatementRequest::new(&self.id, statement),
         )
@@ -192,6 +239,7 @@ impl WebSqliteTransaction {
 
     pub async fn query(&mut self, statement: SqlStatement) -> Result<SqlRows, SqlError> {
         request(
+            self.database_name.as_deref(),
             "sql_tx_query",
             TransactionStatementRequest::new(&self.id, statement),
         )
@@ -204,6 +252,7 @@ impl WebSqliteTransaction {
         tables: impl IntoIterator<Item = impl Into<String>>,
     ) -> Result<WebSqliteSession, SqlError> {
         let result: SessionIdResponse = request(
+            self.database_name.as_deref(),
             "sql_tx_session_create",
             CreateSessionRequest {
                 transaction_id: self.id.clone(),
@@ -222,6 +271,7 @@ impl WebSqliteTransaction {
         session: &WebSqliteSession,
     ) -> Result<Vec<u8>, SqlError> {
         let result: ChangesetResponse = request(
+            self.database_name.as_deref(),
             "sql_tx_session_capture",
             SessionRequest {
                 transaction_id: self.id.clone(),
@@ -239,6 +289,7 @@ impl WebSqliteTransaction {
         conflict_policy: WebSqliteChangesetConflictPolicy,
     ) -> Result<(), SqlError> {
         request::<_, AppliedResponse>(
+            self.database_name.as_deref(),
             "sql_tx_changeset_apply",
             ApplyChangesetRequest {
                 transaction_id: self.id.clone(),
@@ -252,17 +303,25 @@ impl WebSqliteTransaction {
     }
 
     pub async fn commit(&mut self) -> Result<(), SqlError> {
-        request::<_, ()>("sql_tx_commit", TransactionIdRequest::new(&self.id))
-            .await
-            .map_err(sql_error)?;
+        request::<_, ()>(
+            self.database_name.as_deref(),
+            "sql_tx_commit",
+            TransactionIdRequest::new(&self.id),
+        )
+        .await
+        .map_err(sql_error)?;
         self.closed = true;
         Ok(())
     }
 
     pub async fn rollback(&mut self) -> Result<(), SqlError> {
-        request::<_, ()>("sql_tx_rollback", TransactionIdRequest::new(&self.id))
-            .await
-            .map_err(sql_error)?;
+        request::<_, ()>(
+            self.database_name.as_deref(),
+            "sql_tx_rollback",
+            TransactionIdRequest::new(&self.id),
+        )
+        .await
+        .map_err(sql_error)?;
         self.closed = true;
         Ok(())
     }
@@ -274,8 +333,14 @@ impl Drop for WebSqliteTransaction {
             return;
         }
         let id = self.id.clone();
+        let database_name = self.database_name.clone();
         wasm_bindgen_futures::spawn_local(async move {
-            let _ = request::<_, ()>("sql_tx_rollback", TransactionIdRequest::new(&id)).await;
+            let _ = request::<_, ()>(
+                database_name.as_deref(),
+                "sql_tx_rollback",
+                TransactionIdRequest::new(&id),
+            )
+            .await;
         });
     }
 }
@@ -365,7 +430,11 @@ impl WebSqliteError {
     }
 }
 
-async fn request<Q, R>(operation: &str, request: Q) -> Result<R, WebSqliteError>
+async fn request<Q, R>(
+    database_name: Option<&str>,
+    operation: &str,
+    request: Q,
+) -> Result<R, WebSqliteError>
 where
     Q: Serialize,
     R: DeserializeOwned,
@@ -373,12 +442,18 @@ where
     ensure_sqlite_bridge()?;
     #[derive(Serialize)]
     struct Request<'a, Q> {
+        #[serde(rename = "databaseName", skip_serializing_if = "Option::is_none")]
+        database_name: Option<&'a str>,
         operation: &'a str,
         request: Q,
     }
 
-    let value = serde_wasm_bindgen::to_value(&Request { operation, request })
-        .map_err(|error| WebSqliteError::new("serialization", error.to_string()))?;
+    let value = serde_wasm_bindgen::to_value(&Request {
+        database_name,
+        operation,
+        request,
+    })
+    .map_err(|error| WebSqliteError::new("serialization", error.to_string()))?;
     let promise = sqlite_request(value).map_err(js_error)?;
     let response = JsFuture::from(promise).await.map_err(js_error)?;
     serde_wasm_bindgen::from_value(response)
@@ -391,7 +466,12 @@ fn ensure_sqlite_bridge() -> Result<(), WebSqliteError> {
         &JsValue::from_str("__fissionSqliteRequest"),
     )
     .map_err(js_error)?;
-    if bridge.is_function() {
+    let close = js_sys::Reflect::get(
+        &js_sys::global(),
+        &JsValue::from_str("__fissionSqliteCloseDatabase"),
+    )
+    .map_err(js_error)?;
+    if bridge.is_function() && close.is_function() {
         Ok(())
     } else {
         Err(WebSqliteError::new(
@@ -462,32 +542,36 @@ fn sql_error(error: WebSqliteError) -> SqlError {
 
 impl StoreProvider for WebSqliteStore {
     fn get(&self, request_value: StoreGet) -> StoreFuture<Result<Option<StoreValue>, StoreError>> {
+        let database_name = self.database_name.clone();
         Box::pin(async move {
-            request("store_get", request_value)
+            request(database_name.as_deref(), "store_get", request_value)
                 .await
                 .map_err(store_error)
         })
     }
 
     fn contains(&self, request_value: StoreContains) -> StoreFuture<Result<bool, StoreError>> {
+        let database_name = self.database_name.clone();
         Box::pin(async move {
-            request("store_contains", request_value)
+            request(database_name.as_deref(), "store_contains", request_value)
                 .await
                 .map_err(store_error)
         })
     }
 
     fn set(&self, request_value: StoreSet) -> StoreFuture<Result<(), StoreError>> {
+        let database_name = self.database_name.clone();
         Box::pin(async move {
-            request("store_set", request_value)
+            request(database_name.as_deref(), "store_set", request_value)
                 .await
                 .map_err(store_error)
         })
     }
 
     fn remove(&self, request_value: StoreRemove) -> StoreFuture<Result<bool, StoreError>> {
+        let database_name = self.database_name.clone();
         Box::pin(async move {
-            request("store_remove", request_value)
+            request(database_name.as_deref(), "store_remove", request_value)
                 .await
                 .map_err(store_error)
         })
@@ -497,8 +581,9 @@ impl StoreProvider for WebSqliteStore {
         &self,
         request_value: StoreBatch,
     ) -> StoreFuture<Result<StoreBatchResult, StoreError>> {
+        let database_name = self.database_name.clone();
         Box::pin(async move {
-            request("store_batch", request_value)
+            request(database_name.as_deref(), "store_batch", request_value)
                 .await
                 .map_err(store_error)
         })
@@ -508,8 +593,9 @@ impl StoreProvider for WebSqliteStore {
         &self,
         request_value: StoreListPrefix,
     ) -> StoreFuture<Result<Vec<StoreEntry>, StoreError>> {
+        let database_name = self.database_name.clone();
         Box::pin(async move {
-            request("store_list_prefix", request_value)
+            request(database_name.as_deref(), "store_list_prefix", request_value)
                 .await
                 .map_err(store_error)
         })
@@ -518,19 +604,30 @@ impl StoreProvider for WebSqliteStore {
 
 impl SqlStoreProvider for WebSqliteStore {
     fn execute(&self, statement: SqlStatement) -> StoreFuture<Result<SqlExecuteResult, SqlError>> {
-        Box::pin(async move { request("sql_execute", statement).await.map_err(sql_error) })
+        let database_name = self.database_name.clone();
+        Box::pin(async move {
+            request(database_name.as_deref(), "sql_execute", statement)
+                .await
+                .map_err(sql_error)
+        })
     }
 
     fn query(&self, query: SqlQuery) -> StoreFuture<Result<SqlRows, SqlError>> {
-        Box::pin(async move { request("sql_query", query).await.map_err(sql_error) })
+        let database_name = self.database_name.clone();
+        Box::pin(async move {
+            request(database_name.as_deref(), "sql_query", query)
+                .await
+                .map_err(sql_error)
+        })
     }
 
     fn transaction(
         &self,
         transaction: SqlTransaction,
     ) -> StoreFuture<Result<SqlTransactionResult, SqlError>> {
+        let database_name = self.database_name.clone();
         Box::pin(async move {
-            request("sql_transaction", transaction)
+            request(database_name.as_deref(), "sql_transaction", transaction)
                 .await
                 .map_err(sql_error)
         })
@@ -540,6 +637,11 @@ impl SqlStoreProvider for WebSqliteStore {
         &self,
         migrations: SqlMigrations,
     ) -> StoreFuture<Result<SqlMigrationResult, SqlError>> {
-        Box::pin(async move { request("sql_migrate", migrations).await.map_err(sql_error) })
+        let database_name = self.database_name.clone();
+        Box::pin(async move {
+            request(database_name.as_deref(), "sql_migrate", migrations)
+                .await
+                .map_err(sql_error)
+        })
     }
 }

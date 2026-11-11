@@ -7,12 +7,14 @@ function defaultApplicationId() {
   return path ? `path:${path}` : "fission-web-app";
 }
 
-function createBridge(applicationId) {
+function createDatabaseBridge(applicationId, databaseName, databaseId) {
   const workerUrl = new URL("./fission-sqlite-worker.mjs", import.meta.url);
   workerUrl.searchParams.set("fission_app_id", applicationId);
+  if (databaseId) workerUrl.searchParams.set("fission_database_id", databaseId);
   const contextId = crypto.randomUUID();
-  const channelName = `fission-sqlite:${applicationId}`;
-  const lockName = `fission-sqlite-owner:${applicationId}`;
+  const databaseSuffix = databaseId ? `:db:${databaseId}` : "";
+  const channelName = `fission-sqlite:${applicationId}${databaseSuffix}`;
+  const lockName = `fission-sqlite-owner:${applicationId}${databaseSuffix}`;
   const coordinated =
     typeof BroadcastChannel === "function" && navigator.locks?.request;
 
@@ -112,7 +114,7 @@ function createBridge(applicationId) {
     ownerId = contextId;
     const currentWorker = new Worker(workerUrl, {
       type: "module",
-      name: `fission-sqlite:${applicationId}`,
+      name: `fission-sqlite:${applicationId}${databaseSuffix}`,
     });
     worker = currentWorker;
 
@@ -193,7 +195,71 @@ function createBridge(applicationId) {
     channel?.close();
   };
 
-  return { applicationId, request, close };
+  return { applicationId, databaseName, request, close };
+}
+
+async function databaseDigest(name) {
+  const digest = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(name)),
+  );
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function createBridge(applicationId) {
+  const databases = new Map();
+  let closed = false;
+
+  async function request(value) {
+    if (closed) throw new Error("SQLite bridge closed");
+    if (!value || typeof value !== "object") {
+      const error = new Error("invalid SQLite database request");
+      error.code = "invalid_request";
+      throw error;
+    }
+
+    const name = value.databaseName;
+    if (
+      name !== undefined &&
+      (typeof name !== "string" || name.trim().length === 0 ||
+        new TextEncoder().encode(name).length > 1024)
+    ) {
+      const error = new Error("Web SQLite database names must contain 1 to 1024 UTF-8 bytes");
+      error.code = "invalid_request";
+      throw error;
+    }
+
+    const key = name === undefined ? null : name;
+    let database = databases.get(key);
+    if (!database) {
+      const id = name === undefined ? null : await databaseDigest(name);
+      if (closed) throw new Error("SQLite bridge closed");
+      database = databases.get(key);
+      if (!database) {
+        database = createDatabaseBridge(applicationId, name, id);
+        databases.set(key, database);
+      }
+    }
+
+    const { databaseName: _databaseName, ...databaseRequest } = value;
+    return database.request(databaseRequest);
+  }
+
+  function closeDatabase(name) {
+    const key = name === undefined ? null : name;
+    const database = databases.get(key);
+    if (!database) return false;
+    databases.delete(key);
+    database.close();
+    return true;
+  }
+
+  function close() {
+    closed = true;
+    for (const database of databases.values()) database.close();
+    databases.clear();
+  }
+
+  return { applicationId, request, close, closeDatabase };
 }
 
 /**
@@ -223,4 +289,5 @@ export function installFissionSqlite(options = {}) {
     });
   }
   globalThis.__fissionSqliteRequest = bridge.request;
+  globalThis.__fissionSqliteCloseDatabase = bridge.closeDatabase;
 }

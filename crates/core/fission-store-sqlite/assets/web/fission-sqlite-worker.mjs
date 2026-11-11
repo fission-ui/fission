@@ -1,8 +1,12 @@
 import sqlite3InitModule from "./sqlite3.mjs";
 
 const applicationId = new URL(globalThis.location.href).searchParams.get("fission_app_id");
+const databaseId = new URL(globalThis.location.href).searchParams.get("fission_database_id");
 if (!applicationId) {
   throw new Error("Fission SQLite worker started without an application ID.");
+}
+if (databaseId && !/^[0-9a-f]{64}$/.test(databaseId)) {
+  throw new Error("Fission SQLite worker received an invalid database ID.");
 }
 
 const namespaceDigest = new Uint8Array(
@@ -11,7 +15,9 @@ const namespaceDigest = new Uint8Array(
 const namespace = Array.from(namespaceDigest.slice(0, 16), (byte) =>
   byte.toString(16).padStart(2, "0")
 ).join("");
-const databaseFilename = `/fission-apps/${namespace}/store.sqlite3`;
+const databaseFilename = databaseId
+  ? `/fission-apps/${namespace}/store-${databaseId}.sqlite3`
+  : `/fission-apps/${namespace}/store.sqlite3`;
 
 const sqlite3 = await sqlite3InitModule({
   locateFile: (file) => new URL(file, import.meta.url).href,
@@ -91,7 +97,10 @@ async function migrateLegacyDatabase() {
   });
 }
 
-await migrateLegacyDatabase();
+// The legacy store.sqlite3 belongs to the application's default database.
+// Named workspace databases always start independently and must never import
+// the default database's tables or data.
+if (!databaseId) await migrateLegacyDatabase();
 const db = new sqlite3.oo1.OpfsWlDb(databaseFilename, "c");
 let activeTransaction = null;
 let activeAuthorizerPolicy = null;
