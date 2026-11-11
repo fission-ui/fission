@@ -709,8 +709,9 @@ impl BrowserController {
             "unsupported_page_mode: this command requires a Web build compiled with FISSION_WEB_TEST_CONTROL=1; DOM sessions support host resize and screenshots"
         );
         let command_json = serde_json::to_string(&command)?;
-        let argument = serde_json::to_string(&command_json)?;
-        let submit = format!("globalThis.__FISSION_TEST__.submit({argument})");
+        let submit = format!(
+            "(() => {{ const bridge=globalThis.__FISSION_TEST__; const command={command_json}; return typeof bridge.submitValue==='function' ? bridge.submitValue(command) : bridge.submit(JSON.stringify(command)); }})()"
+        );
         let result = self.client.send(
             "Runtime.evaluate",
             json!({ "expression": submit, "returnByValue": true }),
@@ -729,14 +730,17 @@ impl BrowserController {
                 "Runtime.evaluate",
                 json!({
                     "expression": format!(
-                        "globalThis.__FISSION_TEST__.poll({request_id})"
+                        "(() => {{ const bridge=globalThis.__FISSION_TEST__; if(typeof bridge.pollValue==='function') return bridge.pollValue({request_id}); const raw=bridge.poll({request_id}); return raw===null ? null : JSON.parse(raw); }})()"
                     ),
                     "returnByValue": true
                 }),
             )?;
             runtime_exception(&poll)?;
-            if let Some(response_json) = poll.pointer("/result/value").and_then(Value::as_str) {
-                return serde_json::from_str(response_json)
+            if let Some(response) = poll
+                .pointer("/result/value")
+                .filter(|response| !response.is_null())
+            {
+                return serde_json::from_value(response.clone())
                     .context("failed to decode Fission browser test response");
             }
             if Instant::now() >= deadline {

@@ -42,6 +42,37 @@ fn capture_webgpu_frame(c: &LiveTestClient, name: &str, width: u32) -> anyhow::R
 }
 
 #[test]
+#[ignore = "requires FISSION_BRIDGE_WEB_URL, the opt-in Web test bridge, and Chromium"]
+fn web_bridge_value_round_trips_remain_bounded_after_repeated_queries() -> anyhow::Result<()> {
+    let url = std::env::var("FISSION_BRIDGE_WEB_URL")?;
+    let client = LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())?;
+
+    for _ in 0..128 {
+        assert!(client
+            .get_text()?
+            .iter()
+            .any(|item| item.text == "Fission web smoke"));
+    }
+
+    let bounded = client.browser_evaluate_json(
+        "(() => { const bridge=globalThis.__FISSION_TEST__; const requests=[]; const command={cmd:'SimulateResize',width:390,height:900}; for(let i=0;i<1024;i++) requests.push(bridge.submitValue(command)); const overflow=bridge.submitValue(command); const rejected=bridge.pollValue(overflow); const collected=requests.every(id=>bridge.pollValue(id)?.status==='Error'); return {count:requests.length,overflow,rejected:rejected?.message,collected}; })()",
+    )?;
+    assert_eq!(bounded["count"], 1024);
+    assert_eq!(bounded["overflow"], 0);
+    assert!(bounded["rejected"]
+        .as_str()
+        .unwrap()
+        .contains("too many pending browser test requests"));
+    assert_eq!(bounded["collected"], true);
+
+    assert!(client
+        .get_text()?
+        .iter()
+        .any(|item| item.text == "Fission web smoke"));
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires FISSION_RESIZE_WEB_URL, installed Chromium, and loopback sockets"]
 fn canvas_same_session_state_route_frames_raw_bridge_timeout_and_recovery() -> anyhow::Result<()> {
     let url = std::env::var("FISSION_RESIZE_WEB_URL")?;
@@ -129,6 +160,17 @@ fn canvas_same_session_state_route_frames_raw_bridge_timeout_and_recovery() -> a
     assert_eq!(after["canvas"], before["canvas"]);
     println!("{}", json!({"raw_bridge":raw,"unchanged":after}));
 
+    let bounded = c.browser_evaluate_json(
+        "(() => { const bridge=globalThis.__FISSION_TEST__; const requests=[]; const command={cmd:'SimulateResize',width:390,height:900}; for(let i=0;i<1024;i++) requests.push(bridge.submitValue(command)); const overflow=bridge.submitValue(command); const rejected=bridge.pollValue(overflow); const collected=requests.every(id=>bridge.pollValue(id)?.status==='Error'); return {count:requests.length,overflow,rejected:rejected?.message,collected}; })()",
+    )?;
+    assert_eq!(bounded["count"], 1024);
+    assert_eq!(bounded["overflow"], 0);
+    assert!(bounded["rejected"]
+        .as_str()
+        .unwrap()
+        .contains("too many pending browser test requests"));
+    assert_eq!(bounded["collected"], true);
+
     // Freeze only the acknowledgement in this disposable development page.
     // Actual Chromium/canvas resize still occurs, but cannot claim success.
     c.browser_evaluate_json("globalThis.__savedFrame=Object.getOwnPropertyDescriptor(__FISSION_TEST__,'frame');Object.defineProperty(__FISSION_TEST__,'frame',{value:{...__FISSION_TEST__.frame,width:390},writable:false,configurable:true});true")?;
@@ -157,6 +199,13 @@ fn canvas_same_session_state_route_frames_raw_bridge_timeout_and_recovery() -> a
     assert!(c.get_text()?.iter().any(|t| t.text == "Count: 1"));
     assert_eq!(observe(&c)?["timeOrigin"], initial["timeOrigin"]);
     capture(&c, "recovered", 1280)?;
+
+    // Exercise the value-based bridge repeatedly, including the event-loop
+    // response path used by semantic queries. Completed responses must be
+    // removed so a long-running LiveTest does not accumulate bridge state.
+    for _ in 0..128 {
+        assert!(c.get_text()?.iter().any(|item| item.text == "Count: 1"));
+    }
 
     // Missing opt-in capability fails before mutating host or runtime.
     c.browser_evaluate_json("globalThis.__resizeBridge=globalThis.__FISSION_TEST__;delete globalThis.__FISSION_TEST__;true")?;

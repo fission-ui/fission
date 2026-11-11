@@ -54,6 +54,12 @@ presentation. Mutating a returned snapshot does not modify the shell's state.
 Production builds expose neither the bridge nor this getter. No review-specific
 global is involved.
 
+Current LiveTest drivers use `submitValue(command)` and `pollValue(id)` to pass
+command and response objects directly, avoiding an extra JSON-string round trip
+through WebAssembly. The original `submit(json)` / `poll(id)` methods remain for
+older drivers. Completed response entries are removed when collected, and at
+most 1,024 requests may be pending or uncollected at once.
+
 Web renderer diagnostics also publish the most recent stage timings as
 `window.__FISSION_LAST_FRAME_STAGE_PERF`. On the Canvas2D software path,
 `softwareRenderMs` measures CPU rasterization and `canvasUploadMs` measures

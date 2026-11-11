@@ -90,10 +90,17 @@ then available on the same client type.
 Web shell installs `globalThis.__FISSION_TEST__` only in that build. Normal
 `fission build` and `fission run` Web output do not install the bridge.
 
-The bridge has two small operations:
+The bridge exposes a value-based pair for current drivers, plus a string-based
+pair for compatibility with older drivers:
 
-- submit a serialized `TestCommand` and return a request identifier;
-- poll a request identifier for a serialized `TestResponse`.
+- `submitValue(command)` accepts a JavaScript command object and returns a
+  request identifier; `pollValue(id)` returns a response object or `null` while
+  the event-loop response is pending;
+- `submit(json)` and `poll(id)` preserve the original JSON-string protocol.
+
+Completed responses are removed when polled. The bridge caps uncollected
+requests at 1,024; further submissions return an id that polls as an
+actionable error until earlier requests are collected.
 
 Submitting a command enqueues the corresponding `TestEvent` through the
 existing Winit `EventLoopProxy`. Query events retain their existing per-command

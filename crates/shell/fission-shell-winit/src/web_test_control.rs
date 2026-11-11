@@ -12,6 +12,8 @@ enum PendingResponse {
     Waiting(Receiver<TestResponse>),
 }
 
+const MAX_PENDING_RESPONSES: usize = 1024;
+
 thread_local! {
     static NEXT_REQUEST_ID: Cell<u32> = const { Cell::new(1) };
     static RESPONSES: RefCell<HashMap<u32, PendingResponse>> = RefCell::new(HashMap::new());
@@ -40,46 +42,23 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
 
     let submit_proxy = proxy.clone();
     let submit = Closure::wrap(Box::new(move |command_json: String| -> u32 {
-        let request_id = NEXT_REQUEST_ID.with(|next| {
-            let request_id = next.get();
-            next.set(request_id.wrapping_add(1).max(1));
-            request_id
-        });
-        let response = match serde_json::from_str::<TestCommand>(&command_json) {
-            Ok(command) => dispatch(command, &submit_proxy),
-            Err(error) => PendingResponse::Ready(TestResponse::Error {
-                message: format!("parse error: {error}"),
-            }),
-        };
-        RESPONSES.with(|responses| {
-            responses.borrow_mut().insert(request_id, response);
-        });
-        request_id
+        let command = serde_json::from_str::<TestCommand>(&command_json)
+            .map_err(|error| format!("parse error: {error}"));
+        submit_command(command, &submit_proxy)
     }) as Box<dyn FnMut(String) -> u32>);
 
-    let poll = Closure::wrap(Box::new(move |request_id: u32| -> JsValue {
-        let response = RESPONSES.with(|responses| {
-            let mut responses = responses.borrow_mut();
-            let completed = match responses.get(&request_id) {
-                Some(PendingResponse::Ready(response)) => Some(response.clone()),
-                Some(PendingResponse::Waiting(receiver)) => match receiver.try_recv() {
-                    Ok(response) => Some(response),
-                    Err(TryRecvError::Empty) => None,
-                    Err(TryRecvError::Disconnected) => Some(TestResponse::Error {
-                        message: "browser test response channel closed".into(),
-                    }),
-                },
-                None => Some(TestResponse::Error {
-                    message: format!("unknown browser test request {request_id}"),
-                }),
-            };
-            if completed.is_some() {
-                responses.remove(&request_id);
-            }
-            completed
-        });
+    // The value-based functions avoid encoding every command and response as
+    // an intermediate UTF-8 string. Keep the string functions for older test
+    // drivers that have not yet switched to the value protocol.
+    let submit_value_proxy = proxy.clone();
+    let submit_value = Closure::wrap(Box::new(move |command: JsValue| -> u32 {
+        let command = serde_wasm_bindgen::from_value::<TestCommand>(command)
+            .map_err(|error| format!("parse error: {error}"));
+        submit_command(command, &submit_value_proxy)
+    }) as Box<dyn FnMut(JsValue) -> u32>);
 
-        match response {
+    let poll = Closure::wrap(Box::new(move |request_id: u32| -> JsValue {
+        match poll_response(request_id) {
             Some(response) => serde_json::to_string(&response)
                 .map(|response| JsValue::from_str(&response))
                 .unwrap_or_else(|error| {
@@ -91,6 +70,18 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
                         .to_string(),
                     )
                 }),
+            None => JsValue::NULL,
+        }
+    }) as Box<dyn FnMut(u32) -> JsValue>);
+
+    let poll_value = Closure::wrap(Box::new(move |request_id: u32| -> JsValue {
+        match poll_response(request_id) {
+            Some(response) => serde_wasm_bindgen::to_value(&response).unwrap_or_else(|error| {
+                serde_wasm_bindgen::to_value(&TestResponse::Error {
+                    message: format!("response serialization failed: {error}"),
+                })
+                .unwrap_or(JsValue::NULL)
+            }),
             None => JsValue::NULL,
         }
     }) as Box<dyn FnMut(u32) -> JsValue>);
@@ -126,6 +117,18 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     if Reflect::set(&bridge, &JsValue::from_str("submit"), submit.as_ref()).is_err()
         || Reflect::set(&bridge, &JsValue::from_str("poll"), poll.as_ref()).is_err()
         || Reflect::set(
+            &bridge,
+            &JsValue::from_str("submitValue"),
+            submit_value.as_ref(),
+        )
+        .is_err()
+        || Reflect::set(
+            &bridge,
+            &JsValue::from_str("pollValue"),
+            poll_value.as_ref(),
+        )
+        .is_err()
+        || Reflect::set(
             &js_sys::global(),
             &JsValue::from_str("__FISSION_TEST__"),
             &bridge,
@@ -137,8 +140,63 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
 
     submit.forget();
     poll.forget();
+    submit_value.forget();
+    poll_value.forget();
     frame.forget();
     true
+}
+
+fn submit_command(command: Result<TestCommand, String>, proxy: &EventLoopProxy<TestEvent>) -> u32 {
+    let available = RESPONSES.with(|responses| responses.borrow().len() < MAX_PENDING_RESPONSES);
+    if !available {
+        // Zero is reserved; generated request ids start at one. The next poll
+        // turns this sentinel into a normal, actionable test response without
+        // allowing an abandoned caller to grow the map without a bound.
+        return 0;
+    }
+
+    let request_id = NEXT_REQUEST_ID.with(|next| {
+        let request_id = next.get();
+        next.set(request_id.wrapping_add(1).max(1));
+        request_id
+    });
+    let response = match command {
+        Ok(command) => dispatch(command, proxy),
+        Err(message) => PendingResponse::Ready(TestResponse::Error { message }),
+    };
+    RESPONSES.with(|responses| {
+        responses.borrow_mut().insert(request_id, response);
+    });
+    request_id
+}
+
+fn poll_response(request_id: u32) -> Option<TestResponse> {
+    RESPONSES.with(|responses| {
+        let mut responses = responses.borrow_mut();
+        let Some(response) = responses.remove(&request_id) else {
+            return Some(TestResponse::Error {
+                message: if request_id == 0 {
+                    "too many pending browser test requests".into()
+                } else {
+                    format!("unknown browser test request {request_id}")
+                },
+            });
+        };
+
+        match response {
+            PendingResponse::Ready(response) => Some(response),
+            PendingResponse::Waiting(receiver) => match receiver.try_recv() {
+                Ok(response) => Some(response),
+                Err(TryRecvError::Empty) => {
+                    responses.insert(request_id, PendingResponse::Waiting(receiver));
+                    None
+                }
+                Err(TryRecvError::Disconnected) => Some(TestResponse::Error {
+                    message: "browser test response channel closed".into(),
+                }),
+            },
+        }
+    })
 }
 
 fn dispatch(command: TestCommand, proxy: &EventLoopProxy<TestEvent>) -> PendingResponse {
