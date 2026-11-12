@@ -57,6 +57,16 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
         std::ptr::write_volatile(std::ptr::addr_of_mut!((*diagnostics).stage), stage);
         std::ptr::read_volatile(std::ptr::addr_of!(marker));
     }
+
+    // LiveTest can become unable to evaluate JavaScript while the Wasm main
+    // thread is stuck in synchronous work. Keep a small, test-only subset of
+    // the markers visible through CDP's console event stream so the last
+    // completed event stage remains observable in that case.
+    if (400..450).contains(&stage) || (matches!(stage, 90 | 91) && iteration == 42) {
+        web_sys::console::log_1(&JsValue::from_str(&format!(
+            "FISSION_WEB_TEST_TRACE {stage} {iteration}"
+        )));
+    }
 }
 
 #[cfg(not(fission_web_test_control))]

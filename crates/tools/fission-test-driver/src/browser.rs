@@ -307,7 +307,7 @@ impl BrowserController {
     }
 
     pub(crate) fn evaluate_json(&mut self, expression: &str) -> Result<Value> {
-        let result = self.client.send(
+        let result = self.client.send_with_web_test_trace(
             "Runtime.evaluate",
             json!({ "expression": expression, "returnByValue": true }),
         )?;
@@ -713,7 +713,7 @@ impl BrowserController {
             "globalThis.__FISSION_TEST__.submit({})",
             serde_json::to_string(&command_json)?
         );
-        let result = self.client.send(
+        let result = self.client.send_with_web_test_trace(
             "Runtime.evaluate",
             json!({ "expression": submit, "returnByValue": true }),
         )?;
@@ -727,7 +727,7 @@ impl BrowserController {
         loop {
             self.client.drain_events(Duration::from_millis(5))?;
             self.fail_on_browser_errors()?;
-            let poll = self.client.send(
+            let poll = self.client.send_with_web_test_trace(
                 "Runtime.evaluate",
                 json!({
                     "expression": format!(
@@ -1226,6 +1226,7 @@ struct CdpClient {
     errors: Vec<String>,
     operation_deadline: Option<Instant>,
     review_events: Vec<Value>,
+    web_test_trace: VecDeque<String>,
     report_only: bool,
     network_requests: HashSet<String>,
     network_last_activity: Instant,
@@ -1246,6 +1247,7 @@ impl CdpClient {
             errors: Vec::new(),
             operation_deadline: None,
             review_events: Vec::new(),
+            web_test_trace: VecDeque::new(),
             report_only: false,
             network_requests: HashSet::new(),
             network_last_activity: Instant::now(),
@@ -1302,6 +1304,11 @@ impl CdpClient {
             }
             self.handle_event(&value);
         }
+    }
+
+    fn send_with_web_test_trace(&mut self, method: &str, params: Value) -> Result<Value> {
+        self.send(method, params)
+            .map_err(|error| anyhow!("{error}{}", self.web_test_trace_context()))
     }
 
     fn set_socket_budget(&mut self, deadline: Instant) -> Result<()> {
@@ -1384,6 +1391,18 @@ impl CdpClient {
         {
             self.review_events.push(message.clone());
         }
+        if method == Some("Runtime.consoleAPICalled") {
+            if let Some(trace) = message
+                .pointer("/params/args/0/value")
+                .and_then(Value::as_str)
+                .filter(|value| value.starts_with("FISSION_WEB_TEST_TRACE "))
+            {
+                if self.web_test_trace.len() == 64 {
+                    self.web_test_trace.pop_front();
+                }
+                self.web_test_trace.push_back(trace.to_owned());
+            }
+        }
         // Review attributes all errors to its typed per-case observations.
         // Optional resource timing must not abort semantic bridge operations.
         if self.report_only {
@@ -1425,6 +1444,21 @@ impl CdpClient {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn web_test_trace_context(&self) -> String {
+        if self.web_test_trace.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; recent Fission Web LiveTest stages: {}",
+                self.web_test_trace
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" -> ")
+            )
         }
     }
 }
