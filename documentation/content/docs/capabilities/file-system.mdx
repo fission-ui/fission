@@ -59,6 +59,7 @@ ctx.effects
         suggested_name: "quarterly-report.pdf".into(),
         extensions: vec!["pdf".into()],
         mime_types: vec!["application/pdf".into()],
+        persistence_key: None,
     })
     .on_ok(ctx.effects.bind(SaveDestinationPicked, reduce_with!(on_save_destination_picked)))
     .on_err(ctx.effects.bind(SaveDestinationFailed, reduce_with!(on_save_destination_failed)));
@@ -66,10 +67,10 @@ ctx.effects
 
 The successful result contains `destination: None` if the user cancels. The
 native picker on macOS, Windows, and Linux returns a
-`SaveFileDestination::Location`, which can be passed to `write`. The Web picker
-returns a `SaveFileDestination::WritableFile`; its opaque browser handle is
-written with `write_picked_file` rather than treated as a filesystem path.
-Browsers without `showSaveFilePicker`, Android, and iOS return a typed
+`SaveFileDestination::Location`, which can be passed to `write`. The Web,
+Android, and iOS pickers return a `SaveFileDestination::WritableFile`; its
+opaque host handle is written with `write_picked_file` rather than treated as a
+filesystem path. Browsers without `showSaveFilePicker` return a typed
 `unsupported` error. A cancelled dialog is not an error.
 
 ```rust
@@ -89,6 +90,64 @@ For a native `Location`, use `WriteFileRequest` and set `overwrite: true` only
 when replacing an existing file is intended. For large browser exports,
 `WritePickedFileRequest::source` can be `FileWriteSource::Stream` to keep memory
 use bounded while data is written.
+
+## Restore a Web save destination later
+
+The Web File System Access API can keep a file handle in IndexedDB so the app
+can offer “continue editing this file” the next time it opens. Give the handle
+a stable key when the user first chooses the file:
+
+```rust
+ctx.effects
+    .file_system()
+    .pick_save_file(PickSaveFileRequest {
+        suggested_name: "quarterly-report.pdf".into(),
+        extensions: vec!["pdf".into()],
+        mime_types: vec!["application/pdf".into()],
+        persistence_key: Some("quarterly-report".into()),
+    })
+    .on_ok(ctx.effects.bind(SaveDestinationPicked, reduce_with!(on_save_destination_picked)))
+    .on_err(ctx.effects.bind(SaveDestinationFailed, reduce_with!(on_save_destination_failed)));
+```
+
+The browser stores a reference to the selected file, not a copy of its
+contents. On a later visit, restore it by using the same key. A missing result
+means the user has not chosen that destination in this browser profile, or has
+removed the browser's stored permission:
+
+```rust
+ctx.effects
+    .file_system()
+    .restore_save_file(RestoreSaveFileRequest {
+        persistence_key: "quarterly-report".into(),
+    })
+    .on_ok(ctx.effects.bind(SaveDestinationRestored, reduce_with!(on_save_destination_restored)))
+    .on_err(ctx.effects.bind(SaveDestinationFailed, reduce_with!(on_save_destination_failed)));
+```
+
+Each restored handle includes its current `FileSystemPermission`. Check it
+before writing, and request permission only in response to an explicit user
+action such as pressing Save:
+
+```rust
+ctx.effects
+    .file_system()
+    .writable_file_permission(WritableFilePermissionRequest {
+        file,
+        request: true,
+    })
+    .on_ok(ctx.effects.bind(SavePermissionChecked, reduce_with!(on_save_permission_checked)))
+    .on_err(ctx.effects.bind(SaveDestinationFailed, reduce_with!(on_save_destination_failed)));
+```
+
+Use `forget_save_file` when the user disconnects a remembered destination. It
+removes only Fission's saved handle reference; it does not delete or modify the
+file. These restore, forget, and permission operations are browser-specific.
+Native desktop save dialogs already return a destination path and report these
+operations as `unsupported`. Android and iOS return writable handles for the
+current runtime, but do not restore those handles by key. Browser support
+depends on IndexedDB and the File System Access API, and the browser may ask
+the user to grant write access again after restoration.
 
 ## Work with a directory handle
 

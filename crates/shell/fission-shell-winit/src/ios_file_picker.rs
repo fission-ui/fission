@@ -153,6 +153,7 @@ pub(crate) fn register_ios_file_picker_capabilities(async_registry: &mut AsyncRe
                 destination: Some(SaveFileDestination::WritableFile(WritableFileHandle {
                     id,
                     name,
+                    permission: fission_core::FileSystemPermission::Unknown,
                 })),
             })
         },

@@ -25,7 +25,7 @@ pub enum FileSystemAccessMode {
     ReadWrite,
 }
 
-/// Current host-reported permission for a directory handle.
+/// Current host-reported permission for a file or directory handle.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileSystemPermission {
     Granted,
@@ -176,6 +176,9 @@ pub struct WritableFileHandle {
     pub id: WritableFileHandleId,
     /// Display name supplied by the host; this is not a filesystem path.
     pub name: String,
+    /// Permission currently reported by the host for writing this file.
+    #[serde(default)]
+    pub permission: FileSystemPermission,
 }
 
 /// Runtime-owned identity for a browser-selected writable file.
@@ -206,12 +209,48 @@ pub struct PickSaveFileRequest {
     pub extensions: Vec<String>,
     /// MIME types that can be translated into a native extension filter.
     pub mime_types: Vec<String>,
+    /// Optional browser-only key used to restore this writable file handle in a
+    /// later Web runtime. Web hosts persist the handle in IndexedDB, not its
+    /// contents. Other hosts may ignore this browser-specific key.
+    pub persistence_key: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PickSaveFileResult {
     /// `None` means the user dismissed the save dialog.
     pub destination: Option<SaveFileDestination>,
+}
+
+/// Requests a previously selected browser save-file handle by its app-chosen key.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestoreSaveFileRequest {
+    /// The same app-chosen key supplied to `PickSaveFileRequest`.
+    pub persistence_key: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestoreSaveFileResult {
+    /// `None` means no persisted handle exists for the key.
+    pub file: Option<WritableFileHandle>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ForgetSaveFileRequest {
+    /// The key previously used to persist the selected file handle.
+    pub persistence_key: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WritableFilePermissionRequest {
+    pub file: WritableFileHandle,
+    /// When true, the host may display a permission prompt. Use only after a
+    /// user action; passive status checks should leave this false.
+    pub request: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WritableFilePermissionResult {
+    pub permission: FileSystemPermission,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -406,6 +445,27 @@ filesystem_capability!(
     "fission.fs.pick_save_file"
 );
 filesystem_capability!(
+    RestoreSaveFileCapability,
+    RestoreSaveFileRequest,
+    RestoreSaveFileResult,
+    RESTORE_SAVE_FILE,
+    "fission.fs.restore_save_file"
+);
+filesystem_capability!(
+    ForgetSaveFileCapability,
+    ForgetSaveFileRequest,
+    (),
+    FORGET_SAVE_FILE,
+    "fission.fs.forget_save_file"
+);
+filesystem_capability!(
+    WritableFilePermissionCapability,
+    WritableFilePermissionRequest,
+    WritableFilePermissionResult,
+    WRITABLE_FILE_PERMISSION,
+    "fission.fs.writable_file_permission"
+);
+filesystem_capability!(
     RestoreDirectoryCapability,
     RestoreDirectoryRequest,
     RestoreDirectoryResult,
@@ -522,6 +582,7 @@ mod tests {
             suggested_name: "report.pdf".into(),
             extensions: vec!["pdf".into()],
             mime_types: vec!["application/pdf".into()],
+            persistence_key: None,
         };
         let bytes = serde_json::to_vec(&request).unwrap();
         assert_eq!(
@@ -543,6 +604,7 @@ mod tests {
             destination: Some(SaveFileDestination::WritableFile(WritableFileHandle {
                 id: WritableFileHandleId(7),
                 name: "report.pdf".into(),
+                permission: FileSystemPermission::Granted,
             })),
         };
         let bytes = serde_json::to_vec(&result).unwrap();
@@ -550,5 +612,12 @@ mod tests {
             serde_json::from_slice::<PickSaveFileResult>(&bytes).unwrap(),
             result
         );
+
+        let legacy_handle = serde_json::json!({
+            "id": 7,
+            "name": "legacy-report.pdf"
+        });
+        let restored: WritableFileHandle = serde_json::from_value(legacy_handle).unwrap();
+        assert_eq!(restored.permission, FileSystemPermission::Unknown);
     }
 }

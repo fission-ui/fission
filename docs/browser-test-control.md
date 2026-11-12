@@ -55,14 +55,17 @@ value does not modify the shell's state.
 Production builds expose neither the bridge nor this getter. No review-specific
 global is involved.
 
-LiveTest drivers use `submit(json)` and `poll(id)`. `submit` passes command JSON
-to Wasm as a string. `poll` decodes the response JSON from the module's linear
-memory and returns it as a string; it returns the JSON text `null` while the
-response is pending. The poll path calls scalar Wasm exports directly instead
-of going through a wasm-bindgen closure. This avoids allocating JavaScript
-handles for command fields or nested semantic nodes. Completed response entries
-are removed when collected, and at most 1,024 requests may be pending or
-uncollected at once.
+LiveTest drivers use `submit(json)` and `poll(id)`. The bridge copies command
+JSON into a fixed 4 MiB scratch area in the module's linear memory, then calls a
+scalar Wasm export to parse and dispatch it. Larger commands receive a normal
+`Error` response stating the size limit. `poll` calls scalar exports to
+serialize a response into linear memory and returns that JSON as a string; it
+returns the JSON text `null` while the response is pending. The diagnostics and
+read-only frame getter also use JavaScript adapters over scalar exports (or the
+diagnostics memory slot). This keeps the test bridge itself out of
+wasm-bindgen's callback trampoline and string allocator. Completed response
+entries are removed when collected, and at most 1,024 requests may be pending
+or uncollected at once.
 
 For a trapped poll in an opt-in test build, `pollDiagnostics()` returns a number
 whose high bits are the last request ID and whose low two bits identify the last

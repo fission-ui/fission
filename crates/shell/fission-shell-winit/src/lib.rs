@@ -225,6 +225,14 @@ mod web_capabilities;
 #[cfg(target_arch = "wasm32")]
 mod web_test_control;
 
+#[inline(always)]
+fn record_web_test_diagnostic(stage: u32, iteration: u32) {
+    #[cfg(target_arch = "wasm32")]
+    web_test_control::record_diagnostic(stage, iteration);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (stage, iteration);
+}
+
 type EffectResult = AsyncMessage;
 
 type ServiceKey = (String, String);
@@ -408,6 +416,30 @@ fn register_unsupported_file_picker_capability(async_registry: &mut AsyncRegistr
         |_request: fission_core::WritePickedFileRequest, _| async move {
             Err::<fission_core::WritePickedFileResult, _>(
                 fission_core::FileSystemError::unsupported("write_picked_file"),
+            )
+        },
+    );
+    async_registry.register_operation_capability(
+        fission_core::RESTORE_SAVE_FILE,
+        |_request: fission_core::RestoreSaveFileRequest, _| async move {
+            Err::<fission_core::RestoreSaveFileResult, _>(
+                fission_core::FileSystemError::unsupported("restore_save_file"),
+            )
+        },
+    );
+    async_registry.register_operation_capability(
+        fission_core::FORGET_SAVE_FILE,
+        |_request: fission_core::ForgetSaveFileRequest, _| async move {
+            Err::<(), _>(fission_core::FileSystemError::unsupported(
+                "forget_save_file",
+            ))
+        },
+    );
+    async_registry.register_operation_capability(
+        fission_core::WRITABLE_FILE_PERMISSION,
+        |_request: fission_core::WritableFilePermissionRequest, _| async move {
+            Err::<fission_core::WritableFilePermissionResult, _>(
+                fission_core::FileSystemError::unsupported("writable_file_permission"),
             )
         },
     );
@@ -5819,6 +5851,15 @@ where
                 if debug_android_events {
                     eprintln!("[android-events] user_event={test_event:?}");
                 }
+                let diagnostic_kind = match &test_event {
+                    TestEvent::MotionStatus { .. } => 1,
+                    TestEvent::Pump { .. } => 2,
+                    TestEvent::ResolveSelector { .. } => 3,
+                    TestEvent::GetText { .. } => 4,
+                    TestEvent::GetTree { .. } => 5,
+                    _ => 0,
+                };
+                record_web_test_diagnostic(90, diagnostic_kind);
                 match test_event {
                     TestEvent::MouseMove { x, y } => {
                         let Some(window) = platform_window.active_window() else {
@@ -6579,12 +6620,21 @@ where
                         );
                     }
                     TestEvent::ResolveSelector { query, response_tx } => {
+                        record_web_test_diagnostic(
+                            100,
+                            pipeline
+                                .prev_ir
+                                .as_ref()
+                                .map_or(0, |ir| ir.nodes.len() as u32),
+                        );
                         let resp = resolve_selector_response(
                             &pipeline,
                             &runtime.runtime_state.scroll,
                             &query,
                         );
+                        record_web_test_diagnostic(101, 0);
                         let _ = response_tx.send(resp);
+                        record_web_test_diagnostic(102, 0);
                     }
                     TestEvent::ScrollIntoView { query, response_tx } => {
                         let Some(window) = platform_window.active_window() else {
@@ -7192,6 +7242,7 @@ where
                         elwt.exit();
                     }
                 }
+                record_web_test_diagnostic(91, diagnostic_kind);
             };
 
             #[cfg(target_os = "android")]

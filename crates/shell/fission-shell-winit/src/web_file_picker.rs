@@ -1,10 +1,12 @@
 use crate::web_data_stream::{browser_data_stream, BrowserDataStream, BrowserDataStreamSink};
 use fission_core::{
-    Bytes, FileSystemError, FileWriteSource, FissionDataStreamError, FissionDataStreamErrorKind,
-    PickOpenFilesError, PickOpenFilesRequest, PickOpenFilesResult, PickSaveFileRequest,
-    PickSaveFileResult, PickedFile, SaveFileDestination, WritableFileHandle, WritableFileHandleId,
-    WritePickedFileRequest, WritePickedFileResult, PICK_OPEN_FILES, PICK_SAVE_FILE,
-    WRITE_PICKED_FILE,
+    Bytes, FileSystemError, FileSystemPermission, FileWriteSource, FissionDataStreamError,
+    FissionDataStreamErrorKind, ForgetSaveFileRequest, PickOpenFilesError, PickOpenFilesRequest,
+    PickOpenFilesResult, PickSaveFileRequest, PickSaveFileResult, PickedFile,
+    RestoreSaveFileRequest, RestoreSaveFileResult, SaveFileDestination, WritableFileHandle,
+    WritableFileHandleId, WritableFilePermissionRequest, WritableFilePermissionResult,
+    WritePickedFileRequest, WritePickedFileResult, FORGET_SAVE_FILE, PICK_OPEN_FILES,
+    PICK_SAVE_FILE, RESTORE_SAVE_FILE, WRITABLE_FILE_PERMISSION, WRITE_PICKED_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
 use futures_core::Stream;
@@ -20,7 +22,17 @@ extern "C" {
     #[wasm_bindgen(catch)]
     fn fissionPickOpenFiles(allow_multiple: bool, accept: &str) -> Result<Promise, JsValue>;
     #[wasm_bindgen(catch)]
-    fn fissionPickSaveFile(suggested_name: &str, types: &str) -> Result<Promise, JsValue>;
+    fn fissionPickSaveFile(
+        suggested_name: &str,
+        types: &str,
+        persistence_key: &str,
+    ) -> Result<Promise, JsValue>;
+    #[wasm_bindgen(catch)]
+    fn fissionRestoreSaveFile(persistence_key: &str) -> Result<Promise, JsValue>;
+    #[wasm_bindgen(catch)]
+    fn fissionForgetSaveFile(persistence_key: &str) -> Result<Promise, JsValue>;
+    #[wasm_bindgen(catch)]
+    fn fissionWritableFilePermission(file_id: u32, request: bool) -> Result<Promise, JsValue>;
     #[wasm_bindgen(catch)]
     fn fissionOpenPickedFileReader(
         file_id: u32,
@@ -48,29 +60,63 @@ pub(crate) fn register_web_file_picker(async_registry: &mut AsyncRegistry) {
     async_registry.register_operation_capability(
         PICK_SAVE_FILE,
         |request: PickSaveFileRequest, _| async move {
+            if let Some(key) = request.persistence_key.as_deref() {
+                require_save_file_key(key)?;
+            }
             let types = serde_json::to_string(&browser_save_file_types(&request))
                 .map_err(|error| FileSystemError::new("invalid_request", error.to_string()))?;
-            let value = await_promise(fissionPickSaveFile(&request.suggested_name, &types))
-                .await
-                .map_err(file_system_error)?;
+            let value = await_promise(fissionPickSaveFile(
+                &request.suggested_name,
+                &types,
+                request.persistence_key.as_deref().unwrap_or(""),
+            ))
+            .await
+            .map_err(file_system_error)?;
             if value.is_null() || value.is_undefined() {
                 return Ok(PickSaveFileResult { destination: None });
             }
-            let id = f64_prop(&value, "id")
-                .filter(|value| value.is_finite() && *value >= 1.0 && *value <= u32::MAX as f64)
-                .map(|value| value as u64)
-                .ok_or_else(|| {
-                    FileSystemError::new(
-                        "invalid_result",
-                        "browser save picker returned an invalid file handle",
-                    )
-                })?;
             Ok(PickSaveFileResult {
-                destination: Some(SaveFileDestination::WritableFile(WritableFileHandle {
-                    id: WritableFileHandleId(id),
-                    name: string_prop(&value, "name")
-                        .unwrap_or_else(|| request.suggested_name.clone()),
-                })),
+                destination: Some(SaveFileDestination::WritableFile(writable_file_handle(
+                    &value,
+                    &request.suggested_name,
+                )?)),
+            })
+        },
+    );
+    async_registry.register_operation_capability(
+        RESTORE_SAVE_FILE,
+        |request: RestoreSaveFileRequest, _| async move {
+            require_save_file_key(&request.persistence_key)?;
+            let value = await_promise(fissionRestoreSaveFile(&request.persistence_key))
+                .await
+                .map_err(file_system_error)?;
+            let file = if value.is_null() || value.is_undefined() {
+                None
+            } else {
+                Some(writable_file_handle(&value, "restored-file")?)
+            };
+            Ok(RestoreSaveFileResult { file })
+        },
+    );
+    async_registry.register_operation_capability(
+        FORGET_SAVE_FILE,
+        |request: ForgetSaveFileRequest, _| async move {
+            require_save_file_key(&request.persistence_key)?;
+            await_promise(fissionForgetSaveFile(&request.persistence_key))
+                .await
+                .map_err(file_system_error)?;
+            Ok(())
+        },
+    );
+    async_registry.register_operation_capability(
+        WRITABLE_FILE_PERMISSION,
+        |request: WritableFilePermissionRequest, _| async move {
+            let id = save_file_id(request.file.id)?;
+            let value = await_promise(fissionWritableFilePermission(id, request.request))
+                .await
+                .map_err(file_system_error)?;
+            Ok(WritableFilePermissionResult {
+                permission: permission_value(value.as_string().as_deref()),
             })
         },
     );
@@ -306,6 +352,51 @@ fn string_prop(value: &JsValue, key: &str) -> Option<String> {
 
 fn f64_prop(value: &JsValue, key: &str) -> Option<f64> {
     prop(value, key).and_then(|value| value.as_f64())
+}
+
+fn writable_file_handle(
+    value: &JsValue,
+    default_name: &str,
+) -> Result<WritableFileHandle, FileSystemError> {
+    let id = f64_prop(value, "id")
+        .filter(|value| value.is_finite() && *value >= 1.0 && *value <= u32::MAX as f64)
+        .map(|value| value as u64)
+        .ok_or_else(|| {
+            FileSystemError::new(
+                "invalid_result",
+                "browser save picker returned an invalid file handle",
+            )
+        })?;
+    Ok(WritableFileHandle {
+        id: WritableFileHandleId(id),
+        name: string_prop(value, "name").unwrap_or_else(|| default_name.into()),
+        permission: permission_value(string_prop(value, "permission").as_deref()),
+    })
+}
+
+fn save_file_id(id: WritableFileHandleId) -> Result<u32, FileSystemError> {
+    u32::try_from(id.0)
+        .map_err(|_| FileSystemError::new("invalid_handle", "save destination handle is invalid"))
+}
+
+fn permission_value(value: Option<&str>) -> FileSystemPermission {
+    match value {
+        Some("granted") => FileSystemPermission::Granted,
+        Some("prompt") => FileSystemPermission::Prompt,
+        Some("denied") => FileSystemPermission::Denied,
+        _ => FileSystemPermission::Unknown,
+    }
+}
+
+fn require_save_file_key(key: &str) -> Result<(), FileSystemError> {
+    if key.trim().is_empty() {
+        Err(FileSystemError::new(
+            "invalid_persistence_key",
+            "save-file persistence keys cannot be empty",
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 fn js_error(value: JsValue) -> (String, String) {

@@ -273,6 +273,13 @@ pub(crate) fn resolve_selector_record(
     scroll: &fission_core::ScrollStateMap,
     query: &fission_test_driver::SelectorQuery,
 ) -> std::result::Result<SemanticRecord, fission_test_driver::TestResponse> {
+    super::record_web_test_diagnostic(
+        200,
+        pipeline
+            .prev_ir
+            .as_ref()
+            .map_or(0, |ir| ir.nodes.len() as u32),
+    );
     let (Some(ir), Some(snap)) = (&pipeline.prev_ir, &pipeline.last_snapshot) else {
         return Err(selector_failure(
             query.clone(),
@@ -282,6 +289,7 @@ pub(crate) fn resolve_selector_record(
         ));
     };
 
+    super::record_web_test_diagnostic(201, ir.nodes.len() as u32);
     let scope_id = query
         .scope
         .as_ref()
@@ -293,27 +301,40 @@ pub(crate) fn resolve_selector_record(
     // measuring every semantic node for that common path: large retained trees
     // can contain thousands of nodes, and each node's visibility needs an
     // ancestor walk through clipping and scroll containers.
-    let mut matched_ids: Vec<_> = ir
-        .nodes
-        .iter()
-        .filter_map(|(id, node)| {
-            let fission_ir::Op::Semantics(semantics) = &node.op else {
-                return None;
-            };
-            (selector_matches_semantics(*id, semantics, &query.selector)
-                && scope_id.is_none_or(|scope| is_descendant_of(ir, *id, scope))
-                && !fission_core::hit_test::is_interaction_inert(ir, *id)
-                && fission_core::hit_test::is_in_active_responsive_branch(ir, snap, *id))
-            .then_some(*id)
-        })
-        .collect();
+    super::record_web_test_diagnostic(202, ir.nodes.len() as u32);
+    let mut matched_ids = Vec::new();
+    for (index, (id, node)) in ir.nodes.iter().enumerate() {
+        if index % 64 == 0 {
+            super::record_web_test_diagnostic(203, index as u32);
+        }
+        let fission_ir::Op::Semantics(semantics) = &node.op else {
+            continue;
+        };
+        if !selector_matches_semantics(*id, semantics, &query.selector) {
+            continue;
+        }
+        if scope_id.is_some_and(|scope| !is_descendant_of(ir, *id, scope)) {
+            continue;
+        }
+        if fission_core::hit_test::is_interaction_inert(ir, *id) {
+            continue;
+        }
+        if !fission_core::hit_test::is_in_active_responsive_branch(ir, snap, *id) {
+            continue;
+        }
+        matched_ids.push(*id);
+    }
+    super::record_web_test_diagnostic(204, matched_ids.len() as u32);
     matched_ids.sort_by_key(|id| id.as_u128());
+    super::record_web_test_diagnostic(205, matched_ids.len() as u32);
     let matched: Vec<SemanticRecord> = matched_ids
         .into_iter()
         .filter_map(|id| {
+            super::record_web_test_diagnostic(206, 0);
             semantic_record_for_node(ir, snap, scroll, id, semantic_children_for(ir, snap, id))
         })
         .collect();
+    super::record_web_test_diagnostic(207, matched.len() as u32);
 
     let scoped = if matched.is_empty() && query.include_candidates {
         // Keep the existing diagnostic candidate list when a selector misses.
