@@ -424,6 +424,7 @@ pub extern "C" fn fission_web_test_diagnostics_ptr() -> u32 {
 #[cfg(fission_web_test_control)]
 #[no_mangle]
 pub extern "C" fn fission_web_test_submit_json(length: u32) -> u32 {
+    record_diagnostic(400, length);
     let command = if length as usize > MAX_COMMAND_JSON_BYTES {
         Err(format!(
             "command JSON exceeds the {} byte Web LiveTest bridge limit",
@@ -443,8 +444,13 @@ pub extern "C" fn fission_web_test_submit_json(length: u32) -> u32 {
                     .map_err(|error| format!("parse error: {error}"))
             })
     };
+    record_diagnostic(401, length);
     let proxy = with_bridge_state(|state| state.event_proxy.clone());
-    proxy.map_or(0, |proxy| submit_command(command, &proxy))
+    record_diagnostic(402, u32::from(proxy.is_some()));
+    proxy.map_or(0, |proxy| {
+        record_diagnostic(403, 0);
+        submit_command(command, &proxy)
+    })
 }
 
 #[cfg(fission_web_test_control)]
@@ -510,6 +516,7 @@ fn record_poll_stage(request_id: u32, stage: u32) {
 
 fn submit_command(command: Result<TestCommand, String>, proxy: &EventLoopProxy<TestEvent>) -> u32 {
     let available = with_bridge_state(|state| state.responses.len() < MAX_PENDING_RESPONSES);
+    record_diagnostic(410, u32::from(available));
     if !available {
         // Zero is reserved; generated request ids start at one. The next poll
         // turns this sentinel into a normal, actionable test response without
@@ -522,13 +529,16 @@ fn submit_command(command: Result<TestCommand, String>, proxy: &EventLoopProxy<T
         state.next_request_id = request_id.wrapping_add(1).max(1);
         request_id
     });
+    record_diagnostic(411, request_id);
     let response = match command {
         Ok(command) => dispatch(command, proxy),
         Err(message) => PendingResponse::Ready(TestResponse::Error { message }),
     };
+    record_diagnostic(412, request_id);
     with_bridge_state(|state| {
         state.responses.insert(request_id, response);
     });
+    record_diagnostic(413, request_id);
     request_id
 }
 
@@ -891,12 +901,17 @@ fn query(
     proxy: &EventLoopProxy<TestEvent>,
     make_event: impl FnOnce(mpsc::Sender<TestResponse>) -> TestEvent,
 ) -> PendingResponse {
+    record_diagnostic(420, 0);
     let (response_tx, response_rx) = mpsc::channel();
+    record_diagnostic(421, 0);
+    record_diagnostic(422, 0);
     if proxy.send_event(make_event(response_tx)).is_err() {
+        record_diagnostic(423, 0);
         PendingResponse::Ready(TestResponse::Error {
             message: "Fission browser event loop is closed".into(),
         })
     } else {
+        record_diagnostic(424, 0);
         PendingResponse::Waiting(response_rx)
     }
 }
