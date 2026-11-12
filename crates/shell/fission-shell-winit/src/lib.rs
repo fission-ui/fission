@@ -9174,6 +9174,7 @@ where
                                                     .expect(
                                                     "retained render scene missing before render",
                                                 );
+                                                record_web_test_diagnostic(367, 1);
                                                 let software_render_started = Instant::now();
                                                 let Ok((rgba, timings)) = presenter
                                                     .cpu_renderer
@@ -9200,6 +9201,7 @@ where
                                                     diag::end_frame(diag::FrameStats::default());
                                                     return;
                                                 };
+                                                record_web_test_diagnostic(368, 1);
                                                 software_render_ms =
                                                     software_render_started.elapsed().as_secs_f64()
                                                         * 1000.0;
@@ -9223,6 +9225,7 @@ where
                                                     diag::end_frame(diag::FrameStats::default());
                                                     return;
                                                 }
+                                                record_web_test_diagnostic(369, 1);
                                                 canvas_upload_ms =
                                                     canvas_upload_started.elapsed().as_secs_f64()
                                                         * 1000.0;
@@ -9285,6 +9288,7 @@ where
                                                         return;
                                                     }
                                                 };
+                                                record_web_test_diagnostic(367, 2);
                                                 let device_handle = &presenter.render_cx.devices
                                                     [presenter.render_state.surface.dev_id];
 
@@ -9390,6 +9394,7 @@ where
                                                     }
                                                     MainRenderer::Software => {}
                                                 }
+                                                record_web_test_diagnostic(368, 2);
 
                                                 let surface_view =
                                                     surface_texture.texture.create_view(
@@ -9435,6 +9440,7 @@ where
                                                 );
                                                 device_handle.queue.submit(Some(encoder.finish()));
                                                 surface_texture.present();
+                                                record_web_test_diagnostic(369, 2);
                                             }
                                         }
 
@@ -9454,6 +9460,7 @@ where
                                                         web_renderer.as_ref(),
                                                         Some(WebRenderer::WebGpu(_))
                                                     ) {
+                                                        record_web_test_diagnostic(367, 3);
                                                         let screenshot_dimensions =
                                                             layout_size_to_image_dimensions(
                                                                 target_viewport,
@@ -9470,6 +9477,7 @@ where
                                                                 )
                                                             },
                                                         );
+                                                        record_web_test_diagnostic(368, 3);
                                                         let response = covered_window_screenshot(
                                                             rendered,
                                                             render_target_size,
