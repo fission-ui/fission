@@ -490,7 +490,7 @@ fission_component! {
     }
     view(trend, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let trend_data = state.data.as_ref().map(|data| {
+        let trend_data: Option<(u32, String, Widget)> = state.data.as_ref().map(|data| {
             let (labels, rates) = if trend.thirty_days {
                 (
                     vec![cx.tr("chart.period.week1"), cx.tr("chart.period.week2"), cx.tr("chart.period.week3"), cx.tr("chart.period.week4")],
@@ -528,7 +528,9 @@ fission_component! {
                 .y_axis(Axis::value().min(0.0).max(100.0))
                 .legend(Legend::top_right())
                 .tooltip(Tooltip::axis_trigger())
-                .series(vec![BarSeries::new(&rate_label).data(rates).into()])
+                .series(vec![fission::charts::Series::Bar(
+                    BarSeries::new(&rate_label).data(rates),
+                )])
                 .into();
             (average, period, chart)
         });
@@ -622,12 +624,12 @@ fission_component! {
             flex_grow: 1.0,
             height: cx.view.viewport_size().height,
             semantic_label: Some(cx.tr("dashboard.a11y")),
-            child: Responsive::new(TransitPerformanceWide { chart_width })
+            child: Some(Responsive::new(TransitPerformanceWide { chart_width })
                 .id(WidgetId::explicit("northstar.performance-layout"))
                 .case(ResponsiveCase::max_width(
                     760.0,
                     TransitPerformanceCompact { chart_width: content_width },
-                )),
+                )).into()),
         ),
     )
 }
