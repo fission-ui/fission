@@ -62,7 +62,10 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
     // thread is stuck in synchronous work. Keep a small, test-only subset of
     // the markers visible through CDP's console event stream so the last
     // completed event stage remains observable in that case.
-    if (400..450).contains(&stage) || (matches!(stage, 90 | 91) && iteration == 42) {
+    if (300..353).contains(&stage)
+        || (400..450).contains(&stage)
+        || (matches!(stage, 90 | 91) && iteration == 42)
+    {
         web_sys::console::log_1(&JsValue::from_str(&format!(
             "FISSION_WEB_TEST_TRACE {stage} {iteration}"
         )));
