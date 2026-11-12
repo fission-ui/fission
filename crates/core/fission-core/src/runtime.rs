@@ -3399,6 +3399,24 @@ impl Runtime {
             .map(|resource| resource.generation)
     }
 
+    /// Monotonic runtime-clock deadline for the earliest active timer action.
+    ///
+    /// Shells use this to wake when a timer is due, even when the app has no
+    /// animations or other work that would otherwise request another frame.
+    pub fn next_timer_deadline(&self) -> Option<CurrentTime> {
+        self.active_resources
+            .values()
+            .filter_map(|resource| match &resource.kind {
+                ActiveResourceKind::Timer {
+                    on_tick: Some(_),
+                    next_fire_at,
+                    ..
+                } => Some(*next_fire_at),
+                _ => None,
+            })
+            .min()
+    }
+
     pub fn is_resource_current(&self, resource: &ResourceExecutionContext) -> bool {
         self.resource_generation(&resource.key) == Some(resource.generation)
     }

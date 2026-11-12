@@ -2579,6 +2579,30 @@ fn animation_redraw_interval(
     }
 }
 
+fn runtime_timer_wake_at(runtime: &Runtime, last_frame_time: Instant) -> Option<Instant> {
+    runtime.next_timer_deadline().map(|deadline| {
+        runtime_clock_deadline_wake_at(last_frame_time, runtime.clock().current_time(), deadline)
+    })
+}
+
+fn runtime_clock_deadline_wake_at(
+    last_frame_time: Instant,
+    current_time: fission_core::CurrentTime,
+    deadline: fission_core::CurrentTime,
+) -> Instant {
+    last_frame_time + Duration::from_millis(deadline.saturating_sub(current_time))
+}
+
+fn earliest_wake_at(
+    base: Instant,
+    candidates: impl IntoIterator<Item = Option<Instant>>,
+) -> Instant {
+    candidates
+        .into_iter()
+        .flatten()
+        .fold(base, |wake_at, candidate| wake_at.min(candidate))
+}
+
 fn pending_work_redraw_interval(
     invalidations: InvalidationSet,
     pending_resize: bool,
@@ -8265,9 +8289,13 @@ where
                         None
                     };
 
+                    let current_runtime_time = runtime.clock().current_time();
                     let long_press_wake_at = runtime.next_long_press_deadline().map(|deadline| {
-                        let remaining = deadline.saturating_sub(runtime.clock().current_time());
-                        last_frame_time + Duration::from_millis(remaining)
+                        runtime_clock_deadline_wake_at(
+                            last_frame_time,
+                            current_runtime_time,
+                            deadline,
+                        )
                     });
                     let long_press_due = long_press_wake_at.is_some_and(|wake_at| wake_at <= now);
                     if long_press_due {
@@ -8282,10 +8310,19 @@ where
                         );
                     }
 
+                    let next_timer_wake_at = runtime_timer_wake_at(&runtime, last_frame_time);
+                    let timer_due = next_timer_wake_at.is_some_and(|wake_at| wake_at <= now);
+                    // A due timer has already caused pending work below. Only
+                    // future deadlines participate in the wait calculation;
+                    // using an expired deadline there would spin while a
+                    // redraw is deferred by the frame-rate limit.
+                    let timer_wake_at = next_timer_wake_at.filter(|_| !timer_due);
+
                     let has_pending_work = effect_results_dispatched
                         || frame_hook_wants_redraw
                         || image_cache_changed
                         || long_press_due
+                        || timer_due
                         || invalidations.any()
                         || resize_unsettled
                         || pending_capture_settle;
@@ -8311,6 +8348,8 @@ where
                             "pending_work:paint"
                         } else if invalidations.composite {
                             "pending_work:composite"
+                        } else if timer_due {
+                            "resource:timer"
                         } else if effect_results_dispatched {
                             "pending_work:effects"
                         } else if frame_hook_wants_redraw {
@@ -8342,22 +8381,15 @@ where
                                     invalidations.highest_class(),
                                 ),
                             );
-                        let mut wake_at = last_redraw_at + pending_frame;
-                        if let Some(blink_at) = blink_wake_at {
-                            if blink_at < wake_at {
-                                wake_at = blink_at;
-                            }
-                        }
-                        if let Some(hook_at) = frame_hook_wake_at {
-                            if hook_at < wake_at {
-                                wake_at = hook_at;
-                            }
-                        }
-                        if let Some(long_press_at) = long_press_wake_at {
-                            if long_press_at < wake_at {
-                                wake_at = long_press_at;
-                            }
-                        }
+                        let wake_at = earliest_wake_at(
+                            last_redraw_at + pending_frame,
+                            [
+                                blink_wake_at,
+                                frame_hook_wake_at,
+                                long_press_wake_at,
+                                timer_wake_at,
+                            ],
+                        );
                         elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(wake_at));
                     } else if let Some(animation_frame) = animation_frame {
                         request_redraw_logged(
@@ -8390,30 +8422,21 @@ where
                                     invalidations.highest_class(),
                                 ),
                             );
-                        let mut wake_at = last_redraw_at + animation_frame;
-                        if let Some(blink_at) = blink_wake_at {
-                            if blink_at < wake_at {
-                                wake_at = blink_at;
-                            }
-                        }
-                        if let Some(hook_at) = frame_hook_wake_at {
-                            if hook_at < wake_at {
-                                wake_at = hook_at;
-                            }
-                        }
-                        if let Some(long_press_at) = long_press_wake_at {
-                            if long_press_at < wake_at {
-                                wake_at = long_press_at;
-                            }
-                        }
+                        let wake_at = earliest_wake_at(
+                            last_redraw_at + animation_frame,
+                            [
+                                blink_wake_at,
+                                frame_hook_wake_at,
+                                long_press_wake_at,
+                                timer_wake_at,
+                            ],
+                        );
                         elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(wake_at));
                     } else if image_cache_pending {
-                        let mut wake_at = now + Duration::from_millis(50);
-                        if let Some(long_press_at) = long_press_wake_at {
-                            if long_press_at < wake_at {
-                                wake_at = long_press_at;
-                            }
-                        }
+                        let wake_at = earliest_wake_at(
+                            now + Duration::from_millis(50),
+                            [long_press_wake_at, timer_wake_at],
+                        );
                         elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(wake_at));
                     } else if let Some(blink_at) = blink_wake_at {
                         let reasons = frame_trace.take_redraw_reasons();
@@ -8425,17 +8448,10 @@ where
                                 &reasons,
                                 "schedule=blink_wait pending_resize=false redraw_pending=false highest=none",
                             );
-                        let mut wake_at = blink_at;
-                        if let Some(hook_at) = frame_hook_wake_at {
-                            if hook_at < wake_at {
-                                wake_at = hook_at;
-                            }
-                        }
-                        if let Some(long_press_at) = long_press_wake_at {
-                            if long_press_at < wake_at {
-                                wake_at = long_press_at;
-                            }
-                        }
+                        let wake_at = earliest_wake_at(
+                            blink_at,
+                            [frame_hook_wake_at, long_press_wake_at, timer_wake_at],
+                        );
                         elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(wake_at));
                     } else if let Some(hook_at) = frame_hook_wake_at {
                         let reasons = frame_trace.take_redraw_reasons();
@@ -8447,13 +8463,23 @@ where
                                 &reasons,
                                 "schedule=hook_wait pending_resize=false redraw_pending=false highest=none",
                             );
-                        elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(
-                            long_press_wake_at.map_or(hook_at, |wake_at| wake_at.min(hook_at)),
-                        ));
+                        let wake_at =
+                            earliest_wake_at(hook_at, [long_press_wake_at, timer_wake_at]);
+                        elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(wake_at));
                     } else if let Some(long_press_at) = long_press_wake_at {
-                        elwt.set_control_flow(
-                            frame_trace.wait_for_redraw_or_deadline(long_press_at),
+                        let wake_at = earliest_wake_at(long_press_at, [timer_wake_at]);
+                        elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(wake_at));
+                    } else if let Some(timer_at) = timer_wake_at {
+                        let reasons = frame_trace.take_redraw_reasons();
+                        frame_trace.emit(
+                            "about_to_wait",
+                            presented_frames + 1,
+                            &active_keys,
+                            invalidations,
+                            &reasons,
+                            "schedule=timer_wait pending_resize=false redraw_pending=false highest=none",
                         );
+                        elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(timer_at));
                     } else {
                         let reasons = frame_trace.take_redraw_reasons();
                         frame_trace.emit(
@@ -11500,21 +11526,24 @@ mod tests {
         physical_size_to_layout_size, preferred_native_present_mode, preferred_surface_alpha_mode,
         preferred_web_surface_alpha_mode, present_frame_with_winit_coordination,
         rect_visible_in_scroll_ancestors, repeating_animation_redraw_interval, resize_is_unsettled,
-        resolve_build_viewport, resolve_selector_record, should_present_startup_clear_frame,
-        surface_acquire_recovery, sync_tracked_target_texture_size_to_surface,
-        test_pump_can_ack_current_frame, text_input_blink_enabled, texture_plans_fit_device_limits,
-        visual_rect_for_node, web_effective_render_scale, window_insets_from_safe_area_frames,
+        resolve_build_viewport, resolve_selector_record, runtime_timer_wake_at,
+        should_present_startup_clear_frame, surface_acquire_recovery,
+        sync_tracked_target_texture_size_to_surface, test_pump_can_ack_current_frame,
+        text_input_blink_enabled, texture_plans_fit_device_limits, visual_rect_for_node,
+        web_effective_render_scale, window_insets_from_safe_area_frames,
         windows_shell_execute_succeeded, windows_wide, BrowserDefaults, ControlFlow,
         FrameScheduleState, Instant, LiveResizeController, RedrawRequestTiming,
         SurfaceAcquireRecovery, TestPumpState, WindowViewportState,
     };
     use crate::pipeline::{software_frame_needs_raster, CompositorTexturePlan};
     use crate::InvalidationSet;
+    use fission_core::authoring::BuildCtx;
     use fission_core::event::{InputEvent, KeyCode, KeyEvent};
     use fission_core::{
         Action as FissionAction, ActionId as FissionActionId, ActionRegistry, DeepLinkConfig,
         GlobalState, MotionPropertyId, PointerId, PointerKind, PointerPhase, ReducerContext,
-        Runtime, ScrollDeltaMode, TextEditSource, TextValuePhase, UpdateTextInput, WidgetId,
+        ResourceKey, Runtime, RuntimeResourceDeclaration, RuntimeResourceKind, ScrollDeltaMode,
+        TextEditSource, TextValuePhase, TimerResource, UpdateTextInput, WidgetId,
     };
     use fission_core::{ActiveMotion, MotionEasing, MotionStateMap, MotionValue, ScrollStateMap};
     use fission_ir::semantics::{ActionTrigger, MouseCursor};
@@ -11522,6 +11551,56 @@ mod tests {
     use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
     use fission_test_driver::{TestPointerKind, TestPointerPhase, TestScrollDeltaMode};
     use wgpu::PresentMode;
+
+    #[derive(Debug, Default, Clone)]
+    struct TimerWakeState {
+        ticks: u32,
+    }
+
+    impl GlobalState for TimerWakeState {}
+
+    #[fission_macros::fission_reducer(ShellTimerWakeFired)]
+    fn shell_timer_wake_fired(
+        state: &mut TimerWakeState,
+        _ctx: &mut ReducerContext<TimerWakeState>,
+    ) {
+        state.ticks += 1;
+    }
+
+    #[test]
+    fn immediate_timer_schedules_a_wake_when_the_shell_would_be_idle() {
+        let mut runtime = Runtime::default();
+        runtime
+            .add_app_state(Box::new(TimerWakeState::default()))
+            .expect("register timer wake state");
+
+        let mut ctx = BuildCtx::new();
+        let on_tick = fission_core::with_reducer!(ctx, ShellTimerWakeFired, shell_timer_wake_fired);
+        runtime.clear_reducers();
+        runtime.absorb_registry(ctx.registry);
+
+        let timer = TimerResource::new(
+            ResourceKey::new("shell-idle-wake"),
+            Duration::from_millis(1),
+            (),
+        )
+        .immediate()
+        .on_tick(on_tick);
+        runtime
+            .reconcile_resources(vec![RuntimeResourceDeclaration {
+                key: "shell-idle-wake".into(),
+                deps: timer.deps.clone(),
+                policy: timer.policy,
+                kind: RuntimeResourceKind::Timer(timer),
+            }])
+            .expect("register immediate timer");
+
+        let last_frame_time = Instant::now();
+        assert_eq!(
+            runtime_timer_wake_at(&runtime, last_frame_time),
+            Some(last_frame_time)
+        );
+    }
 
     #[test]
     fn software_renderer_keeps_the_caret_static_unless_blink_is_explicitly_enabled() {
