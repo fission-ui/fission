@@ -605,7 +605,7 @@ fission_component! {
             child: Some(Column(gap: tokens.spacing.m, children: [
                 crate::app::OperationsDashboard,
                 FulfilmentTrend(chart_width),
-            ]).into()),
+            ])),
         ),
     )
     .width_length(Length::percent(100.0))
