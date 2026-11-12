@@ -792,7 +792,7 @@ where
         let tree = fission_core::build::enter_with_root(&mut ctx, &view, self.root_id, || {
             self.root.clone().into()
         });
-        let tree = fission_core::internal::resolve_widget_identities(&tree, self.root_id);
+        let tree = fission_core::internal::resolve_widget_identities_owned(tree, self.root_id);
 
         self.runtime.clear_reducers();
         let motion_declarations = ctx.take_motion_declarations();

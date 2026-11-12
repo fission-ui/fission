@@ -274,7 +274,15 @@ pub mod internal {
     }
 
     pub fn resolve_widget_identities(widget: &Widget, root: WidgetId) -> Widget {
-        widget.clone().resolve_identities(root)
+        resolve_widget_identities_owned(widget.clone(), root)
+    }
+
+    /// Resolve identities on an owned widget tree without cloning the tree.
+    ///
+    /// Shells build a fresh tree for each rebuild, so they should pass that
+    /// tree directly here instead of retaining a second copy of every widget.
+    pub fn resolve_widget_identities_owned(widget: Widget, root: WidgetId) -> Widget {
+        widget.resolve_identities(root)
     }
 
     pub fn shell_root_id(authored_root: WidgetId) -> WidgetId {

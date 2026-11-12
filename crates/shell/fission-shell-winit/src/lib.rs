@@ -8719,10 +8719,11 @@ where
                                         || root_widget.clone().into(),
                                     );
                                     record_web_test_diagnostic(312, 0);
-                                    let node = fission_core::internal::resolve_widget_identities(
-                                        &node,
-                                        root_widget_id,
-                                    );
+                                    let node =
+                                        fission_core::internal::resolve_widget_identities_owned(
+                                            node,
+                                            root_widget_id,
+                                        );
                                     record_web_test_diagnostic(313, 0);
                                     let resources = ctx.take_resources();
                                     let motion_declarations = ctx.take_motion_declarations();
