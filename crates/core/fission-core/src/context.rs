@@ -46,11 +46,13 @@ use crate::platform_clipboard::{
 };
 use crate::platform_filesystem::{
     CreateDirectoryRequest, DirectoryPermissionRequest, ForgetDirectoryRequest,
-    ListDirectoryRequest, PickDirectoryRequest, PickSaveFileRequest, ReadFileRequest,
-    ReleaseDirectoryRequest, RemoveEntryRequest, RestoreDirectoryRequest, StatEntryRequest,
-    WriteFileRequest, WritePickedFileRequest, CREATE_DIRECTORY, DIRECTORY_PERMISSION,
-    FORGET_DIRECTORY, LIST_DIRECTORY, PICK_DIRECTORY, PICK_SAVE_FILE, READ_FILE, RELEASE_DIRECTORY,
-    REMOVE_ENTRY, RESTORE_DIRECTORY, STAT_ENTRY, WRITE_FILE, WRITE_PICKED_FILE,
+    ForgetSaveFileRequest, ListDirectoryRequest, PickDirectoryRequest, PickSaveFileRequest,
+    ReadFileRequest, ReleaseDirectoryRequest, RemoveEntryRequest, RestoreDirectoryRequest,
+    RestoreSaveFileRequest, StatEntryRequest, WritableFilePermissionRequest, WriteFileRequest,
+    WritePickedFileRequest, CREATE_DIRECTORY, DIRECTORY_PERMISSION, FORGET_DIRECTORY,
+    FORGET_SAVE_FILE, LIST_DIRECTORY, PICK_DIRECTORY, PICK_SAVE_FILE, READ_FILE, RELEASE_DIRECTORY,
+    REMOVE_ENTRY, RESTORE_DIRECTORY, RESTORE_SAVE_FILE, STAT_ENTRY, WRITABLE_FILE_PERMISSION,
+    WRITE_FILE, WRITE_PICKED_FILE,
 };
 use crate::platform_geolocation::{
     GeolocationPermissionRequest, GeolocationPositionRequest, GET_CURRENT_POSITION,
@@ -1111,6 +1113,25 @@ impl<'a, 'b, S: GlobalState> FileSystemEffects<'a, 'b, S> {
     /// The destination is `None` when the user cancels.
     pub fn pick_save_file(self, request: PickSaveFileRequest) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(PICK_SAVE_FILE, request)
+    }
+
+    /// Restores a Web save-file handle persisted by an earlier picker call.
+    pub fn restore_save_file(self, request: RestoreSaveFileRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(RESTORE_SAVE_FILE, request)
+    }
+
+    /// Removes a persisted Web save-file handle without deleting the file.
+    pub fn forget_save_file(self, request: ForgetSaveFileRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(FORGET_SAVE_FILE, request)
+    }
+
+    /// Queries the current write permission for a picked or restored file.
+    /// Set `request` only from an action where the browser may show a prompt.
+    pub fn writable_file_permission(
+        self,
+        request: WritableFilePermissionRequest,
+    ) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(WRITABLE_FILE_PERMISSION, request)
     }
 
     pub fn restore_directory(self, request: RestoreDirectoryRequest) -> EffectBuilder<'a, 'b, S> {

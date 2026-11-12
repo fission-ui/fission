@@ -1,9 +1,11 @@
 use fission_core::{
     Bytes, CapabilityCtx, FileSystemError, FileSystemLocation, FissionDataStreamError,
-    FissionDataStreamErrorKind, PickOpenFilesError, PickOpenFilesRequest, PickOpenFilesResult,
-    PickSaveFileRequest, PickSaveFileResult, PickedFile, SaveFileDestination,
-    WritePickedFileRequest, WritePickedFileResult, PICK_OPEN_FILES, PICK_SAVE_FILE,
-    WRITE_PICKED_FILE,
+    FissionDataStreamErrorKind, ForgetSaveFileRequest, PickOpenFilesError, PickOpenFilesRequest,
+    PickOpenFilesResult, PickSaveFileRequest, PickSaveFileResult, PickedFile,
+    RestoreSaveFileRequest, RestoreSaveFileResult, SaveFileDestination,
+    WritableFilePermissionRequest, WritableFilePermissionResult, WritePickedFileRequest,
+    WritePickedFileResult, FORGET_SAVE_FILE, PICK_OPEN_FILES, PICK_SAVE_FILE, RESTORE_SAVE_FILE,
+    WRITABLE_FILE_PERMISSION, WRITE_PICKED_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
 use futures_core::Stream;
@@ -34,6 +36,26 @@ pub fn register_file_picker_capability(async_registry: &mut AsyncRegistry) {
         WRITE_PICKED_FILE,
         |_request: WritePickedFileRequest, _| async move {
             Err::<WritePickedFileResult, _>(FileSystemError::unsupported("write_picked_file"))
+        },
+    );
+    async_registry.register_operation_capability(
+        RESTORE_SAVE_FILE,
+        |_request: RestoreSaveFileRequest, _| async move {
+            Err::<RestoreSaveFileResult, _>(FileSystemError::unsupported("restore_save_file"))
+        },
+    );
+    async_registry.register_operation_capability(
+        FORGET_SAVE_FILE,
+        |_request: ForgetSaveFileRequest, _| async move {
+            Err::<(), _>(FileSystemError::unsupported("forget_save_file"))
+        },
+    );
+    async_registry.register_operation_capability(
+        WRITABLE_FILE_PERMISSION,
+        |_request: WritableFilePermissionRequest, _| async move {
+            Err::<WritableFilePermissionResult, _>(FileSystemError::unsupported(
+                "writable_file_permission",
+            ))
         },
     );
 }

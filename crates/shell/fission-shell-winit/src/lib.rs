@@ -411,6 +411,30 @@ fn register_unsupported_file_picker_capability(async_registry: &mut AsyncRegistr
             )
         },
     );
+    async_registry.register_operation_capability(
+        fission_core::RESTORE_SAVE_FILE,
+        |_request: fission_core::RestoreSaveFileRequest, _| async move {
+            Err::<fission_core::RestoreSaveFileResult, _>(
+                fission_core::FileSystemError::unsupported("restore_save_file"),
+            )
+        },
+    );
+    async_registry.register_operation_capability(
+        fission_core::FORGET_SAVE_FILE,
+        |_request: fission_core::ForgetSaveFileRequest, _| async move {
+            Err::<(), _>(fission_core::FileSystemError::unsupported(
+                "forget_save_file",
+            ))
+        },
+    );
+    async_registry.register_operation_capability(
+        fission_core::WRITABLE_FILE_PERMISSION,
+        |_request: fission_core::WritableFilePermissionRequest, _| async move {
+            Err::<fission_core::WritableFilePermissionResult, _>(
+                fission_core::FileSystemError::unsupported("writable_file_permission"),
+            )
+        },
+    );
 }
 
 fn collect_startup_deep_links(config: &DeepLinkConfig) -> Vec<DeepLink> {

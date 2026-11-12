@@ -274,6 +274,7 @@ pub(crate) fn register_android_file_picker_capabilities(
                     destination: Some(SaveFileDestination::WritableFile(WritableFileHandle {
                         id,
                         name: document.name,
+                        permission: fission_core::FileSystemPermission::Unknown,
                     })),
                 })
             }
