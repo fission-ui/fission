@@ -269,11 +269,11 @@ pub fn on_verify_warehouse_lead(
         state.message = None;
         return;
     }
-    let Some(adjustment) = state.adjustment.as_ref() else {
+    if state.adjustment.is_none() {
         state.error = Some(ApprovalNotice::AdjustmentMissing);
         state.message = None;
         return;
-    };
+    }
 
     state.authenticating = true;
     state.error = None;
