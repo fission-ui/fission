@@ -1,7 +1,7 @@
-use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::{Mutex, OnceLock};
 
 use fission_test_driver::{TestCommand, TestEvent, TestResponse, WebTestFrame, WebTestFramePhase};
 use js_sys::{Function, Object, Reflect};
@@ -28,25 +28,52 @@ static LAST_POLL_STAGE: AtomicU32 = AtomicU32::new(0);
 #[cfg(fission_web_test_control)]
 static mut COMMAND_JSON: [u8; MAX_COMMAND_JSON_BYTES] = [0; MAX_COMMAND_JSON_BYTES];
 
-thread_local! {
-    static NEXT_REQUEST_ID: Cell<u32> = const { Cell::new(1) };
-    static RESPONSES: RefCell<HashMap<u32, PendingResponse>> = RefCell::new(HashMap::new());
-    static FRAME: Cell<Option<WebTestFrame>> = const { Cell::new(None) };
-    static POLL_JSON: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
-    static EVENT_PROXY: RefCell<Option<EventLoopProxy<TestEvent>>> = const { RefCell::new(None) };
+struct WebTestBridgeState {
+    next_request_id: u32,
+    responses: HashMap<u32, PendingResponse>,
+    frame: Option<WebTestFrame>,
+    poll_json: Vec<u8>,
+    event_proxy: Option<EventLoopProxy<TestEvent>>,
+}
+
+impl Default for WebTestBridgeState {
+    fn default() -> Self {
+        Self {
+            next_request_id: 1,
+            responses: HashMap::new(),
+            frame: None,
+            poll_json: Vec::new(),
+            event_proxy: None,
+        }
+    }
+}
+
+// There is one LiveTest bridge per WebAssembly app instance, and its browser
+// callbacks run on the app's main thread. Keep the state at module scope so
+// bridge calls do not depend on WebAssembly thread-local storage.
+fn bridge_state() -> &'static Mutex<WebTestBridgeState> {
+    static STATE: OnceLock<Mutex<WebTestBridgeState>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(WebTestBridgeState::default()))
+}
+
+fn with_bridge_state<R>(f: impl FnOnce(&mut WebTestBridgeState) -> R) -> R {
+    let mut state = bridge_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    f(&mut state)
 }
 
 /// Called only after a successful Web renderer submission. The bridge owns
 /// this state independently of any particular driver/review workflow.
 pub(crate) fn publish_frame(width: f32, height: f32, frame: u64) {
     if cfg!(fission_web_test_control) {
-        FRAME.with(|state| {
-            state.set(Some(WebTestFrame {
+        with_bridge_state(|state| {
+            state.frame = Some(WebTestFrame {
                 width,
                 height,
                 frame,
                 phase: WebTestFramePhase::Submitted,
-            }))
+            });
         });
     }
 }
@@ -56,8 +83,8 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         return false;
     }
 
-    EVENT_PROXY.with(|event_proxy| {
-        *event_proxy.borrow_mut() = Some(proxy);
+    with_bridge_state(|state| {
+        state.event_proxy = Some(proxy);
     });
 
     // Invoke scalar WebAssembly functions through small JavaScript adapters.
@@ -271,12 +298,8 @@ pub fn fission_web_test_submit_json(length: u32) -> u32 {
                     .map_err(|error| format!("parse error: {error}"))
             })
     };
-    EVENT_PROXY.with(|event_proxy| {
-        event_proxy
-            .borrow()
-            .as_ref()
-            .map_or(0, |proxy| submit_command(command, proxy))
-    })
+    let proxy = with_bridge_state(|state| state.event_proxy.clone());
+    proxy.map_or(0, |proxy| submit_command(command, &proxy))
 }
 
 #[cfg(fission_web_test_control)]
@@ -289,49 +312,48 @@ pub fn fission_web_test_poll_json_len(request_id: u32) -> u32 {
         Some(response) => response_json_string(&response),
         None => "null".to_owned(),
     };
-    POLL_JSON.with(|buffer| {
-        let mut buffer = buffer.borrow_mut();
-        buffer.clear();
-        buffer.extend_from_slice(json.as_bytes());
+    with_bridge_state(|state| {
+        state.poll_json.clear();
+        state.poll_json.extend_from_slice(json.as_bytes());
         record_poll_stage(request_id, POLL_STAGE_JSON_READY);
-        buffer.len() as u32
+        state.poll_json.len() as u32
     })
 }
 
 #[cfg(fission_web_test_control)]
 #[wasm_bindgen]
 pub fn fission_web_test_poll_json_ptr() -> u32 {
-    POLL_JSON.with(|buffer| buffer.borrow().as_ptr() as usize as u32)
+    with_bridge_state(|state| state.poll_json.as_ptr() as usize as u32)
 }
 
 #[cfg(fission_web_test_control)]
 #[wasm_bindgen]
 pub fn fission_web_test_frame_present() -> u32 {
-    FRAME.with(|state| u32::from(state.get().is_some()))
+    with_bridge_state(|state| u32::from(state.frame.is_some()))
 }
 
 #[cfg(fission_web_test_control)]
 #[wasm_bindgen]
 pub fn fission_web_test_frame_width() -> f32 {
-    FRAME.with(|state| state.get().map_or(0.0, |frame| frame.width))
+    with_bridge_state(|state| state.frame.map_or(0.0, |frame| frame.width))
 }
 
 #[cfg(fission_web_test_control)]
 #[wasm_bindgen]
 pub fn fission_web_test_frame_height() -> f32 {
-    FRAME.with(|state| state.get().map_or(0.0, |frame| frame.height))
+    with_bridge_state(|state| state.frame.map_or(0.0, |frame| frame.height))
 }
 
 #[cfg(fission_web_test_control)]
 #[wasm_bindgen]
 pub fn fission_web_test_frame_number_low() -> u32 {
-    FRAME.with(|state| state.get().map_or(0, |frame| frame.frame as u32))
+    with_bridge_state(|state| state.frame.map_or(0, |frame| frame.frame as u32))
 }
 
 #[cfg(fission_web_test_control)]
 #[wasm_bindgen]
 pub fn fission_web_test_frame_number_high() -> u32 {
-    FRAME.with(|state| state.get().map_or(0, |frame| (frame.frame >> 32) as u32))
+    with_bridge_state(|state| state.frame.map_or(0, |frame| (frame.frame >> 32) as u32))
 }
 
 fn record_poll_stage(request_id: u32, stage: u32) {
@@ -342,7 +364,7 @@ fn record_poll_stage(request_id: u32, stage: u32) {
 }
 
 fn submit_command(command: Result<TestCommand, String>, proxy: &EventLoopProxy<TestEvent>) -> u32 {
-    let available = RESPONSES.with(|responses| responses.borrow().len() < MAX_PENDING_RESPONSES);
+    let available = with_bridge_state(|state| state.responses.len() < MAX_PENDING_RESPONSES);
     if !available {
         // Zero is reserved; generated request ids start at one. The next poll
         // turns this sentinel into a normal, actionable test response without
@@ -350,17 +372,17 @@ fn submit_command(command: Result<TestCommand, String>, proxy: &EventLoopProxy<T
         return 0;
     }
 
-    let request_id = NEXT_REQUEST_ID.with(|next| {
-        let request_id = next.get();
-        next.set(request_id.wrapping_add(1).max(1));
+    let request_id = with_bridge_state(|state| {
+        let request_id = state.next_request_id;
+        state.next_request_id = request_id.wrapping_add(1).max(1);
         request_id
     });
     let response = match command {
         Ok(command) => dispatch(command, proxy),
         Err(message) => PendingResponse::Ready(TestResponse::Error { message }),
     };
-    RESPONSES.with(|responses| {
-        responses.borrow_mut().insert(request_id, response);
+    with_bridge_state(|state| {
+        state.responses.insert(request_id, response);
     });
     request_id
 }
@@ -376,9 +398,8 @@ fn response_json_string(response: &TestResponse) -> String {
 }
 
 fn poll_response(request_id: u32) -> Option<TestResponse> {
-    RESPONSES.with(|responses| {
-        let mut responses = responses.borrow_mut();
-        let Some(response) = responses.remove(&request_id) else {
+    with_bridge_state(|state| {
+        let Some(response) = state.responses.remove(&request_id) else {
             return Some(TestResponse::Error {
                 message: if request_id == 0 {
                     "too many pending browser test requests".into()
@@ -393,7 +414,9 @@ fn poll_response(request_id: u32) -> Option<TestResponse> {
             PendingResponse::Waiting(receiver) => match receiver.try_recv() {
                 Ok(response) => Some(response),
                 Err(TryRecvError::Empty) => {
-                    responses.insert(request_id, PendingResponse::Waiting(receiver));
+                    state
+                        .responses
+                        .insert(request_id, PendingResponse::Waiting(receiver));
                     None
                 }
                 Err(TryRecvError::Disconnected) => Some(TestResponse::Error {
