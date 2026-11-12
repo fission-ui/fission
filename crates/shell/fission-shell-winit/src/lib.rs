@@ -5852,12 +5852,52 @@ where
                     eprintln!("[android-events] user_event={test_event:?}");
                 }
                 let diagnostic_kind = match &test_event {
-                    TestEvent::MotionStatus { .. } => 1,
-                    TestEvent::Pump { .. } => 2,
-                    TestEvent::ResolveSelector { .. } => 3,
-                    TestEvent::GetText { .. } => 4,
-                    TestEvent::GetTree { .. } => 5,
-                    _ => 0,
+                    TestEvent::MouseMove { .. } => 1,
+                    TestEvent::MouseDown { .. } => 2,
+                    TestEvent::MouseUp { .. } => 3,
+                    TestEvent::PointerDown { .. } => 4,
+                    TestEvent::PointerMove { .. } => 5,
+                    TestEvent::PointerUp { .. } => 6,
+                    TestEvent::PointerCancel { .. } => 7,
+                    TestEvent::KeyDown { .. } => 8,
+                    TestEvent::KeyUp { .. } => 9,
+                    TestEvent::TextInput { .. } => 10,
+                    TestEvent::ImePreedit { .. } => 11,
+                    TestEvent::ImeCommit { .. } => 12,
+                    TestEvent::ImeCancel => 13,
+                    TestEvent::Scroll { .. } => 14,
+                    TestEvent::PointerScroll { .. } => 15,
+                    TestEvent::Magnify { .. } => 16,
+                    TestEvent::ExternalFileHover { .. } => 17,
+                    TestEvent::ExternalFileDrop { .. } => 18,
+                    TestEvent::ExternalFileCancel => 19,
+                    TestEvent::Resize { .. } => 20,
+                    TestEvent::Screenshot { .. } => 21,
+                    TestEvent::CaptureScreenshot { .. } => 22,
+                    TestEvent::PauseAnimations { .. } => 23,
+                    TestEvent::ResumeAnimations { .. } => 24,
+                    TestEvent::AdvanceClock { .. } => 25,
+                    TestEvent::CaptureAt { .. } => 26,
+                    TestEvent::MotionStatus { .. } => 27,
+                    TestEvent::GetText { .. } => 28,
+                    TestEvent::GetTree { .. } => 29,
+                    TestEvent::Pump { .. } => 30,
+                    TestEvent::Wake => 31,
+                    TestEvent::HeadlessFrame => 32,
+                    TestEvent::Quit => 33,
+                    TestEvent::TapText { .. } => 34,
+                    TestEvent::ResolveSelector { .. } => 35,
+                    TestEvent::TapSelector { .. } => 36,
+                    TestEvent::ActivateSelector { .. } => 37,
+                    TestEvent::FocusSelector { .. } => 38,
+                    TestEvent::HoverSelector { .. } => 39,
+                    TestEvent::RightClickSelector { .. } => 40,
+                    TestEvent::ScrollIntoView { .. } => 41,
+                    TestEvent::FillText { .. } => 42,
+                    TestEvent::ClearText { .. } => 43,
+                    TestEvent::Toggle { .. } => 44,
+                    TestEvent::SelectOption { .. } => 45,
+                    TestEvent::Wait { .. } => 46,
                 };
                 record_web_test_diagnostic(90, diagnostic_kind);
                 match test_event {
@@ -8254,6 +8294,13 @@ where
                             }
                         }
                         WindowEvent::RedrawRequested => {
+                            record_web_test_diagnostic(
+                                300,
+                                pipeline
+                                    .prev_ir
+                                    .as_ref()
+                                    .map_or(0, |ir| ir.nodes.len() as u32),
+                            );
                             if debug_android_events {
                                 eprintln!("[android-events] redraw_requested");
                             }
@@ -8307,6 +8354,7 @@ where
                                     eprintln!("Runtime tick error: {:?}", e);
                                 }
                             }
+                            record_web_test_diagnostic(301, 0);
                             if let (Some(ir), Some(layout)) =
                                 (&pipeline.prev_ir, &pipeline.last_snapshot)
                             {
@@ -8338,6 +8386,7 @@ where
                                     "redraw:effects",
                                 );
                             }
+                            record_web_test_diagnostic(302, 0);
                             let viewport_state = pending_resize.unwrap_or_else(|| {
                                 #[cfg(not(target_os = "android"))]
                                 {
@@ -8638,9 +8687,11 @@ where
                                 applied_window_title = desired_window_title.to_string();
                             }
 
+                            record_web_test_diagnostic(303, 0);
                             let update_ms = now.elapsed().as_secs_f64() * 1000.0;
                             let build_started = Instant::now();
                             let rebuilt = invalidations.build || pipeline.prev_ir.is_none();
+                            record_web_test_diagnostic(310, u32::from(rebuilt));
                             if rebuilt {
                                 let (
                                     node_tree,
@@ -8660,16 +8711,19 @@ where
                                         pipeline.last_snapshot.as_ref(),
                                     );
                                     let mut ctx = BuildCtx::new();
+                                    record_web_test_diagnostic(311, 0);
                                     let node = fission_core::build::enter_with_root(
                                         &mut ctx,
                                         &view,
                                         root_widget_id,
                                         || root_widget.clone().into(),
                                     );
+                                    record_web_test_diagnostic(312, 0);
                                     let node = fission_core::internal::resolve_widget_identities(
                                         &node,
                                         root_widget_id,
                                     );
+                                    record_web_test_diagnostic(313, 0);
                                     let resources = ctx.take_resources();
                                     let motion_declarations = ctx.take_motion_declarations();
                                     let videos = ctx.take_video_registrations();
@@ -8818,6 +8872,7 @@ where
                                 invalidations.merge(pipeline_invalidations);
                                 last_built_viewport = Some(build_viewport);
                             }
+                            record_web_test_diagnostic(314, 0);
                             let build_ms = build_started.elapsed().as_secs_f64() * 1000.0;
 
                             if let Some(ir) = pipeline.prev_ir.as_ref() {
@@ -8825,6 +8880,7 @@ where
                             }
 
                             let layout_started = Instant::now();
+                            record_web_test_diagnostic(320, 0);
                             let layout_updates = match pipeline.ensure_layout(
                                 LayoutRect::new(
                                     0.0,
@@ -8842,9 +8898,11 @@ where
                                     return;
                                 }
                             };
+                            record_web_test_diagnostic(321, layout_updates as u32);
                             let layout_ms = layout_started.elapsed().as_secs_f64() * 1000.0;
 
                             let post_layout_started = Instant::now();
+                            record_web_test_diagnostic(322, 0);
                             if let (Some(ir), Some(layout)) =
                                 (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref())
                             {
@@ -8888,17 +8946,21 @@ where
                             if let (Some(ir), Some(layout)) =
                                 (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref())
                             {
+                                record_web_test_diagnostic(323, 0);
                                 accessibility_bridge.update_tree(
                                     ir,
                                     layout,
                                     &runtime,
                                     scale_factor,
                                 );
+                                record_web_test_diagnostic(324, 0);
                             }
+                            record_web_test_diagnostic(330, 0);
                             let post_layout_ms =
                                 post_layout_started.elapsed().as_secs_f64() * 1000.0;
 
                             let prepare_started = Instant::now();
+                            record_web_test_diagnostic(340, 0);
                             match pipeline.prepare_current(
                                 target_viewport,
                                 target_viewport,
@@ -8909,8 +8971,10 @@ where
                                 &runtime.runtime_state.web,
                             ) {
                                 Ok(stats) => {
+                                    record_web_test_diagnostic(341, 0);
                                     let prepare_ms =
                                         prepare_started.elapsed().as_secs_f64() * 1000.0;
+                                    record_web_test_diagnostic(350, 0);
                                     let render_started = Instant::now();
                                     #[cfg(target_arch = "wasm32")]
                                     let mut software_render_ms = 0.0;
@@ -9260,6 +9324,7 @@ where
                                         }
                                         invalidations = InvalidationSet::default();
 
+                                        record_web_test_diagnostic(351, 0);
                                         presented_frames = presented_frames.saturating_add(1);
                                         if web_frame_has_content {
                                             web_rendered_frames =
@@ -9821,6 +9886,7 @@ where
                                                 paint_misses: stats.paint_misses as u32,
                                             },
                                         );
+                                        record_web_test_diagnostic(352, 0);
                                         diag::end_frame(diag::FrameStats::default());
                                     }
                                 }
