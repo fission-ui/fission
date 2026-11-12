@@ -64,7 +64,7 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
     // completed event stage remains observable in that case.
     if (300..353).contains(&stage)
         || (360..370).contains(&stage)
-        || (400..=466).contains(&stage)
+        || (400..=470).contains(&stage)
         || (matches!(stage, 90 | 91) && iteration == 42)
     {
         web_sys::console::log_1(&JsValue::from_str(&format!(
