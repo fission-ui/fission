@@ -4373,10 +4373,12 @@ fn set_text_value_for_test(
     {
         return false;
     }
-    record_web_test_diagnostic(420, 0);
+    // 450–466 are reserved for FillText dispatch. The bridge's submit/query/
+    // poll diagnostics use 410–435 and are recorded in the same trace stream.
+    record_web_test_diagnostic(455, 0);
     set_focus_for_test(runtime, ir, record.id, &record.semantics);
-    record_web_test_diagnostic(421, 0);
-    record_web_test_diagnostic(422, 0);
+    record_web_test_diagnostic(456, 0);
+    record_web_test_diagnostic(457, 0);
     let applied = runtime
         .apply_text_edit_command_to(
             ir,
@@ -4389,7 +4391,7 @@ fn set_text_value_for_test(
             },
         )
         .unwrap_or(false);
-    record_web_test_diagnostic(423, applied as u32);
+    record_web_test_diagnostic(458, applied as u32);
     applied
 }
 
@@ -4587,7 +4589,7 @@ fn handle_fill_text_selector(
     runtime: &mut Runtime,
     pipeline: &Pipeline,
 ) -> fission_test_driver::TestResponse {
-    record_web_test_diagnostic(410, 0);
+    record_web_test_diagnostic(450, 0);
     let Some(ir) = pipeline.prev_ir.as_ref() else {
         return selector_failure(
             query.clone(),
@@ -4596,12 +4598,12 @@ fn handle_fill_text_selector(
             Vec::new(),
         );
     };
-    record_web_test_diagnostic(411, ir.nodes.len() as u32);
+    record_web_test_diagnostic(451, ir.nodes.len() as u32);
     let record = match resolve_selector_record(pipeline, &runtime.runtime_state.scroll, query) {
         Ok(record) => record,
         Err(error) => return error,
     };
-    record_web_test_diagnostic(412, 0);
+    record_web_test_diagnostic(452, 0);
     if record.semantics.disabled {
         return selector_failure(
             query.clone(),
@@ -4634,12 +4636,12 @@ fn handle_fill_text_selector(
             vec![(record, None)],
         );
     };
-    record_web_test_diagnostic(413, 0);
+    record_web_test_diagnostic(453, 0);
     if set_text_value_for_test(runtime, ir, layout, &record, text) {
-        record_web_test_diagnostic(414, 1);
+        record_web_test_diagnostic(454, 1);
         fission_test_driver::TestResponse::Ok {}
     } else {
-        record_web_test_diagnostic(414, 0);
+        record_web_test_diagnostic(454, 0);
         selector_failure(
             query.clone(),
             fission_test_driver::SelectorFailureKind::UnsupportedAction,
@@ -6997,7 +6999,7 @@ where
                         text,
                         response_tx,
                     } => {
-                        record_web_test_diagnostic(430, 0);
+                        record_web_test_diagnostic(460, 0);
                         let Some(window) = platform_window.active_window() else {
                             let _ = response_tx.send(fission_test_driver::TestResponse::Error {
                                 message: "window not ready".into(),
@@ -7006,10 +7008,10 @@ where
                         };
                         let resp =
                             handle_fill_text_selector(&query, &text, &mut runtime, &pipeline);
-                        record_web_test_diagnostic(431, 0);
+                        record_web_test_diagnostic(461, 0);
                         if matches!(resp, fission_test_driver::TestResponse::Ok { .. }) {
                             invalidations.mark_build();
-                            record_web_test_diagnostic(432, 0);
+                            record_web_test_diagnostic(462, 0);
                             if process_pending_effects(
                                 &mut runtime,
                                 &effect_result_tx,
@@ -7021,11 +7023,11 @@ where
                             ) {
                                 invalidations.mark_build();
                             }
-                            record_web_test_diagnostic(433, 0);
+                            record_web_test_diagnostic(463, 0);
                         }
-                        record_web_test_diagnostic(434, 0);
+                        record_web_test_diagnostic(464, 0);
                         let _ = response_tx.send(resp);
-                        record_web_test_diagnostic(435, 0);
+                        record_web_test_diagnostic(465, 0);
                         request_redraw_logged(
                             window,
                             elwt,
@@ -7035,7 +7037,7 @@ where
                             &mut frame_trace,
                             "test_fill_text_selector",
                         );
-                        record_web_test_diagnostic(436, 0);
+                        record_web_test_diagnostic(466, 0);
                     }
                     TestEvent::ClearText { query, response_tx } => {
                         let Some(window) = platform_window.active_window() else {

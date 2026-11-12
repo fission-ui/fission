@@ -713,10 +713,13 @@ impl BrowserController {
             "globalThis.__FISSION_TEST__.submit({})",
             serde_json::to_string(&command_json)?
         );
-        let result = self.client.send_with_web_test_trace(
-            "Runtime.evaluate",
-            json!({ "expression": submit, "returnByValue": true }),
-        )?;
+        let result = self
+            .client
+            .send_with_web_test_trace(
+                "Runtime.evaluate",
+                json!({ "expression": submit, "returnByValue": true }),
+            )
+            .context("submitting a Fission browser test command over CDP")?;
         runtime_exception(&result)?;
         let request_id = result
             .pointer("/result/value")
@@ -735,7 +738,8 @@ impl BrowserController {
                     ),
                     "returnByValue": true
                 }),
-            )?;
+            )
+            .with_context(|| format!("polling Fission browser test request {request_id} over CDP"))?;
             runtime_exception(&poll)?;
             if let Some(response) = poll
                 .pointer("/result/value")
@@ -1403,7 +1407,7 @@ impl CdpClient {
                     .strip_prefix("FISSION_WEB_TEST_TRACE ")
                     .and_then(|value| value.split_whitespace().next())
                     .and_then(|value| value.parse::<u32>().ok());
-                if stage.is_some_and(|stage| (410..=436).contains(&stage)) {
+                if stage.is_some_and(is_web_text_input_trace_stage) {
                     if self.web_text_input_trace.len() == 256 {
                         self.web_text_input_trace.pop_front();
                     }
@@ -1486,6 +1490,14 @@ impl CdpClient {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn is_web_text_input_trace_stage(stage: u32) -> bool {
+    // 410–435 cover bridge submit/query/poll stages; 450–466 cover the
+    // FillText event and handler. Keep the ranges separate because both are
+    // observed in the same CDP event stream.
+    (410..=435).contains(&stage) || (450..=466).contains(&stage)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn ignorable_browser_log(source: &str, url: &str, text: &str) -> bool {
     text.contains("/__fission/renderer")
         || url.contains("/__fission/renderer")
@@ -1509,6 +1521,17 @@ fn is_root_favicon_url(url: &str) -> bool {
 mod tests {
     use super::*;
     use crate::{Bounds, SemanticNode};
+
+    #[test]
+    fn web_text_input_trace_keeps_bridge_and_fill_stages_disjoint() {
+        assert!(is_web_text_input_trace_stage(410));
+        assert!(is_web_text_input_trace_stage(435));
+        assert!(!is_web_text_input_trace_stage(436));
+        assert!(!is_web_text_input_trace_stage(449));
+        assert!(is_web_text_input_trace_stage(450));
+        assert!(is_web_text_input_trace_stage(466));
+        assert!(!is_web_text_input_trace_stage(467));
+    }
 
     #[test]
     fn reduced_motion_is_an_explicit_browser_option() {

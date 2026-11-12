@@ -1211,12 +1211,15 @@ impl LiveTestClient {
     }
 
     pub fn fill_text_selector(&self, query: SelectorQuery, text: &str) -> Result<()> {
-        self.pump()?;
+        self.pump()
+            .context("pumping the browser before filling a text input")?;
         self.send(TestCommand::FillText {
             query: self.scoped_query(query),
             text: text.to_string(),
-        })?;
-        self.pump()?;
+        })
+        .context("dispatching a text fill to the browser")?;
+        self.pump()
+            .context("pumping the browser after filling a text input")?;
         Ok(())
     }
 
