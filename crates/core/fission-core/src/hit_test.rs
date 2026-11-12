@@ -61,11 +61,20 @@ fn subtree_has_layout_geometry(ir: &CoreIR, layout: &LayoutSnapshot, node_id: Wi
     if layout.get_node_geometry(node_id).is_some() {
         return true;
     }
-    ir.nodes.get(&node_id).is_some_and(|node| {
-        node.children
-            .iter()
-            .any(|child| subtree_has_layout_geometry(ir, layout, *child))
-    })
+    let Some(root) = ir.nodes.get(&node_id) else {
+        return false;
+    };
+    let mut pending = Vec::new();
+    pending.extend(root.children.iter().rev().copied());
+    while let Some(current_id) = pending.pop() {
+        if layout.get_node_geometry(current_id).is_some() {
+            return true;
+        }
+        if let Some(node) = ir.nodes.get(&current_id) {
+            pending.extend(node.children.iter().rev().copied());
+        }
+    }
+    false
 }
 
 /// Result of applying a semantic composite's keyboard-navigation contract.
@@ -1653,14 +1662,15 @@ pub fn find_neighbor_focus_node(
 #[cfg(test)]
 mod canvas_hit_tests {
     use super::{
-        canvas_target_hit, focus_barriers_in_tree_order, get_all_focusable_nodes, hit_test,
-        is_enabled_focus_node, is_interaction_inert, preferred_focus_node_in_scope,
-        topmost_semantics_action,
+        active_responsive_child, canvas_target_hit, focus_barriers_in_tree_order,
+        get_all_focusable_nodes, hit_test, is_enabled_focus_node, is_interaction_inert,
+        preferred_focus_node_in_scope, topmost_semantics_action,
     };
     use crate::env::ScrollStateMap;
+    use fission_ir::op::ResponsiveQuery;
     use fission_ir::{
         ActionEntry, ActionSet, ActionTrigger, CanvasSelectionPolicy, CanvasTarget,
-        CanvasTargetKind, CoreIR, Op, Role, Semantics, StructuralOp, WidgetId,
+        CanvasTargetKind, CoreIR, LayoutOp, Op, Role, Semantics, StructuralOp, WidgetId,
     };
     use fission_layout::{LayoutNodeGeometry, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot};
 
@@ -1677,6 +1687,59 @@ mod canvas_hit_tests {
             snap_spacing: None,
             snap_threshold: 0.0,
         }
+    }
+
+    #[test]
+    fn active_responsive_child_search_is_stack_safe_for_deep_branches() {
+        let mut ir = CoreIR::default();
+        let mut inactive_branch = WidgetId::explicit("deep-branch-leaf");
+        ir.add_node(
+            inactive_branch,
+            Op::Structural(StructuralOp::Group { stable_hash: 0 }),
+            Vec::new(),
+        );
+        for depth in 1..=20_000_u64 {
+            let parent = WidgetId::explicit(&format!("deep-branch-{depth}"));
+            ir.add_node(
+                parent,
+                Op::Structural(StructuralOp::Group { stable_hash: depth }),
+                vec![inactive_branch],
+            );
+            inactive_branch = parent;
+        }
+
+        let active_branch = WidgetId::explicit("active-branch");
+        ir.add_node(
+            active_branch,
+            Op::Structural(StructuralOp::Group {
+                stable_hash: 20_001,
+            }),
+            Vec::new(),
+        );
+        let responsive = WidgetId::explicit("responsive-root");
+        ir.add_node(
+            responsive,
+            Op::Layout(LayoutOp::Responsive {
+                query: ResponsiveQuery::Viewport,
+                cases: Vec::new(),
+            }),
+            vec![inactive_branch, active_branch],
+        );
+        ir.set_root(responsive);
+
+        let mut layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
+        layout.nodes.insert(
+            active_branch,
+            LayoutNodeGeometry {
+                rect: LayoutRect::new(0.0, 0.0, 100.0, 100.0),
+                content_size: LayoutSize::new(100.0, 100.0),
+            },
+        );
+
+        assert_eq!(
+            active_responsive_child(&ir, &layout, responsive),
+            Some(active_branch)
+        );
     }
 
     #[test]
