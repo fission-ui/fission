@@ -2179,9 +2179,11 @@ fn request_redraw_throttled(
         *last_redraw_at = now;
         *redraw_pending = false;
         window.request_redraw();
+        record_web_test_diagnostic(366, 1);
     } else {
         *redraw_pending = true;
         elwt.set_control_flow(ControlFlow::WaitUntil(next));
+        record_web_test_diagnostic(366, 0);
     }
 }
 
@@ -8200,7 +8202,7 @@ where
                         #[cfg(not(target_os = "android"))]
                         elwt.set_control_flow(ControlFlow::Wait);
                     }
-                    record_web_test_diagnostic(365, 0);
+                    record_web_test_diagnostic(365, redraw_pending as u32);
                 }
 
                 // ═══════════════════════════════════════════════════════
