@@ -57,7 +57,8 @@ global is involved.
 
 LiveTest drivers use `submit(json)` and `poll(id)`. The bridge copies command
 JSON into a fixed 4 MiB scratch area in the module's linear memory, then calls a
-scalar Wasm export to parse and dispatch it. `poll` calls scalar exports to
+scalar Wasm export to parse and dispatch it. Larger commands receive a normal
+`Error` response stating the size limit. `poll` calls scalar exports to
 serialize a response into linear memory and returns that JSON as a string; it
 returns the JSON text `null` while the response is pending. The diagnostics and
 read-only frame getter also use JavaScript adapters over scalar exports (or the
