@@ -1,7 +1,6 @@
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
-use std::hint::spin_loop;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use fission_test_driver::{TestCommand, TestEvent, TestResponse, WebTestFrame, WebTestFramePhase};
@@ -50,38 +49,21 @@ impl Default for WebTestBridgeState {
 }
 
 struct WebTestBridgeStateCell {
-    locked: AtomicBool,
     state: UnsafeCell<Option<WebTestBridgeState>>,
 }
 
-// A Web app has one main-thread LiveTest bridge per Wasm instance. Bridge
-// calls are synchronous and never call JavaScript while state is borrowed.
-// This small lock keeps the state out of Wasm TLS and avoids poisoning logic
-// that would itself consult thread-local panic state.
+// Web LiveTest control is compiled only for the single-threaded browser Wasm
+// shell. Its callbacks run synchronously on the browser event loop, and the
+// closures below never call JavaScript while state is borrowed, so access
+// cannot race or re-enter. Keep this state in linear memory rather than Wasm
+// TLS: TLS-backed bridge state has trapped in long-running browser sessions.
 unsafe impl Sync for WebTestBridgeStateCell {}
 
-struct WebTestBridgeStateGuard<'a>(&'a AtomicBool);
-
-impl Drop for WebTestBridgeStateGuard<'_> {
-    fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
-    }
-}
-
-fn with_bridge_state<R>(f: impl for<'a> FnOnce(&'a mut WebTestBridgeState) -> R) -> R {
+fn with_bridge_state<R>(f: impl FnOnce(&mut WebTestBridgeState) -> R) -> R {
     static STATE: WebTestBridgeStateCell = WebTestBridgeStateCell {
-        locked: AtomicBool::new(false),
         state: UnsafeCell::new(None),
     };
 
-    while STATE
-        .locked
-        .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-        .is_err()
-    {
-        spin_loop();
-    }
-    let _guard = WebTestBridgeStateGuard(&STATE.locked);
     let state = unsafe { (*STATE.state.get()).get_or_insert_with(WebTestBridgeState::default) };
     f(state)
 }
