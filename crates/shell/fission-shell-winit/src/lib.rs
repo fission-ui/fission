@@ -7719,16 +7719,13 @@ where
                 // AboutToWait — idle / animation / blink / effects
                 // ═══════════════════════════════════════════════════════
                 Event::AboutToWait => {
-                    // Keep the wake gate closed while the user event and its synchronous
-                    // callbacks run. Clear it before draining effects so new async work can
-                    // schedule one follow-up wake for the next event-loop iteration.
-                    #[cfg(target_arch = "wasm32")]
-                    if std::mem::take(&mut web_wake_dispatched_in_cycle) {
-                        WEB_WAKE_EVENT_PENDING.store(false, Ordering::Release);
-                    }
                     record_web_test_diagnostic(360, 0);
                     let Some(window) = platform_window.active_window() else {
                         elwt.set_control_flow(ControlFlow::Wait);
+                        #[cfg(target_arch = "wasm32")]
+                        if std::mem::take(&mut web_wake_dispatched_in_cycle) {
+                            WEB_WAKE_EVENT_PENDING.store(false, Ordering::Release);
+                        }
                         return;
                     };
                     // Queued test events are drained before the pending screenshot is read: the
@@ -8448,6 +8445,14 @@ where
                         elwt.set_control_flow(ControlFlow::Wait);
                     }
                     record_web_test_diagnostic(365, redraw_pending as u32);
+                    // Keep the wake gate closed through event handling and the complete
+                    // synchronous AboutToWait pass. Effects may dispatch more synchronous
+                    // state work; clearing here coalesces those reentrant requests while still
+                    // allowing later browser tasks to enqueue a follow-up wake.
+                    #[cfg(target_arch = "wasm32")]
+                    if std::mem::take(&mut web_wake_dispatched_in_cycle) {
+                        WEB_WAKE_EVENT_PENDING.store(false, Ordering::Release);
+                    }
                 }
 
                 // ═══════════════════════════════════════════════════════
