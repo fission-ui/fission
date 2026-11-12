@@ -80,6 +80,7 @@ test("a Web save handle restores from IndexedDB with its current permission", as
   const pickerDescriptor = Object.getOwnPropertyDescriptor(globalThis, "showSaveFilePicker");
   const indexedDbDescriptor = Object.getOwnPropertyDescriptor(globalThis, "indexedDB");
   const records = new Map();
+  const databaseKey = (key) => JSON.stringify(key);
   let permissionState = "prompt";
   let savedText = "";
   const database = {
@@ -105,14 +106,14 @@ test("a Web save handle restores from IndexedDB with its current permission", as
         return request;
       };
       const store = {
-        get: (key) => makeRequest(() => records.get(key)),
+        get: (key) => makeRequest(() => records.get(databaseKey(key))),
         put: (value, key) => {
           assert.equal(mode, "readwrite");
-          return makeRequest(() => records.set(key, value));
+          return makeRequest(() => records.set(databaseKey(key), value));
         },
         delete: (key) => {
           assert.equal(mode, "readwrite");
-          return makeRequest(() => records.delete(key));
+          return makeRequest(() => records.delete(databaseKey(key)));
         },
       };
       transaction.objectStore = () => store;
@@ -131,6 +132,7 @@ test("a Web save handle restores from IndexedDB with its current permission", as
       return request;
     },
   };
+  records.set(databaseKey("save-file:monthly-report"), "existing-directory-grant");
   const handle = {
     name: "report.txt",
     async queryPermission({ mode }) {
@@ -158,7 +160,14 @@ test("a Web save handle restores from IndexedDB with its current permission", as
     const firstSession = await import(`../src/web_file_picker.mjs?session=${Date.now()}-pick`);
     const selected = await firstSession.fissionPickSaveFile("report.txt", "[]", "monthly-report");
     assert.equal(selected.permission, "prompt");
-    assert.equal(records.get("save-file:monthly-report"), handle);
+    assert.equal(
+      records.get(databaseKey(["fission.save-file", "monthly-report"])),
+      handle,
+    );
+    assert.equal(
+      records.get(databaseKey("save-file:monthly-report")),
+      "existing-directory-grant",
+    );
 
     const restoredSession = await import(`../src/web_file_picker.mjs?session=${Date.now()}-restore`);
     const restored = await restoredSession.fissionRestoreSaveFile("monthly-report");
@@ -181,7 +190,11 @@ test("a Web save handle restores from IndexedDB with its current permission", as
     await restoredSession.fissionForgetSaveFile("monthly-report");
     const afterForget = await restoredSession.fissionRestoreSaveFile("monthly-report");
     assert.equal(afterForget, null);
-    assert.equal(records.has("save-file:monthly-report"), false);
+    assert.equal(records.has(databaseKey(["fission.save-file", "monthly-report"])), false);
+    assert.equal(
+      records.get(databaseKey("save-file:monthly-report")),
+      "existing-directory-grant",
+    );
 
     Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: {
       open() {

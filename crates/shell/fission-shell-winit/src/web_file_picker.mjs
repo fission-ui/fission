@@ -3,7 +3,7 @@ const writableFiles = new Map();
 let nextPickedFile = 1;
 const fallbackFileChunkSize = 256 * 1024;
 const maxFileChunkSize = 16 * 1024 * 1024;
-const savedFileKeyPrefix = "save-file:";
+const savedFileKeyNamespace = "fission.save-file";
 
 function permissionName(value) {
   return value === "granted" || value === "prompt" || value === "denied" ? value : "unknown";
@@ -19,7 +19,9 @@ async function permission(handle, request) {
 function requireSaveFileKey(key) {
   const normalized = String(key || "").trim();
   if (!normalized) throw Object.assign(new Error("save-file persistence keys cannot be empty"), { name: "invalid_persistence_key" });
-  return `${savedFileKeyPrefix}${normalized}`;
+  // IndexedDB compound keys cannot collide with the directory API's legacy
+  // string keys, even if an app chooses the same visible persistence key.
+  return [savedFileKeyNamespace, normalized];
 }
 
 function openHandleDatabase() {
