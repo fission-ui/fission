@@ -1227,6 +1227,7 @@ struct CdpClient {
     operation_deadline: Option<Instant>,
     review_events: Vec<Value>,
     web_test_trace: VecDeque<String>,
+    web_text_input_trace: VecDeque<String>,
     report_only: bool,
     network_requests: HashSet<String>,
     network_last_activity: Instant,
@@ -1248,6 +1249,7 @@ impl CdpClient {
             operation_deadline: None,
             review_events: Vec::new(),
             web_test_trace: VecDeque::new(),
+            web_text_input_trace: VecDeque::new(),
             report_only: false,
             network_requests: HashSet::new(),
             network_last_activity: Instant::now(),
@@ -1397,6 +1399,16 @@ impl CdpClient {
                 .and_then(Value::as_str)
                 .filter(|value| value.starts_with("FISSION_WEB_TEST_TRACE "))
             {
+                let stage = trace
+                    .strip_prefix("FISSION_WEB_TEST_TRACE ")
+                    .and_then(|value| value.split_whitespace().next())
+                    .and_then(|value| value.parse::<u32>().ok());
+                if stage.is_some_and(|stage| (410..=436).contains(&stage)) {
+                    if self.web_text_input_trace.len() == 256 {
+                        self.web_text_input_trace.pop_front();
+                    }
+                    self.web_text_input_trace.push_back(trace.to_owned());
+                }
                 if self.web_test_trace.len() == 64 {
                     self.web_test_trace.pop_front();
                 }
@@ -1448,18 +1460,28 @@ impl CdpClient {
     }
 
     fn web_test_trace_context(&self) -> String {
-        if self.web_test_trace.is_empty() {
-            String::new()
-        } else {
-            format!(
+        let mut context = String::new();
+        if !self.web_test_trace.is_empty() {
+            context.push_str(&format!(
                 "; recent Fission Web LiveTest stages: {}",
                 self.web_test_trace
                     .iter()
                     .map(String::as_str)
                     .collect::<Vec<_>>()
                     .join(" -> ")
-            )
+            ));
         }
+        if !self.web_text_input_trace.is_empty() {
+            context.push_str(&format!(
+                "; Fission text-input stages: {}",
+                self.web_text_input_trace
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" -> ")
+            ));
+        }
+        context
     }
 }
 
