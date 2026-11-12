@@ -253,6 +253,17 @@ pub mod internal {
         widget.clone().resolve_identities(root).lower(cx)
     }
 
+    /// Lower an owned widget tree without cloning it before identity
+    /// resolution. Shell rebuilds should use this when they create a fresh
+    /// root tree for the current frame.
+    pub fn lower_widget_with_root_owned(
+        widget: Widget,
+        cx: &mut LoweringContext,
+        root: WidgetId,
+    ) -> WidgetId {
+        widget.resolve_identities(root).lower(cx)
+    }
+
     pub fn lower_widget_to_ir(widget: &Widget) -> fission_ir::CoreIR {
         lower_widget_to_ir_with_root(widget, WidgetId::app_root())
     }

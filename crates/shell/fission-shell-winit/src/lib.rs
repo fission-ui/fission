@@ -8852,11 +8852,12 @@ where
                                     );
                                     let shell_root_id =
                                         fission_core::internal::shell_root_id(root_widget_id);
-                                    let root_id = fission_core::internal::lower_widget_with_root(
-                                        &final_root,
-                                        &mut lower_cx,
-                                        shell_root_id,
-                                    );
+                                    let root_id =
+                                        fission_core::internal::lower_widget_with_root_owned(
+                                            final_root,
+                                            &mut lower_cx,
+                                            shell_root_id,
+                                        );
                                     lower_cx.set_root(root_id);
                                     lower_cx.into_ir()
                                 };
