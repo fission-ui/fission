@@ -9,6 +9,7 @@ use wasm_bindgen::prelude::*;
 use winit::event_loop::EventLoopProxy;
 
 enum PendingResponse {
+    Queued(Result<TestCommand, String>),
     Ready(TestResponse),
     Waiting(Receiver<TestResponse>),
 }
@@ -78,7 +79,7 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
         364 => WEB_LAST_PENDING_WORK_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
         365 => WEB_LAST_REDRAW_PENDING_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
         366 => WEB_LAST_REDRAW_REQUEST_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
-        400 | 402 | 410 | 411 | 414 | 416 | 420 | 424 | 430 | 432 | 435 => true,
+        400 | 402 | 410 | 411 | 414 | 416 | 417 | 418 | 419 | 420 | 424 | 430 | 432 | 435 => true,
         473 if iteration == 1 => {
             WEB_REDRAW_WAIT_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 256 == 0
         }
@@ -262,13 +263,22 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     }
 
     let memory = wasm_bindgen::memory();
+    let dispatch_command = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_dispatch_command"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
+    if !dispatch_command.is_function() {
+        return false;
+    }
     let submit_adapter = Function::new_with_args(
-        "submitJson,commandJsonPtr,commandJsonCapacity,memory",
-        "return function(commandJson) { if (typeof commandJson !== 'string') throw new TypeError('command JSON must be a string'); const bytes = new TextEncoder().encode(commandJson); const capacity = commandJsonCapacity() >>> 0; if (bytes.length > capacity) return submitJson(capacity + 1) >>> 0; const address = commandJsonPtr() >>> 0; new Uint8Array(memory.buffer, address, bytes.length).set(bytes); console.log('FISSION_WEB_TEST_TRACE 415 0'); const requestId = submitJson(bytes.length) >>> 0; console.log('FISSION_WEB_TEST_TRACE 416 ' + requestId); return requestId; }",
+        "submitJson,dispatchCommand,commandJsonPtr,commandJsonCapacity,memory",
+        "return function(commandJson) { if (typeof commandJson !== 'string') throw new TypeError('command JSON must be a string'); const bytes = new TextEncoder().encode(commandJson); const capacity = commandJsonCapacity() >>> 0; if (bytes.length > capacity) return submitJson(capacity + 1) >>> 0; const address = commandJsonPtr() >>> 0; new Uint8Array(memory.buffer, address, bytes.length).set(bytes); console.log('FISSION_WEB_TEST_TRACE 415 0'); const requestId = submitJson(bytes.length) >>> 0; console.log('FISSION_WEB_TEST_TRACE 416 ' + requestId); if (requestId !== 0) globalThis.setTimeout(() => dispatchCommand(requestId), 0); return requestId; }",
     );
-    let Ok(submit) = submit_adapter.call4(
+    let Ok(submit) = submit_adapter.call5(
         &JsValue::NULL,
         &submit_json,
+        &dispatch_command,
         &command_json_ptr,
         &command_json_capacity,
         &memory,
@@ -481,12 +491,25 @@ pub extern "C" fn fission_web_test_submit_json(length: u32) -> u32 {
             })
     };
     record_diagnostic(401, length);
-    let proxy = with_bridge_state(|state| state.event_proxy.clone());
-    record_diagnostic(402, u32::from(proxy.is_some()));
-    proxy.map_or(0, |proxy| {
-        record_diagnostic(403, 0);
-        submit_command(command, &proxy)
-    })
+    let proxy_available = with_bridge_state(|state| state.event_proxy.is_some());
+    record_diagnostic(402, u32::from(proxy_available));
+    if !proxy_available {
+        return 0;
+    }
+    record_diagnostic(403, 0);
+    queue_command(command)
+}
+
+// Runtime.evaluate is used to submit a LiveTest command from CDP. Dispatching
+// its EventLoopProxy immediately can synchronously enter winit's Web event
+// loop before Chrome has sent the Runtime.evaluate response. Defer that work
+// to a later browser task so the CDP command can return its request id first.
+#[cfg(fission_web_test_control)]
+#[no_mangle]
+pub extern "C" fn fission_web_test_dispatch_command(request_id: u32) {
+    record_diagnostic(417, request_id);
+    dispatch_queued_command(request_id);
+    record_diagnostic(419, request_id);
 }
 
 #[cfg(fission_web_test_control)]
@@ -556,7 +579,7 @@ fn record_poll_stage(request_id: u32, stage: u32) {
     );
 }
 
-fn submit_command(command: Result<TestCommand, String>, proxy: &EventLoopProxy<TestEvent>) -> u32 {
+fn queue_command(command: Result<TestCommand, String>) -> u32 {
     let available = with_bridge_state(|state| state.responses.len() < MAX_PENDING_RESPONSES);
     record_diagnostic(410, u32::from(available));
     if !available {
@@ -572,10 +595,7 @@ fn submit_command(command: Result<TestCommand, String>, proxy: &EventLoopProxy<T
         request_id
     });
     record_diagnostic(411, request_id);
-    let response = match command {
-        Ok(command) => dispatch(command, proxy),
-        Err(message) => PendingResponse::Ready(TestResponse::Error { message }),
-    };
+    let response = PendingResponse::Queued(command);
     record_diagnostic(412, request_id);
     with_bridge_state(|state| {
         state.responses.insert(request_id, response);
@@ -583,6 +603,35 @@ fn submit_command(command: Result<TestCommand, String>, proxy: &EventLoopProxy<T
     record_diagnostic(413, request_id);
     record_diagnostic(414, request_id);
     request_id
+}
+
+fn dispatch_queued_command(request_id: u32) {
+    let (command, proxy) = with_bridge_state(|state| {
+        let command = match state.responses.remove(&request_id) {
+            Some(PendingResponse::Queued(command)) => Some(command),
+            Some(response) => {
+                state.responses.insert(request_id, response);
+                None
+            }
+            None => None,
+        };
+        (command, state.event_proxy.clone())
+    });
+    record_diagnostic(418, u32::from(command.is_some()));
+    let Some(command) = command else {
+        return;
+    };
+
+    let response = match (command, proxy) {
+        (Ok(command), Some(proxy)) => dispatch(command, &proxy),
+        (Ok(_), None) => PendingResponse::Ready(TestResponse::Error {
+            message: "Fission browser event loop is closed".into(),
+        }),
+        (Err(message), _) => PendingResponse::Ready(TestResponse::Error { message }),
+    };
+    with_bridge_state(|state| {
+        state.responses.insert(request_id, response);
+    });
 }
 
 fn response_json_string(response: &TestResponse) -> String {
@@ -609,6 +658,12 @@ fn poll_response(request_id: u32) -> Option<TestResponse> {
         };
 
         match response {
+            PendingResponse::Queued(command) => {
+                state
+                    .responses
+                    .insert(request_id, PendingResponse::Queued(command));
+                None
+            }
             PendingResponse::Ready(response) => Some(response),
             PendingResponse::Waiting(receiver) => match receiver.try_recv() {
                 Ok(response) => Some(response),
