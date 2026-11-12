@@ -103,6 +103,15 @@ fn identical_developer_trees_receive_identical_complete_identity_snapshots() {
 }
 
 #[test]
+fn owned_identity_resolution_matches_borrowed_resolution() {
+    let tree = typical_developer_tree(false);
+    let borrowed = internal::resolve_widget_identities(&tree, WidgetId::app_root());
+    let owned = internal::resolve_widget_identities_owned(tree, WidgetId::app_root());
+
+    assert_eq!(identity_snapshot(&borrowed), identity_snapshot(&owned));
+}
+
+#[test]
 fn embedded_widget_surfaces_receive_automatic_identities() {
     let tree = resolved(
         Column {
