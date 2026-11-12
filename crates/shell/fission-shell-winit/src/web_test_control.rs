@@ -148,6 +148,11 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         &JsValue::from_str("fission_web_test_frame_number_high"),
     )
     .unwrap_or(JsValue::UNDEFINED);
+    let stack_pointer_probe = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_stack_pointer_probe"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
     if [
         &submit_json,
         &command_json_ptr,
@@ -159,6 +164,7 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         &frame_height,
         &frame_number_low,
         &frame_number_high,
+        &stack_pointer_probe,
     ]
     .iter()
     .any(|export| !export.is_function())
@@ -243,8 +249,18 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     Object::define_property(&bridge, &JsValue::from_str("frame"), &descriptor);
     let poll_stage_address = diagnostics_address;
     let state_address = bridge_state_address();
+    let command_json_address = command_json_ptr
+        .dyn_ref::<Function>()
+        .and_then(|function| function.call0(&JsValue::NULL).ok())
+        .unwrap_or(JsValue::UNDEFINED);
     if Reflect::set(&bridge, &JsValue::from_str("submit"), &submit).is_err()
         || Reflect::set(&bridge, &JsValue::from_str("poll"), &poll).is_err()
+        || Reflect::set(
+            &bridge,
+            &JsValue::from_str("stackPointer"),
+            &stack_pointer_probe,
+        )
+        .is_err()
         || Reflect::set(
             &bridge,
             &JsValue::from_str("pollDiagnostics"),
@@ -261,6 +277,12 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
             &bridge,
             &JsValue::from_str("stateAddress"),
             &JsValue::from_f64(state_address as f64),
+        )
+        .is_err()
+        || Reflect::set(
+            &bridge,
+            &JsValue::from_str("commandJsonAddress"),
+            &command_json_address,
         )
         .is_err()
         || Reflect::set(
@@ -301,6 +323,18 @@ pub extern "C" fn fission_web_test_command_json_capacity() -> u32 {
 #[no_mangle]
 pub extern "C" fn fission_web_test_bridge_state_ptr() -> u32 {
     bridge_state_address()
+}
+
+#[cfg(fission_web_test_control)]
+#[no_mangle]
+#[inline(never)]
+pub extern "C" fn fission_web_test_stack_pointer_probe() -> u32 {
+    let marker = 0_u32;
+    let address = std::ptr::addr_of!(marker) as usize as u32;
+    unsafe {
+        std::ptr::read_volatile(std::ptr::addr_of!(marker));
+    }
+    address
 }
 
 #[cfg(fission_web_test_control)]
