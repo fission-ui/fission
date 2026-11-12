@@ -59,13 +59,19 @@ struct WebTestBridgeStateCell {
 // TLS: TLS-backed bridge state has trapped in long-running browser sessions.
 unsafe impl Sync for WebTestBridgeStateCell {}
 
-fn with_bridge_state<R>(f: impl FnOnce(&mut WebTestBridgeState) -> R) -> R {
-    static STATE: WebTestBridgeStateCell = WebTestBridgeStateCell {
-        state: UnsafeCell::new(None),
-    };
+static WEB_TEST_BRIDGE_STATE: WebTestBridgeStateCell = WebTestBridgeStateCell {
+    state: UnsafeCell::new(None),
+};
 
-    let state = unsafe { (*STATE.state.get()).get_or_insert_with(WebTestBridgeState::default) };
+fn with_bridge_state<R>(f: impl FnOnce(&mut WebTestBridgeState) -> R) -> R {
+    let state = unsafe {
+        (*WEB_TEST_BRIDGE_STATE.state.get()).get_or_insert_with(WebTestBridgeState::default)
+    };
     f(state)
+}
+
+fn bridge_state_address() -> u32 {
+    std::ptr::addr_of!(WEB_TEST_BRIDGE_STATE) as usize as u32
 }
 
 /// Called only after a successful Web renderer submission. The bridge owns
@@ -236,6 +242,7 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     let bridge = Object::new();
     Object::define_property(&bridge, &JsValue::from_str("frame"), &descriptor);
     let poll_stage_address = diagnostics_address;
+    let state_address = bridge_state_address();
     if Reflect::set(&bridge, &JsValue::from_str("submit"), &submit).is_err()
         || Reflect::set(&bridge, &JsValue::from_str("poll"), &poll).is_err()
         || Reflect::set(
@@ -248,6 +255,12 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
             &bridge,
             &JsValue::from_str("pollDiagnosticsAddress"),
             &JsValue::from_f64(poll_stage_address as f64),
+        )
+        .is_err()
+        || Reflect::set(
+            &bridge,
+            &JsValue::from_str("stateAddress"),
+            &JsValue::from_f64(state_address as f64),
         )
         .is_err()
         || Reflect::set(
@@ -282,6 +295,12 @@ pub extern "C" fn fission_web_test_command_json_ptr() -> u32 {
 #[no_mangle]
 pub extern "C" fn fission_web_test_command_json_capacity() -> u32 {
     MAX_COMMAND_JSON_BYTES as u32
+}
+
+#[cfg(fission_web_test_control)]
+#[no_mangle]
+pub extern "C" fn fission_web_test_bridge_state_ptr() -> u32 {
+    bridge_state_address()
 }
 
 #[cfg(fission_web_test_control)]
