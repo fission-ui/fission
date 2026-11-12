@@ -20,6 +20,7 @@ const POLL_STAGE_RESPONSE_READY: u32 = 2;
 const POLL_STAGE_JSON_READY: u32 = 3;
 
 static LAST_POLL_STAGE: AtomicU32 = AtomicU32::new(0);
+static WEB_WAKE_TRACE_COUNT: AtomicU32 = AtomicU32::new(0);
 
 #[repr(C)]
 struct WebTestDiagnostics {
@@ -59,14 +60,20 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
     }
 
     // LiveTest can become unable to evaluate JavaScript while the Wasm main
-    // thread is stuck in synchronous work. Keep a small, test-only subset of
-    // the markers visible through CDP's console event stream so the last
-    // completed event stage remains observable in that case.
-    if (300..353).contains(&stage)
-        || (360..370).contains(&stage)
-        || (400..=470).contains(&stage)
-        || (matches!(stage, 90 | 91) && iteration == 42)
-    {
+    // thread is stuck in synchronous work. Keep useful boundaries visible
+    // through CDP, but avoid logging every idle-loop step and every Wake: a
+    // trace flood can itself delay browser tasks and obscure the original bug.
+    let should_log = match stage {
+        300..=353 => true,
+        360 | 364 | 365 | 366 => true,
+        400 | 402 | 410 | 411 | 414 | 416 | 420 | 424 | 430 | 432 | 435 => true,
+        437 if iteration == 42 => true,
+        437 if iteration == 31 => WEB_WAKE_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 32 == 0,
+        450..=465 | 467..=470 => true,
+        90 | 91 if iteration == 42 => true,
+        _ => false,
+    };
+    if should_log {
         web_sys::console::log_1(&JsValue::from_str(&format!(
             "FISSION_WEB_TEST_TRACE {stage} {iteration}"
         )));
