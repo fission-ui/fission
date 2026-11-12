@@ -2366,6 +2366,14 @@ impl FrameScheduleState {
         }
     }
 
+    fn wait_for_redraw_or_deadline(&self, deadline: Instant) -> ControlFlow {
+        if self.redraw_scheduled {
+            ControlFlow::Wait
+        } else {
+            ControlFlow::WaitUntil(deadline)
+        }
+    }
+
     fn note_redraw_reason(&mut self, reason: impl Into<String>) {
         if !self.enabled {
             return;
@@ -8286,7 +8294,7 @@ where
                                 wake_at = long_press_at;
                             }
                         }
-                        elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
+                        elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(wake_at));
                     } else if let Some(animation_frame) = animation_frame {
                         request_redraw_logged(
                             &window,
@@ -8334,7 +8342,7 @@ where
                                 wake_at = long_press_at;
                             }
                         }
-                        elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
+                        elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(wake_at));
                     } else if image_cache_pending {
                         let mut wake_at = now + Duration::from_millis(50);
                         if let Some(long_press_at) = long_press_wake_at {
@@ -8342,7 +8350,7 @@ where
                                 wake_at = long_press_at;
                             }
                         }
-                        elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
+                        elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(wake_at));
                     } else if let Some(blink_at) = blink_wake_at {
                         let reasons = frame_trace.take_redraw_reasons();
                         frame_trace.emit(
@@ -8364,7 +8372,7 @@ where
                                 wake_at = long_press_at;
                             }
                         }
-                        elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
+                        elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(wake_at));
                     } else if let Some(hook_at) = frame_hook_wake_at {
                         let reasons = frame_trace.take_redraw_reasons();
                         frame_trace.emit(
@@ -8375,11 +8383,13 @@ where
                                 &reasons,
                                 "schedule=hook_wait pending_resize=false redraw_pending=false highest=none",
                             );
-                        elwt.set_control_flow(ControlFlow::WaitUntil(
+                        elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(
                             long_press_wake_at.map_or(hook_at, |wake_at| wake_at.min(hook_at)),
                         ));
                     } else if let Some(long_press_at) = long_press_wake_at {
-                        elwt.set_control_flow(ControlFlow::WaitUntil(long_press_at));
+                        elwt.set_control_flow(
+                            frame_trace.wait_for_redraw_or_deadline(long_press_at),
+                        );
                     } else {
                         let reasons = frame_trace.take_redraw_reasons();
                         frame_trace.emit(
@@ -11422,9 +11432,9 @@ mod tests {
         surface_acquire_recovery, sync_tracked_target_texture_size_to_surface,
         test_pump_can_ack_current_frame, text_input_blink_enabled, texture_plans_fit_device_limits,
         visual_rect_for_node, web_effective_render_scale, window_insets_from_safe_area_frames,
-        windows_shell_execute_succeeded, windows_wide, BrowserDefaults, FrameScheduleState,
-        Instant, LiveResizeController, RedrawRequestTiming, SurfaceAcquireRecovery, TestPumpState,
-        WindowViewportState,
+        windows_shell_execute_succeeded, windows_wide, BrowserDefaults, ControlFlow,
+        FrameScheduleState, Instant, LiveResizeController, RedrawRequestTiming,
+        SurfaceAcquireRecovery, TestPumpState, WindowViewportState,
     };
     use crate::pipeline::{software_frame_needs_raster, CompositorTexturePlan};
     use crate::InvalidationSet;
@@ -12464,6 +12474,28 @@ mod tests {
         );
         assert!(schedule.request_redraw(|| redraw_requests += 1));
         assert_eq!(redraw_requests, 2);
+    }
+
+    #[test]
+    fn scheduled_redraw_waits_for_its_event_instead_of_rearming_a_timer() {
+        let mut schedule = FrameScheduleState::new(false);
+        let deadline = Instant::now() + Duration::from_millis(16);
+
+        assert_eq!(
+            schedule.wait_for_redraw_or_deadline(deadline),
+            ControlFlow::WaitUntil(deadline)
+        );
+        assert!(schedule.mark_redraw_scheduled());
+        assert_eq!(
+            schedule.wait_for_redraw_or_deadline(deadline),
+            ControlFlow::Wait
+        );
+
+        schedule.redraw_started();
+        assert_eq!(
+            schedule.wait_for_redraw_or_deadline(deadline),
+            ControlFlow::WaitUntil(deadline)
+        );
     }
 
     #[test]
