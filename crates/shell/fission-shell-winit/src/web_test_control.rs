@@ -14,17 +14,26 @@ enum PendingResponse {
 }
 
 const MAX_PENDING_RESPONSES: usize = 1024;
+const MAX_COMMAND_JSON_BYTES: usize = 4 * 1024 * 1024;
 const POLL_STAGE_ENTERED: u32 = 1;
 const POLL_STAGE_RESPONSE_READY: u32 = 2;
 const POLL_STAGE_JSON_READY: u32 = 3;
 
 static LAST_POLL_STAGE: AtomicU32 = AtomicU32::new(0);
 
+// Browser commands are copied from JavaScript into this fixed scratch area.
+// Keeping the bridge's command ingress out of wasm-bindgen's string allocator
+// is useful in long-running Web LiveTest sessions, where the app itself may
+// create many unrelated wasm-bindgen closures.
+#[cfg(fission_web_test_control)]
+static mut COMMAND_JSON: [u8; MAX_COMMAND_JSON_BYTES] = [0; MAX_COMMAND_JSON_BYTES];
+
 thread_local! {
     static NEXT_REQUEST_ID: Cell<u32> = const { Cell::new(1) };
     static RESPONSES: RefCell<HashMap<u32, PendingResponse>> = RefCell::new(HashMap::new());
     static FRAME: Cell<Option<WebTestFrame>> = const { Cell::new(None) };
     static POLL_JSON: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+    static EVENT_PROXY: RefCell<Option<EventLoopProxy<TestEvent>>> = const { RefCell::new(None) };
 }
 
 /// Called only after a successful Web renderer submission. The bridge owns
@@ -47,18 +56,28 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         return false;
     }
 
-    let submit_proxy = proxy.clone();
-    let submit = Closure::wrap(Box::new(move |command_json: String| -> u32 {
-        let command = serde_json::from_str::<TestCommand>(&command_json)
-            .map_err(|error| format!("parse error: {error}"));
-        submit_command(command, &submit_proxy)
-    }) as Box<dyn FnMut(String) -> u32>);
+    EVENT_PROXY.with(|event_proxy| {
+        *event_proxy.borrow_mut() = Some(proxy);
+    });
 
-    // Invoke exported scalar WebAssembly functions through a small JavaScript
-    // adapter. The app-level LiveTest bridge has many unrelated Wasm closures;
-    // keeping poll out of that closure trampoline avoids its long-session OOB
-    // failure while the request and response bytes remain JSON strings.
+    // Invoke scalar WebAssembly functions through small JavaScript adapters.
+    // The app-level LiveTest bridge shares one Wasm module with every widget
+    // closure in the application. Keeping all bridge calls off wasm-bindgen's
+    // closure trampoline avoids coupling long sessions to its externref table
+    // and string allocator state.
     let exports = wasm_bindgen::exports();
+    let submit_json = Reflect::get(&exports, &JsValue::from_str("fission_web_test_submit_json"))
+        .unwrap_or(JsValue::UNDEFINED);
+    let command_json_ptr = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_command_json_ptr"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
+    let command_json_capacity = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_command_json_capacity"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
     let poll_json_len = Reflect::get(
         &exports,
         &JsValue::from_str("fission_web_test_poll_json_len"),
@@ -69,9 +88,61 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         &JsValue::from_str("fission_web_test_poll_json_ptr"),
     )
     .unwrap_or(JsValue::UNDEFINED);
-    if !poll_json_len.is_function() || !poll_json_ptr.is_function() {
+    let frame_present = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_frame_present"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
+    let frame_width = Reflect::get(&exports, &JsValue::from_str("fission_web_test_frame_width"))
+        .unwrap_or(JsValue::UNDEFINED);
+    let frame_height = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_frame_height"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
+    let frame_number_low = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_frame_number_low"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
+    let frame_number_high = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_frame_number_high"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
+    if [
+        &submit_json,
+        &command_json_ptr,
+        &command_json_capacity,
+        &poll_json_len,
+        &poll_json_ptr,
+        &frame_present,
+        &frame_width,
+        &frame_height,
+        &frame_number_low,
+        &frame_number_high,
+    ]
+    .iter()
+    .any(|export| !export.is_function())
+    {
         return false;
     }
+
+    let memory = wasm_bindgen::memory();
+    let submit_adapter = Function::new_with_args(
+        "submitJson,commandJsonPtr,commandJsonCapacity,memory",
+        "return function(commandJson) { if (typeof commandJson !== 'string') throw new TypeError('command JSON must be a string'); const bytes = new TextEncoder().encode(commandJson); const capacity = commandJsonCapacity() >>> 0; if (bytes.length > capacity) throw new RangeError('command JSON exceeds the Web LiveTest bridge limit'); const address = commandJsonPtr() >>> 0; new Uint8Array(memory.buffer, address, bytes.length).set(bytes); return submitJson(bytes.length) >>> 0; }",
+    );
+    let Ok(submit) = submit_adapter.call4(
+        &JsValue::NULL,
+        &submit_json,
+        &command_json_ptr,
+        &command_json_capacity,
+        &memory,
+    ) else {
+        return false;
+    };
+
     let poll_adapter = Function::new_with_args(
         "pollJsonLen,pollJsonPtr,memory",
         "return function(requestId) { const length = pollJsonLen(requestId) >>> 0; const address = pollJsonPtr() >>> 0; return new TextDecoder().decode(new Uint8Array(memory.buffer, address, length)); }",
@@ -85,20 +156,36 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         return false;
     };
 
-    let poll_diagnostics =
-        Closure::wrap(
-            Box::new(|| -> u32 { LAST_POLL_STAGE.load(Ordering::Relaxed) })
-                as Box<dyn FnMut() -> u32>,
-        );
+    let diagnostics_address = std::ptr::addr_of!(LAST_POLL_STAGE) as usize;
+    let diagnostics_adapter = Function::new_with_args(
+        "memory,address",
+        "return function() { return new DataView(memory.buffer).getUint32(address, true); }",
+    );
+    let Ok(poll_diagnostics) = diagnostics_adapter.call2(
+        &JsValue::NULL,
+        &memory,
+        &JsValue::from_f64(diagnostics_address as f64),
+    ) else {
+        return false;
+    };
 
-    let frame = Closure::wrap(Box::new(move || -> String {
-        FRAME
-            .with(|state| state.get())
-            .and_then(|frame| serde_json::to_string(&frame).ok())
-            .unwrap_or_else(|| "null".to_owned())
-    }) as Box<dyn FnMut() -> String>);
+    let frame_adapter = Function::new_with_args(
+        "isPresent,width,height,frameLow,frameHigh",
+        "return function() { if (!isPresent()) return 'null'; const frame = (frameHigh() >>> 0) * 4294967296 + (frameLow() >>> 0); return JSON.stringify({width:width(),height:height(),frame,phase:'submitted'}); }",
+    );
+    let Ok(frame) = frame_adapter.call5(
+        &JsValue::NULL,
+        &frame_present,
+        &frame_width,
+        &frame_height,
+        &frame_number_low,
+        &frame_number_high,
+    ) else {
+        return false;
+    };
+
     let descriptor = Object::new();
-    if Reflect::set(&descriptor, &JsValue::from_str("get"), frame.as_ref()).is_err()
+    if Reflect::set(&descriptor, &JsValue::from_str("get"), &frame).is_err()
         || Reflect::set(
             &descriptor,
             &JsValue::from_str("enumerable"),
@@ -116,13 +203,13 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     }
     let bridge = Object::new();
     Object::define_property(&bridge, &JsValue::from_str("frame"), &descriptor);
-    let poll_stage_address = std::ptr::addr_of!(LAST_POLL_STAGE) as usize;
-    if Reflect::set(&bridge, &JsValue::from_str("submit"), submit.as_ref()).is_err()
+    let poll_stage_address = diagnostics_address;
+    if Reflect::set(&bridge, &JsValue::from_str("submit"), &submit).is_err()
         || Reflect::set(&bridge, &JsValue::from_str("poll"), &poll).is_err()
         || Reflect::set(
             &bridge,
             &JsValue::from_str("pollDiagnostics"),
-            poll_diagnostics.as_ref(),
+            &poll_diagnostics,
         )
         .is_err()
         || Reflect::set(
@@ -147,10 +234,49 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         return false;
     }
 
-    submit.forget();
-    poll_diagnostics.forget();
-    frame.forget();
     true
+}
+
+#[cfg(fission_web_test_control)]
+#[wasm_bindgen]
+pub fn fission_web_test_command_json_ptr() -> u32 {
+    std::ptr::addr_of_mut!(COMMAND_JSON) as *mut u8 as usize as u32
+}
+
+#[cfg(fission_web_test_control)]
+#[wasm_bindgen]
+pub fn fission_web_test_command_json_capacity() -> u32 {
+    MAX_COMMAND_JSON_BYTES as u32
+}
+
+#[cfg(fission_web_test_control)]
+#[wasm_bindgen]
+pub fn fission_web_test_submit_json(length: u32) -> u32 {
+    let command = if length as usize > MAX_COMMAND_JSON_BYTES {
+        Err(format!(
+            "command JSON exceeds the {} byte Web LiveTest bridge limit",
+            MAX_COMMAND_JSON_BYTES
+        ))
+    } else {
+        let bytes = unsafe {
+            std::slice::from_raw_parts(
+                std::ptr::addr_of!(COMMAND_JSON) as *const u8,
+                length as usize,
+            )
+        };
+        std::str::from_utf8(bytes)
+            .map_err(|error| format!("parse error: command JSON is not UTF-8: {error}"))
+            .and_then(|command_json| {
+                serde_json::from_str::<TestCommand>(command_json)
+                    .map_err(|error| format!("parse error: {error}"))
+            })
+    };
+    EVENT_PROXY.with(|event_proxy| {
+        event_proxy
+            .borrow()
+            .as_ref()
+            .map_or(0, |proxy| submit_command(command, proxy))
+    })
 }
 
 #[cfg(fission_web_test_control)]
@@ -176,6 +302,36 @@ pub fn fission_web_test_poll_json_len(request_id: u32) -> u32 {
 #[wasm_bindgen]
 pub fn fission_web_test_poll_json_ptr() -> u32 {
     POLL_JSON.with(|buffer| buffer.borrow().as_ptr() as usize as u32)
+}
+
+#[cfg(fission_web_test_control)]
+#[wasm_bindgen]
+pub fn fission_web_test_frame_present() -> u32 {
+    FRAME.with(|state| u32::from(state.get().is_some()))
+}
+
+#[cfg(fission_web_test_control)]
+#[wasm_bindgen]
+pub fn fission_web_test_frame_width() -> f32 {
+    FRAME.with(|state| state.get().map_or(0.0, |frame| frame.width))
+}
+
+#[cfg(fission_web_test_control)]
+#[wasm_bindgen]
+pub fn fission_web_test_frame_height() -> f32 {
+    FRAME.with(|state| state.get().map_or(0.0, |frame| frame.height))
+}
+
+#[cfg(fission_web_test_control)]
+#[wasm_bindgen]
+pub fn fission_web_test_frame_number_low() -> u32 {
+    FRAME.with(|state| state.get().map_or(0, |frame| frame.frame as u32))
+}
+
+#[cfg(fission_web_test_control)]
+#[wasm_bindgen]
+pub fn fission_web_test_frame_number_high() -> u32 {
+    FRAME.with(|state| state.get().map_or(0, |frame| (frame.frame >> 32) as u32))
 }
 
 fn record_poll_stage(request_id: u32, stage: u32) {

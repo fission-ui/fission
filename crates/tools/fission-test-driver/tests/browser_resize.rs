@@ -61,12 +61,17 @@ fn web_bridge_json_round_trips_remain_bounded_after_repeated_queries() -> anyhow
     assert_eq!(increment.label.as_deref(), Some("Increment"));
 
     // Reproduce the app's repeated missing-selector response followed by a pump. In the large
-    // Zoffice app, this pattern reached the bridge trap around request 51.
-    for _ in 0..32 {
+    // Zoffice app, this pattern reached the bridge trap around request 51. Go well beyond that
+    // point, then exercise each bridge accessor again in the same Wasm instance.
+    for _ in 0..128 {
         assert!(client
             .resolve_selector(SelectorQuery::label("No matching widget"))
             .is_err());
         client.pump()?;
+        assert!(client
+            .browser_evaluate_json("typeof globalThis.__FISSION_TEST__.submit === 'function' && typeof globalThis.__FISSION_TEST__.poll === 'function'")?
+            .as_bool()
+            .unwrap());
     }
     let poll_diagnostics = client
         .browser_evaluate_json("globalThis.__FISSION_TEST__.pollDiagnostics()")?
