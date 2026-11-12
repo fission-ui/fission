@@ -1,7 +1,8 @@
+use std::cell::UnsafeCell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::hint::spin_loop;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
-use std::sync::{Mutex, OnceLock};
 
 use fission_test_driver::{TestCommand, TestEvent, TestResponse, WebTestFrame, WebTestFramePhase};
 use js_sys::{Function, Object, Reflect};
@@ -48,19 +49,41 @@ impl Default for WebTestBridgeState {
     }
 }
 
-// There is one LiveTest bridge per WebAssembly app instance, and its browser
-// callbacks run on the app's main thread. Keep the state at module scope so
-// bridge calls do not depend on WebAssembly thread-local storage.
-fn bridge_state() -> &'static Mutex<WebTestBridgeState> {
-    static STATE: OnceLock<Mutex<WebTestBridgeState>> = OnceLock::new();
-    STATE.get_or_init(|| Mutex::new(WebTestBridgeState::default()))
+struct WebTestBridgeStateCell {
+    locked: AtomicBool,
+    state: UnsafeCell<Option<WebTestBridgeState>>,
 }
 
-fn with_bridge_state<R>(f: impl FnOnce(&mut WebTestBridgeState) -> R) -> R {
-    let mut state = bridge_state()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    f(&mut state)
+// A Web app has one main-thread LiveTest bridge per Wasm instance. Bridge
+// calls are synchronous and never call JavaScript while state is borrowed.
+// This small lock keeps the state out of Wasm TLS and avoids poisoning logic
+// that would itself consult thread-local panic state.
+unsafe impl Sync for WebTestBridgeStateCell {}
+
+struct WebTestBridgeStateGuard<'a>(&'a AtomicBool);
+
+impl Drop for WebTestBridgeStateGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+fn with_bridge_state<R>(f: impl for<'a> FnOnce(&'a mut WebTestBridgeState) -> R) -> R {
+    static STATE: WebTestBridgeStateCell = WebTestBridgeStateCell {
+        locked: AtomicBool::new(false),
+        state: UnsafeCell::new(None),
+    };
+
+    while STATE
+        .locked
+        .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        spin_loop();
+    }
+    let _guard = WebTestBridgeStateGuard(&STATE.locked);
+    let state = unsafe { (*STATE.state.get()).get_or_insert_with(WebTestBridgeState::default) };
+    f(state)
 }
 
 /// Called only after a successful Web renderer submission. The bridge owns
@@ -264,21 +287,24 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     true
 }
 
+// Keep these as plain Wasm exports. The `#[wasm_bindgen]` synchronous wrapper
+// routes calls through `maybe_catch_unwind`, which consults thread-local panic
+// state and can trap in a long-running Web LiveTest session.
 #[cfg(fission_web_test_control)]
-#[wasm_bindgen]
-pub fn fission_web_test_command_json_ptr() -> u32 {
+#[no_mangle]
+pub extern "C" fn fission_web_test_command_json_ptr() -> u32 {
     std::ptr::addr_of_mut!(COMMAND_JSON) as *mut u8 as usize as u32
 }
 
 #[cfg(fission_web_test_control)]
-#[wasm_bindgen]
-pub fn fission_web_test_command_json_capacity() -> u32 {
+#[no_mangle]
+pub extern "C" fn fission_web_test_command_json_capacity() -> u32 {
     MAX_COMMAND_JSON_BYTES as u32
 }
 
 #[cfg(fission_web_test_control)]
-#[wasm_bindgen]
-pub fn fission_web_test_submit_json(length: u32) -> u32 {
+#[no_mangle]
+pub extern "C" fn fission_web_test_submit_json(length: u32) -> u32 {
     let command = if length as usize > MAX_COMMAND_JSON_BYTES {
         Err(format!(
             "command JSON exceeds the {} byte Web LiveTest bridge limit",
@@ -303,8 +329,8 @@ pub fn fission_web_test_submit_json(length: u32) -> u32 {
 }
 
 #[cfg(fission_web_test_control)]
-#[wasm_bindgen]
-pub fn fission_web_test_poll_json_len(request_id: u32) -> u32 {
+#[no_mangle]
+pub extern "C" fn fission_web_test_poll_json_len(request_id: u32) -> u32 {
     record_poll_stage(request_id, POLL_STAGE_ENTERED);
     let response = poll_response(request_id);
     record_poll_stage(request_id, POLL_STAGE_RESPONSE_READY);
@@ -321,38 +347,38 @@ pub fn fission_web_test_poll_json_len(request_id: u32) -> u32 {
 }
 
 #[cfg(fission_web_test_control)]
-#[wasm_bindgen]
-pub fn fission_web_test_poll_json_ptr() -> u32 {
+#[no_mangle]
+pub extern "C" fn fission_web_test_poll_json_ptr() -> u32 {
     with_bridge_state(|state| state.poll_json.as_ptr() as usize as u32)
 }
 
 #[cfg(fission_web_test_control)]
-#[wasm_bindgen]
-pub fn fission_web_test_frame_present() -> u32 {
+#[no_mangle]
+pub extern "C" fn fission_web_test_frame_present() -> u32 {
     with_bridge_state(|state| u32::from(state.frame.is_some()))
 }
 
 #[cfg(fission_web_test_control)]
-#[wasm_bindgen]
-pub fn fission_web_test_frame_width() -> f32 {
+#[no_mangle]
+pub extern "C" fn fission_web_test_frame_width() -> f32 {
     with_bridge_state(|state| state.frame.map_or(0.0, |frame| frame.width))
 }
 
 #[cfg(fission_web_test_control)]
-#[wasm_bindgen]
-pub fn fission_web_test_frame_height() -> f32 {
+#[no_mangle]
+pub extern "C" fn fission_web_test_frame_height() -> f32 {
     with_bridge_state(|state| state.frame.map_or(0.0, |frame| frame.height))
 }
 
 #[cfg(fission_web_test_control)]
-#[wasm_bindgen]
-pub fn fission_web_test_frame_number_low() -> u32 {
+#[no_mangle]
+pub extern "C" fn fission_web_test_frame_number_low() -> u32 {
     with_bridge_state(|state| state.frame.map_or(0, |frame| frame.frame as u32))
 }
 
 #[cfg(fission_web_test_control)]
-#[wasm_bindgen]
-pub fn fission_web_test_frame_number_high() -> u32 {
+#[no_mangle]
+pub extern "C" fn fission_web_test_frame_number_high() -> u32 {
     with_bridge_state(|state| state.frame.map_or(0, |frame| (frame.frame >> 32) as u32))
 }
 
