@@ -52,44 +52,119 @@ Keep app state, reducers and components in shared Rust. Put direct iOS API calls
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TestLayer {
+    Reducers,
+    Host,
+    Journey,
+    Device,
+}
 
 fission_component! {
-    pub IosDeviceTesting<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub IosTestPlan<()> {
+        state {
+            selected_layer: TestLayer = TestLayer::Reducers,
         }
     }
-    view(screen, _state, cx) {
+    view(plan, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let (selected_title, selected_detail) = match plan.selected_layer {
+            TestLayer::Reducers => (
+                cx.tr("tests.layer.reducers"),
+                cx.tr("tests.detail.reducers"),
+            ),
+            TestLayer::Host => (
+                cx.tr("tests.layer.host"),
+                cx.tr("tests.detail.host"),
+            ),
+            TestLayer::Journey => (
+                cx.tr("tests.layer.journey"),
+                cx.tr("tests.detail.journey"),
+            ),
+            TestLayer::Device => (
+                cx.tr("tests.layer.device"),
+                cx.tr("tests.detail.device"),
+            ),
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("ios-test-plan".to_string()),
+        label: Some(cx.tr("tests.screen.label")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("tests.app.name"))
+                        .weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("tests.route"))
                         .color(tokens.colors.text_secondary),
                 ]),
+                Badge(text: cx.tr("tests.preview.badge")),
+                Divider(),
+                Text(cx.tr("tests.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("tests.summary"))
+                    .color(tokens.colors.text_secondary),
+                Button(
+                    child: Text(cx.tr("tests.layer.reducers")),
+                    key: "select-reducer-tests",
+                    variant: if plan.selected_layer == TestLayer::Reducers { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { plan.selected_layer = TestLayer::Reducers; },
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(cx.tr("tests.layer.reducers")),
+                        identifier: Some("test-plan.reducers".to_string()),
+                        ..Default::default()
+                    }),
+                ),
+                Button(
+                    child: Text(cx.tr("tests.layer.host")),
+                    key: "select-host-tests",
+                    variant: if plan.selected_layer == TestLayer::Host { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { plan.selected_layer = TestLayer::Host; },
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(cx.tr("tests.layer.host")),
+                        identifier: Some("test-plan.host".to_string()),
+                        ..Default::default()
+                    }),
+                ),
+                Button(
+                    child: Text(cx.tr("tests.layer.journey")),
+                    key: "select-journey-tests",
+                    variant: if plan.selected_layer == TestLayer::Journey { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { plan.selected_layer = TestLayer::Journey; },
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(cx.tr("tests.layer.journey")),
+                        identifier: Some("test-plan.journey".to_string()),
+                        ..Default::default()
+                    }),
+                ),
+                Button(
+                    child: Text(cx.tr("tests.layer.device")),
+                    key: "select-device-tests",
+                    variant: if plan.selected_layer == TestLayer::Device { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { plan.selected_layer = TestLayer::Device; },
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(cx.tr("tests.layer.device")),
+                        identifier: Some("test-plan.device".to_string()),
+                        ..Default::default()
+                    }),
+                ),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(selected_title)
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(selected_detail),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Text(cx.tr("tests.preview.note"))
+                    .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -98,6 +173,7 @@ fission_component! {
         .border_radius(tokens.radii.large),
     )
 }
+
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
@@ -108,23 +184,74 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosDeviceTesting::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::IosTestPlan)
+        .with_env(preview_env())
+        .with_title("Northstar Field Notes")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+tests.screen.label: "iOS app test plan"
+tests.app.name: "Northstar Field Notes"
+tests.route: "Test plan · weekly route"
+tests.preview.badge: "Choose a test layer"
+tests.title: "Test the risk at the right layer"
+tests.summary: "Each check answers a different question. Select one to see what it can and cannot prove."
+tests.layer.reducers: "Rust reducers"
+tests.layer.host: "Generated host"
+tests.layer.journey: "User journey"
+tests.layer.device: "Physical device"
+tests.detail.reducers: "Use cargo test for state transitions and rules you own."
+tests.detail.host: "Use fission test to check that the generated iOS host starts."
+tests.detail.journey: "Use LiveTest against the running shell to drive a real screen flow."
+tests.detail.device: "Use an iPhone only for behavior a simulator cannot prove, such as a real permission sheet."
+tests.preview.note: "This browser screen selects a test plan; it does not run Cargo, launch a Simulator or access an iPhone."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+tests.screen.label: "Plan de pruebas de la app para iOS"
+tests.app.name: "Notas de campo Northstar"
+tests.route: "Plan de pruebas · ruta semanal"
+tests.preview.badge: "Elige una capa de pruebas"
+tests.title: "Prueba cada riesgo en la capa adecuada"
+tests.summary: "Cada comprobación responde a una pregunta distinta. Selecciona una para ver qué puede demostrar."
+tests.layer.reducers: "Reductores de Rust"
+tests.layer.host: "Host generado"
+tests.layer.journey: "Recorrido de usuario"
+tests.layer.device: "Dispositivo físico"
+tests.detail.reducers: "Usa cargo test para las transiciones de estado y las reglas de tu app."
+tests.detail.host: "Usa fission test para comprobar que arranca el host generado de iOS."
+tests.detail.journey: "Usa LiveTest con el shell activo para recorrer una pantalla real."
+tests.detail.device: "Usa un iPhone solo para el comportamiento que no demuestra el simulador, como un permiso real."
+tests.preview.note: "Esta pantalla web selecciona un plan; no ejecuta Cargo, inicia el simulador ni accede a un iPhone."
 ```
 </TabItem>
 </Tabs>

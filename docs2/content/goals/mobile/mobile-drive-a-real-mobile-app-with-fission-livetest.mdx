@@ -1,52 +1,59 @@
 ---
 layout: goal
-title: Drive a real mobile app with Fission LiveTest
-description: "Drive a real mobile app with Fission LiveTest."
-goal: Launch the native emulator or simulator shell with test control enabled, drive a critical journey through semantic selectors and capture screenshots.
-path: /blog/drive-a-real-mobile-app-with-fission-livetest/
+title: Test a real mobile app with Fission LiveTest
+description: Build a field-service screen for Android and iOS, then drive its validation and save flow through stable LiveTest selectors.
+goal: Check a real user journey on Android and iOS without relying on screen coordinates
+path: /blog/test-a-mobile-app-with-fission-livetest/
 order: 115
 difficulty: Beginner
 duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: mobile-drive-a-real-mobile-app-with-fission-livetest
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify both target workflows and follow physical-device checks when the task requires them
+  - Build the same work-order screen for Android, iOS, and the browser preview
+  - Add stable semantic identifiers to the controls the test needs
+  - Drive an empty-note error and a successful save through LiveTest
+  - Know which behaviour still needs an emulator, simulator, or physical device
 ---
 
-## Create the project and add the target
+We’ll test a small but believable job: a technician checks a cold-room compressor, writes an inspection note, and saves it. The app is the same on Android and iOS. The browser preview lets you try the flow while reading; LiveTest drives a running mobile shell and checks the controls by their meaning, not their position on screen.
+
+The example keeps the work order and note status in `GlobalState`, updates them through reducers, and gives the important controls stable semantic identifiers. The demo save is local to the running app. It does not claim to write a database or send a report to a service.
+
+Create a project and add both mobile targets plus Web for the in-page preview:
 
 ```sh
 cargo install cargo-fission
-fission init mobile-drive-a-real-mobile-app-with-fission-livetest
-cd mobile-drive-a-real-mobile-app-with-fission-livetest
-fission add-target android ios --project-dir .
+fission init northbank-field-service
+cd northbank-field-service
+fission add-target android ios web --project-dir .
+cargo add serde_yaml@0.9
 ```
 
-## Files created by Fission
-
-Fission generates Android and iOS hosts alongside the shared Rust project:
+The source you’ll add to the project is organised like this:
 
 ```text
-mobile-drive-a-real-mobile-app-with-fission-livetest/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
-├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
-└── platforms/
-    ├── android/              # generated Android host
-    └── ios/                  # generated iOS host
+northbank-field-service/
+├── Cargo.toml
+├── fission.toml
+└── src/
+    ├── main.rs             # generated target entrypoint
+    ├── app.rs
+    ├── lib.rs
+    ├── translations.rs
+    └── i18n/
+        ├── en-US.yaml
+        └── es-ES.yaml
 ```
 
-Keep the tested journey in shared Rust. LiveTest drives the generated Android and iOS hosts, so both targets use the same reducers and widgets.
+Keep the shared screen and reducers in Rust. The generated `platforms/android/` and `platforms/ios/` directories are hosts; don’t move app behaviour into their generated files.
 
-<!-- fission:step id="start-screen" -->
-## Create the app screen
+<!-- fission:step id="work-order-screen" -->
+## Build the inspection screen
 
-This preview marks the task; it is not the native app under test. The next step adds the journey and semantic identifiers that LiveTest will drive.
+The first version gives the technician the work order, one check, and a place to leave a note. The primary action records the pressure check; the note is saved as a separate step so each change is easy to test.
+
+Use the active theme for spacing, colour, and type. Keep the visible labels separate from the identifiers LiveTest uses, so translating the screen does not break the test.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -54,43 +61,141 @@ This preview marks the task; it is not the native app under test. The next step 
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub MobileLiveTest<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum NoteStatus {
+    #[default]
+    Draft,
+    Empty,
+    Saved,
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct InspectionState {
+    pressure_checked: bool,
+    note: String,
+    note_status: NoteStatus,
+}
+
+impl GlobalState for InspectionState {}
+
+#[fission_reducer(UpdateInspectionNote)]
+fn update_inspection_note(
+    state: &mut InspectionState,
+    ctx: &mut ReducerContext<InspectionState>,
+) {
+    if let Some(change) = ctx.input.text_change() {
+        state.note = change.new_text.clone();
+        state.note_status = NoteStatus::Draft;
     }
-    view(screen, _state, cx) {
+}
+
+#[fission_reducer(SaveInspectionNote)]
+fn save_inspection_note(state: &mut InspectionState) {
+    state.note_status = if state.note.trim().is_empty() {
+        NoteStatus::Empty
+    } else {
+        NoteStatus::Saved
+    };
+}
+
+fission_component! {
+    pub InspectionScreen<InspectionState> {}
+    view(_screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let save_note = with_reducer!(
+            cx.build,
+            SaveInspectionNote,
+            save_inspection_note,
+        );
+        let update_note = with_reducer!(
+            cx.build,
+            UpdateInspectionNote,
+            update_inspection_note,
+        );
+        let pressure_status = if state.pressure_checked {
+            cx.tr("inspection.pressure.complete")
+        } else {
+            cx.tr("inspection.pressure.pending")
+        };
+        let note_status = match state.note_status {
+            NoteStatus::Draft => cx.tr("inspection.note.draft"),
+            NoteStatus::Empty => cx.tr("inspection.note.empty"),
+            NoteStatus::Saved => cx.tr("inspection.note.saved"),
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("northbank.inspection.screen".into()),
+        label: Some(cx.tr("inspection.screen.label")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
+                Row(
+                    gap: tokens.spacing.m,
+                    wrap: ir_op::FlexWrap::Wrap,
+                    align_items: ir_op::AlignItems::Center,
+                    children: [
+                        Column(gap: tokens.spacing.xs, flex_grow: 1.0, children: [
+                            Text(cx.tr("app.name"))
+                                .weight(tokens.typography.font_weight_bold),
+                            Text(cx.tr("inspection.route"))
+                                .color(tokens.colors.text_secondary),
+                        ]),
+                        Badge(text: cx.tr("inspection.status.open")),
+                    ],
+                ),
                 Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("inspection.order"))
                         .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
+                    Text(cx.tr("inspection.asset"))
+                        .size(tokens.typography.heading2_size),
+                    Text(cx.tr("inspection.location"))
                         .color(tokens.colors.text_secondary),
+                    Text(cx.tr("inspection.summary")),
                 ]),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("inspection.pressure.title"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Row(gap: tokens.spacing.s, children: [
+                            Badge(text: pressure_status),
+                            Text(cx.tr("inspection.pressure.target"))
+                                .color(tokens.colors.text_secondary),
+                        ]),
+                        Button(
+                            child: Text(if state.pressure_checked {
+                                cx.tr("inspection.pressure.complete")
+                            } else {
+                                cx.tr("inspection.pressure.action")
+                            }),
+                            key: "complete-pressure-check",
+                            disabled: state.pressure_checked,
+                            on_press: reduce { state.pressure_checked = true; },
+                        ).semantics_identifier("northbank.inspection.pressure.complete"),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                TextInput(
+                    label: Some(cx.tr("inspection.note.label").into()),
+                    placeholder: Some(cx.tr("inspection.note.placeholder").into()),
+                    multiline: true,
+                    required: true,
+                    value: state.note.clone(),
+                    on_input: update_note,
+                    key: "inspection-note",
+                    semantics_identifier: Some("northbank.inspection.note".into()),
+                ),
+                Button(
+                    child: Text(cx.tr("inspection.note.save")),
+                    key: "save-inspection-note",
+                    variant: ButtonVariant::Primary,
+                    on_press: save_note,
+                ).semantics_identifier("northbank.inspection.note.save"),
+                Text(note_status)
+                    .color(tokens.colors.text_secondary)
+                    .semantics_identifier("northbank.inspection.note.status"),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -101,6 +206,54 @@ fission_component! {
 }
 ```
 </TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+app.name: "Northbank Field Service"
+inspection.screen.label: "Northbank cold-room compressor inspection"
+inspection.route: "Today's service route · Alex Rivera"
+inspection.status.open: "Open work order"
+inspection.order: "WORK ORDER · WO-1048"
+inspection.asset: "Cold-room compressor"
+inspection.location: "Northbank Food Hub · Service bay 2"
+inspection.summary: "Check the pressure before the morning delivery run. Add a short note so the next shift knows what you found."
+inspection.pressure.title: "Compressor pressure"
+inspection.pressure.pending: "Check still needed"
+inspection.pressure.complete: "Pressure check complete"
+inspection.pressure.target: "Target range: 2.0–2.5 bar"
+inspection.pressure.action: "Record pressure check"
+inspection.note.label: "Inspection note"
+inspection.note.placeholder: "What did you find?"
+inspection.note.save: "Save note"
+inspection.note.draft: "Note has not been saved."
+inspection.note.empty: "Add a note before saving."
+inspection.note.saved: "Note saved for this session."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+app.name: "Servicio de campo Northbank"
+inspection.screen.label: "Inspección del compresor de la cámara fría de Northbank"
+inspection.route: "Ruta de servicio de hoy · Alex Rivera"
+inspection.status.open: "Orden de trabajo abierta"
+inspection.order: "ORDEN DE TRABAJO · OT-1048"
+inspection.asset: "Compresor de cámara fría"
+inspection.location: "Centro de alimentos Northbank · Área de servicio 2"
+inspection.summary: "Comprueba la presión antes del reparto de la mañana. Añade una nota breve para que el siguiente turno sepa qué has encontrado."
+inspection.pressure.title: "Presión del compresor"
+inspection.pressure.pending: "Falta la comprobación"
+inspection.pressure.complete: "Presión comprobada"
+inspection.pressure.target: "Rango objetivo: 2,0–2,5 bar"
+inspection.pressure.action: "Registrar comprobación de presión"
+inspection.note.label: "Nota de inspección"
+inspection.note.placeholder: "¿Qué has encontrado?"
+inspection.note.save: "Guardar nota"
+inspection.note.draft: "La nota aún no se ha guardado."
+inspection.note.empty: "Añade una nota antes de guardarla."
+inspection.note.saved: "Nota guardada durante esta sesión."
+```
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
@@ -109,19 +262,28 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in [
+        ("en-US", include_str!("i18n/en-US.yaml")),
+        ("es-ES", include_str!("i18n/es-ES.yaml")),
+    ] {
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages: serde_yaml::from_str(yaml)
+                .unwrap_or_else(|error| panic!("invalid {locale} translations: {error}")),
+        });
+    }
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::MobileLiveTest::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<app::InspectionState, _>::new(app::InspectionScreen)
+        .with_env(preview_env())
+        .with_title("Northbank Field Service")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -130,62 +292,168 @@ pub fn run() -> Result<(), JsValue> {
 </TabItem>
 </Tabs>
 <!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+The preview shows an open compressor inspection. Try **Record pressure check**, enter a note, and save it. The save status is held in memory for the running preview; it is not a database write.
+<!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="main-flow" -->
-## Drive a real mobile app with Fission LiveTest
+<!-- fission:step id="drive-the-journey" -->
+## Drive the save flow by semantic identifier
 
-Start the app with test control enabled, then use LiveTest to select controls by their stable semantic identifiers instead of screen coordinates. Drive one critical journey from its initial empty state through the primary action and verify the user-visible result and error path. Keep reducer tests for business rules and use the native LiveTest shell for widget composition, focus and target integration. Run the journey on Android Emulator and iOS Simulator; note that a successful simulator test cannot establish sensor or physical permission behaviour.
+LiveTest selectors target the semantic identifiers on the note field, save button, and status message. First save the empty field and check that the user gets a useful error. Then enter a real note and save again. This test still works if the copy is translated or the layout changes.
 
+Add the native test-control port to the app configuration. Keep this in the development/test launch path, not in a production build that doesn’t need remote test control.
 
+<Tabs>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+pub mod translations;
+
+use fission::prelude::*;
+
+#[cfg(target_os = "android")]
+const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<app::InspectionState, app::InspectionScreen> {
+    let app = MobileApp::<app::InspectionState, _>::new(app::InspectionScreen)
+        .with_env(translations::create_env())
+        .with_title("Northbank Field Service");
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<app::InspectionState, _>::new(app::InspectionScreen)
+        .with_env(translations::create_env())
+        .with_title("Northbank Field Service")
+        .run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+fn web_app() -> WebApp<app::InspectionState, app::InspectionScreen> {
+    WebApp::<app::InspectionState, _>::new(app::InspectionScreen)
+        .with_env(translations::create_env())
+        .with_title("Northbank Field Service")
+        .mount("#fission-web-mount")
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    web_app()
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in [
+        ("en-US", include_str!("i18n/en-US.yaml")),
+        ("es-ES", include_str!("i18n/es-ES.yaml")),
+    ] {
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages: serde_yaml::from_str(yaml)
+                .unwrap_or_else(|error| panic!("invalid {locale} translations: {error}")),
+        });
+    }
+    env
+}
+```
+</TabItem>
+</Tabs>
+
+Run the target and check that the control server is ready:
+
+```sh
+fission doctor android --project-dir .
+fission run --target android --project-dir .
+curl --fail-with-body http://127.0.0.1:48761/health
+```
+
+The Android launch script forwards host port `48761` to the app on the emulator. For iOS, pass that port to the Simulator process:
+
+```sh
+FISSION_TEST_CONTROL_PORT=48761 fission run --target ios --project-dir .
+curl --fail-with-body http://127.0.0.1:48761/health
+```
+
+The generated iOS Simulator script passes the environment variable to the app. Then send the same sequence of commands to either target:
+
+```sh
+curl --fail-with-body http://127.0.0.1:48761/cmd \
+  -H 'content-type: application/json' \
+  -d '{"cmd":"TapSelector","query":{"selector":{"kind":"semantic_identifier","identifier":"northbank.inspection.note.save"}}}'
+
+curl --fail-with-body http://127.0.0.1:48761/cmd \
+  -H 'content-type: application/json' \
+  -d '{"cmd":"WaitForVisible","query":{"selector":{"kind":"semantic_identifier","identifier":"northbank.inspection.note.status"},"timeout_ms":5000}}'
+
+curl --fail-with-body http://127.0.0.1:48761/cmd \
+  -H 'content-type: application/json' \
+  -d '{"cmd":"WaitForText","text":"Add a note before saving.","timeout_ms":5000}'
+
+curl --fail-with-body http://127.0.0.1:48761/cmd \
+  -H 'content-type: application/json' \
+  -d '{"cmd":"FillText","query":{"selector":{"kind":"semantic_identifier","identifier":"northbank.inspection.note"}},"text":"Pressure stable at 2.2 bar; no leak found."}'
+
+curl --fail-with-body http://127.0.0.1:48761/cmd \
+  -H 'content-type: application/json' \
+  -d '{"cmd":"TapSelector","query":{"selector":{"kind":"semantic_identifier","identifier":"northbank.inspection.note.save"}}}'
+
+curl --fail-with-body http://127.0.0.1:48761/cmd \
+  -H 'content-type: application/json' \
+  -d '{"cmd":"WaitForText","text":"Note saved for this session.","timeout_ms":5000}'
+```
+
+The final command should leave the status at **Note saved for this session**. In a real app, the reducer would request a Store or service effect and show success only after its completion action confirms the write. Don’t label an in-memory state change as durable storage.
 
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-The browser preview only changes local state. It does not launch an Android Emulator or iOS Simulator, check your toolchain, or access native hardware. Use the commands below for those checks.
+Try the sequence on both an Android Emulator and an iOS Simulator. The browser preview is useful for checking layout and reducer feedback, but it does not test mobile focus, the native keyboard, app lifecycle, or the host-to-device test-control forwarding.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Run the test layers for this task
+<!-- fission:step id="choose-the-right-test" -->
+## Test the layer that can catch the bug
 
-Use a different check for each risk: `cargo test` for Rust rules you have written, `fission test` for the generated host smoke path, and LiveTest for the composed screen and user journey. A passing test at one layer does not replace the checks at the next layer.
-
-Run the same critical journey on Android Emulator and iOS Simulator. Add a real-device check only for behavior the simulator cannot prove, such as a permission sheet, radio, camera, sensor or signed installation.
-
-### Run, test and build
+Use reducer tests for save rules, headless tests for the semantic tree, and LiveTest for the running shell’s input and focus behavior. You don’t need a device for every assertion; use one when the behavior depends on the operating system.
 
 ```sh
 cargo test
 fission doctor android --project-dir .
-fission run --target android --project-dir .
 fission test --target android --project-dir .
-fission build --target android --project-dir . --release
-```
-
-`cargo test` runs Rust tests you add for reducer or stale-completion rules; the generated scaffold does not create those feature tests. `fission doctor` checks each target’s toolchain, `fission run` launches its emulator or Simulator, and `fission test` checks that the generated host can start. A release build validates packaging, not real hardware behavior.
-
-
-### Run the shared project on both mobile targets
-
-Run both target checks from the generated project root:
-
-```sh
-fission doctor android --project-dir .
-fission run --target android --project-dir .
 fission doctor ios --project-dir .
-fission run --target ios --project-dir .
-fission test --target android --project-dir .
 fission test --target ios --project-dir .
 ```
 
+Run the manual LiveTest sequence above when you change mobile text input, keyboard handling, focus, scrolling, or a user journey that must work on the native shell. Use a physical phone only for behavior a simulator cannot prove, such as a real permission prompt or hardware capability.
 
-### Current references
-
-Use these for LiveTest, test setup, and the component contracts used above:
-
-- [Testing](/docs/guides/testing-and-diagnostics/)
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
+Read [Testing Fission apps](/docs/learn/testing/), [LiveTest API](/docs/test-and-debug/live-test-api/), and [mobile toolchain setup](/docs/learn/mobile-toolchain-setup/) for the full test and device setup details.
 <!-- /fission:step -->

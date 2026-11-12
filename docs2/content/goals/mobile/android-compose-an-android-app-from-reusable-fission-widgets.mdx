@@ -32,6 +32,7 @@ cargo install cargo-fission
 fission init urban-tree-rounds
 cd urban-tree-rounds
 fission add-target android --project-dir .
+cargo add serde_yaml
 ```
 
 Fission generates the Android host and Rust application shell. Keep the records, reducers, and screen in shared Rust code. The host launches and packages that app; it shouldn’t have a second copy of the inspection rules.
@@ -47,45 +48,85 @@ The first version is read-only. Check that the records are easy to scan; we’ll
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(yaml).expect("valid Cedar County translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InspectionPriority {
+    Urgent,
+    Routine,
+}
+
+impl InspectionPriority {
+    pub fn translation_key(self) -> &'static str {
+        match self {
+            Self::Urgent => "tree.priority.urgent",
+            Self::Routine => "tree.priority.routine",
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct TreeInspection {
     pub id: u32,
     pub species: &'static str,
     pub location: &'static str,
-    pub priority: &'static str,
+    pub priority: InspectionPriority,
     pub finding: &'static str,
     pub reported_by: &'static str,
 }
+
+#[derive(Clone, Debug, Default)]
+pub struct TreeRoundsState {
+    pub inspections: Vec<TreeInspection>,
+}
+
+impl GlobalState for TreeRoundsState {}
 
 fission_component! {
     pub TreeInspectionCard<()> { inspection: TreeInspection }
     view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let species = cx.tr(card.inspection.species);
     } =>
     SemanticsRegion(
         identifier: Some(format!("tree-inspection-{}", card.inspection.id)),
-        label: Some(format!(
-            "Tree inspection {}: {}, {}",
-            card.inspection.id,
-            card.inspection.species,
-            card.inspection.location,
-        )),
+        label: Some(cx.tr("tree.card.a11y")
+            .replace("{id}", &card.inspection.id.to_string())
+            .replace("{species}", &species)
+            .replace("{location}", &cx.tr(card.inspection.location))),
         child: Container(
             Column(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Start, children: [
                 Row(gap: tokens.spacing.s, children: [
                     Text(format!("TREE-{}", card.inspection.id))
                         .weight(tokens.typography.font_weight_semibold),
-                    Text(card.inspection.priority)
+                    Text(cx.tr(card.inspection.priority.translation_key()))
                         .color(tokens.colors.text_secondary),
                 ]),
-                Text(card.inspection.species)
+                Text(species)
                     .weight(tokens.typography.font_weight_bold),
-                Text(card.inspection.location)
+                Text(cx.tr(card.inspection.location))
                     .color(tokens.colors.text_secondary),
-                Text(card.inspection.finding),
-                Text(format!("Reported by {}", card.inspection.reported_by))
+                Text(cx.tr(card.inspection.finding)),
+                Text(cx.tr("tree.reported_by").replace("{person}", card.inspection.reported_by))
                     .color(tokens.colors.text_secondary),
             ]),
         )
@@ -98,13 +139,14 @@ fission_component! {
 }
 
 fission_component! {
-    pub MorningTreeRound<()> {}
-    view(_round, _state, cx) {
+    pub MorningTreeRound<TreeRoundsState> {}
+    view(_round, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let inspections = &state.inspections;
     } =>
     SemanticsRegion(
         identifier: Some("urban-forestry-morning-round".to_string()),
-        label: Some("Urban forestry morning inspection round".to_string()),
+        label: Some(cx.tr("tree.round.a11y")),
         child: Scroll(
             flex_grow: 1.0,
             height: cx.view.viewport_size().height,
@@ -113,49 +155,29 @@ fission_component! {
                     Container(
                         Column(gap: tokens.spacing.m, children: [
                             Column(gap: tokens.spacing.xs, children: [
-                                Text("Cedar County Urban Forestry")
+                                Text(cx.tr("tree.organization"))
                                     .weight(tokens.typography.font_weight_bold),
-                                Text("Morning inspection round · Wednesday, 8 May")
+                                Text(cx.tr("tree.round.title"))
                                     .color(tokens.colors.text_secondary),
                             ]),
-                            Text("Needs a crew · 1     Scheduled · 1     Completed · 1"),
-                            Text("Work the urgent reports first, then review the routine checks.")
+                            Text(cx.tr("tree.summary.inspections")
+                                .replace("{count}", &inspections.len().to_string())),
+                            Text(cx.tr("tree.round.hint"))
                                 .color(tokens.colors.text_secondary),
-                            Column(gap: tokens.spacing.s, children: [
-                                TreeInspectionCard(
-                                    TreeInspection {
-                                        id: 184,
-                                        species: "London plane",
-                                        location: "Alder Street · bus shelter",
-                                        priority: "Urgent",
-                                        finding: "A large limb split above the shelter after last night’s wind.",
-                                        reported_by: "Maya Jones",
+                            if inspections.is_empty() {
+                                Widget::from(EmptyState {
+                                    title: cx.tr("tree.empty.title"),
+                                    description: Some(cx.tr("tree.empty.help")),
+                                    ..Default::default()
+                                })
+                            } else {
+                                Column(gap: tokens.spacing.s, children: [
+                                    for inspection in inspections.iter() {
+                                        TreeInspectionCard(inspection.clone(), key: inspection.id)
+                                            .id(WidgetId::explicit(&format!("tree-inspection.{}", inspection.id)))
                                     },
-                                    key: 184,
-                                ),
-                                TreeInspectionCard(
-                                    TreeInspection {
-                                        id: 207,
-                                        species: "Silver birch",
-                                        location: "Oak Lane · north playground gate",
-                                        priority: "Routine",
-                                        finding: "Inspect the raised root near the gate and mark the path safe.",
-                                        reported_by: "Pavel Singh",
-                                    },
-                                    key: 207,
-                                ),
-                                TreeInspectionCard(
-                                    TreeInspection {
-                                        id: 213,
-                                        species: "Common lime",
-                                        location: "Mason Square · east entrance",
-                                        priority: "Routine",
-                                        finding: "Seasonal inspection found no work required.",
-                                        reported_by: "Tree team",
-                                    },
-                                    key: 213,
-                                ),
-                            ]),
+                                ])
+                            },
                         ])
                     )
                     .padding_all(tokens.spacing.m)
@@ -178,19 +200,113 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+#[path = "../preview/fixtures.rs"]
+mod fixtures;
 
+use app::TreeRoundsState;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::MorningTreeRound::new())
+    WebApp::<TreeRoundsState, _>::new(app::MorningTreeRound::new())
+        .with_state_init(|state| state.inspections = fixtures::sample_inspections())
+        .with_env(app::create_env())
         .with_title("Cedar County tree inspections")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="preview/fixtures.rs">
+<!-- fission:file path="preview/fixtures.rs" -->
+```rust
+use crate::app::{InspectionPriority, TreeInspection};
+
+pub fn sample_inspections() -> Vec<TreeInspection> {
+    vec![
+        TreeInspection { id: 184, species: "tree.species.plane", location: "tree.location.alder", priority: InspectionPriority::Urgent, finding: "tree.finding.split_limb", reported_by: "Maya Jones" },
+        TreeInspection { id: 207, species: "tree.species.birch", location: "tree.location.oak", priority: InspectionPriority::Routine, finding: "tree.finding.root", reported_by: "Pavel Singh" },
+        TreeInspection { id: 213, species: "tree.species.lime", location: "tree.location.mason", priority: InspectionPriority::Routine, finding: "tree.finding.no_work", reported_by: "Tree team" },
+    ]
+}
+```
+</TabItem>
+</Tabs>
+
+<Tabs>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+tree.card.a11y: "Tree inspection {id}: {species}, {location}"
+tree.species.plane: "London plane"
+tree.species.birch: "Silver birch"
+tree.species.lime: "Common lime"
+tree.location.alder: "Alder Street · bus shelter"
+tree.location.oak: "Oak Lane · north playground gate"
+tree.location.mason: "Mason Square · east entrance"
+tree.priority.urgent: "Urgent"
+tree.priority.routine: "Routine"
+tree.finding.split_limb: "A large limb split above the shelter after last night’s wind."
+tree.finding.root: "Inspect the raised root near the gate and mark the path safe."
+tree.finding.no_work: "Seasonal inspection found no work required."
+tree.reported_by: "Reported by {person}"
+tree.assigned_to: "Assigned to {crew}"
+tree.assignment.action: "Assign to Green Crew"
+tree.assignment.notice: "TREE-{id} is on the Green Crew’s afternoon route."
+tree.assignment.crew: "Green Crew"
+tree.assignment.completed_crew: "Tree Team"
+tree.status.needs_crew: "Needs a crew"
+tree.status.scheduled: "Scheduled"
+tree.status.completed: "Completed"
+tree.organization: "Cedar County Urban Forestry"
+tree.round.title: "Morning inspection round · Wednesday, 8 May"
+tree.round.a11y: "Cedar County tree inspection round"
+tree.summary.inspections: "{count} inspections in today’s round"
+tree.summary.counts: "Needs a crew · {needs_crew}     Scheduled · {scheduled}     Completed · {completed}"
+tree.round.hint: "Work the urgent reports first, then review the routine checks."
+tree.empty.title: "No inspections are loaded."
+tree.empty.help: "Refresh the round to load the latest reports from the tree-care service."
+tree.queue.a11y: "Tree inspections and crew assignment"
+tree.notice.ready: "Review the urgent reports before crews leave the depot."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+tree.card.a11y: "Inspección {id}: {species}, {location}"
+tree.species.plane: "Plátano de sombra"
+tree.species.birch: "Abedul común"
+tree.species.lime: "Tilo común"
+tree.location.alder: "Alder Street · parada de autobús"
+tree.location.oak: "Oak Lane · puerta norte del parque infantil"
+tree.location.mason: "Mason Square · entrada este"
+tree.priority.urgent: "Urgente"
+tree.priority.routine: "Rutinaria"
+tree.finding.split_limb: "Una rama grande se partió sobre la parada con el viento de anoche."
+tree.finding.root: "Revisa la raíz levantada junto a la puerta y señaliza el camino."
+tree.finding.no_work: "La inspección estacional no encontró trabajo pendiente."
+tree.reported_by: "Informado por {person}"
+tree.assigned_to: "Asignado a {crew}"
+tree.assignment.action: "Asignar al equipo verde"
+tree.assignment.notice: "TREE-{id} está en la ruta de tarde del equipo verde."
+tree.assignment.crew: "Equipo verde"
+tree.assignment.completed_crew: "Equipo de árboles"
+tree.status.needs_crew: "Necesita equipo"
+tree.status.scheduled: "Programada"
+tree.status.completed: "Completada"
+tree.organization: "Arboricultura del Condado de Cedar"
+tree.round.title: "Inspección matinal · miércoles, 8 de mayo"
+tree.round.a11y: "Inspección de árboles del Condado de Cedar"
+tree.summary.inspections: "{count} inspecciones en la ronda de hoy"
+tree.summary.counts: "Necesita equipo · {needs_crew}     Programada · {scheduled}     Completada · {completed}"
+tree.round.hint: "Revisa primero los avisos urgentes y después las inspecciones rutinarias."
+tree.empty.title: "No hay inspecciones cargadas."
+tree.empty.help: "Actualiza la ronda para cargar los informes recientes del servicio de arbolado."
+tree.queue.a11y: "Inspecciones de árboles y asignación de equipos"
+tree.notice.ready: "Revisa los avisos urgentes antes de que los equipos salgan del depósito."
 ```
 </TabItem>
 </Tabs>
@@ -215,7 +331,26 @@ The tutorial keeps the source together so you can run it without creating a set 
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(yaml).expect("valid Cedar County translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InspectionStatus {
@@ -225,11 +360,26 @@ pub enum InspectionStatus {
 }
 
 impl InspectionStatus {
-    fn label(self) -> &'static str {
+    fn translation_key(self) -> &'static str {
         match self {
-            Self::NeedsCrew => "Needs a crew",
-            Self::Scheduled => "Scheduled",
-            Self::Completed => "Completed",
+            Self::NeedsCrew => "tree.status.needs_crew",
+            Self::Scheduled => "tree.status.scheduled",
+            Self::Completed => "tree.status.completed",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InspectionPriority {
+    Urgent,
+    Routine,
+}
+
+impl InspectionPriority {
+    fn translation_key(self) -> &'static str {
+        match self {
+            Self::Urgent => "tree.priority.urgent",
+            Self::Routine => "tree.priority.routine",
         }
     }
 }
@@ -239,7 +389,7 @@ pub struct TreeInspection {
     pub id: u32,
     pub species: &'static str,
     pub location: &'static str,
-    pub priority: &'static str,
+    pub priority: InspectionPriority,
     pub finding: &'static str,
     pub reported_by: &'static str,
     pub status: InspectionStatus,
@@ -249,45 +399,19 @@ pub struct TreeInspection {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TreeRoundsState {
     pub inspections: Vec<TreeInspection>,
-    pub notice: String,
+    pub notice: Option<TreeAssignmentNotice>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TreeAssignmentNotice {
+    Assigned(u32),
 }
 
 impl Default for TreeRoundsState {
     fn default() -> Self {
         Self {
-            inspections: vec![
-                TreeInspection {
-                    id: 184,
-                    species: "London plane",
-                    location: "Alder Street · bus shelter",
-                    priority: "Urgent",
-                    finding: "A large limb split above the shelter after last night’s wind.",
-                    reported_by: "Maya Jones",
-                    status: InspectionStatus::NeedsCrew,
-                    assigned_crew: None,
-                },
-                TreeInspection {
-                    id: 207,
-                    species: "Silver birch",
-                    location: "Oak Lane · north playground gate",
-                    priority: "Routine",
-                    finding: "Inspect the raised root near the gate and mark the path safe.",
-                    reported_by: "Pavel Singh",
-                    status: InspectionStatus::Scheduled,
-                    assigned_crew: Some("Green Crew"),
-                },
-                TreeInspection {
-                    id: 213,
-                    species: "Common lime",
-                    location: "Mason Square · east entrance",
-                    priority: "Routine",
-                    finding: "Seasonal inspection found no work required.",
-                    reported_by: "Tree team",
-                    status: InspectionStatus::Completed,
-                    assigned_crew: Some("Tree Team"),
-                },
-            ],
-            notice: "One urgent tree needs a crew before the afternoon route.".to_string(),
+            inspections: Vec::new(),
+            notice: None,
         }
     }
 }
@@ -312,11 +436,8 @@ fn assign_tree_to_green_crew(state: &mut TreeRoundsState, inspection_id: u32) {
     }
 
     inspection.status = InspectionStatus::Scheduled;
-    inspection.assigned_crew = Some("Green Crew");
-    state.notice = format!(
-        "TREE-{} is on the Green Crew’s afternoon route.",
-        inspection.id,
-    );
+    inspection.assigned_crew = Some("tree.assignment.crew");
+    state.notice = Some(TreeAssignmentNotice::Assigned(inspection.id));
 }
 
 #[fission_reducer(AssignTreeToGreenCrew)]
@@ -328,6 +449,7 @@ fission_component! {
     pub TreeInspectionCard<TreeRoundsState> { inspection: TreeInspection }
     view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let species = cx.tr(card.inspection.species);
         let assign = with_reducer!(
             cx.build,
             AssignTreeToGreenCrew(card.inspection.id),
@@ -336,35 +458,33 @@ fission_component! {
     } =>
     SemanticsRegion(
         identifier: Some(format!("tree-inspection-{}", card.inspection.id)),
-        label: Some(format!(
-            "Tree inspection {}: {}, {}",
-            card.inspection.id,
-            card.inspection.species,
-            card.inspection.location,
-        )),
+        label: Some(cx.tr("tree.card.a11y")
+            .replace("{id}", &card.inspection.id.to_string())
+            .replace("{species}", &species)
+            .replace("{location}", &cx.tr(card.inspection.location))),
         child: Container(
             Column(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Start, children: [
                 Row(gap: tokens.spacing.s, children: [
                     Text(format!("TREE-{}", card.inspection.id))
                         .weight(tokens.typography.font_weight_semibold),
-                    Text(card.inspection.priority)
+                    Text(cx.tr(card.inspection.priority.translation_key()))
                         .color(tokens.colors.text_secondary),
-                    Text(card.inspection.status.label())
+                    Text(cx.tr(card.inspection.status.translation_key()))
                         .color(tokens.colors.text_secondary),
                 ]),
-                Text(card.inspection.species)
+                Text(species)
                     .weight(tokens.typography.font_weight_bold),
-                Text(card.inspection.location)
+                Text(cx.tr(card.inspection.location))
                     .color(tokens.colors.text_secondary),
-                Text(card.inspection.finding),
-                Text(format!("Reported by {}", card.inspection.reported_by))
+                Text(cx.tr(card.inspection.finding)),
+                Text(cx.tr("tree.reported_by").replace("{person}", card.inspection.reported_by))
                     .color(tokens.colors.text_secondary),
                 if let Some(crew) = card.inspection.assigned_crew {
-                    Text(format!("Assigned to {crew}"))
+                    Text(cx.tr("tree.assigned_to").replace("{crew}", &cx.tr(crew)))
                         .color(tokens.colors.text_secondary)
                 } else {
                     Button(
-                        child: Text("Assign to Green Crew"),
+                        child: Text(cx.tr("tree.assignment.action")),
                         key: "assign-to-green-crew",
                         variant: ButtonVariant::Primary,
                         on_press: assign,
@@ -388,6 +508,10 @@ fission_component! {
     pub TreeRoundsDashboard<TreeRoundsState> {}
     view(_dashboard, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let notice = state.notice.map(|notice| match notice {
+            TreeAssignmentNotice::Assigned(id) => cx.tr("tree.assignment.notice")
+                .replace("{id}", &id.to_string()),
+        });
         let needs_crew = state.inspections.iter()
             .filter(|inspection| inspection.status == InspectionStatus::NeedsCrew)
             .count();
@@ -400,7 +524,7 @@ fission_component! {
     } =>
     SemanticsRegion(
         identifier: Some("cedar-county-tree-rounds".to_string()),
-        label: Some("Cedar County tree inspection round".to_string()),
+        label: Some(cx.tr("tree.queue.a11y")),
         child: Scroll(
             flex_grow: 1.0,
             height: cx.view.viewport_size().height,
@@ -409,25 +533,35 @@ fission_component! {
                     Container(
                         Column(gap: tokens.spacing.m, children: [
                             Column(gap: tokens.spacing.xs, children: [
-                                Text("Cedar County Urban Forestry")
+                                Text(cx.tr("tree.organization"))
                                     .weight(tokens.typography.font_weight_bold),
-                                Text("Morning inspection round · Wednesday, 8 May")
+                                Text(cx.tr("tree.round.title"))
                                     .color(tokens.colors.text_secondary),
                             ]),
-                            Text(format!(
-                                "Needs a crew · {}     Scheduled · {}     Completed · {}",
-                                needs_crew,
-                                scheduled,
-                                completed,
-                            )),
-                            Text(state.notice.clone())
-                                .color(tokens.colors.text_secondary),
+                            Text(cx.tr("tree.summary.counts")
+                                .replace("{needs_crew}", &needs_crew.to_string())
+                                .replace("{scheduled}", &scheduled.to_string())
+                                .replace("{completed}", &completed.to_string())),
+                            if let Some(notice) = notice {
+                                Text(notice).color(tokens.colors.text_secondary)
+                            } else {
+                                Text(cx.tr("tree.notice.ready")).color(tokens.colors.text_secondary)
+                            },
                             Column(gap: tokens.spacing.s, children: [
-                                for inspection in state.inspections.iter().cloned() {
+                                if state.inspections.is_empty() {
+                                    Widget::from(EmptyState {
+                                        title: cx.tr("tree.empty.title"),
+                                        description: Some(cx.tr("tree.empty.help")),
+                                        ..Default::default()
+                                    })
+                                } else {
+                                    for inspection in state.inspections.iter() {
                                     TreeInspectionCard(
                                         inspection.clone(),
                                         key: inspection.id,
                                     )
+                                    .id(WidgetId::explicit(&format!("tree-inspection.{}", inspection.id)))
+                                    }
                                 },
                             ]),
                         ])
@@ -452,6 +586,8 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+#[path = "../preview/fixtures.rs"]
+mod fixtures;
 
 use app::TreeRoundsState;
 use fission::prelude::*;
@@ -461,10 +597,26 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     WebApp::<TreeRoundsState, _>::new(app::TreeRoundsDashboard::new())
+        .with_state_init(|state| state.inspections = fixtures::sample_inspections())
+        .with_env(app::create_env())
         .with_title("Cedar County tree inspections")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/fixtures.rs">
+<!-- fission:file path="preview/fixtures.rs" -->
+```rust
+use crate::app::{InspectionPriority, InspectionStatus, TreeInspection};
+
+pub fn sample_inspections() -> Vec<TreeInspection> {
+    vec![
+        TreeInspection { id: 184, species: "tree.species.plane", location: "tree.location.alder", priority: InspectionPriority::Urgent, finding: "tree.finding.split_limb", reported_by: "Maya Jones", status: InspectionStatus::NeedsCrew, assigned_crew: None },
+        TreeInspection { id: 207, species: "tree.species.birch", location: "tree.location.oak", priority: InspectionPriority::Routine, finding: "tree.finding.root", reported_by: "Pavel Singh", status: InspectionStatus::Scheduled, assigned_crew: Some("tree.assignment.crew") },
+        TreeInspection { id: 213, species: "tree.species.lime", location: "tree.location.mason", priority: InspectionPriority::Routine, finding: "tree.finding.no_work", reported_by: "Tree team", status: InspectionStatus::Completed, assigned_crew: Some("tree.assignment.completed_crew") },
+    ]
 }
 ```
 </TabItem>
@@ -473,9 +625,23 @@ pub fn run() -> Result<(), JsValue> {
 ```rust
 use super::*;
 
+fn unassigned_tree() -> TreeInspection {
+    TreeInspection {
+        id: 184,
+        species: "tree.species.plane",
+        location: "tree.location.alder",
+        priority: InspectionPriority::Urgent,
+        finding: "tree.finding.split_limb",
+        reported_by: "Maya Jones",
+        status: InspectionStatus::NeedsCrew,
+        assigned_crew: None,
+    }
+}
+
 #[test]
 fn assigning_a_tree_updates_its_record_and_dashboard_notice() {
     let mut state = TreeRoundsState::default();
+    state.inspections = vec![unassigned_tree()];
 
     assign_tree_to_green_crew(&mut state, 184);
 
@@ -485,11 +651,8 @@ fn assigning_a_tree_updates_its_record_and_dashboard_notice() {
         .find(|inspection| inspection.id == 184)
         .expect("TREE-184 is in the morning round");
     assert_eq!(inspection.status, InspectionStatus::Scheduled);
-    assert_eq!(inspection.assigned_crew, Some("Green Crew"));
-    assert_eq!(
-        state.notice,
-        "TREE-184 is on the Green Crew’s afternoon route."
-    );
+    assert_eq!(inspection.assigned_crew, Some("tree.assignment.crew"));
+    assert_eq!(state.notice, Some(TreeAssignmentNotice::Assigned(184)));
 }
 ```
 </TabItem>
@@ -522,7 +685,8 @@ const ANDROID_TEST_CONTROL_PORT: u16 = 48763;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn mobile_app() -> MobileApp<TreeRoundsState, TreeRoundsDashboard> {
     let app = MobileApp::<TreeRoundsState, _>::new(TreeRoundsDashboard::new())
-        .with_title("Cedar County tree inspections");
+        .with_title("Cedar County tree inspections")
+        .with_env(crate::app::create_env());
     #[cfg(target_os = "android")]
     let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
     app
@@ -532,12 +696,14 @@ fn mobile_app() -> MobileApp<TreeRoundsState, TreeRoundsDashboard> {
 fn web_app() -> WebApp<TreeRoundsState, TreeRoundsDashboard> {
     WebApp::<TreeRoundsState, _>::new(TreeRoundsDashboard::new())
         .with_title("Cedar County tree inspections")
+        .with_env(crate::app::create_env())
 }
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> anyhow::Result<()> {
     DesktopApp::<TreeRoundsState, _>::new(TreeRoundsDashboard::new())
         .with_title("Cedar County tree inspections")
+        .with_env(crate::app::create_env())
         .run()
 }
 

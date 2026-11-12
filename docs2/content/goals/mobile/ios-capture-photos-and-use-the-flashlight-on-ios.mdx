@@ -17,11 +17,11 @@ outcomes:
   - Preserve the receiving note when permission, capture, or image preparation fails
 ---
 
-At Cedar Bay Nurseries, Morgan is checking in Riverbend Nursery’s olive sapling shipment, purchase order **RB-5684**. Two trays arrived with crushed crate corners. Before the plants are moved into the greenhouse, the receiving record needs a clear photograph and a note that tells the supplier what to inspect.
+At Cedar Bay Nurseries, Morgan is checking in Riverbend Nursery’s olive sapling shipment, purchase order **RB-5684**. Two trays arrived with crushed crate corners. Before the plants are moved into the greenhouse, the receiving record needs a clear photograph and a note that tells the supplier what to inspect. The browser preview seeds this receipt only to make the camera flow easy to try; the iOS app starts empty and should receive its active receipt from the app’s receiving queue.
 
 The screen will show the order, the affected quantity, the note, and the evidence status together. **Capture arrival photo** asks the active host for its camera. A successful response becomes a real image in the record; a denial or missing camera leaves the note in place. The flashlight control appears only when a camera reports that it has one.
 
-**Prepare supplier review** checks that a photo and note are present, then marks the record ready in app state. It does not send a claim. That distinction gives this example a useful end-to-end receiving flow while keeping server work outside the browser preview.
+**Prepare supplier review** checks that a photo and note are present, then marks the record ready in memory for this session. It does not save the record or send a claim. That distinction gives this example a useful receiving flow while keeping persistence and supplier submission outside the browser preview.
 
 ## Create an iOS project and declare camera access
 
@@ -34,6 +34,7 @@ cargo install cargo-fission
 fission init cedar-bay-receiving
 cd cedar-bay-receiving
 cargo add serde --features derive
+cargo add serde_yaml
 fission add-target ios --project-dir .
 fission add-capability camera --project-dir .
 ```
@@ -46,9 +47,13 @@ cedar-bay-receiving/
 ├── src/
 │   ├── app.rs
 │   ├── app/
+│   │   ├── translations.rs
 │   │   └── widgets.rs
 │   ├── lib.rs
 │   └── main.rs
+├── i18n/
+│   ├── en-US.yaml
+│   └── es-ES.yaml
 └── platforms/
     └── ios/
         └── Info.plist
@@ -75,6 +80,7 @@ use fission::core::{collect_data_stream, DataStreamId, JobCtx, JobRef, JobSpec};
 use fission::prelude::*;
 use serde::{Deserialize, Serialize};
 
+pub mod translations;
 pub mod widgets;
 pub use widgets::ReceivingInspectionApp;
 
@@ -96,24 +102,123 @@ pub struct DeliveryReceipt {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ReceivingInspectionState {
+    pub locale: Locale,
     pub receipt: Option<DeliveryReceipt>,
     pub receiving_note: String,
     pub affected_trays_on_hold: bool,
-    pub draft_saved: bool,
     pub review_ready: bool,
     pub photo_pending: bool,
     pub photo_bytes: Option<Vec<u8>>,
-    pub photo_details: Option<String>,
+    pub photo_details: Option<PhotoDetails>,
     pub camera_availability_checked: bool,
     pub camera_availability_failed: bool,
     pub flashlight_available: bool,
     pub flashlight_pending: bool,
     pub flashlight_on: bool,
-    pub notice: Option<String>,
-    pub error: Option<String>,
+    pub notice: Option<ReceivingNotice>,
+    pub error: Option<ReceivingIssue>,
 }
 
 impl GlobalState for ReceivingInspectionState {}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PhotoDetails {
+    pub width: u32,
+    pub height: u32,
+    pub content_type: String,
+    pub kibibytes: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReceivingNotice {
+    ReviewPrepared,
+    TraysHeld,
+    TraysReleased,
+    CheckingCamera,
+    OpeningCamera,
+    PhotoCaptured,
+    PhotoAttached,
+    CheckingFlashlight(bool),
+    ChangingFlashlight(bool),
+    FlashlightChanged(bool),
+}
+
+impl ReceivingNotice {
+    pub fn translation_key(self) -> &'static str {
+        match self {
+            Self::ReviewPrepared => "receiving.notice.review_prepared",
+            Self::TraysHeld => "receiving.notice.trays_held",
+            Self::TraysReleased => "receiving.notice.trays_released",
+            Self::CheckingCamera => "receiving.notice.checking_camera",
+            Self::OpeningCamera => "receiving.notice.opening_camera",
+            Self::PhotoCaptured => "receiving.notice.photo_captured",
+            Self::PhotoAttached => "receiving.notice.photo_attached",
+            Self::CheckingFlashlight(true) => "receiving.notice.checking_flashlight_on",
+            Self::CheckingFlashlight(false) => "receiving.notice.checking_flashlight_off",
+            Self::ChangingFlashlight(true) => "receiving.notice.changing_flashlight_on",
+            Self::ChangingFlashlight(false) => "receiving.notice.changing_flashlight_off",
+            Self::FlashlightChanged(true) => "receiving.notice.flashlight_on",
+            Self::FlashlightChanged(false) => "receiving.notice.flashlight_off",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReceivingIssue {
+    ReceiptMissing,
+    NoteMissing,
+    PhotoMissing,
+    PermissionResultMissing,
+    PermissionDenied,
+    PermissionUnknown,
+    PermissionRequestFailed,
+    CameraUnavailable,
+    CameraInUse,
+    CaptureResultMissing,
+    CaptureDenied,
+    CaptureCancelled,
+    CaptureFailed,
+    PhotoStreamReadFailed,
+    FlashlightPermissionResultMissing,
+    FlashlightPermissionDenied,
+    FlashlightPermissionFailed(bool),
+    FlashlightUnavailable,
+    FlashlightInUse,
+    FlashlightChangeFailed,
+}
+
+impl ReceivingIssue {
+    pub fn translation_key(self) -> &'static str {
+        match self {
+            Self::ReceiptMissing => "receiving.error.receipt_missing",
+            Self::NoteMissing => "receiving.error.note_missing",
+            Self::PhotoMissing => "receiving.error.photo_missing",
+            Self::PermissionResultMissing => "receiving.error.permission_result_missing",
+            Self::PermissionDenied => "receiving.error.permission_denied",
+            Self::PermissionUnknown => "receiving.error.permission_unknown",
+            Self::PermissionRequestFailed => "receiving.error.permission_request_failed",
+            Self::CameraUnavailable => "receiving.error.camera_unavailable",
+            Self::CameraInUse => "receiving.error.camera_in_use",
+            Self::CaptureResultMissing => "receiving.error.capture_result_missing",
+            Self::CaptureDenied => "receiving.error.capture_denied",
+            Self::CaptureCancelled => "receiving.error.capture_cancelled",
+            Self::CaptureFailed => "receiving.error.capture_failed",
+            Self::PhotoStreamReadFailed => "receiving.error.photo_stream_read_failed",
+            Self::FlashlightPermissionResultMissing => "receiving.error.flashlight_permission_result_missing",
+            Self::FlashlightPermissionDenied => "receiving.error.flashlight_permission_denied",
+            Self::FlashlightPermissionFailed(true) => "receiving.error.flashlight_permission_failed_on",
+            Self::FlashlightPermissionFailed(false) => "receiving.error.flashlight_permission_failed_off",
+            Self::FlashlightUnavailable => "receiving.error.flashlight_unavailable",
+            Self::FlashlightInUse => "receiving.error.flashlight_in_use",
+            Self::FlashlightChangeFailed => "receiving.error.flashlight_change_failed",
+        }
+    }
+}
+
+#[fission_reducer(SetReceivingLocale)]
+pub fn on_set_receiving_locale(state: &mut ReceivingInspectionState, locale: Locale) {
+    state.locale = locale;
+}
 
 impl ReceivingInspectionState {
     pub fn tutorial_receipt() -> Self {
@@ -239,87 +344,63 @@ pub fn on_receiving_note_changed(
 ) {
     if let Some(change) = ctx.input.text_change() {
         state.receiving_note = change.new_text.clone();
-        state.draft_saved = false;
         state.review_ready = false;
         state.notice = None;
         state.error = None;
     }
 }
 
-#[fission_reducer(SaveReceivingDraft)]
-pub fn on_save_receiving_draft(state: &mut ReceivingInspectionState) {
-    if state.receipt.is_none() {
-        state.error = Some("Open a receiving record before saving a draft.".into());
-        state.notice = None;
-        return;
-    }
-    if state.receiving_note.trim().is_empty() {
-        state.error = Some("Add what you observed before saving this receiving draft.".into());
-        state.notice = None;
-        return;
-    }
-    state.draft_saved = true;
-    state.error = None;
-    state.notice = Some(
-        "Receiving draft saved on this device for this session. No supplier request was sent."
-            .into(),
-    );
-}
-
 #[fission_reducer(SetAffectedTraysOnHold)]
 pub fn on_set_affected_trays_on_hold(state: &mut ReceivingInspectionState, held: bool) {
     state.affected_trays_on_hold = held;
-    state.draft_saved = false;
     state.review_ready = false;
     state.error = None;
     state.notice = Some(if held {
-        "Two trays are marked on hold in this receiving draft. Nothing was sent to the supplier."
-            .into()
+        ReceivingNotice::TraysHeld
     } else {
-        "The affected trays are no longer marked on hold in this receiving draft.".into()
+        ReceivingNotice::TraysReleased
     });
 }
 
 #[fission_reducer(PrepareSupplierReview)]
 pub fn on_prepare_supplier_review(state: &mut ReceivingInspectionState) {
     if state.receipt.is_none() {
-        state.error = Some("Open a receiving record before preparing a supplier review.".into());
+        state.error = Some(ReceivingIssue::ReceiptMissing);
         state.notice = None;
         return;
     }
     if state.photo_bytes.is_none() {
-        state.error = Some("Attach a current photo of the crushed crate corner before preparing a supplier review.".into());
+        state.error = Some(ReceivingIssue::PhotoMissing);
         state.notice = None;
         return;
     }
     if state.receiving_note.trim().is_empty() {
-        state.error =
-            Some("Add a note explaining the damage before preparing a supplier review.".into());
+        state.error = Some(ReceivingIssue::NoteMissing);
         state.notice = None;
         return;
     }
     state.review_ready = true;
-    state.draft_saved = true;
     state.error = None;
-    state.notice = Some("The receiving record is ready for a supplier review. No claim was sent from this app session.".into());
+    state.notice = Some(ReceivingNotice::ReviewPrepared);
 }
 
 #[fission_reducer(CaptureDeliveryPhoto)]
 pub fn on_capture_delivery_photo(
     state: &mut ReceivingInspectionState,
+    reason: String,
     ctx: &mut ReducerContext<ReceivingInspectionState>,
 ) {
     if state.photo_pending || state.flashlight_pending {
         return;
     }
     if state.receipt.is_none() {
-        state.error = Some("Open a receiving record before attaching photo evidence.".into());
+        state.error = Some(ReceivingIssue::ReceiptMissing);
         state.notice = None;
         return;
     }
     state.photo_pending = true;
     state.error = None;
-    state.notice = Some("Checking camera access…".into());
+    state.notice = Some(ReceivingNotice::CheckingCamera);
     let on_ok = ctx.effects.bind(
         CameraPermissionReceived,
         reduce_with!(on_camera_permission_received),
@@ -331,10 +412,7 @@ pub fn on_capture_delivery_photo(
     ctx.effects
         .camera()
         .request_permission(CameraPermissionRequest {
-            reason: Some(
-                "Photograph the damaged Riverbend Nursery crates for receiving record RCV-275"
-                    .into(),
-            ),
+            reason: Some(reason),
         })
         .on_ok(on_ok)
         .on_err(on_err);
@@ -344,7 +422,7 @@ fn queue_photo_capture(
     state: &mut ReceivingInspectionState,
     ctx: &mut ReducerContext<ReceivingInspectionState>,
 ) {
-    state.notice = Some("Opening the camera…".into());
+    state.notice = Some(ReceivingNotice::OpeningCamera);
     let on_ok = ctx.effects.bind(
         PhotoCaptureCompleted,
         reduce_with!(on_photo_capture_completed),
@@ -377,7 +455,7 @@ pub fn on_camera_permission_received(
     let Some(permission) = ctx.input.capability_ok(REQUEST_CAMERA_PERMISSION) else {
         state.photo_pending = false;
         state.notice = None;
-        state.error = Some("The camera did not return a permission result. The receiving record is still available without a photo.".into());
+        state.error = Some(ReceivingIssue::PermissionResultMissing);
         return;
     };
     match permission {
@@ -385,12 +463,12 @@ pub fn on_camera_permission_received(
         CameraPermission::Denied | CameraPermission::Restricted => {
             state.photo_pending = false;
             state.notice = None;
-            state.error = Some("Camera access was not granted. Keep the receiving note and allow camera access in Settings when a photo is required.".into());
+            state.error = Some(ReceivingIssue::PermissionDenied);
         }
         CameraPermission::Unknown => {
             state.photo_pending = false;
             state.notice = None;
-            state.error = Some("Camera permission is still unknown. Try the request again or save the receiving note as a draft.".into());
+            state.error = Some(ReceivingIssue::PermissionUnknown);
         }
     }
 }
@@ -403,16 +481,14 @@ pub fn on_camera_permission_failed(
     state.photo_pending = false;
     state.notice = None;
     let Some(error) = ctx.input.capability_error(REQUEST_CAMERA_PERMISSION) else {
-        state.error = Some(
-            "The camera permission request failed. The receiving record remains available.".into(),
-        );
+        state.error = Some(ReceivingIssue::PermissionRequestFailed);
         return;
     };
     state.error = Some(match error.code.as_str() {
-        "permission_denied" | "notallowederror" => "Camera access was denied. No photo was attached; allow access or continue with the receiving note.".into(),
-        "unsupported" | "unavailable" | "notfounderror" => "No usable camera is available on this host. The receiving note remains available without a photo.".into(),
-        "notreadableerror" => "Another app is using the camera. Close it before trying again, or continue with the receiving note.".into(),
-        _ => format!("The camera request failed: {}. No photo was attached; try again or save the receiving draft.", error.message),
+        "permission_denied" | "notallowederror" => ReceivingIssue::PermissionDenied,
+        "unsupported" | "unavailable" | "notfounderror" => ReceivingIssue::CameraUnavailable,
+        "notreadableerror" => ReceivingIssue::CameraInUse,
+        _ => ReceivingIssue::PermissionRequestFailed,
     });
 }
 
@@ -424,21 +500,19 @@ pub fn on_photo_capture_completed(
     state.photo_pending = false;
     let Some(capture) = ctx.input.capability_ok(CAPTURE_PHOTO) else {
         state.notice = None;
-        state.error = Some("The camera returned no image. The receiving note is unchanged.".into());
+        state.error = Some(ReceivingIssue::CaptureResultMissing);
         return;
     };
-    state.photo_details = Some(format!(
-        "{} × {} · {} · {} KiB",
-        capture.width,
-        capture.height,
-        capture.content_type,
-        capture.byte_len.unwrap_or_default() / 1024,
-    ));
+    state.photo_details = Some(PhotoDetails {
+        width: capture.width,
+        height: capture.height,
+        content_type: capture.content_type.clone(),
+        kibibytes: capture.byte_len.map(|bytes| bytes / 1024),
+    });
     state.photo_bytes = None;
-    state.draft_saved = false;
     state.review_ready = false;
     state.error = None;
-    state.notice = Some("Photo captured. Preparing the receiving evidence preview…".into());
+    state.notice = Some(ReceivingNotice::PhotoCaptured);
     let on_ok = ctx
         .effects
         .bind(PhotoBytesLoaded, reduce_with!(on_photo_bytes_loaded));
@@ -464,15 +538,15 @@ pub fn on_photo_capture_failed(
     state.photo_pending = false;
     state.notice = None;
     let Some(error) = ctx.input.capability_error(CAPTURE_PHOTO) else {
-        state.error = Some("The camera did not return an image. No evidence was attached.".into());
+        state.error = Some(ReceivingIssue::CaptureResultMissing);
         return;
     };
     state.error = Some(match error.code.as_str() {
-        "permission_denied" | "notallowederror" => "Camera access was denied. No image was attached; allow access or continue with the written receiving note.".into(),
-        "cancelled" | "canceled" | "user_cancel" => "Photo capture was cancelled. No image was attached, and the receiving note is unchanged.".into(),
-        "unsupported" | "unavailable" | "notfounderror" => "This host has no usable camera. The receiving record remains available without evidence.".into(),
-        "notreadableerror" => "The camera is already in use by another app. Close it before trying again; no image was attached.".into(),
-        _ => format!("The photo could not be captured: {}. No image was attached; try again or save the receiving draft.", error.message),
+        "permission_denied" | "notallowederror" => ReceivingIssue::CaptureDenied,
+        "cancelled" | "canceled" | "user_cancel" => ReceivingIssue::CaptureCancelled,
+        "unsupported" | "unavailable" | "notfounderror" => ReceivingIssue::CameraUnavailable,
+        "notreadableerror" => ReceivingIssue::CameraInUse,
+        _ => ReceivingIssue::CaptureFailed,
     });
 }
 
@@ -483,11 +557,9 @@ pub fn on_photo_bytes_loaded(
 ) {
     if let Some(photo) = ctx.input.job_ok(READ_DELIVERY_PHOTO_JOB) {
         state.photo_bytes = Some(photo.bytes.clone());
-        state.draft_saved = false;
         state.review_ready = false;
         state.error = None;
-        state.notice =
-            Some("Photo attached to this receiving record. It has not been uploaded.".into());
+        state.notice = Some(ReceivingNotice::PhotoAttached);
     }
 }
 
@@ -496,19 +568,8 @@ pub fn on_photo_bytes_failed(
     state: &mut ReceivingInspectionState,
     ctx: &mut ReducerContext<ReceivingInspectionState>,
 ) {
-    let message = ctx
-        .input
-        .job_err(READ_DELIVERY_PHOTO_JOB)
-        .map(|error| error.message.clone())
-        .or_else(|| {
-            ctx.input
-                .job_error_message(READ_DELIVERY_PHOTO_JOB)
-                .map(str::to_string)
-        })
-        .unwrap_or_else(|| "The captured image stream could not be read.".into());
-    state.error = Some(format!(
-        "The camera returned a photo, but its preview could not be prepared: {message}"
-    ));
+    let _ = ctx.input.job_err(READ_DELIVERY_PHOTO_JOB);
+    state.error = Some(ReceivingIssue::PhotoStreamReadFailed);
     state.notice = None;
 }
 
@@ -516,6 +577,7 @@ pub fn on_photo_bytes_failed(
 pub fn on_set_flashlight(
     state: &mut ReceivingInspectionState,
     enabled: bool,
+    reason: String,
     ctx: &mut ReducerContext<ReceivingInspectionState>,
 ) {
     if state.photo_pending || state.flashlight_pending {
@@ -523,11 +585,7 @@ pub fn on_set_flashlight(
     }
     state.flashlight_pending = true;
     state.error = None;
-    state.notice = Some(if enabled {
-        "Checking camera access before using the flashlight…".into()
-    } else {
-        "Turning the flashlight off…".into()
-    });
+    state.notice = Some(ReceivingNotice::CheckingFlashlight(enabled));
     let on_ok = ctx.effects.bind(
         FlashlightPermissionReceived(enabled),
         reduce_with!(on_flashlight_permission_received),
@@ -539,9 +597,7 @@ pub fn on_set_flashlight(
     ctx.effects
         .camera()
         .request_permission(CameraPermissionRequest {
-            reason: Some(
-                "Photograph the damaged nursery crates for receiving record RCV-275".into(),
-            ),
+            reason: Some(reason),
         })
         .on_ok(on_ok)
         .on_err(on_err);
@@ -556,10 +612,7 @@ pub fn on_flashlight_permission_received(
     let Some(permission) = ctx.input.capability_ok(REQUEST_CAMERA_PERMISSION) else {
         state.flashlight_pending = false;
         state.notice = None;
-        state.error = Some(
-            "The camera did not return a permission result. The flashlight state is unchanged."
-                .into(),
-        );
+        state.error = Some(ReceivingIssue::FlashlightPermissionResultMissing);
         return;
     };
     match permission {
@@ -567,7 +620,7 @@ pub fn on_flashlight_permission_received(
         CameraPermission::Denied | CameraPermission::Restricted | CameraPermission::Unknown => {
             state.flashlight_pending = false;
             state.notice = None;
-            state.error = Some("Camera access is required before this host can use a flashlight. The receiving record is unchanged.".into());
+            state.error = Some(ReceivingIssue::FlashlightPermissionDenied);
         }
     }
 }
@@ -594,11 +647,7 @@ fn queue_flashlight_change(
         })
         .on_ok(on_ok)
         .on_err(on_err);
-    state.notice = Some(if enabled {
-        "Turning the flashlight on…".into()
-    } else {
-        "Turning the flashlight off…".into()
-    });
+    state.notice = Some(ReceivingNotice::ChangingFlashlight(enabled));
 }
 
 #[fission_reducer(FlashlightPermissionFailed)]
@@ -609,13 +658,16 @@ pub fn on_flashlight_permission_failed(
 ) {
     state.flashlight_pending = false;
     state.notice = None;
-    let requested_state = if enabled { "on" } else { "off" };
     let Some(error) = ctx.input.capability_error(REQUEST_CAMERA_PERMISSION) else {
-        state.error =
-            Some("The camera did not confirm access. The flashlight state is unchanged.".into());
+        state.error = Some(ReceivingIssue::FlashlightPermissionFailed(enabled));
         return;
     };
-    state.error = Some(format!("Camera access could not be confirmed, so the flashlight could not be turned {requested_state}. The receiving record is unchanged: {}", error.message));
+    state.error = Some(match error.code.as_str() {
+        "permission_denied" | "notallowederror" => ReceivingIssue::FlashlightPermissionDenied,
+        "unsupported" | "unavailable" | "notfounderror" => ReceivingIssue::FlashlightUnavailable,
+        "notreadableerror" => ReceivingIssue::FlashlightInUse,
+        _ => ReceivingIssue::FlashlightPermissionFailed(enabled),
+    });
 }
 
 #[fission_reducer(FlashlightChanged)]
@@ -628,16 +680,9 @@ pub fn on_flashlight_changed(
     if ctx.input.capability_ok(SET_CAMERA_FLASHLIGHT).is_some() {
         state.flashlight_on = enabled;
         state.error = None;
-        state.notice = Some(if enabled {
-            "Flashlight is on.".into()
-        } else {
-            "Flashlight is off.".into()
-        });
+        state.notice = Some(ReceivingNotice::FlashlightChanged(enabled));
     } else {
-        state.error = Some(
-            "The host did not confirm the flashlight change. Its previous state is unchanged."
-                .into(),
-        );
+        state.error = Some(ReceivingIssue::FlashlightChangeFailed);
         state.notice = None;
     }
 }
@@ -651,16 +696,14 @@ pub fn on_flashlight_failed(
     state.flashlight_pending = false;
     state.notice = None;
     let Some(error) = ctx.input.capability_error(SET_CAMERA_FLASHLIGHT) else {
-        state.error = Some(
-            "The host did not confirm a flashlight change. The receiving record is unchanged."
-                .into(),
-        );
+        state.error = Some(ReceivingIssue::FlashlightChangeFailed);
         return;
     };
     state.error = Some(match error.code.as_str() {
-        "unsupported" | "unavailable" | "notfounderror" => "This camera does not provide a flashlight. Continue the receiving inspection without it.".into(),
-        "permission_denied" | "notallowederror" => "Camera access was denied, so the flashlight could not be used. The receiving record is unchanged.".into(),
-        _ => format!("The flashlight could not be changed: {}. Its previous state is unchanged; continue without it or try again.", error.message),
+        "unsupported" | "unavailable" | "notfounderror" => ReceivingIssue::FlashlightUnavailable,
+        "permission_denied" | "notallowederror" => ReceivingIssue::FlashlightPermissionDenied,
+        "notreadableerror" => ReceivingIssue::FlashlightInUse,
+        _ => ReceivingIssue::FlashlightChangeFailed,
     });
 }
 ```
@@ -672,10 +715,11 @@ use fission::prelude::*;
 
 use super::{
     on_capture_delivery_photo, on_check_camera_availability, on_prepare_supplier_review,
-    on_receiving_note_changed, on_save_receiving_draft, on_set_affected_trays_on_hold,
-    on_set_flashlight, CaptureDeliveryPhoto, CheckCameraAvailability, PrepareSupplierReview,
-    ReceivingInspectionState, ReceivingNoteChanged, SaveReceivingDraft, SetAffectedTraysOnHold,
-    SetFlashlight,
+    on_receiving_note_changed, on_set_affected_trays_on_hold, on_set_flashlight,
+    on_set_receiving_locale, CaptureDeliveryPhoto, CheckCameraAvailability,
+    PrepareSupplierReview, ReceivingInspectionState, ReceivingNoteChanged,
+    SetAffectedTraysOnHold, SetFlashlight,
+    SetReceivingLocale,
 };
 
 const MOBILE_BREAKPOINT: f32 = 760.0;
@@ -686,9 +730,10 @@ fission_component! {
     view(_app, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         cx.build.register::<CheckCameraAvailability, _>(reduce!(on_check_camera_availability));
-        let photo = with_reducer!(cx.build, CaptureDeliveryPhoto, on_capture_delivery_photo);
-        let flashlight = with_reducer!(cx.build, SetFlashlight(!state.flashlight_on), on_set_flashlight);
-        let save = with_reducer!(cx.build, SaveReceivingDraft, on_save_receiving_draft);
+        let photo = with_reducer!(cx.build, CaptureDeliveryPhoto(cx.tr("receiving.permission.camera_reason")), on_capture_delivery_photo);
+        let flashlight = with_reducer!(cx.build, SetFlashlight(!state.flashlight_on, cx.tr("receiving.permission.flashlight_reason")), on_set_flashlight);
+        let english = with_reducer!(cx.build, SetReceivingLocale(Locale::from("en-US")), on_set_receiving_locale);
+        let spanish = with_reducer!(cx.build, SetReceivingLocale(Locale::from("es-ES")), on_set_receiving_locale);
         let hold = with_reducer!(cx.build, SetAffectedTraysOnHold(!state.affected_trays_on_hold), on_set_affected_trays_on_hold);
         let prepare = with_reducer!(cx.build, PrepareSupplierReview, on_prepare_supplier_review);
         let note_changed = with_reducer!(cx.build, ReceivingNoteChanged, on_receiving_note_changed);
@@ -701,30 +746,30 @@ fission_component! {
                     Spacer(flex_grow: 1.0),
                     Container(
                         Column(gap: tokens.spacing.m, children: [
-                            ReceivingTopBar,
+                            ReceivingTopBar::new(english.clone(), spanish.clone()),
                             ReceivingPageHeader(state.clone()),
                             if let Some(receipt) = &state.receipt {
                                 DeliveryReceiptCard(receipt.clone(), state.review_ready)
                             } else {
                                 EmptyReceivingRecord
                             },
-                            Responsive::new(ReceivingContentColumns::new(photo.clone(), flashlight.clone(), save.clone(), hold.clone(), prepare.clone(), note_changed.clone()))
+                            Responsive::new(ReceivingContentColumns::new(photo.clone(), flashlight.clone(), hold.clone(), prepare.clone(), note_changed.clone()))
                                 .case(ResponsiveCase::max_width(
                                     MOBILE_BREAKPOINT,
-                                    ReceivingContentStack::new(photo, flashlight, save, hold, prepare, note_changed),
+                                    ReceivingContentStack::new(photo, flashlight, hold, prepare, note_changed),
                                 )),
                             if let Some(error) = &state.error {
                                 SemanticsRegion(
                                     identifier: Some("receiving.error".to_string()),
-                                    label: Some("Receiving error".to_string()),
-                                    child: Text(error.clone()).color(tokens.colors.error),
+                                    label: Some(cx.tr("receiving.semantics.error")),
+                                    child: Text(cx.tr(error.translation_key())).color(tokens.colors.error),
                                 )
                             },
                             if let Some(notice) = &state.notice {
                                 SemanticsRegion(
                                     identifier: Some("receiving.notice".to_string()),
-                                    label: Some("Receiving update".to_string()),
-                                    child: Text(notice.clone()).color(tokens.colors.text_secondary),
+                                    label: Some(cx.tr("receiving.semantics.notice")),
+                                    child: Text(cx.tr(notice.translation_key())).color(tokens.colors.text_secondary),
                                 )
                             },
                         ])
@@ -746,8 +791,8 @@ fission_component! {
 }
 
 fission_component! {
-    pub ReceivingTopBar<()> {}
-    view(_bar, _state, cx) {
+    pub ReceivingTopBar<()> { props { english: ActionEnvelope, spanish: ActionEnvelope } }
+    view(bar, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
@@ -758,11 +803,12 @@ fission_component! {
                 .bg(tokens.colors.primary)
                 .border_radius(tokens.radii.medium),
             Column(gap: tokens.spacing.none, children: [
-                Text("Cedar Bay Nurseries").weight(tokens.typography.font_weight_bold),
-                Text("Receiving").color(tokens.colors.text_secondary),
+                Text(cx.tr("receiving.brand")).weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("receiving.section")).color(tokens.colors.text_secondary),
             ]),
             Spacer(flex_grow: 1.0),
-            Text("Morning shift").color(tokens.colors.text_secondary),
+            Button(child: Text(cx.tr("receiving.locale.en")), key: "locale-en", variant: if cx.view.env().locale == Locale::from("en-US") { ButtonVariant::Primary } else { ButtonVariant::Outline }, on_press: bar.english.clone()),
+            Button(child: Text(cx.tr("receiving.locale.es")), key: "locale-es", variant: if cx.view.env().locale == Locale::from("es-ES") { ButtonVariant::Primary } else { ButtonVariant::Outline }, on_press: bar.spanish.clone()),
         ])
     )
     .padding_all(tokens.spacing.m)
@@ -779,17 +825,17 @@ fission_component! {
     } =>
     Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Start, wrap: ir_op::FlexWrap::Wrap, children: [
         Column(gap: tokens.spacing.xs, children: [
-            Text(if let Some(receipt) = receipt { format!("Inbound shipment · {}", receipt.reference) } else { "Inbound shipment".into() })
+            Text(if let Some(receipt) = receipt { cx.tr("receiving.header.reference").replace("{reference}", &receipt.reference) } else { cx.tr("receiving.header.title") })
                 .color(tokens.colors.primary),
-            Text("Inspect today’s delivery")
+            Text(cx.tr("receiving.header.headline"))
                 .size(tokens.typography.heading1_size)
                 .weight(tokens.typography.font_weight_bold),
-            Text("Record the arrival before these plants move into the nursery.")
+            Text(cx.tr("receiving.header.description"))
                 .color(tokens.colors.text_secondary),
         ]),
         Spacer(flex_grow: 1.0),
         if let Some(receipt) = receipt {
-            Container(Text(format!("Arrived · {}", receipt.arrival_time)))
+            Container(Text(cx.tr("receiving.header.arrived").replace("{time}", &receipt.arrival_time)))
                 .padding_all(tokens.spacing.s)
                 .bg(tokens.colors.primary_subtle)
                 .border(tokens.colors.border, 1.0)
@@ -810,32 +856,32 @@ fission_component! {
         Column(gap: tokens.spacing.m, children: [
             Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, wrap: ir_op::FlexWrap::Wrap, children: [
                 Column(gap: tokens.spacing.xs, children: [
-                    Text(format!("Purchase order {}", receipt.purchase_order))
+                    Text(cx.tr("receiving.receipt.purchase_order").replace("{reference}", &receipt.purchase_order))
                         .weight(tokens.typography.font_weight_bold),
-                    Text(format!("{} · Delivery bay 2", receipt.supplier))
+                    Text(cx.tr("receiving.receipt.supplier_bay").replace("{supplier}", &receipt.supplier))
                         .color(tokens.colors.text_secondary),
                 ]),
                 Spacer(flex_grow: 1.0),
-                Container(Text(if card.review_ready { "Ready for supplier review" } else { "Needs inspection" }))
+                Container(Text(if card.review_ready { cx.tr("receiving.receipt.ready") } else { cx.tr("receiving.receipt.needs_inspection") }))
                     .padding_all(tokens.spacing.s)
                     .bg(tokens.colors.surface_sunken)
                     .border(tokens.colors.border, 1.0)
                     .border_radius(tokens.radii.full),
             ]),
             Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                ReceivingMetric::new("Supplier".into(), receipt.supplier.clone()),
-                ReceivingMetric::new("Received by".into(), receipt.received_by.clone()),
-                ReceivingMetric::new("Vehicle".into(), receipt.vehicle.clone()),
+                ReceivingMetric::new(cx.tr("receiving.metric.supplier"), receipt.supplier.clone()),
+                ReceivingMetric::new(cx.tr("receiving.metric.received_by"), receipt.received_by.clone()),
+                ReceivingMetric::new(cx.tr("receiving.metric.vehicle"), receipt.vehicle.clone()),
             ]),
             Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, wrap: ir_op::FlexWrap::Wrap, children: [
                 NurseryPlantMark,
                 Column(gap: tokens.spacing.xs, children: [
                     Text(receipt.product.clone()).weight(tokens.typography.font_weight_bold),
-                    Text(format!("{} · lot {}", receipt.cultivar, receipt.lot))
+                    Text(cx.tr("receiving.receipt.cultivar_lot").replace("{cultivar}", &receipt.cultivar).replace("{lot}", &receipt.lot))
                         .color(tokens.colors.text_secondary),
                 ]),
                 Spacer(flex_grow: 1.0),
-                Container(Text(format!("{} trays affected", receipt.damaged_trays)))
+                Container(Text(cx.tr("receiving.receipt.trays_affected").replace("{count}", &receipt.damaged_trays.to_string())))
                     .padding_all(tokens.spacing.s)
                     .bg(tokens.colors.surface_sunken)
                     .border(tokens.colors.border, 1.0)
@@ -874,15 +920,15 @@ fission_component! {
     Container(
         Column(gap: tokens.spacing.xs, children: [
             Row(gap: tokens.spacing.xs, children: [
-                Container(Text(" ")).size(18.0, 8.0).bg(tokens.colors.primary).border_radius(tokens.radii.full),
-                Container(Text(" ")).size(18.0, 8.0).bg(tokens.colors.primary).border_radius(tokens.radii.full),
+                Container(child: None).size(18.0, 8.0).bg(tokens.colors.primary).border_radius(tokens.radii.full),
+                Container(child: None).size(18.0, 8.0).bg(tokens.colors.primary).border_radius(tokens.radii.full),
             ]),
             Row(gap: tokens.spacing.xs, children: [
-                Container(Text(" ")).size(18.0, 8.0).bg(tokens.colors.primary).border_radius(tokens.radii.full),
-                Container(Text(" ")).size(18.0, 8.0).bg(tokens.colors.primary).border_radius(tokens.radii.full),
+                Container(child: None).size(18.0, 8.0).bg(tokens.colors.primary).border_radius(tokens.radii.full),
+                Container(child: None).size(18.0, 8.0).bg(tokens.colors.primary).border_radius(tokens.radii.full),
             ]),
-            Container(Text(" ")).size(4.0, 20.0).bg(tokens.colors.primary),
-            Container(Text(" ")).size(34.0, 10.0).bg(tokens.colors.warning).border_radius(tokens.radii.small),
+            Container(child: None).size(4.0, 20.0).bg(tokens.colors.primary),
+            Container(child: None).size(34.0, 10.0).bg(tokens.colors.warning).border_radius(tokens.radii.small),
         ])
     )
     .size(68.0, 68.0)
@@ -896,7 +942,6 @@ fission_component! {
         props {
             photo: ActionEnvelope,
             flashlight: ActionEnvelope,
-            save: ActionEnvelope,
             hold: ActionEnvelope,
             prepare: ActionEnvelope,
             note_changed: ActionEnvelope,
@@ -911,7 +956,7 @@ fission_component! {
         row_gap: gap,
         children: [
             GridItem::new(ArrivalEvidenceCard::new(content.photo.clone(), content.flashlight.clone())).cell(1, 1),
-            GridItem::new(ReceivingWorkflowColumn::new(content.save.clone(), content.hold.clone(), content.prepare.clone(), content.note_changed.clone())).cell(1, 2),
+            GridItem::new(ReceivingWorkflowColumn::new(content.hold.clone(), content.prepare.clone(), content.note_changed.clone())).cell(1, 2),
         ],
     )
 }
@@ -921,7 +966,6 @@ fission_component! {
         props {
             photo: ActionEnvelope,
             flashlight: ActionEnvelope,
-            save: ActionEnvelope,
             hold: ActionEnvelope,
             prepare: ActionEnvelope,
             note_changed: ActionEnvelope,
@@ -932,7 +976,7 @@ fission_component! {
     } =>
     Column(gap: gap, children: [
         ArrivalEvidenceCard::new(content.photo.clone(), content.flashlight.clone()),
-        ReceivingWorkflowColumn::new(content.save.clone(), content.hold.clone(), content.prepare.clone(), content.note_changed.clone()),
+        ReceivingWorkflowColumn::new(content.hold.clone(), content.prepare.clone(), content.note_changed.clone()),
     ])
 }
 
@@ -945,16 +989,16 @@ fission_component! {
     Container(
         Column(gap: tokens.spacing.m, children: [
             Column(gap: tokens.spacing.xs, children: [
-                Text("Arrival condition").weight(tokens.typography.font_weight_bold),
-                Text("Reported damage on Riverbend Nursery’s pallet before it is moved.")
+                Text(cx.tr("receiving.condition.title")).weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("receiving.condition.description"))
                     .color(tokens.colors.text_secondary),
             ]),
             Container(
                 Column(gap: tokens.spacing.m, children: [
                     Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                        Text("RB-5684 · OL-2408").weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("receiving.condition.lot_reference")).weight(tokens.typography.font_weight_semibold),
                         Spacer(flex_grow: 1.0),
-                        Text("24 trays").color(tokens.colors.text_secondary),
+                        Text(cx.tr("receiving.condition.tray_count")).color(tokens.colors.text_secondary),
                     ]),
                     if narrow {
                         Column(gap: tokens.spacing.s, children: [
@@ -973,7 +1017,7 @@ fission_component! {
             .bg(tokens.colors.background)
             .border(tokens.colors.border, 1.0)
             .border_radius(tokens.radii.medium),
-            Text("Reference drawing only. The supplier review needs an actual camera photo.")
+            Text(cx.tr("receiving.condition.reference_only"))
                 .color(tokens.colors.text_secondary),
         ])
     )
@@ -990,20 +1034,20 @@ fission_component! {
     } =>
     Container(
         Column(gap: tokens.spacing.xs, children: [
-            Text("RIVERBEND NURSERY").weight(tokens.typography.font_weight_bold),
+            Text(cx.tr("receiving.diagram.supplier")).weight(tokens.typography.font_weight_bold),
             Container(
                 Column(gap: tokens.spacing.xs, children: [
-                    Container(Text(" " )).size(132.0, 8.0).bg(tokens.colors.warning).border_radius(tokens.radii.small),
-                    Container(Text(" " )).size(132.0, 8.0).bg(tokens.colors.warning).border_radius(tokens.radii.small),
-                    Container(Text(" " )).size(132.0, 8.0).bg(tokens.colors.warning).border_radius(tokens.radii.small),
-                    Container(Text(" " )).size(132.0, 8.0).bg(tokens.colors.warning).border_radius(tokens.radii.small),
+                    Container(child: None).size(132.0, 8.0).bg(tokens.colors.warning).border_radius(tokens.radii.small),
+                    Container(child: None).size(132.0, 8.0).bg(tokens.colors.warning).border_radius(tokens.radii.small),
+                    Container(child: None).size(132.0, 8.0).bg(tokens.colors.warning).border_radius(tokens.radii.small),
+                    Container(child: None).size(132.0, 8.0).bg(tokens.colors.warning).border_radius(tokens.radii.small),
                 ])
             )
             .padding_all(tokens.spacing.s)
             .bg(tokens.colors.surface_sunken)
             .border(tokens.colors.border_strong, 1.0)
             .border_radius(tokens.radii.medium),
-            Text("KEEP UPRIGHT · OLIVE SAPLINGS").color(tokens.colors.text_secondary),
+            Text(cx.tr("receiving.diagram.handling")) .color(tokens.colors.text_secondary),
         ])
     )
     .padding_all(tokens.spacing.s)
@@ -1019,9 +1063,9 @@ fission_component! {
     } =>
     Container(
         Column(gap: tokens.spacing.xs, children: [
-            Text("2 TRAYS").weight(tokens.typography.font_weight_bold).color(tokens.colors.error),
-            Text("Crushed at the pallet edge").weight(tokens.typography.font_weight_semibold),
-            Text("Keep shaded and inspect root balls before acceptance.")
+            Text(cx.tr("receiving.damage.tray_count")).weight(tokens.typography.font_weight_bold).color(tokens.colors.error),
+            Text(cx.tr("receiving.damage.title")).weight(tokens.typography.font_weight_semibold),
+            Text(cx.tr("receiving.damage.instruction"))
                 .color(tokens.colors.text_secondary),
         ])
     )
@@ -1041,17 +1085,21 @@ fission_component! {
     view(card, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let image_width = (cx.view.viewport_size().width - 72.0).clamp(200.0, 580.0);
+        let photo_size = state.photo_details.as_ref()
+            .and_then(|details| details.kibibytes)
+            .map(|size| format!("{size} KiB"))
+            .unwrap_or_else(|| cx.tr("receiving.evidence.size_unknown"));
     } =>
     Container(
         Column(gap: tokens.spacing.m, children: [
             Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
                 Column(gap: tokens.spacing.xs, children: [
-                    Text("Arrival evidence").weight(tokens.typography.font_weight_bold),
-                    Text("Photograph the crushed corner before moving the affected trays.")
+                    Text(cx.tr("receiving.evidence.title")).weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("receiving.evidence.description"))
                         .color(tokens.colors.text_secondary),
                 ]),
                 Spacer(flex_grow: 1.0),
-                Text(if state.photo_bytes.is_some() { "1 photo attached" } else { "No photo" })
+                Text(if state.photo_bytes.is_some() { cx.tr("receiving.evidence.count_one") } else { cx.tr("receiving.evidence.count_zero") })
                     .color(tokens.colors.text_secondary),
             ]),
             if let Some(bytes) = &state.photo_bytes {
@@ -1059,18 +1107,23 @@ fission_component! {
                     Image::memory(bytes.clone())
                         .size(image_width, 280.0)
                         .fit(ir_op::ImageFit::Cover)
-                        .semantic_label("Actual camera photo of the damaged Riverbend Nursery crate"),
+                        .semantic_label(cx.tr("receiving.evidence.image_semantics")),
                     if let Some(details) = &state.photo_details {
-                        Text(details.clone()).color(tokens.colors.text_secondary)
+                        Text(cx.tr("receiving.evidence.metadata")
+                            .replace("{width}", &details.width.to_string())
+                            .replace("{height}", &details.height.to_string())
+                            .replace("{content_type}", &details.content_type)
+                            .replace("{size}", &photo_size))
+                            .color(tokens.colors.text_secondary)
                     },
                 ])
             } else {
                 Container(
                     Column(gap: tokens.spacing.s, children: [
                         CrateConditionCard,
-                        Text(if state.photo_pending { "Waiting for the camera…" } else { "Attach a photo from the active camera" })
+                        Text(if state.photo_pending { cx.tr("receiving.evidence.waiting") } else { cx.tr("receiving.evidence.empty") })
                             .weight(tokens.typography.font_weight_semibold),
-                        Text("No sample image is substituted. If camera access is unavailable, keep the written note and continue the inspection.")
+                        Text(cx.tr("receiving.evidence.empty_help"))
                             .color(tokens.colors.text_secondary),
                     ])
                 )
@@ -1081,7 +1134,7 @@ fission_component! {
             },
             Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
                 Button(
-                    child: Text(if state.photo_pending { "Opening camera…" } else if state.photo_bytes.is_some() { "Take another photo" } else { "Capture arrival photo" }),
+                    child: Text(if state.photo_pending { cx.tr("receiving.action.opening_camera") } else if state.photo_bytes.is_some() { cx.tr("receiving.action.take_another_photo") } else { cx.tr("receiving.action.capture_photo") }),
                     key: "capture-arrival-photo",
                     variant: ButtonVariant::Primary,
                     disabled: state.photo_pending || state.flashlight_pending,
@@ -1090,7 +1143,7 @@ fission_component! {
                 .semantics_identifier("receiving.capture-photo".to_string()),
                 if state.flashlight_available {
                     Button(
-                        child: Text(if state.flashlight_pending { "Changing flashlight…" } else if state.flashlight_on { "Turn flashlight off" } else { "Turn flashlight on" }),
+                        child: Text(if state.flashlight_pending { cx.tr("receiving.action.changing_flashlight") } else if state.flashlight_on { cx.tr("receiving.action.flashlight_off") } else { cx.tr("receiving.action.flashlight_on") }),
                         key: "toggle-flashlight",
                         variant: ButtonVariant::Outline,
                         disabled: state.photo_pending || state.flashlight_pending,
@@ -1100,13 +1153,13 @@ fission_component! {
                 },
             ]),
             if state.camera_availability_checked && state.camera_availability_failed {
-                Text("Camera features could not be checked. The flashlight control stays hidden; photo capture may still be available.")
+                Text(cx.tr("receiving.camera.availability_failed"))
                     .color(tokens.colors.text_secondary)
             } else if state.camera_availability_checked && !state.flashlight_available {
-                Text("This camera does not provide a flashlight. Photo capture remains available.")
+                Text(cx.tr("receiving.camera.flashlight_unavailable"))
                     .color(tokens.colors.text_secondary)
             } else if !state.camera_availability_checked {
-                Text("Checking whether this camera has a flashlight…")
+                Text(cx.tr("receiving.camera.checking"))
                     .color(tokens.colors.text_secondary)
             },
         ])
@@ -1120,7 +1173,6 @@ fission_component! {
 fission_component! {
     pub ReceivingWorkflowColumn<ReceivingInspectionState> {
         props {
-            save: ActionEnvelope,
             hold: ActionEnvelope,
             prepare: ActionEnvelope,
             note_changed: ActionEnvelope,
@@ -1130,7 +1182,7 @@ fission_component! {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Column(gap: tokens.spacing.m, children: [
-        ReceivingDecisionCard::new(workflow.save.clone(), workflow.hold.clone(), workflow.prepare.clone(), workflow.note_changed.clone()),
+        ReceivingDecisionCard::new(workflow.hold.clone(), workflow.prepare.clone(), workflow.note_changed.clone()),
         ReceivingProgressCard,
     ])
 }
@@ -1138,7 +1190,6 @@ fission_component! {
 fission_component! {
     pub ReceivingDecisionCard<ReceivingInspectionState> {
         props {
-            save: ActionEnvelope,
             hold: ActionEnvelope,
             prepare: ActionEnvelope,
             note_changed: ActionEnvelope,
@@ -1151,30 +1202,22 @@ fission_component! {
     Container(
         Column(gap: tokens.spacing.m, children: [
             Column(gap: tokens.spacing.xs, children: [
-                Text("Receiving note").weight(tokens.typography.font_weight_bold),
-                Text("Keep the detail a supplier needs to review a damaged delivery.")
+                Text(cx.tr("receiving.note.title")).weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("receiving.note.description"))
                     .color(tokens.colors.text_secondary),
             ]),
             TextInput(
-                label: Some("Condition observed".into()),
-                placeholder: Some("Describe what is damaged and what the receiving team should check.".into()),
+                label: Some(cx.tr("receiving.note.label").into()),
+                placeholder: Some(cx.tr("receiving.note.placeholder").into()),
                 bind: state.receiving_note,
                 multiline: true,
-                helper_text: Some("Saved to this app session. No supplier request is sent from the preview.".into()),
+                helper_text: Some(cx.tr("receiving.note.help").into()),
                 on_input: decision.note_changed.clone(),
                 semantics_identifier: "receiving.note".to_string(),
             ),
             Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
                 Button(
-                    child: Text(if state.draft_saved { "Draft saved" } else { "Save receiving draft" }),
-                    key: "save-receiving-draft",
-                    variant: ButtonVariant::Outline,
-                    disabled: state.draft_saved,
-                    on_press: decision.save.clone(),
-                )
-                .semantics_identifier("receiving.save-draft".to_string()),
-                Button(
-                    child: Text(if state.affected_trays_on_hold { "Release affected trays" } else { "Place affected trays on hold" }),
+                    child: Text(if state.affected_trays_on_hold { cx.tr("receiving.action.release_hold") } else { cx.tr("receiving.action.place_on_hold") }),
                     key: "hold-affected-trays",
                     variant: ButtonVariant::Outline,
                     on_press: decision.hold.clone(),
@@ -1182,14 +1225,14 @@ fission_component! {
                 .semantics_identifier("receiving.toggle-hold".to_string()),
             ]),
             Button(
-                child: Text(if state.review_ready { "Ready for supplier review" } else { "Prepare supplier review" }),
+                child: Text(if state.review_ready { cx.tr("receiving.action.review_ready") } else { cx.tr("receiving.action.prepare_review") }),
                 key: "prepare-supplier-review",
                 variant: ButtonVariant::Primary,
                 disabled: !can_prepare || state.review_ready,
                 on_press: decision.prepare.clone(),
             )
             .semantics_identifier("receiving.prepare-review".to_string()),
-            Text("This action checks that the photo and note are present, then marks the record ready in memory. A real app would send it to its receiving service.")
+            Text(cx.tr("receiving.review.local_only"))
                 .color(tokens.colors.text_secondary),
         ])
     )
@@ -1208,16 +1251,16 @@ fission_component! {
     Container(
         Column(gap: tokens.spacing.m, children: [
             Column(gap: tokens.spacing.xs, children: [
-                Text("Receipt summary").weight(tokens.typography.font_weight_bold),
-                Text(if let Some(receipt) = receipt { format!("Purchase order {}", receipt.purchase_order) } else { "No purchase order selected".into() })
+                Text(cx.tr("receiving.summary.title")).weight(tokens.typography.font_weight_bold),
+                Text(if let Some(receipt) = receipt { cx.tr("receiving.summary.purchase_order").replace("{reference}", &receipt.purchase_order) } else { cx.tr("receiving.summary.none") })
                     .color(tokens.colors.text_secondary),
             ]),
             if let Some(receipt) = receipt {
                 Column(gap: tokens.spacing.xs, children: [
-                    ReceivingSummaryLine::new("Expected".into(), format!("{} trays", receipt.expected_trays)),
-                    ReceivingSummaryLine::new("Reported affected".into(), format!("{} trays", receipt.damaged_trays)),
-                    ReceivingSummaryLine::new("Evidence".into(), if state.photo_bytes.is_some() { "Photo attached".into() } else { "Needed".into() }),
-                    ReceivingSummaryLine::new("Receipt status".into(), if state.review_ready { "Ready for review".into() } else if state.affected_trays_on_hold { "Affected trays on hold".into() } else { "Inspection in progress".into() }),
+                    ReceivingSummaryLine::new(cx.tr("receiving.summary.expected"), cx.tr("receiving.summary.trays").replace("{count}", &receipt.expected_trays.to_string())),
+                    ReceivingSummaryLine::new(cx.tr("receiving.summary.reported_affected"), cx.tr("receiving.summary.trays").replace("{count}", &receipt.damaged_trays.to_string())),
+                    ReceivingSummaryLine::new(cx.tr("receiving.summary.evidence"), if state.photo_bytes.is_some() { cx.tr("receiving.summary.photo_attached") } else { cx.tr("receiving.summary.needed") }),
+                    ReceivingSummaryLine::new(cx.tr("receiving.summary.receipt_status"), if state.review_ready { cx.tr("receiving.summary.review_ready") } else if state.affected_trays_on_hold { cx.tr("receiving.summary.on_hold") } else { cx.tr("receiving.summary.in_progress") }),
                 ])
             },
         ])
@@ -1247,8 +1290,8 @@ fission_component! {
     } =>
     Container(
         Column(gap: tokens.spacing.s, children: [
-            Text("No delivery selected").weight(tokens.typography.font_weight_bold),
-            Text("Open a purchase order from receiving to inspect an arriving shipment.")
+            Text(cx.tr("receiving.empty.title")).weight(tokens.typography.font_weight_bold),
+            Text(cx.tr("receiving.empty.description"))
                 .color(tokens.colors.text_secondary),
         ])
     )
@@ -1271,9 +1314,10 @@ use fission::prelude::*;
 
 #[cfg(target_os = "ios")]
 fn mobile_app() -> MobileApp<ReceivingInspectionState, ReceivingInspectionApp> {
-    MobileApp::<ReceivingInspectionState, _>::new(ReceivingInspectionApp::new())
+        MobileApp::<ReceivingInspectionState, _>::new(ReceivingInspectionApp::new())
         .with_title("Cedar Bay Receiving")
-        .with_state_init(|state| *state = ReceivingInspectionState::tutorial_receipt())
+        .with_env(app::translations::create_env())
+        .with_sync_env(|state, env| env.locale = state.locale.clone())
         .with_startup_action(app::CheckCameraAvailability)
         .with_async(|asyncs| {
             asyncs.register_job(READ_DELIVERY_PHOTO_JOB, |request, ctx| async move {
@@ -1291,6 +1335,8 @@ pub fn run_mobile() -> anyhow::Result<()> {
 fn web_app() -> WebApp<ReceivingInspectionState, ReceivingInspectionApp> {
     WebApp::<ReceivingInspectionState, _>::new(ReceivingInspectionApp::new())
         .with_state_init(|state| *state = ReceivingInspectionState::tutorial_receipt())
+        .with_env(app::translations::create_env())
+        .with_sync_env(|state, env| env.locale = state.locale.clone())
         .with_startup_action(app::CheckCameraAvailability)
         .with_async(|asyncs| {
             asyncs.register_job(READ_DELIVERY_PHOTO_JOB, |request, ctx| async move {
@@ -1323,6 +1369,264 @@ fn main() -> anyhow::Result<()> {
 fn main() {}
 ```
 </TabItem>
+<TabItem label="src/app/translations.rs">
+<!-- fission:file path="src/app/translations.rs" -->
+```rust
+use std::collections::HashMap;
+
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::Env;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../../i18n/es-ES.yaml")),
+];
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in SOURCES {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid receiving translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+receiving.brand: "Cedar Bay Nurseries"
+receiving.section: "Receiving"
+receiving.locale.en: "English"
+receiving.locale.es: "Español"
+receiving.semantics.error: "Receiving error"
+receiving.semantics.notice: "Receiving update"
+receiving.header.reference: "Inbound shipment · {reference}"
+receiving.header.title: "Inbound shipment"
+receiving.header.headline: "Inspect today’s delivery"
+receiving.header.description: "Record the arrival before these plants move into the nursery."
+receiving.header.arrived: "Arrived · {time}"
+receiving.receipt.purchase_order: "Purchase order {reference}"
+receiving.receipt.supplier_bay: "{supplier} · Delivery bay 2"
+receiving.receipt.ready: "Ready for supplier review"
+receiving.receipt.needs_inspection: "Needs inspection"
+receiving.receipt.cultivar_lot: "{cultivar} · lot {lot}"
+receiving.receipt.trays_affected: "{count} trays affected"
+receiving.metric.supplier: "Supplier"
+receiving.metric.received_by: "Received by"
+receiving.metric.vehicle: "Vehicle"
+receiving.condition.title: "Arrival condition"
+receiving.condition.description: "Reported damage on Riverbend Nursery’s pallet before it is moved."
+receiving.condition.lot_reference: "RB-5684 · OL-2408"
+receiving.condition.tray_count: "24 trays"
+receiving.condition.reference_only: "Reference drawing only. The supplier review needs an actual camera photo."
+receiving.diagram.supplier: "RIVERBEND NURSERY"
+receiving.diagram.handling: "KEEP UPRIGHT · OLIVE SAPLINGS"
+receiving.damage.tray_count: "2 TRAYS"
+receiving.damage.title: "Crushed at the pallet edge"
+receiving.damage.instruction: "Keep shaded and inspect root balls before acceptance."
+receiving.evidence.title: "Arrival evidence"
+receiving.evidence.description: "Photograph the crushed corner before moving the affected trays."
+receiving.evidence.count_one: "1 photo attached"
+receiving.evidence.count_zero: "No photo"
+receiving.evidence.image_semantics: "Actual camera photo of the damaged Riverbend Nursery crate"
+receiving.evidence.metadata: "{width} × {height} · {content_type} · {size}"
+receiving.evidence.size_unknown: "size not reported"
+receiving.evidence.waiting: "Waiting for the camera…"
+receiving.evidence.empty: "Attach a photo from the active camera"
+receiving.evidence.empty_help: "No sample image is substituted. If camera access is unavailable, keep the written note and continue the inspection."
+receiving.action.opening_camera: "Opening camera…"
+receiving.action.take_another_photo: "Take another photo"
+receiving.action.capture_photo: "Capture arrival photo"
+receiving.action.changing_flashlight: "Changing flashlight…"
+receiving.action.flashlight_off: "Turn flashlight off"
+receiving.action.flashlight_on: "Turn flashlight on"
+receiving.camera.availability_failed: "Camera features could not be checked. The flashlight control stays hidden; photo capture may still be available."
+receiving.camera.flashlight_unavailable: "This camera does not provide a flashlight. Photo capture remains available."
+receiving.camera.checking: "Checking whether this camera has a flashlight…"
+receiving.note.label: "Condition observed"
+receiving.note.placeholder: "Describe what is damaged and what the receiving team should check."
+receiving.note.help: "Kept in app memory for this session only. No supplier request is sent."
+receiving.note.title: "Receiving note"
+receiving.note.description: "Keep the detail a supplier needs to review a damaged delivery."
+receiving.action.release_hold: "Release affected trays"
+receiving.action.place_on_hold: "Place affected trays on hold"
+receiving.action.review_ready: "Ready for supplier review"
+receiving.action.prepare_review: "Prepare supplier review"
+receiving.review.local_only: "This checks for a photo and note, then marks the record ready in memory. It does not send a claim."
+receiving.summary.title: "Receipt summary"
+receiving.summary.purchase_order: "Purchase order {reference}"
+receiving.summary.none: "No purchase order selected"
+receiving.summary.expected: "Expected"
+receiving.summary.trays: "{count} trays"
+receiving.summary.reported_affected: "Reported affected"
+receiving.summary.evidence: "Evidence"
+receiving.summary.photo_attached: "Photo attached"
+receiving.summary.needed: "Needed"
+receiving.summary.receipt_status: "Receipt status"
+receiving.summary.review_ready: "Ready for review"
+receiving.summary.on_hold: "Affected trays on hold"
+receiving.summary.in_progress: "Inspection in progress"
+receiving.empty.title: "No delivery selected"
+receiving.empty.description: "Open a purchase order from receiving to inspect an arriving shipment."
+receiving.notice.review_prepared: "The receiving record is ready for supplier review in this session. No claim was sent."
+receiving.notice.trays_held: "Two trays are marked on hold in this session. Nothing was sent to the supplier."
+receiving.notice.trays_released: "The affected trays are no longer marked on hold in this session."
+receiving.notice.checking_camera: "Checking camera access…"
+receiving.notice.opening_camera: "Opening the camera…"
+receiving.notice.photo_captured: "Photo captured. Preparing the receiving evidence preview…"
+receiving.notice.photo_attached: "Photo attached to this receiving record. It has not been uploaded."
+receiving.notice.checking_flashlight_on: "Checking camera access before using the flashlight…"
+receiving.notice.checking_flashlight_off: "Checking camera access before changing the flashlight…"
+receiving.notice.changing_flashlight_on: "Turning the flashlight on…"
+receiving.notice.changing_flashlight_off: "Turning the flashlight off…"
+receiving.notice.flashlight_on: "Flashlight is on."
+receiving.notice.flashlight_off: "Flashlight is off."
+receiving.error.receipt_missing: "Open a receiving record before continuing."
+receiving.error.note_missing: "Add what you observed before preparing a supplier review."
+receiving.error.photo_missing: "Attach a current photo of the crushed crate corner before preparing a supplier review."
+receiving.error.permission_result_missing: "The camera did not return a permission result. The receiving record is still available without a photo."
+receiving.error.permission_denied: "Camera access was not granted. Keep the receiving note and allow camera access in Settings when a photo is required."
+receiving.error.permission_unknown: "Camera permission is still unknown. Try the request again; the receiving note remains available."
+receiving.error.permission_request_failed: "The camera permission request failed. The receiving record remains available."
+receiving.error.camera_unavailable: "No usable camera is available on this host. The receiving note remains available without a photo."
+receiving.error.camera_in_use: "Another app is using the camera. Close it before trying again, or continue with the receiving note."
+receiving.error.capture_result_missing: "The camera returned no image. The receiving note is unchanged."
+receiving.error.capture_denied: "Camera access was denied. No image was attached; allow access or continue with the written receiving note."
+receiving.error.capture_cancelled: "Photo capture was cancelled. No image was attached, and the receiving note is unchanged."
+receiving.error.capture_failed: "The photo could not be captured. No image was attached; try again."
+receiving.error.photo_stream_read_failed: "The camera returned a photo, but its image stream could not be read. The receiving note is unchanged."
+receiving.error.flashlight_permission_result_missing: "The camera did not return a permission result. The flashlight state is unchanged."
+receiving.error.flashlight_permission_denied: "Camera access is required before this host can use a flashlight. The receiving record is unchanged."
+receiving.error.flashlight_permission_failed_on: "Camera access could not be confirmed, so the flashlight was not turned on. Its previous state is unchanged."
+receiving.error.flashlight_permission_failed_off: "Camera access could not be confirmed, so the flashlight state was not changed."
+receiving.error.flashlight_unavailable: "This camera does not provide a flashlight. Continue the receiving inspection without it."
+receiving.error.flashlight_in_use: "Another app is using the camera, so the flashlight could not be changed. Close that app and try again."
+receiving.error.flashlight_change_failed: "The host did not confirm the flashlight change. Its previous state is unchanged."
+receiving.permission.camera_reason: "Photograph the damaged Riverbend Nursery crates for the selected receiving record."
+receiving.permission.flashlight_reason: "Photograph the damaged nursery crates for the selected receiving record."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+receiving.brand: "Viveros Cedar Bay"
+receiving.section: "Recepción"
+receiving.locale.en: "Inglés"
+receiving.locale.es: "Español"
+receiving.semantics.error: "Error de recepción"
+receiving.semantics.notice: "Actualización de recepción"
+receiving.header.reference: "Envío entrante · {reference}"
+receiving.header.title: "Envío entrante"
+receiving.header.headline: "Inspecciona la entrega de hoy"
+receiving.header.description: "Registra la llegada antes de trasladar estas plantas al vivero."
+receiving.header.arrived: "Llegó · {time}"
+receiving.receipt.purchase_order: "Pedido {reference}"
+receiving.receipt.supplier_bay: "{supplier} · Muelle 2"
+receiving.receipt.ready: "Lista para revisión del proveedor"
+receiving.receipt.needs_inspection: "Necesita inspección"
+receiving.receipt.cultivar_lot: "{cultivar} · lote {lot}"
+receiving.receipt.trays_affected: "{count} bandejas afectadas"
+receiving.metric.supplier: "Proveedor"
+receiving.metric.received_by: "Recibido por"
+receiving.metric.vehicle: "Vehículo"
+receiving.condition.title: "Estado a la llegada"
+receiving.condition.description: "Daños notificados en el palé de Riverbend Nursery antes de moverlo."
+receiving.condition.lot_reference: "RB-5684 · OL-2408"
+receiving.condition.tray_count: "24 bandejas"
+receiving.condition.reference_only: "Dibujo de referencia. La revisión necesita una foto real de la cámara."
+receiving.diagram.supplier: "RIVERBEND NURSERY"
+receiving.diagram.handling: "MANTENER EN VERTICAL · OLIVOS"
+receiving.damage.tray_count: "2 BANDEJAS"
+receiving.damage.title: "Aplastadas en el borde del palé"
+receiving.damage.instruction: "Mantener a la sombra e inspeccionar las raíces antes de aceptar."
+receiving.evidence.title: "Pruebas de llegada"
+receiving.evidence.description: "Fotografía la esquina aplastada antes de mover las bandejas afectadas."
+receiving.evidence.count_one: "1 foto adjunta"
+receiving.evidence.count_zero: "Sin fotos"
+receiving.evidence.image_semantics: "Foto real de la cámara de la caja dañada de Riverbend Nursery"
+receiving.evidence.metadata: "{width} × {height} · {content_type} · {size}"
+receiving.evidence.size_unknown: "tamaño no indicado"
+receiving.evidence.waiting: "Esperando a la cámara…"
+receiving.evidence.empty: "Adjunta una foto de la cámara activa"
+receiving.evidence.empty_help: "No se sustituye por una imagen de muestra. Si la cámara no está disponible, conserva la nota y continúa la inspección."
+receiving.action.opening_camera: "Abriendo la cámara…"
+receiving.action.take_another_photo: "Tomar otra foto"
+receiving.action.capture_photo: "Capturar foto de llegada"
+receiving.action.changing_flashlight: "Cambiando la linterna…"
+receiving.action.flashlight_off: "Apagar la linterna"
+receiving.action.flashlight_on: "Encender la linterna"
+receiving.camera.availability_failed: "No se pudieron comprobar las funciones de la cámara. El control de la linterna permanece oculto; quizá aún puedas capturar una foto."
+receiving.camera.flashlight_unavailable: "Esta cámara no tiene linterna. La captura de fotos sigue disponible."
+receiving.camera.checking: "Comprobando si esta cámara tiene linterna…"
+receiving.note.label: "Estado observado"
+receiving.note.placeholder: "Describe el daño y qué debe comprobar el equipo de recepción."
+receiving.note.help: "Se conserva solo en la memoria de la aplicación durante esta sesión. No se envía ninguna solicitud al proveedor."
+receiving.note.title: "Nota de recepción"
+receiving.note.description: "Incluye los detalles que el proveedor necesita para revisar la entrega dañada."
+receiving.action.release_hold: "Liberar las bandejas afectadas"
+receiving.action.place_on_hold: "Retener las bandejas afectadas"
+receiving.action.review_ready: "Lista para revisión del proveedor"
+receiving.action.prepare_review: "Preparar revisión del proveedor"
+receiving.review.local_only: "Comprueba que haya una foto y una nota, y marca el registro como listo en memoria. No envía ninguna reclamación."
+receiving.summary.title: "Resumen de recepción"
+receiving.summary.purchase_order: "Pedido {reference}"
+receiving.summary.none: "No hay ningún pedido seleccionado"
+receiving.summary.expected: "Esperadas"
+receiving.summary.trays: "{count} bandejas"
+receiving.summary.reported_affected: "Afectadas notificadas"
+receiving.summary.evidence: "Pruebas"
+receiving.summary.photo_attached: "Foto adjunta"
+receiving.summary.needed: "Necesarias"
+receiving.summary.receipt_status: "Estado de recepción"
+receiving.summary.review_ready: "Lista para revisión"
+receiving.summary.on_hold: "Bandejas afectadas retenidas"
+receiving.summary.in_progress: "Inspección en curso"
+receiving.empty.title: "No hay ninguna entrega seleccionada"
+receiving.empty.description: "Abre un pedido de recepción para inspeccionar un envío entrante."
+receiving.notice.review_prepared: "El registro está listo para revisión del proveedor durante esta sesión. No se envió ninguna reclamación."
+receiving.notice.trays_held: "Dos bandejas quedan retenidas en esta sesión. No se envió nada al proveedor."
+receiving.notice.trays_released: "Las bandejas afectadas ya no están retenidas en esta sesión."
+receiving.notice.checking_camera: "Comprobando el acceso a la cámara…"
+receiving.notice.opening_camera: "Abriendo la cámara…"
+receiving.notice.photo_captured: "Foto capturada. Preparando la vista previa de las pruebas de recepción…"
+receiving.notice.photo_attached: "Foto adjunta a este registro. No se ha cargado."
+receiving.notice.checking_flashlight_on: "Comprobando el acceso a la cámara antes de usar la linterna…"
+receiving.notice.checking_flashlight_off: "Comprobando el acceso a la cámara antes de cambiar la linterna…"
+receiving.notice.changing_flashlight_on: "Encendiendo la linterna…"
+receiving.notice.changing_flashlight_off: "Apagando la linterna…"
+receiving.notice.flashlight_on: "La linterna está encendida."
+receiving.notice.flashlight_off: "La linterna está apagada."
+receiving.error.receipt_missing: "Abre un registro de recepción antes de continuar."
+receiving.error.note_missing: "Añade lo que observaste antes de preparar la revisión del proveedor."
+receiving.error.photo_missing: "Adjunta una foto actual de la esquina aplastada antes de preparar la revisión del proveedor."
+receiving.error.permission_result_missing: "La cámara no devolvió el resultado del permiso. El registro sigue disponible sin una foto."
+receiving.error.permission_denied: "No se concedió acceso a la cámara. Conserva la nota y permite el acceso en Ajustes cuando necesites una foto."
+receiving.error.permission_unknown: "El permiso de cámara es desconocido. Vuelve a intentarlo; la nota sigue disponible."
+receiving.error.permission_request_failed: "No se pudo solicitar el permiso de cámara. El registro sigue disponible."
+receiving.error.camera_unavailable: "Este dispositivo no tiene una cámara disponible. La nota sigue disponible sin foto."
+receiving.error.camera_in_use: "Otra aplicación está usando la cámara. Ciérrala antes de volver a intentarlo, o continúa con la nota."
+receiving.error.capture_result_missing: "La cámara no devolvió una imagen. La nota no ha cambiado."
+receiving.error.capture_denied: "Se denegó el acceso a la cámara. No se adjuntó una imagen; permite el acceso o continúa con la nota."
+receiving.error.capture_cancelled: "Se canceló la captura. No se adjuntó ninguna imagen y la nota no ha cambiado."
+receiving.error.capture_failed: "No se pudo capturar la foto. No se adjuntó ninguna imagen; vuelve a intentarlo."
+receiving.error.photo_stream_read_failed: "La cámara devolvió una foto, pero no se pudo leer su flujo de imagen. La nota no ha cambiado."
+receiving.error.flashlight_permission_result_missing: "La cámara no devolvió el resultado del permiso. La linterna no ha cambiado."
+receiving.error.flashlight_permission_denied: "Este dispositivo necesita acceso a la cámara para usar la linterna. El registro no ha cambiado."
+receiving.error.flashlight_permission_failed_on: "No se pudo confirmar el acceso a la cámara y no se encendió la linterna. Su estado anterior no ha cambiado."
+receiving.error.flashlight_permission_failed_off: "No se pudo confirmar el acceso a la cámara y no se cambió la linterna."
+receiving.error.flashlight_unavailable: "Esta cámara no tiene linterna. Continúa la inspección sin ella."
+receiving.error.flashlight_in_use: "Otra aplicación usa la cámara y no se pudo cambiar la linterna. Ciérrala y vuelve a intentarlo."
+receiving.error.flashlight_change_failed: "El dispositivo no confirmó el cambio de linterna. Su estado anterior no ha cambiado."
+receiving.permission.camera_reason: "Fotografiar las cajas dañadas de Riverbend Nursery para el registro de recepción seleccionado."
+receiving.permission.flashlight_reason: "Fotografiar las cajas dañadas del vivero para el registro de recepción seleccionado."
+```
+</TabItem>
 </Tabs>
 
 A reducer starts the camera permission request only after **Capture arrival photo** is pressed. If permission is denied, the browser has no camera, the capture is cancelled, or the image stream cannot be read, the corresponding reducer clears the pending state and explains what happened. None of those paths removes Morgan’s note or reports that a supplier received a claim.
@@ -1339,7 +1643,7 @@ Open **Arrival evidence** and choose **Capture arrival photo**. On a browser wit
 
 The browser preview exercises the same Rust reducers through Fission’s web camera provider. It can request your browser’s real camera, but it cannot prove that the generated iOS privacy text is correct or that an iPhone’s flashlight works. Run the target app on an iOS Simulator to check layout and permission handling, then test the camera and torch on a physical iPhone.
 
-Start by opening **RCV-275** and capturing the damaged corner. Confirm that the picture shown is the image returned by the camera. Edit the note and save it; the app should say that the draft is saved in this session without claiming that a supplier service received anything. Mark the two affected trays on hold, then prepare a supplier review. The review action should remain unavailable until both a photo and a non-empty note are present.
+On the browser preview, open the preview-only **RCV-275** receipt and capture the damaged corner. Confirm that the picture shown is the image returned by the camera. Edit the note and mark the two affected trays on hold, then prepare a supplier review. The review action should remain unavailable until both a photo and a non-empty note are present; its ready state is in-memory only and does not mean the record was saved or sent. On iOS, first pass a real receipt from the app’s receiving queue into this screen.
 
 Next deny camera access in the system prompt or in iOS Settings and try again. No photo should be counted, the previous note should remain, and the app should explain how the clerk can continue. If the iPhone reports no flashlight, the flashlight control should stay out of the interface while photo capture still works.
 

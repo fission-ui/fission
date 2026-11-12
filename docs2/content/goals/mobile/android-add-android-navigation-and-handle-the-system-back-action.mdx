@@ -31,6 +31,7 @@ cargo install cargo-fission
 fission init riverside-work-orders
 cd riverside-work-orders
 fission add-target android --project-dir .
+cargo add serde_yaml
 ```
 </TabItem>
 <TabItem label="Files for this task">
@@ -61,7 +62,26 @@ The coordinator needs to recognise a job before opening it, so each row shows it
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(yaml).expect("valid Riverside work-order translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorkOrderStatus {
@@ -71,11 +91,26 @@ pub enum WorkOrderStatus {
 }
 
 impl WorkOrderStatus {
-    pub fn label(self) -> &'static str {
+    pub fn translation_key(self) -> &'static str {
         match self {
-            Self::New => "New",
-            Self::Assigned => "Assigned",
-            Self::Resolved => "Resolved",
+            Self::New => "work_order.status.new",
+            Self::Assigned => "work_order.status.assigned",
+            Self::Resolved => "work_order.status.resolved",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkOrderPriority {
+    Urgent,
+    Standard,
+}
+
+impl WorkOrderPriority {
+    pub fn translation_key(self) -> &'static str {
+        match self {
+            Self::Urgent => "work_order.priority.urgent",
+            Self::Standard => "work_order.priority.standard",
         }
     }
 }
@@ -88,66 +123,30 @@ pub struct WorkOrder {
     pub location: &'static str,
     pub requested_by: &'static str,
     pub reported_at: &'static str,
-    pub priority: &'static str,
+    pub priority: WorkOrderPriority,
     pub assigned_to: Option<&'static str>,
     pub description: &'static str,
     pub status: WorkOrderStatus,
-}
-
-fn sample_work_orders() -> Vec<WorkOrder> {
-    vec![
-        WorkOrder {
-            id: 4201,
-            title: "Boiler pressure is dropping",
-            property: "Riverside House",
-            location: "Basement · plant room B",
-            requested_by: "Mina Patel · apartment 3B",
-            reported_at: "Today · 8:12 am",
-            priority: "Urgent",
-            assigned_to: Some("Luis Ortega"),
-            description: "The pressure gauge falls below its normal range every few minutes. Residents in the north wing have also reported that their radiators are cool.",
-            status: WorkOrderStatus::Assigned,
-        },
-        WorkOrder {
-            id: 4207,
-            title: "Bedroom window will not latch",
-            property: "Willow Court",
-            location: "Apartment 2A · second floor",
-            requested_by: "Elliot Chen · apartment 2A",
-            reported_at: "Today · 8:46 am",
-            priority: "Standard",
-            assigned_to: None,
-            description: "The bedroom window closes but the handle will not lock. Please check the latch and let the resident know before entering.",
-            status: WorkOrderStatus::New,
-        },
-        WorkOrder {
-            id: 4212,
-            title: "Kitchen tap keeps dripping",
-            property: "Riverside House",
-            location: "Apartment 4D · kitchen",
-            requested_by: "Samira Ali · apartment 4D",
-            reported_at: "Today · 9:03 am",
-            priority: "Standard",
-            assigned_to: Some("Priya Shah"),
-            description: "Water continues to drip after the handle is fully closed. The resident has placed a bowl underneath and is available after 2:00 pm.",
-            status: WorkOrderStatus::Assigned,
-        },
-    ]
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WorkOrderState {
     pub current_path: String,
     pub work_orders: Vec<WorkOrder>,
-    pub notice: String,
+    pub notice: Option<WorkOrderNotice>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkOrderNotice {
+    Resolved(u32),
 }
 
 impl Default for WorkOrderState {
     fn default() -> Self {
         Self {
             current_path: "/".to_string(),
-            work_orders: sample_work_orders(),
-            notice: "Three open repairs are waiting for the maintenance team.".to_string(),
+            work_orders: Vec::new(),
+            notice: None,
         }
     }
 }
@@ -158,30 +157,31 @@ fission_component! {
     pub WorkOrderCard<()> { work_order: WorkOrder }
     view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let title = cx.tr(card.work_order.title);
     } =>
     SemanticsRegion(
         identifier: Some(format!("work-order-{}", card.work_order.id)),
-        label: Some(format!("Work order {}: {}", card.work_order.id, card.work_order.title)),
+        label: Some(cx.tr("work_order.card.a11y")
+            .replace("{id}", &card.work_order.id.to_string())
+            .replace("{title}", &cx.tr(card.work_order.title))),
         child: Container(
             Column(gap: tokens.spacing.xs, align_items: ir_op::AlignItems::Start, children: [
                 Row(gap: tokens.spacing.s, children: [
                     Text(format!("WO-{}", card.work_order.id))
                         .weight(tokens.typography.font_weight_semibold),
-                    Text(card.work_order.priority.to_string())
+                    Text(cx.tr(card.work_order.priority.translation_key()))
                         .color(tokens.colors.text_secondary),
-                    Text(card.work_order.status.label())
+                    Text(cx.tr(card.work_order.status.translation_key()))
                         .color(tokens.colors.text_secondary),
                 ]),
-                Text(card.work_order.title.to_string())
+                Text(cx.tr(card.work_order.title))
                     .weight(tokens.typography.font_weight_semibold),
-                Text(format!("{} · {}", card.work_order.property, card.work_order.location))
+                Text(format!("{} · {}", cx.tr(card.work_order.property), cx.tr(card.work_order.location)))
                     .color(tokens.colors.text_secondary),
-                Text(format!("Reported by {}", card.work_order.requested_by))
+                Text(cx.tr("work_order.reported_by").replace("{person}", &cx.tr(card.work_order.requested_by)))
                     .color(tokens.colors.text_secondary),
-                Text(format!(
-                    "Assigned to {}",
-                    card.work_order.assigned_to.unwrap_or("No technician yet"),
-                ))
+                Text(cx.tr("work_order.assigned_to")
+                    .replace("{person}", &cx.tr(card.work_order.assigned_to.unwrap_or("work_order.unassigned"))))
                 .color(tokens.colors.text_secondary),
             ]),
         )
@@ -197,42 +197,58 @@ fission_component! {
     pub WorkOrderList<WorkOrderState> {}
     view(_queue, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let notice = state.notice.map(|notice| match notice {
+            WorkOrderNotice::Resolved(id) => cx.tr("work_order.notice.resolved")
+                .replace("{id}", &id.to_string()),
+        });
         let open_count = state.work_orders.iter()
             .filter(|order| order.status != WorkOrderStatus::Resolved)
             .count();
         let urgent_count = state.work_orders.iter()
-            .filter(|order| order.status != WorkOrderStatus::Resolved && order.priority == "Urgent")
+            .filter(|order| order.status != WorkOrderStatus::Resolved && order.priority == WorkOrderPriority::Urgent)
             .count();
     } =>
     SemanticsRegion(
         identifier: Some("riverside-work-order-queue".to_string()),
-        label: Some("Riverside maintenance work orders".to_string()),
+        label: Some(cx.tr("work_order.queue.a11y")),
         child: Scroll(
             flex_grow: 1.0,
             height: cx.view.viewport_size().height,
-            semantic_label: Some("Open maintenance work orders".to_string()),
+            semantic_label: Some(cx.tr("work_order.queue.open.a11y")),
             child: Container(
                 Column(align_items: ir_op::AlignItems::Center, children: [
                     Container(
                         Column(gap: tokens.spacing.l, children: [
                             Column(gap: tokens.spacing.xs, children: [
-                                Text("Riverside Property Services")
+                                Text(cx.tr("work_order.company"))
                                     .weight(tokens.typography.font_weight_bold),
-                                Text("Maintenance work orders")
+                                Text(cx.tr("work_order.queue.title"))
                                     .color(tokens.colors.text_secondary),
                             ]),
                             Row(gap: tokens.spacing.m, children: [
-                                Text(format!("Open · {}", open_count)),
-                                Text(format!("Urgent · {}", urgent_count))
+                                Text(cx.tr("work_order.queue.open_count").replace("{count}", &open_count.to_string())),
+                                Text(cx.tr("work_order.queue.urgent_count").replace("{count}", &urgent_count.to_string()))
                                     .color(tokens.colors.text_secondary),
                             ]),
-                            Text(state.notice.clone())
-                                .color(tokens.colors.text_secondary),
-                            Column(gap: tokens.spacing.s, children: [
-                                for order in state.work_orders.iter() {
-                                    WorkOrderCard(order.clone(), key: order.id)
-                                },
-                            ]),
+                            if let Some(notice) = notice {
+                                Text(notice).color(tokens.colors.text_secondary)
+                            } else {
+                                Text(cx.tr("work_order.queue.hint")).color(tokens.colors.text_secondary)
+                            },
+                            if state.work_orders.is_empty() {
+                                Widget::from(EmptyState {
+                                    title: cx.tr("work_order.queue.empty.title"),
+                                    description: Some(cx.tr("work_order.queue.empty.help")),
+                                    ..Default::default()
+                                })
+                            } else {
+                                Column(gap: tokens.spacing.s, children: [
+                                    for order in state.work_orders.iter() {
+                                        WorkOrderCard(order.clone(), key: order.id)
+                                            .id(WidgetId::explicit(&format!("work-order.{}", order.id)))
+                                    },
+                                ])
+                            },
                         ]),
                     )
                     .padding_all(tokens.spacing.l)
@@ -255,6 +271,8 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+#[path = "../preview/fixtures.rs"]
+mod fixtures;
 
 use app::WorkOrderState;
 use fission::prelude::*;
@@ -264,11 +282,140 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     WebApp::<WorkOrderState, _>::new(app::WorkOrderList::new())
+        .with_state_init(|state| state.work_orders = fixtures::sample_work_orders())
+        .with_env(app::create_env())
         .with_title("Riverside maintenance work orders")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="preview/fixtures.rs">
+<!-- fission:file path="preview/fixtures.rs" -->
+```rust
+use crate::app::{WorkOrder, WorkOrderPriority, WorkOrderStatus};
+
+pub fn sample_work_orders() -> Vec<WorkOrder> {
+    vec![
+        WorkOrder { id: 4201, title: "work_order.boiler.title", property: "property.riverside", location: "work_order.boiler.location", requested_by: "work_order.boiler.requester", reported_at: "work_order.boiler.reported_at", priority: WorkOrderPriority::Urgent, assigned_to: Some("Luis Ortega"), description: "work_order.boiler.description", status: WorkOrderStatus::Assigned },
+        WorkOrder { id: 4207, title: "work_order.window.title", property: "property.willow", location: "work_order.window.location", requested_by: "work_order.window.requester", reported_at: "work_order.window.reported_at", priority: WorkOrderPriority::Standard, assigned_to: None, description: "work_order.window.description", status: WorkOrderStatus::New },
+        WorkOrder { id: 4212, title: "work_order.tap.title", property: "property.riverside", location: "work_order.tap.location", requested_by: "work_order.tap.requester", reported_at: "work_order.tap.reported_at", priority: WorkOrderPriority::Standard, assigned_to: Some("Priya Shah"), description: "work_order.tap.description", status: WorkOrderStatus::Assigned },
+    ]
+}
+```
+</TabItem>
+</Tabs>
+
+<Tabs>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+work_order.status.new: "New"
+work_order.status.assigned: "Assigned"
+work_order.status.resolved: "Resolved"
+work_order.boiler.title: "Boiler pressure is dropping"
+work_order.window.title: "Bedroom window will not latch"
+work_order.tap.title: "Kitchen tap keeps dripping"
+property.riverside: "Riverside House"
+property.willow: "Willow Court"
+work_order.boiler.location: "Basement · plant room B"
+work_order.window.location: "Apartment 2A · second floor"
+work_order.tap.location: "Apartment 4D · kitchen"
+work_order.boiler.requester: "Mina Patel · apartment 3B"
+work_order.window.requester: "Elliot Chen · apartment 2A"
+work_order.tap.requester: "Samira Ali · apartment 4D"
+work_order.boiler.reported_at: "Today · 8:12 am"
+work_order.window.reported_at: "Today · 8:46 am"
+work_order.tap.reported_at: "Today · 9:03 am"
+work_order.priority.urgent: "Urgent"
+work_order.priority.standard: "Standard"
+work_order.boiler.description: "The pressure gauge drops below its normal range every few minutes. Residents in the north wing also report cool radiators."
+work_order.window.description: "The bedroom window closes but the handle will not lock. Check the latch and let the resident know before entering."
+work_order.tap.description: "Water keeps dripping after the handle is fully closed. The resident has placed a bowl underneath and is available after 2:00 pm."
+work_order.card.a11y: "Work order {id}: {title}"
+work_order.reported_by: "Reported by {person}"
+work_order.assigned_to: "Assigned to {person}"
+work_order.unassigned: "No technician yet"
+work_order.company: "Riverside Property Services"
+work_order.queue.title: "Maintenance work orders"
+work_order.queue.a11y: "Riverside maintenance work orders"
+work_order.queue.empty.title: "No work orders are loaded."
+work_order.queue.empty.help: "Refresh the queue from the maintenance service to see open repairs."
+work_order.queue.open.a11y: "Open maintenance work orders"
+work_order.queue.open_count: "Open · {count}"
+work_order.queue.urgent_count: "Urgent · {count}"
+work_order.queue.hint: "Review urgent repairs first, then open a job for its full report."
+work_order.notice.resolved: "Work order WO-{id} is resolved."
+work_order.open: "Open work order"
+work_order.detail.a11y: "Maintenance work-order details"
+work_order.detail.content.a11y: "Work-order details and actions"
+work_order.back: "Back to work orders"
+work_order.detail.heading: "WO-{id} · {priority}"
+work_order.reported_by_heading: "Reported by"
+work_order.description_heading: "What needs attention"
+work_order.assignee_heading: "Assigned technician"
+work_order.resolved_hint: "This repair is marked resolved."
+work_order.resolve: "Mark repair resolved"
+work_order.not_found: "Work order {id} was not found."
+work_order.not_found.help: "Check the work-order number or return to the queue."
+work_order.route.id_missing: "This work-order link is missing its ID."
+work_order.page.not_found: "This work-order page does not exist."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+work_order.status.new: "Nuevo"
+work_order.status.assigned: "Asignado"
+work_order.status.resolved: "Resuelto"
+work_order.boiler.title: "La presión de la caldera está bajando"
+work_order.window.title: "La ventana del dormitorio no cierra"
+work_order.tap.title: "El grifo de la cocina sigue goteando"
+property.riverside: "Riverside House"
+property.willow: "Willow Court"
+work_order.boiler.location: "Sótano · sala de calderas B"
+work_order.window.location: "Apartamento 2A · segunda planta"
+work_order.tap.location: "Apartamento 4D · cocina"
+work_order.boiler.requester: "Mina Patel · apartamento 3B"
+work_order.window.requester: "Elliot Chen · apartamento 2A"
+work_order.tap.requester: "Samira Ali · apartamento 4D"
+work_order.boiler.reported_at: "Hoy · 8:12"
+work_order.window.reported_at: "Hoy · 8:46"
+work_order.tap.reported_at: "Hoy · 9:03"
+work_order.priority.urgent: "Urgente"
+work_order.priority.standard: "Normal"
+work_order.boiler.description: "El manómetro cae por debajo del rango normal cada pocos minutos. Los residentes del ala norte también informan de radiadores fríos."
+work_order.window.description: "La ventana del dormitorio cierra, pero la manilla no bloquea. Revisa el pestillo y avisa al residente antes de entrar."
+work_order.tap.description: "El agua sigue goteando aunque la manilla esté cerrada. El residente ha puesto un recipiente debajo y está disponible después de las 14:00."
+work_order.card.a11y: "Orden de trabajo {id}: {title}"
+work_order.reported_by: "Informado por {person}"
+work_order.assigned_to: "Asignado a {person}"
+work_order.unassigned: "Aún sin técnico"
+work_order.company: "Servicios Inmobiliarios Riverside"
+work_order.queue.title: "Órdenes de mantenimiento"
+work_order.queue.a11y: "Órdenes de mantenimiento de Riverside"
+work_order.queue.empty.title: "No hay órdenes de trabajo cargadas."
+work_order.queue.empty.help: "Actualiza la cola del servicio de mantenimiento para ver las reparaciones abiertas."
+work_order.queue.open.a11y: "Órdenes de mantenimiento abiertas"
+work_order.queue.open_count: "Abiertas · {count}"
+work_order.queue.urgent_count: "Urgentes · {count}"
+work_order.queue.hint: "Revisa primero las reparaciones urgentes y abre cada orden para ver el informe completo."
+work_order.notice.resolved: "La orden WO-{id} está resuelta."
+work_order.open: "Abrir orden"
+work_order.detail.a11y: "Detalles de la orden de mantenimiento"
+work_order.detail.content.a11y: "Detalles y acciones de la orden"
+work_order.back: "Volver a las órdenes"
+work_order.detail.heading: "WO-{id} · {priority}"
+work_order.reported_by_heading: "Informado por"
+work_order.description_heading: "Qué necesita atención"
+work_order.assignee_heading: "Técnico asignado"
+work_order.resolved_hint: "Esta reparación está marcada como resuelta."
+work_order.resolve: "Marcar reparación como resuelta"
+work_order.not_found: "No se encontró la orden {id}."
+work_order.not_found.help: "Comprueba el número de orden o vuelve a la lista."
+work_order.route.id_missing: "A este enlace de orden de trabajo le falta el identificador."
+work_order.page.not_found: "Esta página de órdenes no existe."
 ```
 </TabItem>
 </Tabs>
@@ -293,7 +440,26 @@ Replace `src/app.rs` with this version. The queue looks familiar, but its cards 
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(yaml).expect("valid Riverside work-order translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorkOrderStatus {
@@ -303,11 +469,11 @@ pub enum WorkOrderStatus {
 }
 
 impl WorkOrderStatus {
-    pub fn label(self) -> &'static str {
+    pub fn translation_key(self) -> &'static str {
         match self {
-            Self::New => "New",
-            Self::Assigned => "Assigned",
-            Self::Resolved => "Resolved",
+            Self::New => "work_order.status.new",
+            Self::Assigned => "work_order.status.assigned",
+            Self::Resolved => "work_order.status.resolved",
         }
     }
 }
@@ -320,66 +486,30 @@ pub struct WorkOrder {
     pub location: &'static str,
     pub requested_by: &'static str,
     pub reported_at: &'static str,
-    pub priority: &'static str,
+    pub priority: WorkOrderPriority,
     pub assigned_to: Option<&'static str>,
     pub description: &'static str,
     pub status: WorkOrderStatus,
-}
-
-fn sample_work_orders() -> Vec<WorkOrder> {
-    vec![
-        WorkOrder {
-            id: 4201,
-            title: "Boiler pressure is dropping",
-            property: "Riverside House",
-            location: "Basement · plant room B",
-            requested_by: "Mina Patel · apartment 3B",
-            reported_at: "Today · 8:12 am",
-            priority: "Urgent",
-            assigned_to: Some("Luis Ortega"),
-            description: "The pressure gauge falls below its normal range every few minutes. Residents in the north wing have also reported that their radiators are cool.",
-            status: WorkOrderStatus::Assigned,
-        },
-        WorkOrder {
-            id: 4207,
-            title: "Bedroom window will not latch",
-            property: "Willow Court",
-            location: "Apartment 2A · second floor",
-            requested_by: "Elliot Chen · apartment 2A",
-            reported_at: "Today · 8:46 am",
-            priority: "Standard",
-            assigned_to: None,
-            description: "The bedroom window closes but the handle will not lock. Please check the latch and let the resident know before entering.",
-            status: WorkOrderStatus::New,
-        },
-        WorkOrder {
-            id: 4212,
-            title: "Kitchen tap keeps dripping",
-            property: "Riverside House",
-            location: "Apartment 4D · kitchen",
-            requested_by: "Samira Ali · apartment 4D",
-            reported_at: "Today · 9:03 am",
-            priority: "Standard",
-            assigned_to: Some("Priya Shah"),
-            description: "Water continues to drip after the handle is fully closed. The resident has placed a bowl underneath and is available after 2:00 pm.",
-            status: WorkOrderStatus::Assigned,
-        },
-    ]
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WorkOrderState {
     pub current_path: String,
     pub work_orders: Vec<WorkOrder>,
-    pub notice: String,
+    pub notice: Option<WorkOrderNotice>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkOrderNotice {
+    Resolved(u32),
 }
 
 impl Default for WorkOrderState {
     fn default() -> Self {
         Self {
             current_path: "/".to_string(),
-            work_orders: sample_work_orders(),
-            notice: "Three open repairs are waiting for the maintenance team.".to_string(),
+            work_orders: Vec::new(),
+            notice: None,
         }
     }
 }
@@ -408,7 +538,7 @@ pub fn on_mark_work_order_resolved(state: &mut WorkOrderState, work_order_id: u3
         return;
     }
     order.status = WorkOrderStatus::Resolved;
-    state.notice = format!("Work order WO-{} is resolved.", order.id);
+    state.notice = Some(WorkOrderNotice::Resolved(order.id));
 }
 
 #[fission_reducer(BackToWorkOrders)]
@@ -437,33 +567,34 @@ fission_component! {
             OpenWorkOrder(card.work_order.id),
             on_open_work_order,
         );
+        let title = cx.tr(card.work_order.title);
     } =>
     SemanticsRegion(
         identifier: Some(format!("work-order-{}", card.work_order.id)),
-        label: Some(format!("Work order {}: {}", card.work_order.id, card.work_order.title)),
+        label: Some(cx.tr("work_order.card.a11y")
+            .replace("{id}", &card.work_order.id.to_string())
+            .replace("{title}", &title)),
         child: Container(
             Column(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Start, children: [
                 Row(gap: tokens.spacing.s, children: [
                     Text(format!("WO-{}", card.work_order.id))
                         .weight(tokens.typography.font_weight_semibold),
-                    Text(card.work_order.priority.to_string())
+                    Text(cx.tr(card.work_order.priority.translation_key()))
                         .color(tokens.colors.text_secondary),
-                    Text(card.work_order.status.label())
+                    Text(cx.tr(card.work_order.status.translation_key()))
                         .color(tokens.colors.text_secondary),
                 ]),
-                Text(card.work_order.title.to_string())
+                Text(title)
                     .weight(tokens.typography.font_weight_semibold),
-                Text(format!("{} · {}", card.work_order.property, card.work_order.location))
+                Text(format!("{} · {}", cx.tr(card.work_order.property), cx.tr(card.work_order.location)))
                     .color(tokens.colors.text_secondary),
-                Text(format!("Reported by {}", card.work_order.requested_by))
+                Text(cx.tr("work_order.reported_by").replace("{person}", &cx.tr(card.work_order.requested_by)))
                     .color(tokens.colors.text_secondary),
-                Text(format!(
-                    "Assigned to {}",
-                    card.work_order.assigned_to.unwrap_or("No technician yet"),
-                ))
+                Text(cx.tr("work_order.assigned_to")
+                    .replace("{person}", &cx.tr(card.work_order.assigned_to.unwrap_or("work_order.unassigned"))))
                 .color(tokens.colors.text_secondary),
                 Button(
-                    child: Text("Open work order"),
+                    child: Text(cx.tr("work_order.open")),
                     key: "open-work-order",
                     variant: ButtonVariant::Outline,
                     on_press: open,
@@ -483,42 +614,58 @@ fission_component! {
     pub WorkOrderList<WorkOrderState> {}
     view(_queue, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let notice = state.notice.map(|notice| match notice {
+            WorkOrderNotice::Resolved(id) => cx.tr("work_order.notice.resolved")
+                .replace("{id}", &id.to_string()),
+        });
         let open_count = state.work_orders.iter()
             .filter(|order| order.status != WorkOrderStatus::Resolved)
             .count();
         let urgent_count = state.work_orders.iter()
-            .filter(|order| order.status != WorkOrderStatus::Resolved && order.priority == "Urgent")
+            .filter(|order| order.status != WorkOrderStatus::Resolved && order.priority == WorkOrderPriority::Urgent)
             .count();
     } =>
     SemanticsRegion(
         identifier: Some("riverside-work-order-queue".to_string()),
-        label: Some("Riverside maintenance work orders".to_string()),
+        label: Some(cx.tr("work_order.queue.a11y")),
         child: Scroll(
             flex_grow: 1.0,
             height: cx.view.viewport_size().height,
-            semantic_label: Some("Open maintenance work orders".to_string()),
+            semantic_label: Some(cx.tr("work_order.queue.open.a11y")),
             child: Container(
                 Column(align_items: ir_op::AlignItems::Center, children: [
                     Container(
                         Column(gap: tokens.spacing.l, children: [
                             Column(gap: tokens.spacing.xs, children: [
-                                Text("Riverside Property Services")
+                                Text(cx.tr("work_order.company"))
                                     .weight(tokens.typography.font_weight_bold),
-                                Text("Maintenance work orders")
+                                Text(cx.tr("work_order.queue.title"))
                                     .color(tokens.colors.text_secondary),
                             ]),
                             Row(gap: tokens.spacing.m, children: [
-                                Text(format!("Open · {}", open_count)),
-                                Text(format!("Urgent · {}", urgent_count))
+                                Text(cx.tr("work_order.queue.open_count").replace("{count}", &open_count.to_string())),
+                                Text(cx.tr("work_order.queue.urgent_count").replace("{count}", &urgent_count.to_string()))
                                     .color(tokens.colors.text_secondary),
                             ]),
-                            Text(state.notice.clone())
-                                .color(tokens.colors.text_secondary),
-                            Column(gap: tokens.spacing.s, children: [
-                                for order in state.work_orders.iter() {
-                                    WorkOrderCard(order.clone(), key: order.id)
-                                },
-                            ]),
+                            if let Some(notice) = notice {
+                                Text(notice).color(tokens.colors.text_secondary)
+                            } else {
+                                Text(cx.tr("work_order.queue.hint")).color(tokens.colors.text_secondary)
+                            },
+                            if state.work_orders.is_empty() {
+                                Widget::from(EmptyState {
+                                    title: cx.tr("work_order.queue.empty.title"),
+                                    description: Some(cx.tr("work_order.queue.empty.help")),
+                                    ..Default::default()
+                                })
+                            } else {
+                                Column(gap: tokens.spacing.s, children: [
+                                    for order in state.work_orders.iter() {
+                                        WorkOrderCard(order.clone(), key: order.id)
+                                            .id(WidgetId::explicit(&format!("work-order.{}", order.id)))
+                                    },
+                                ])
+                            },
                         ]),
                     )
                     .padding_all(tokens.spacing.l)
@@ -540,10 +687,9 @@ fission_component! {
     pub WorkOrderDetailRoute<WorkOrderState> {}
     view(_route, state, _cx) {
         let params = fission::build::read::<RouteParams>();
-        let requested_id = params.get("id").cloned().unwrap_or_default();
-        let work_order = requested_id
-            .parse::<u32>()
-            .ok()
+        let requested_id = params.get("id").cloned();
+        let work_order = requested_id.as_deref()
+            .and_then(|id| id.parse::<u32>().ok())
             .and_then(|id| state.work_orders.iter().find(|order| order.id == id))
             .cloned();
     } =>
@@ -553,25 +699,29 @@ fission_component! {
 fission_component! {
     pub WorkOrderDetail<WorkOrderState> {
         work_order: Option<WorkOrder>,
-        requested_id: String,
+        requested_id: Option<String>,
     }
     view(screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let not_found_message = screen.requested_id
+            .as_deref()
+            .map(|id| cx.tr("work_order.not_found").replace("{id}", id))
+            .unwrap_or_else(|| cx.tr("work_order.route.id_missing"));
     } =>
     SemanticsRegion(
         identifier: Some("riverside-work-order-detail".to_string()),
-        label: Some("Maintenance work-order details".to_string()),
+        label: Some(cx.tr("work_order.detail.a11y")),
         child: Scroll(
             flex_grow: 1.0,
             height: cx.view.viewport_size().height,
-            semantic_label: Some("Work-order details and actions".to_string()),
+            semantic_label: Some(cx.tr("work_order.detail.content.a11y")),
             child: Container(
                 Column(align_items: ir_op::AlignItems::Center, children: [
                     Container(
                         if let Some(order) = screen.work_order.clone() {
                             Column(gap: tokens.spacing.l, children: [
                                 Button(
-                                    child: Text("Back to work orders"),
+                                    child: Text(cx.tr("work_order.back")),
                                     key: "back-to-work-orders",
                                     variant: ButtonVariant::Outline,
                                     on_press: with_reducer!(
@@ -581,36 +731,38 @@ fission_component! {
                                     ),
                                 ),
                                 Column(gap: tokens.spacing.s, children: [
-                                    Text(format!("WO-{} · {}", order.id, order.priority))
+                                    Text(cx.tr("work_order.detail.heading")
+                                        .replace("{id}", &order.id.to_string())
+                                        .replace("{priority}", &cx.tr(order.priority.translation_key())))
                                         .color(tokens.colors.text_secondary),
-                                    Text(order.title.to_string())
+                                    Text(cx.tr(order.title))
                                         .weight(tokens.typography.font_weight_bold),
-                                    Text(format!("{} · {}", order.property, order.location)),
+                                    Text(format!("{} · {}", cx.tr(order.property), cx.tr(order.location))),
                                 ]),
                                 Column(gap: tokens.spacing.xs, children: [
-                                    Text("Reported by")
+                                    Text(cx.tr("work_order.reported_by_heading"))
                                         .weight(tokens.typography.font_weight_semibold),
-                                    Text(order.requested_by.to_string()),
-                                    Text(format!("{} · {}", order.reported_at, order.status.label()))
+                                    Text(cx.tr(order.requested_by)),
+                                    Text(format!("{} · {}", cx.tr(order.reported_at), cx.tr(order.status.translation_key())))
                                         .color(tokens.colors.text_secondary),
                                 ]),
                                 Column(gap: tokens.spacing.xs, children: [
-                                    Text("What needs attention")
+                                    Text(cx.tr("work_order.description_heading"))
                                         .weight(tokens.typography.font_weight_semibold),
-                                    Text(order.description.to_string()),
+                                    Text(cx.tr(order.description)),
                                 ]),
                                 Column(gap: tokens.spacing.xs, children: [
-                                    Text("Assigned technician")
+                                    Text(cx.tr("work_order.assignee_heading"))
                                         .weight(tokens.typography.font_weight_semibold),
-                                    Text(order.assigned_to.unwrap_or("Not assigned yet").to_string())
+                                    Text(cx.tr(order.assigned_to.unwrap_or("work_order.unassigned")))
                                         .color(tokens.colors.text_secondary),
                                 ]),
                                 if order.status == WorkOrderStatus::Resolved {
-                                    Text("This repair is marked resolved.")
+                                    Text(cx.tr("work_order.resolved_hint"))
                                         .color(tokens.colors.text_secondary)
                                 } else {
                                     Button(
-                                        child: Text("Mark repair resolved"),
+                                        child: Text(cx.tr("work_order.resolve")),
                                         key: "mark-work-order-resolved",
                                         variant: ButtonVariant::Primary,
                                         on_press: with_reducer!(
@@ -624,9 +776,9 @@ fission_component! {
                             ])
                         } else {
                             Column(gap: tokens.spacing.m, children: [
-                                Text(format!("Work order {} was not found.", screen.requested_id))
+                                Text(not_found_message)
                                     .weight(tokens.typography.font_weight_semibold),
-                                Text("Check the work-order number or return to the queue."),
+                                Text(cx.tr("work_order.not_found.help")),
                             ])
                         },
                     )
@@ -647,29 +799,61 @@ fission_component! {
 
 fission_component! {
     pub WorkOrdersApp<WorkOrderState> {}
-    view(_app, state, _cx) {
+    view(_app, state, cx) {
+        let not_found = cx.tr("work_order.page.not_found");
         let router = Router::<WorkOrderState>::new()
             .with_path(state.current_path.clone())
             .route_component("/", WorkOrderList)
             .route_component("/work-orders/:id", WorkOrderDetailRoute)
-            .not_found(|| Text::new("This work-order page does not exist."));
+            .not_found(move || Text::new(not_found.clone()));
     } =>
     router
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkOrderPriority {
+    Urgent,
+    Standard,
+}
+
+impl WorkOrderPriority {
+    pub fn translation_key(self) -> &'static str {
+        match self {
+            Self::Urgent => "work_order.priority.urgent",
+            Self::Standard => "work_order.priority.standard",
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn assigned_work_order() -> WorkOrder {
+        WorkOrder {
+            id: 4201,
+            title: "work_order.boiler.title",
+            property: "property.riverside",
+            location: "work_order.boiler.location",
+            requested_by: "work_order.boiler.requester",
+            reported_at: "work_order.boiler.reported_at",
+            priority: WorkOrderPriority::Urgent,
+            assigned_to: Some("Luis Ortega"),
+            description: "work_order.boiler.description",
+            status: WorkOrderStatus::Assigned,
+        }
+    }
+
     #[test]
     fn resolving_a_work_order_updates_the_shared_queue_record() {
         let mut state = WorkOrderState::default();
+        state.work_orders = vec![assigned_work_order()];
 
         on_mark_work_order_resolved(&mut state, 4201);
 
         let order = state.work_orders.iter().find(|order| order.id == 4201).unwrap();
         assert_eq!(order.status, WorkOrderStatus::Resolved);
-        assert_eq!(state.notice, "Work order WO-4201 is resolved.");
+        assert_eq!(state.notice, Some(WorkOrderNotice::Resolved(4201)));
     }
 
     #[test]
@@ -688,6 +872,8 @@ mod tests {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+#[path = "../preview/fixtures.rs"]
+mod fixtures;
 
 use app::{on_shell_route_changed, WorkOrderState, WorkOrdersApp};
 use fission::prelude::*;
@@ -697,6 +883,8 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     WebApp::<WorkOrderState, _>::new(WorkOrdersApp::new())
+        .with_state_init(|state| state.work_orders = fixtures::sample_work_orders())
+        .with_env(app::create_env())
         .with_title("Riverside work-order queue")
         .with_navigation(WebNavigationConfig::new(WebRouteStrategy::Hash))
         .with_route_handler(on_shell_route_changed)
@@ -738,6 +926,7 @@ const ANDROID_TEST_CONTROL_PORT: u16 = 48762;
 fn mobile_app() -> MobileApp<WorkOrderState, WorkOrdersApp> {
     let app = MobileApp::<WorkOrderState, _>::new(WorkOrdersApp::new())
         .with_title("Riverside maintenance work orders")
+        .with_env(crate::app::create_env())
         .with_route_handler(on_shell_route_changed);
     #[cfg(target_os = "android")]
     let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
@@ -748,6 +937,7 @@ fn mobile_app() -> MobileApp<WorkOrderState, WorkOrdersApp> {
 fn web_app() -> WebApp<WorkOrderState, WorkOrdersApp> {
     WebApp::<WorkOrderState, _>::new(WorkOrdersApp::new())
         .with_title("Riverside maintenance work orders")
+        .with_env(crate::app::create_env())
         .with_route_handler(on_shell_route_changed)
 }
 
@@ -755,6 +945,7 @@ fn web_app() -> WebApp<WorkOrderState, WorkOrdersApp> {
 pub fn run_desktop() -> anyhow::Result<()> {
     DesktopApp::<WorkOrderState, _>::new(WorkOrdersApp::new())
         .with_title("Riverside maintenance work orders")
+        .with_env(crate::app::create_env())
         .with_route_handler(on_shell_route_changed)
         .run()
 }

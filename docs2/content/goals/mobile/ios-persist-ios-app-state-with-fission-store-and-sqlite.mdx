@@ -53,44 +53,93 @@ Keep app behaviour in shared Rust. Add a feature module only when it creates a u
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
-
 fission_component! {
-    pub IosLocalDatabase<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub PersistedThemePreference<()> {
+        state {
+            dark_mode: bool = false,
+            saved: bool = false,
         }
     }
-    view(screen, _state, cx) {
+    view(settings, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let selected_theme = if settings.dark_mode {
+            cx.tr("store.theme.dark")
+        } else {
+            cx.tr("store.theme.light")
+        };
+        let save_status = if settings.saved {
+            cx.tr("store.status.saved_preview")
+        } else {
+            cx.tr("store.status.unsaved")
+        };
+        let theme_action = if settings.dark_mode {
+            cx.tr("store.action.choose_light")
+        } else {
+            cx.tr("store.action.choose_dark")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("ios-persisted-theme-preference".to_string()),
+        label: Some(cx.tr("store.screen.label")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("store.app.name"))
+                        .weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("store.route"))
                         .color(tokens.colors.text_secondary),
                 ]),
+                Badge(text: cx.tr("store.preview.badge")),
+                Divider(),
+                Text(cx.tr("store.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("store.summary"))
+                    .color(tokens.colors.text_secondary),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("store.preference.label"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(selected_theme.clone()),
+                        Button(
+                            child: Text(theme_action.clone()),
+                            key: "toggle-theme-preference",
+                            on_press: reduce {
+                                settings.dark_mode = !settings.dark_mode;
+                                settings.saved = false;
+                            },
+                            semantics: Some(Semantics {
+                                role: Role::Button,
+                                label: Some(theme_action.clone()),
+                                identifier: Some("settings.theme.toggle".to_string()),
+                                ..Default::default()
+                            }),
+                        ),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                    Badge(text: save_status),
+                    Text(selected_theme)
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Button(
+                    child: Text(cx.tr("store.action.save")),
+                    key: "preview-save-theme",
+                    variant: ButtonVariant::Primary,
+                    disabled: settings.saved,
+                    on_press: reduce { settings.saved = true; },
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(cx.tr("store.action.save")),
+                        identifier: Some("settings.theme.save-preview".to_string()),
+                        ..Default::default()
+                    }),
+                ),
+                Text(cx.tr("store.preview.note"))
+                    .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -99,6 +148,7 @@ fission_component! {
         .border_radius(tokens.radii.large),
     )
 }
+
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
@@ -109,23 +159,74 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosLocalDatabase::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::PersistedThemePreference)
+        .with_env(preview_env())
+        .with_title("Field Notes")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+store.screen.label: "App preference storage preview"
+store.app.name: "Field Notes"
+store.route: "Settings · Appearance"
+store.preview.badge: "Theme preference"
+store.title: "Choose an appearance"
+store.summary: "Keep a small typed preference in Fission Store and restore it when the app starts."
+store.preference.label: "Appearance preference"
+store.theme.light: "Light appearance"
+store.theme.dark: "Dark appearance"
+store.action.choose_light: "Choose light appearance"
+store.action.choose_dark: "Choose dark appearance"
+store.action.save: "Select this preview preference"
+store.status.saved_preview: "Selected in this preview only; not stored"
+store.status.unsaved: "Not selected; this preview does not write to storage"
+store.preview.note: "Browser-only state: this screen does not write SQLite or survive a reload."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+store.screen.label: "Vista previa del almacenamiento de preferencias"
+store.app.name: "Notas de campo"
+store.route: "Ajustes · Apariencia"
+store.preview.badge: "Preferencia de tema"
+store.title: "Elige una apariencia"
+store.summary: "Guarda una preferencia tipada en Fission Store y restáurala al iniciar la app."
+store.preference.label: "Preferencia de apariencia"
+store.theme.light: "Apariencia clara"
+store.theme.dark: "Apariencia oscura"
+store.action.choose_light: "Elegir apariencia clara"
+store.action.choose_dark: "Elegir apariencia oscura"
+store.action.save: "Seleccionar esta preferencia en la vista previa"
+store.status.saved_preview: "Seleccionada solo en esta vista previa; no se guarda"
+store.status.unsaved: "Sin seleccionar; esta vista previa no guarda datos"
+store.preview.note: "Estado solo del navegador: esta pantalla no escribe en SQLite ni sobrevive a una recarga."
 ```
 </TabItem>
 </Tabs>

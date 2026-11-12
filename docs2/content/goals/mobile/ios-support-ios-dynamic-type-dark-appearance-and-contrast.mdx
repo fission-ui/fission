@@ -52,44 +52,69 @@ Keep app behaviour in shared Rust. Add a feature module only when it creates a u
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
-
 fission_component! {
-    pub IosAppearanceSettings<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub AccessibleReadingPreview<()> {
+        state {
+            large_text: bool = false,
         }
     }
-    view(screen, _state, cx) {
+    view(reader, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let sample_size = if reader.large_text {
+            tokens.typography.heading2_size
+        } else {
+            tokens.typography.body_medium_size
+        };
+        let scale_action = if reader.large_text {
+            cx.tr("appearance.action.standard")
+        } else {
+            cx.tr("appearance.action.large")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("ios-accessible-reading-preview".to_string()),
+        label: Some(cx.tr("appearance.screen.label")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("appearance.app.name"))
+                        .weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("appearance.route"))
                         .color(tokens.colors.text_secondary),
                 ]),
+                Badge(text: cx.tr("appearance.preview.badge")),
+                Divider(),
+                Text(cx.tr("appearance.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("appearance.summary"))
+                    .color(tokens.colors.text_secondary),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("appearance.article.title"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("appearance.article.body"))
+                            .size(sample_size),
+                        Text(cx.tr("appearance.article.caption"))
+                            .color(tokens.colors.text_secondary),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Button(
+                    child: Text(scale_action),
+                    key: "toggle-dynamic-type-sample",
+                    on_press: reduce { reader.large_text = !reader.large_text; },
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(scale_action.clone()),
+                        identifier: Some("appearance.toggle-text-size".to_string()),
+                        ..Default::default()
+                    }),
+                ),
+                Text(cx.tr("appearance.preview.note"))
+                    .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -98,6 +123,7 @@ fission_component! {
         .border_radius(tokens.radii.large),
     )
 }
+
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
@@ -108,23 +134,68 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosAppearanceSettings::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::AccessibleReadingPreview)
+        .with_env(preview_env())
+        .with_title("Northstar Reader")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+appearance.screen.label: "Reading appearance and type-size preview"
+appearance.app.name: "Northstar Reader"
+appearance.route: "Accessibility · Reading appearance"
+appearance.preview.badge: "Uses active Fission theme tokens"
+appearance.title: "Make this page easier to read"
+appearance.summary: "The layout follows the active theme. Increase the sample text, then verify Dynamic Type and contrast on iOS."
+appearance.article.title: "Your saved places"
+appearance.article.body: "Keep the places you want to return to, with details that remain readable at larger text sizes."
+appearance.article.caption: "The sample uses typography and colour tokens from the current Env."
+appearance.action.standard: "Use standard sample text"
+appearance.action.large: "Preview larger text"
+appearance.preview.note: "The browser preview changes sample type size only; use Simulator settings to verify real iOS appearance and Dynamic Type."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+appearance.screen.label: "Vista previa de apariencia y tamaño de texto"
+appearance.app.name: "Lector Northstar"
+appearance.route: "Accesibilidad · Apariencia de lectura"
+appearance.preview.badge: "Usa los tokens del tema activo de Fission"
+appearance.title: "Haz que esta página sea más fácil de leer"
+appearance.summary: "El diseño sigue el tema activo. Amplía el texto de ejemplo y comprueba Dynamic Type y el contraste en iOS."
+appearance.article.title: "Tus lugares guardados"
+appearance.article.body: "Guarda los lugares a los que quieres volver y mantén los detalles legibles con tamaños de texto mayores."
+appearance.article.caption: "El ejemplo usa tokens de tipografía y color del Env actual."
+appearance.action.standard: "Usar texto de tamaño normal"
+appearance.action.large: "Previsualizar texto más grande"
+appearance.preview.note: "La vista web solo cambia el tamaño del texto de ejemplo; usa los ajustes del simulador para verificar la apariencia y Dynamic Type de iOS."
 ```
 </TabItem>
 </Tabs>

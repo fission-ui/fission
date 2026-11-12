@@ -46,7 +46,7 @@ Keep provider outcome handling in shared reducers. Tests can inject a memory pro
 <!-- fission:step id="start-screen" -->
 ## Create the app screen
 
-This preview is a task card, not a capability flow. The next step handles success, denial, and unsupported outcomes, then tests them with a memory provider.
+Use a single inspection task to explore the results the UI must handle. Choose a captured photo, denied permission, or unavailable camera to see the corresponding recovery message. These preview buttons change local state only; the later test uses a memory provider to return the same outcomes through the production reducer path.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -54,43 +54,88 @@ This preview is a task card, not a capability flow. The next step handles succes
 ```rust
 use fission::prelude::*;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CameraOutcome {
+    NoPhoto,
+    Captured,
+    PermissionDenied,
+    Unavailable,
+}
+
 fission_component! {
     pub MobileCapabilityTests<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+        state {
+            outcome: CameraOutcome = CameraOutcome::NoPhoto,
         }
     }
-    view(screen, _state, cx) {
+    view(work_order, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("fieldwork.camera-test".to_string()),
+        label: Some(cx.tr("camera.a11y")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
                 Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
                     Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
+                        Text(cx.tr("camera.work_order"))
+                            .size(tokens.typography.heading2_size),
+                        Text(cx.tr("camera.subject"))
                             .color(tokens.colors.text_secondary),
                     ]),
                     Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
+                    Badge(text: cx.tr("camera.preview_badge")),
                 ]),
                 Divider(),
+                Text(cx.tr("camera.instructions"))
+                    .color(tokens.colors.text_secondary),
                 Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
+                    Text(cx.tr("camera.choose_result"))
                         .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
+                    Button(
+                        child: Text(cx.tr("camera.result.captured")),
+                        key: "camera-success",
+                        on_press: reduce { work_order.outcome = CameraOutcome::Captured; },
+                    ).semantics_identifier("fieldwork.camera.success"),
+                    Button(
+                        child: Text(cx.tr("camera.result.denied")),
+                        key: "camera-denied",
+                        on_press: reduce { work_order.outcome = CameraOutcome::PermissionDenied; },
+                    ).semantics_identifier("fieldwork.camera.denied"),
+                    Button(
+                        child: Text(cx.tr("camera.result.unavailable")),
+                        key: "camera-unavailable",
+                        on_press: reduce { work_order.outcome = CameraOutcome::Unavailable; },
+                    ).semantics_identifier("fieldwork.camera.unavailable"),
                 ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
+                Container(
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(if work_order.outcome == CameraOutcome::Captured {
+                            cx.tr("camera.status.attached")
+                        } else if work_order.outcome == CameraOutcome::PermissionDenied {
+                            cx.tr("camera.status.denied")
+                        } else if work_order.outcome == CameraOutcome::Unavailable {
+                            cx.tr("camera.status.unavailable")
+                        } else {
+                            cx.tr("camera.status.empty")
+                        })
+                        .weight(tokens.typography.font_weight_semibold),
+                        Text(if work_order.outcome == CameraOutcome::Captured {
+                            cx.tr("camera.detail.attached")
+                        } else if work_order.outcome == CameraOutcome::PermissionDenied {
+                            cx.tr("camera.detail.denied")
+                        } else if work_order.outcome == CameraOutcome::Unavailable {
+                            cx.tr("camera.detail.unavailable")
+                        } else {
+                            cx.tr("camera.detail.empty")
+                        })
                         .color(tokens.colors.text_secondary),
-                ]),
+                    ]),
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.surface_raised)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -105,27 +150,93 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::MobileCapabilityTests::new(tutorial_title(), tutorial_step(), tutorial_goal());
+    let preview = app::MobileCapabilityTests::new();
     WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+        .with_env(translations::create_env())
+        .with_title("Fieldwork Camera Capability Check")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../i18n/es-ES.yaml")),
+];
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in SOURCES {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid tutorial translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+camera.a11y: "Inspection photo capability preview"
+camera.work_order: "Work order 1048"
+camera.subject: "Northbank Food Hub · Compressor label"
+camera.preview_badge: "Camera preview"
+camera.instructions: "Capture the equipment label so the next technician can identify the compressor."
+camera.choose_result: "Choose a provider result"
+camera.result.captured: "Photo captured"
+camera.result.denied: "Permission denied"
+camera.result.unavailable: "Camera unavailable"
+camera.status.attached: "Evidence attached"
+camera.status.denied: "Camera permission is off"
+camera.status.unavailable: "Camera is not available on this device"
+camera.status.empty: "No photo has been captured"
+camera.detail.attached: "The label is ready to include with the work order."
+camera.detail.denied: "You can open settings or add a written note instead."
+camera.detail.unavailable: "Continue the inspection and add evidence when a camera is available."
+camera.detail.empty: "The browser preview does not call a native camera provider."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+camera.a11y: "Vista previa de la función de fotos de inspección"
+camera.work_order: "Orden de trabajo 1048"
+camera.subject: "Centro de alimentos Northbank · Etiqueta del compresor"
+camera.preview_badge: "Vista previa de cámara"
+camera.instructions: "Fotografía la etiqueta del equipo para que el siguiente técnico identifique el compresor."
+camera.choose_result: "Elige el resultado del proveedor"
+camera.result.captured: "Foto tomada"
+camera.result.denied: "Permiso denegado"
+camera.result.unavailable: "Cámara no disponible"
+camera.status.attached: "Evidencia adjunta"
+camera.status.denied: "El permiso de cámara está desactivado"
+camera.status.unavailable: "La cámara no está disponible en este dispositivo"
+camera.status.empty: "Todavía no se ha tomado ninguna foto"
+camera.detail.attached: "La etiqueta está lista para adjuntarla a la orden de trabajo."
+camera.detail.denied: "Puedes abrir los ajustes o añadir una nota escrita."
+camera.detail.unavailable: "Continúa la inspección y añade evidencia cuando haya una cámara disponible."
+camera.detail.empty: "La vista previa del navegador no llama a un proveedor de cámara nativo."
 ```
 </TabItem>
 </Tabs>

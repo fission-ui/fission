@@ -10,9 +10,9 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-package-and-prepare-a-fission-android-app-for-release
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - Configure the Android package identity, version and release signing inputs
+  - Check package readiness and produce APK and AAB release artifacts
+  - Keep keystores and passwords out of source control and verify the APK on a device
 ---
 
 ## Create the project and add the target
@@ -23,6 +23,7 @@ Create the project and add the target used by this guide. Fission generates the 
 cargo install cargo-fission
 fission init android-package-and-prepare-a-fission-android-app-for-release
 cd android-package-and-prepare-a-fission-android-app-for-release
+cargo add serde_yaml
 fission add-target android --project-dir .
 ```
 
@@ -44,60 +45,176 @@ android-package-and-prepare-a-fission-android-app-for-release/
 
 Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
 
-<!-- fission:step id="start-screen" -->
-## Create the app screen
+<!-- fission:step id="field-check-preview" -->
+## Preview a real field-work screen
 
-This screen is the app content the release pipeline will package. The next section moves from the app build to APK and AAB generation, signing, and an internal Play test.
+Use the same kind of task a technician would open on a phone: a named work order, location, due time, one clear inspection step and a status the user can change. The preview keeps that status in memory and lets you switch languages. It does not read a device sensor, call the SDK or prove that a native build, signature or package is valid; the target-specific steps below do that.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use std::collections::HashMap;
+
+use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
 
-fission_component! {
-    pub AndroidRelease<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid Northbank translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+
+    env
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FieldCheckState {
+    pub complete: bool,
+    pub locale: Locale,
+}
+
+impl Default for FieldCheckState {
+    fn default() -> Self {
+        Self {
+            complete: false,
+            locale: Locale::from("en-US"),
         }
     }
-    view(screen, _state, cx) {
+}
+
+impl GlobalState for FieldCheckState {}
+
+fission_component! {
+    pub FieldCheckApp<FieldCheckState> {}
+    view(_app, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let status = if state.complete {
+            cx.tr("inspection.status.complete")
+        } else {
+            cx.tr("inspection.status.due")
+        };
+        let action = if state.complete {
+            cx.tr("inspection.action.review")
+        } else {
+            cx.tr("inspection.action.complete")
+        };
+        let region_label = format!(
+            "{} · {}",
+            cx.tr("work_order.title"),
+            cx.tr("work_order.reference"),
+        );
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("northbank.field-check".to_string()),
+        label: Some(region_label),
         child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
+            Column(gap: tokens.spacing.l, children: [
+                Row(
+                    gap: tokens.spacing.m,
+                    wrap: ir_op::FlexWrap::Wrap,
+                    align_items: ir_op::AlignItems::Center,
+                    children: [
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text(cx.tr("app.name"))
+                                .weight(tokens.typography.font_weight_bold),
+                            Text(cx.tr("app.shift"))
+                                .color(tokens.colors.text_secondary),
+                        ]),
+                        Spacer(flex_grow: 1.0),
+                        Row(gap: tokens.spacing.xs, children: [
+                            Button(
+                                child: Text(cx.tr("language.english")),
+                                key: "locale-en-US",
+                                variant: if state.locale == Locale::from("en-US") {
+                                    ButtonVariant::Primary
+                                } else {
+                                    ButtonVariant::Outline
+                                },
+                                on_press: reduce {
+                                    state.locale = Locale::from("en-US");
+                                },
+                            )
+                            .semantics_identifier("northbank.locale.en-US"),
+                            Button(
+                                child: Text(cx.tr("language.spanish")),
+                                key: "locale-es-ES",
+                                variant: if state.locale == Locale::from("es-ES") {
+                                    ButtonVariant::Primary
+                                } else {
+                                    ButtonVariant::Outline
+                                },
+                                on_press: reduce {
+                                    state.locale = Locale::from("es-ES");
+                                },
+                            )
+                            .semantics_identifier("northbank.locale.es-ES"),
+                        ]),
+                    ],
+                ),
+                Divider(),
+                Row(
+                    gap: tokens.spacing.m,
+                    wrap: ir_op::FlexWrap::Wrap,
+                    align_items: ir_op::AlignItems::Center,
+                    children: [
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text(cx.tr("work_order.reference"))
+                                .weight(tokens.typography.font_weight_semibold),
+                            Text(cx.tr("work_order.title"))
+                                .size(tokens.typography.heading2_size)
+                                .weight(tokens.typography.font_weight_bold),
+                            Text(cx.tr("work_order.location"))
+                                .color(tokens.colors.text_secondary),
+                        ]),
+                        Spacer(flex_grow: 1.0),
+                        Badge(text: status),
+                    ],
+                ),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("inspection.step"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("inspection.instruction"))
                             .color(tokens.colors.text_secondary),
                     ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
-                        .color(tokens.colors.text_secondary),
-                ]),
-            ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Button(
+                    child: Text(action),
+                    key: "toggle-pressure-check",
+                    variant: if state.complete {
+                        ButtonVariant::Outline
+                    } else {
+                        ButtonVariant::Primary
+                    },
+                    on_press: reduce {
+                        state.complete = !state.complete;
+                    },
+                )
+                .semantics_identifier("northbank.inspection.toggle"),
+                Text(cx.tr("preview.scope"))
+                    .color(tokens.colors.text_secondary),
+            ]),
         )
         .padding_all(tokens.spacing.l)
         .bg(tokens.colors.surface)
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        .border_radius(tokens.radii.large)
+        .width_length(Length::percent(100.0)),
     )
 }
 ```
@@ -110,33 +227,90 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidRelease::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<app::FieldCheckState, _>::new(app::FieldCheckApp)
+        .with_env(app::create_env())
+        .with_sync_env(|state: &app::FieldCheckState, env: &mut Env| {
+            env.locale = state.locale.clone();
+        })
+        .with_title("Northbank Work Orders")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+app.name: "Northbank Maintenance"
+app.shift: "Today · Morning shift"
+language.english: "English"
+language.spanish: "Español"
+work_order.reference: "WO-1048 · Due 10:30"
+work_order.title: "Cold-room compressor"
+work_order.location: "Northbank Food Hub · Plant room"
+inspection.step: "Check operating pressure"
+inspection.instruction: "Confirm the reading is within the maintenance range before restarting the unit."
+inspection.status.due: "Check due"
+inspection.status.complete: "Check recorded"
+inspection.action.complete: "Record check"
+inspection.action.review: "Review check again"
+preview.scope: "Browser preview · sample work order · not saved to the device"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+app.name: "Mantenimiento Northbank"
+app.shift: "Hoy · Turno de mañana"
+language.english: "Inglés"
+language.spanish: "Español"
+work_order.reference: "OT-1048 · Vence a las 10:30"
+work_order.title: "Compresor de cámara fría"
+work_order.location: "Centro de alimentos Northbank · Sala de máquinas"
+inspection.step: "Comprueba la presión de funcionamiento"
+inspection.instruction: "Confirma que la lectura esté dentro del rango de mantenimiento antes de reiniciar la unidad."
+inspection.status.due: "Comprobación pendiente"
+inspection.status.complete: "Comprobación registrada"
+inspection.action.complete: "Registrar comprobación"
+inspection.action.review: "Revisar comprobación"
+preview.scope: "Vista previa web · orden de ejemplo · no se guarda en el dispositivo"
+```
+</TabItem>
 </Tabs>
+
 <!-- fission:preview -->
+<!-- fission:checkpoint -->
+Switch to Spanish and back to English, then record and review the pressure check. The layout keeps the work-order context visible beside its status. Reloading resets the sample state; that is expected because this browser preview is not the native work-order service or device integration.
+<!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
 ## Package and prepare a Fission Android app for release
 
-Set a stable reverse-domain Android application ID and explicit version code and version name before packaging. First run `fission readiness package --target android --format apk` to find missing SDK, identity, icon or signing inputs. Keep the signing key outside source control, build an APK for device testing, then build an AAB for an internal Play track. Inspect the artifact manifest and install the APK on a phone before uploading the AAB; a successful local install does not prove Play accepts the release.
+Set a stable application ID and increment the version code for every Play upload. The package fields belong in `fission.toml`:
+
+```toml
+[app]
+name = "Northbank Work Orders"
+app_id = "com.example.northbank.workorders"
+version = "1.0.0"
+build = 1
+
+[package.android]
+package_name = "com.example.northbank.workorders"
+version_code = 1
+version_name = "1.0.0"
+keystore_alias = "upload"
+keystore_env = "ANDROID_KEYSTORE"
+keystore_password_env = "ANDROID_KEYSTORE_PASSWORD"
+key_password_env = "ANDROID_KEY_PASSWORD"
+```
+
+Keep the keystore file and passwords outside the repository. Supply `ANDROID_KEYSTORE` and `ANDROID_KEYSTORE_PASSWORD` from a secure local or CI secret source; `ANDROID_KEYSTORE_ALIAS` defaults to `upload`, and `ANDROID_KEY_PASSWORD` defaults to the store password if it is not set. Run package readiness before building. Make an APK for device testing, then an AAB for Play; an APK install does not prove the Play upload will be accepted.
 
 
 
@@ -148,35 +322,20 @@ The compiled preview changes browser-local state only; it does not perform this 
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Inspect the Android release artifact
+## Check readiness, package, then install the APK
 
-Run the readiness command below before packaging so missing identity, version, SDK or signing inputs are reported before the release build. Keep signing keys and credentials outside the repository, then build the artifact that matches the store or test track.
-
-Install the produced package on a clean target and verify its identity, version, icon, permissions and launch path. A successful debug run does not prove that a signed release package is ready for upload.
-
-### Run, test and build
+Check both formats before producing either artifact. Readiness can find missing package inputs, but it cannot guarantee that Google Play will accept an upload. Keep the generated artifact manifest with the package and test the signed APK on a physical Android device before uploading the AAB.
 
 ```sh
-cargo test
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
-fission build --target android --project-dir . --release
+fission readiness package --project-dir . --target android --format apk
+fission package --project-dir . --target android --format apk --release
+fission readiness package --project-dir . --target android --format aab
+fission package --project-dir . --target android --format aab --release
+fission devices --project-dir .
+fission run --target android --device <adb-serial> --release --project-dir .
 ```
 
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
-
-
-### Emulator and connected-device commands
-
-Run these emulator checks from the generated project root:
-
-```sh
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
-```
-
+`fission run --release` builds and installs a release APK on the selected device, so release signing must be configured first. Use the artifact manifest emitted by `fission package` to locate and identify the APK/AAB; do not assume an output path from another Fission version.
 
 ### Current references
 

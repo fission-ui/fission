@@ -16,7 +16,7 @@ outcomes:
   - Check the pickup workflow in an iOS Simulator and on a device
 ---
 
-During the lunch rush, a barista needs to know which drinks are still being made and which customers can come to the counter. We will build a pickup board for North Pier Coffee with four sample orders, a count for each status, and actions to move an order from preparation to pickup.
+During the lunch rush, a barista needs to know which drinks are still being made and which customers can come to the counter. We will build a pickup board for North Pier Coffee with four sample orders, a count for each status, and actions to move an order from preparation to pickup. The sample tickets are seeded only by the browser preview. The shared component renders the orders it receives and shows an empty state when none are loaded; the next step connects it to shared app state.
 
 Order data stays in memory, so it resets when the app closes. That keeps this first iOS project focused on the screen and its state changes. The same Rust component runs in the browser preview and Fission's native iOS shell.
 
@@ -58,7 +58,7 @@ goes in the bag, and is it ready? Start with four tickets in different states.
 The order number gives the barista another way to confirm a handoff when two
 customers have similar names.
 
-Add an order status, a small order record, and a reusable card. This first screen is read-only. In the next step, status changes will go into shared app state so the summary and each card stay in sync.
+Add an order status, a small order record, and a reusable card. This is a static browser-preview checkpoint, not native launch data. In the next step, status changes will go into shared app state so the summary and each card stay in sync; the native app will have an empty state until real order data is loaded.
 
 An iPhone cannot show a long queue at once. The board uses a vertical `Scroll` region and gives it an accessible name, so VoiceOver users can find and move through the pickup queue.
 
@@ -67,7 +67,25 @@ An iPhone cannot show a long queue at once. The board uses a vertical `Scroll` r
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+use fission::i18n::{Locale, TranslationBundle};
+use std::collections::HashMap;
 
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(yaml).expect("valid North Pier Coffee translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OrderStatus {
     Preparing,
@@ -78,9 +96,9 @@ pub enum OrderStatus {
 impl OrderStatus {
     fn label(self) -> &'static str {
         match self {
-            Self::Preparing => "Being prepared",
-            Self::Ready => "Ready for pickup",
-            Self::Collected => "Collected",
+            Self::Preparing => "pickup.status.preparing",
+            Self::Ready => "pickup.status.ready",
+            Self::Collected => "pickup.status.collected",
         }
     }
 }
@@ -90,41 +108,8 @@ pub struct PickupOrder {
     pub id: u32,
     pub number: &'static str,
     pub customer: &'static str,
-    pub items: &'static str,
+    pub items_key: &'static str,
     pub status: OrderStatus,
-}
-
-fn starter_orders() -> Vec<PickupOrder> {
-    vec![
-        PickupOrder {
-            id: 204,
-            number: "#204",
-            customer: "Maya",
-            items: "Oat flat white · filter coffee",
-            status: OrderStatus::Preparing,
-        },
-        PickupOrder {
-            id: 205,
-            number: "#205",
-            customer: "Daniel",
-            items: "Two flat whites · cinnamon roll",
-            status: OrderStatus::Preparing,
-        },
-        PickupOrder {
-            id: 206,
-            number: "#206",
-            customer: "Amina",
-            items: "Iced mocha · almond croissant",
-            status: OrderStatus::Ready,
-        },
-        PickupOrder {
-            id: 207,
-            number: "#207",
-            customer: "Ezra",
-            items: "Batch brew · blueberry muffin",
-            status: OrderStatus::Collected,
-        },
-    ]
 }
 
 fission_component! {
@@ -134,10 +119,10 @@ fission_component! {
     } =>
     Container(
         Column(gap: tokens.spacing.xs, align_items: ir_op::AlignItems::Start, children: [
-            Text(format!("Order {} · {}", card.order.number, card.order.customer))
+            Text(format!("{} {} · {}", cx.tr("pickup.order"), card.order.number, card.order.customer))
                 .weight(tokens.typography.font_weight_semibold),
-            Text(card.order.items.to_string()).color(tokens.colors.text_secondary),
-            Text(format!("Status: {}", card.order.status.label()))
+            Text(cx.tr(card.order.items_key)).color(tokens.colors.text_secondary),
+            Text(format!("{}: {}", cx.tr("pickup.status"), cx.tr(card.order.status.label())))
                 .color(tokens.colors.text_secondary),
         ]),
     )
@@ -149,42 +134,47 @@ fission_component! {
 }
 
 fission_component! {
-    pub CafePickupBoard<()> {}
-    view(_board, _state, cx) {
+    pub CafePickupBoard<()> { orders: Vec<PickupOrder> }
+    view(board, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let orders = starter_orders();
+        let orders = &board.orders;
         let preparing = orders.iter().filter(|order| order.status == OrderStatus::Preparing).count();
         let ready = orders.iter().filter(|order| order.status == OrderStatus::Ready).count();
         let collected = orders.iter().filter(|order| order.status == OrderStatus::Collected).count();
     } =>
     SemanticsRegion(
         identifier: Some("cafe-pickup-board".to_string()),
-        label: Some("North Pier Coffee pickup board".to_string()),
+        label: Some(cx.tr("pickup.title")),
+        child: SafeArea(
         child: Scroll(
             flex_grow: 1.0,
-            height: cx.view.viewport_size().height,
-            semantic_label: Some("North Pier Coffee pickup queue".to_string()),
+            semantic_label: Some(cx.tr("pickup.queue.label")),
             child: Container(Column(
                 align_items: ir_op::AlignItems::Center,
                 children: [Container(
                     Column(gap: tokens.spacing.l, children: [
                         Column(gap: tokens.spacing.xs, children: [
-                            Text("North Pier Coffee")
+                            Text(cx.tr("pickup.title"))
                                 .weight(tokens.typography.font_weight_bold),
-                            Text("Lunch service · pickup queue")
+                            Text(cx.tr("pickup.subtitle"))
                                 .color(tokens.colors.text_secondary),
                         ]),
                         Column(gap: tokens.spacing.xs, children: [
-                            Text(format!("Preparing · {}", preparing)),
-                            Text(format!("Ready for pickup · {}", ready)),
-                            Text(format!("Collected · {}", collected))
+                            Text(format!("{} · {}", cx.tr("pickup.summary.preparing"), preparing)),
+                            Text(format!("{} · {}", cx.tr("pickup.summary.ready"), ready)),
+                            Text(format!("{} · {}", cx.tr("pickup.summary.collected"), collected))
                                 .color(tokens.colors.text_secondary),
                         ]),
-                        Column(gap: tokens.spacing.s, children: [
-                            for order in orders.iter() {
-                                PickupOrderCard(order.clone(), key: order.id)
-                            },
-                        ]),
+                        if orders.is_empty() {
+                            Text(cx.tr("pickup.empty"))
+                                .color(tokens.colors.text_secondary)
+                        } else {
+                            Column(gap: tokens.spacing.s, children: [
+                                for order in orders.iter() {
+                                    PickupOrderCard(order.clone(), key: order.id)
+                                },
+                            ])
+                        },
                     ]),
                 )
                 .padding_all(tokens.spacing.l)
@@ -198,6 +188,7 @@ fission_component! {
         )
         .width_length(Length::percent(100.0))
         .bg(tokens.colors.background),
+        ),
     ),
     )
 }
@@ -207,6 +198,8 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+#[path = "../preview/fixtures.rs"]
+mod fixtures;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -214,12 +207,92 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::CafePickupBoard::new())
+    WebApp::<(), _>::new(app::CafePickupBoard::new(fixtures::starter_orders()))
+        .with_env(app::create_env())
         .with_title("North Pier Coffee pickup board")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="preview/fixtures.rs">
+<!-- fission:file path="preview/fixtures.rs" -->
+```rust
+use crate::app::{OrderStatus, PickupOrder};
+
+pub fn starter_orders() -> Vec<PickupOrder> {
+    vec![
+        PickupOrder {
+            id: 204,
+            number: "#204",
+            customer: "Maya",
+            items_key: "pickup.items.maya",
+            status: OrderStatus::Preparing,
+        },
+        PickupOrder {
+            id: 205,
+            number: "#205",
+            customer: "Daniel",
+            items_key: "pickup.items.daniel",
+            status: OrderStatus::Preparing,
+        },
+        PickupOrder {
+            id: 206,
+            number: "#206",
+            customer: "Amina",
+            items_key: "pickup.items.amina",
+            status: OrderStatus::Ready,
+        },
+        PickupOrder {
+            id: 207,
+            number: "#207",
+            customer: "Ezra",
+            items_key: "pickup.items.ezra",
+            status: OrderStatus::Collected,
+        },
+    ]
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+pickup.title: "North Pier Coffee"
+pickup.subtitle: "Lunch service · pickup queue"
+pickup.empty: "There are no open orders yet."
+pickup.order: "Order"
+pickup.status: "Status"
+pickup.status.preparing: "Being prepared"
+pickup.status.ready: "Ready for pickup"
+pickup.status.collected: "Collected"
+pickup.summary.preparing: "Preparing"
+pickup.summary.ready: "Ready for pickup"
+pickup.summary.collected: "Collected"
+pickup.items.maya: "Oat flat white · filter coffee"
+pickup.items.daniel: "Two flat whites · cinnamon roll"
+pickup.items.amina: "Iced mocha · almond croissant"
+pickup.items.ezra: "Batch brew · blueberry muffin"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+pickup.title: "Café North Pier"
+pickup.subtitle: "Servicio de mediodía · pedidos para recoger"
+pickup.empty: "Todavía no hay pedidos abiertos."
+pickup.order: "Pedido"
+pickup.status: "Estado"
+pickup.status.preparing: "En preparación"
+pickup.status.ready: "Listo para recoger"
+pickup.status.collected: "Entregado"
+pickup.summary.preparing: "En preparación"
+pickup.summary.ready: "Listo para recoger"
+pickup.summary.collected: "Entregados"
+pickup.items.maya: "Flat white de avena · café filtrado"
+pickup.items.daniel: "Dos flat whites · rollo de canela"
+pickup.items.amina: "Moca frío · cruasán de almendra"
+pickup.items.ezra: "Café de filtro · magdalena de arándanos"
 ```
 </TabItem>
 </Tabs>
@@ -234,9 +307,9 @@ Find order #204 for Maya and read back both drinks. The summary should show two 
 <!-- fission:step id="move-orders-through-pickup" -->
 ## Move orders through the pickup queue
 
-An order's status affects its card and the counts above the list, so keep that data together in `CafeQueueState`. A typed reducer advances an order by its stable ID. “Hide collected” only changes this screen, so it belongs in the board component's local state, not in the shared order data.
+An order's status affects its card and the counts above the list, so keep that data together in `CafeQueueState`. An inline `reduce` block advances an order by its stable ID. “Hide collected” only changes this screen, so it belongs in the board component's local state, not in the shared order data.
 
-The reusable `PickupOrderCard` shows the next useful action: mark a preparing order ready, or mark a ready order collected. After collection, the card shows a handoff confirmation instead of a button. The order ID keeps each card's identity stable when the filter changes the list.
+The reusable `PickupOrderCard` shows the next useful action: mark a preparing order ready, or mark a ready order collected. After collection, the card shows a handoff confirmation instead of a button. The order ID keeps each card's identity stable when the filter changes the list. The inline block generates the reducer here; a separate named reducer would make sense if this transition were shared elsewhere or needed a richer policy.
 
 The vertical scroll region contains the whole board, including its counts and filter. On a smaller phone, staff can reach every ticket without shrinking the text or losing the summary controls.
 
@@ -247,6 +320,25 @@ Try order #204 in the preview. The first tap changes its status and moves one co
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+use fission::i18n::{Locale, TranslationBundle};
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(yaml).expect("valid North Pier Coffee translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OrderStatus {
@@ -256,11 +348,11 @@ pub enum OrderStatus {
 }
 
 impl OrderStatus {
-    fn label(self) -> &'static str {
+    fn label_key(self) -> &'static str {
         match self {
-            Self::Preparing => "Being prepared",
-            Self::Ready => "Ready for pickup",
-            Self::Collected => "Collected",
+            Self::Preparing => "pickup.status.preparing",
+            Self::Ready => "pickup.status.ready",
+            Self::Collected => "pickup.status.collected",
         }
     }
 
@@ -272,11 +364,11 @@ impl OrderStatus {
         }
     }
 
-    fn action_label(self) -> &'static str {
+    fn action_key(self) -> &'static str {
         match self {
-            Self::Preparing => "Mark ready",
-            Self::Ready => "Mark collected",
-            Self::Collected => "Collected",
+            Self::Preparing => "pickup.action.ready",
+            Self::Ready => "pickup.action.collect",
+            Self::Collected => "pickup.status.collected",
         }
     }
 }
@@ -286,109 +378,48 @@ pub struct PickupOrder {
     pub id: u32,
     pub number: &'static str,
     pub customer: &'static str,
-    pub items: &'static str,
+    pub items_key: &'static str,
     pub status: OrderStatus,
 }
 
-fn starter_orders() -> Vec<PickupOrder> {
-    vec![
-        PickupOrder {
-            id: 204,
-            number: "#204",
-            customer: "Maya",
-            items: "Oat flat white · filter coffee",
-            status: OrderStatus::Preparing,
-        },
-        PickupOrder {
-            id: 205,
-            number: "#205",
-            customer: "Daniel",
-            items: "Two flat whites · cinnamon roll",
-            status: OrderStatus::Preparing,
-        },
-        PickupOrder {
-            id: 206,
-            number: "#206",
-            customer: "Amina",
-            items: "Iced mocha · almond croissant",
-            status: OrderStatus::Ready,
-        },
-        PickupOrder {
-            id: 207,
-            number: "#207",
-            customer: "Ezra",
-            items: "Batch brew · blueberry muffin",
-            status: OrderStatus::Collected,
-        },
-    ]
-}
-
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct CafeQueueState {
     pub orders: Vec<PickupOrder>,
-    pub feedback: String,
-}
-
-impl Default for CafeQueueState {
-    fn default() -> Self {
-        Self {
-            orders: starter_orders(),
-            feedback: "New drinks are being prepared for the lunch pickup window.".to_string(),
-        }
-    }
+    pub last_update: Option<(u32, OrderStatus)>,
 }
 
 impl GlobalState for CafeQueueState {}
 
-#[fission_reducer(AdvanceOrder)]
-pub fn on_advance_order(state: &mut CafeQueueState, order_id: u32) {
-    let update = state
-        .orders
-        .iter_mut()
-        .find(|order| order.id == order_id)
-        .map(|order| {
-            order.status = order.status.next();
-            (order.number, order.customer, order.status)
-        });
-
-    if let Some((number, customer, status)) = update {
-        state.feedback = format!(
-            "Order {} for {} is now {}.",
-            number,
-            customer,
-            status.label().to_lowercase()
-        );
-    }
-}
-
 fission_component! {
     pub PickupOrderCard<CafeQueueState> { order: PickupOrder }
-    view(card, _state, cx) {
+    view(card, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
         Column(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Start, children: [
             Column(gap: tokens.spacing.xs, children: [
-                Text(format!("Order {} · {}", card.order.number, card.order.customer))
+                Text(format!("{} {} · {}", cx.tr("pickup.order"), card.order.number, card.order.customer))
                     .weight(tokens.typography.font_weight_semibold),
-                Text(card.order.items.to_string()).color(tokens.colors.text_secondary),
-                Text(format!("Status: {}", card.order.status.label()))
+                Text(cx.tr(card.order.items_key)).color(tokens.colors.text_secondary),
+                Text(format!("{}: {}", cx.tr("pickup.status"), cx.tr(card.order.status.label_key())))
                     .color(tokens.colors.text_secondary),
             ]),
             if card.order.status != OrderStatus::Collected {
                 Button(
-                    child: Text(card.order.status.action_label()),
+                    child: Text(cx.tr(card.order.status.action_key())),
                     key: "advance-order",
                     variant: ButtonVariant::Primary,
-                    on_press: with_reducer!(
-                        cx.build,
-                        AdvanceOrder(card.order.id),
-                        on_advance_order,
-                    ),
+                    on_press: reduce {
+                        if let Some(order) = state.orders.iter_mut().find(|order| order.id == card.order.id) {
+                            let next_status = order.status.next();
+                            order.status = next_status;
+                            state.last_update = Some((card.order.id, next_status));
+                        }
+                    },
                 )
                 .semantics_identifier(format!("pickup-order-{}-advance", card.order.id))
             } else {
-                Text("Handed to the customer.")
+                Text(cx.tr("pickup.handed_off"))
                     .color(tokens.colors.text_secondary)
             },
         ]),
@@ -421,36 +452,48 @@ fission_component! {
             .filter(|order| !board.hide_collected || order.status != OrderStatus::Collected)
             .cloned()
             .collect();
+        let feedback = app.last_update
+            .and_then(|(order_id, status)| {
+                let order = app.orders.iter().find(|order| order.id == order_id)?;
+                Some(format!(
+                    "{} {} · {}: {}",
+                    cx.tr("pickup.feedback.updated"),
+                    order.number,
+                    order.customer,
+                    cx.tr(status.label_key()),
+                ))
+            })
+            .unwrap_or_else(|| cx.tr("pickup.feedback.ready"));
     } =>
     SemanticsRegion(
         identifier: Some("cafe-pickup-board".to_string()),
-        label: Some("North Pier Coffee pickup board".to_string()),
-        child: Scroll(
+        label: Some(cx.tr("pickup.title")),
+        child: SafeArea(
+            child: Scroll(
             flex_grow: 1.0,
-            height: cx.view.viewport_size().height,
-            semantic_label: Some("North Pier Coffee pickup queue".to_string()),
+            semantic_label: Some(cx.tr("pickup.queue.label")),
             child: Container(Column(
                 align_items: ir_op::AlignItems::Center,
                 children: [Container(
                     Column(gap: tokens.spacing.l, children: [
                         Column(gap: tokens.spacing.xs, children: [
-                            Text("North Pier Coffee")
+                            Text(cx.tr("pickup.title"))
                                 .weight(tokens.typography.font_weight_bold),
-                            Text("Lunch service · pickup queue")
+                            Text(cx.tr("pickup.subtitle"))
                                 .color(tokens.colors.text_secondary),
                         ]),
                         Column(gap: tokens.spacing.xs, children: [
-                            Text(format!("Preparing · {}", preparing)),
-                            Text(format!("Ready for pickup · {}", ready)),
-                            Text(format!("Collected · {}", collected))
+                            Text(format!("{} · {}", cx.tr("pickup.summary.preparing"), preparing)),
+                            Text(format!("{} · {}", cx.tr("pickup.summary.ready"), ready)),
+                            Text(format!("{} · {}", cx.tr("pickup.summary.collected"), collected))
                                 .color(tokens.colors.text_secondary),
                         ]),
                         Button(
-                            child: Text(if board.hide_collected {
-                                "Show the full queue"
+                            child: Text(cx.tr(if board.hide_collected {
+                                "pickup.filter.all"
                             } else {
-                                "Hide collected orders"
-                            }),
+                                "pickup.filter.active"
+                            })),
                             key: "toggle-collected-orders",
                             variant: ButtonVariant::Outline,
                             on_press: reduce {
@@ -459,7 +502,7 @@ fission_component! {
                         )
                         .semantics_identifier("cafe-queue.toggle-collected"),
                         if visible_orders.is_empty() {
-                            Text("Every order is collected. Show the full queue to review today's tickets.")
+                            Text(cx.tr(if app.orders.is_empty() { "pickup.empty" } else { "pickup.all_collected" }))
                         } else {
                             Column(gap: tokens.spacing.s, children: [
                                 for order in visible_orders.iter() {
@@ -467,7 +510,7 @@ fission_component! {
                                 },
                             ])
                         },
-                        Text(app.feedback.clone()).color(tokens.colors.text_secondary),
+                        Text(feedback).color(tokens.colors.text_secondary),
                     ]),
                 )
                 .padding_all(tokens.spacing.l)
@@ -481,8 +524,9 @@ fission_component! {
         )
         .width_length(Length::percent(100.0))
         .bg(tokens.colors.background),
+            ),
+        ),
     ),
-    )
 }
 ```
 </TabItem>
@@ -491,7 +535,7 @@ fission_component! {
 ```rust
 mod app;
 
-use app::CafeQueueState;
+use app::{CafeQueueState, OrderStatus, PickupOrder};
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
@@ -499,11 +543,78 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     WebApp::<CafeQueueState, _>::new(app::CafePickupBoard::new())
+        .with_env(app::create_env())
+        .with_state_init(|state| {
+            state.orders = vec![
+                PickupOrder { id: 204, number: "#204", customer: "Maya", items_key: "pickup.items.maya", status: OrderStatus::Preparing },
+                PickupOrder { id: 205, number: "#205", customer: "Daniel", items_key: "pickup.items.daniel", status: OrderStatus::Preparing },
+                PickupOrder { id: 206, number: "#206", customer: "Amina", items_key: "pickup.items.amina", status: OrderStatus::Ready },
+                PickupOrder { id: 207, number: "#207", customer: "Ezra", items_key: "pickup.items.ezra", status: OrderStatus::Collected },
+            ];
+        })
         .with_title("North Pier Coffee pickup board")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+pickup.title: "North Pier Coffee"
+pickup.subtitle: "Lunch service · pickup queue"
+pickup.queue.label: "North Pier Coffee pickup queue"
+pickup.order: "Order"
+pickup.status: "Status"
+pickup.status.preparing: "Being prepared"
+pickup.status.ready: "Ready for pickup"
+pickup.status.collected: "Collected"
+pickup.summary.preparing: "Preparing"
+pickup.summary.ready: "Ready for pickup"
+pickup.summary.collected: "Collected"
+pickup.items.maya: "Oat flat white · filter coffee"
+pickup.items.daniel: "Two flat whites · cinnamon roll"
+pickup.items.amina: "Iced mocha · almond croissant"
+pickup.items.ezra: "Batch brew · blueberry muffin"
+pickup.action.ready: "Mark ready"
+pickup.action.collect: "Mark collected"
+pickup.handed_off: "Handed to the customer."
+pickup.filter.all: "Show the full queue"
+pickup.filter.active: "Hide collected orders"
+pickup.empty: "No pickup orders have loaded. Connect the board to your order service before use."
+pickup.all_collected: "Every order is collected. Show the full queue to review today's tickets."
+pickup.feedback.ready: "The pickup queue is ready."
+pickup.feedback.updated: "Order status updated:"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+pickup.title: "Café North Pier"
+pickup.subtitle: "Servicio de mediodía · pedidos para recoger"
+pickup.queue.label: "Cola de pedidos de Café North Pier"
+pickup.order: "Pedido"
+pickup.status: "Estado"
+pickup.status.preparing: "En preparación"
+pickup.status.ready: "Listo para recoger"
+pickup.status.collected: "Entregado"
+pickup.summary.preparing: "En preparación"
+pickup.summary.ready: "Listo para recoger"
+pickup.summary.collected: "Entregados"
+pickup.items.maya: "Flat white de avena · café filtrado"
+pickup.items.daniel: "Dos flat whites · rollo de canela"
+pickup.items.amina: "Moca frío · cruasán de almendra"
+pickup.items.ezra: "Café de filtro · magdalena de arándanos"
+pickup.action.ready: "Marcar como listo"
+pickup.action.collect: "Marcar como entregado"
+pickup.handed_off: "Entregado al cliente."
+pickup.filter.all: "Mostrar toda la cola"
+pickup.filter.active: "Ocultar pedidos entregados"
+pickup.empty: "No se han cargado pedidos. Conecta la cola a tu servicio de pedidos antes de usarla."
+pickup.all_collected: "Todos los pedidos están entregados. Muestra la cola para revisar los tickets de hoy."
+pickup.feedback.ready: "La cola está lista."
+pickup.feedback.updated: "Estado del pedido actualizado:"
 ```
 </TabItem>
 </Tabs>
@@ -531,18 +642,22 @@ use fission::prelude::*;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn mobile_app() -> MobileApp<CafeQueueState, CafePickupBoard> {
     MobileApp::<CafeQueueState, _>::new(CafePickupBoard::new())
+        .with_env(app::create_env())
         .with_title("North Pier Coffee pickup board")
 }
 
 #[cfg(target_arch = "wasm32")]
 fn web_app() -> WebApp<CafeQueueState, CafePickupBoard> {
     WebApp::<CafeQueueState, _>::new(CafePickupBoard::new())
+        .with_env(app::create_env())
         .with_title("North Pier Coffee pickup board")
 }
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> anyhow::Result<()> {
-    DesktopApp::<CafeQueueState, _>::new(CafePickupBoard::new()).run()
+    DesktopApp::<CafeQueueState, _>::new(CafePickupBoard::new())
+        .with_env(app::create_env())
+        .run()
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]

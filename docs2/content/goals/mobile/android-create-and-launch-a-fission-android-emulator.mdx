@@ -66,42 +66,99 @@ This screen is only a small thing for the project to install and launch. It does
 use fission::prelude::*;
 
 fission_component! {
-    pub AndroidEmulatorLaunch<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub AndroidEmulatorReadiness<()> {
+        state {
+            sdk_check_marked: bool = false,
+            avd_check_marked: bool = false,
         }
     }
-    view(screen, _state, cx) {
+    view(setup, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let status = if setup.avd_check_marked {
+            cx.tr("preview.state.ready")
+        } else if setup.sdk_check_marked {
+            cx.tr("preview.state.next")
+        } else {
+            cx.tr("preview.state.check")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("android-emulator-checklist".to_string()),
+        label: Some(cx.tr("preview.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
+                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                    Text(cx.tr("preview.app.name"))
+                        .weight(tokens.typography.font_weight_bold),
                     Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
+                    Badge(text: cx.tr("preview.badge")),
                 ]),
                 Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
+                Text(cx.tr("preview.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("preview.description"))
+                    .color(tokens.colors.text_secondary),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("preview.step.sdk"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("preview.step.sdk.detail"))
+                            .color(tokens.colors.text_secondary),
+                        Button(
+                            child: Text(if setup.sdk_check_marked {
+                                cx.tr("preview.action.sdk.done")
+                            } else {
+                                cx.tr("preview.action.sdk.start")
+                            }),
+                            key: "sdk-check",
+                            variant: ButtonVariant::Outline,
+                            disabled: setup.sdk_check_marked,
+                            on_press: reduce { setup.sdk_check_marked = true; },
+                        ),
+                        Text(cx.tr("preview.step.avd"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("preview.step.avd.detail"))
+                            .color(tokens.colors.text_secondary),
+                        Button(
+                            child: Text(if setup.avd_check_marked {
+                                cx.tr("preview.action.avd.done")
+                            } else {
+                                cx.tr("preview.action.avd.start")
+                            }),
+                            key: "avd-check",
+                            variant: ButtonVariant::Outline,
+                            disabled: !setup.sdk_check_marked || setup.avd_check_marked,
+                            on_press: reduce { setup.avd_check_marked = true; },
+                        ),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
                 Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
+                    Badge(text: status),
+                    Text(cx.tr("preview.status.description"))
                         .color(tokens.colors.text_secondary),
                 ]),
+                if setup.avd_check_marked {
+                    Container(
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text(cx.tr("preview.command.title"))
+                                .weight(tokens.typography.font_weight_semibold),
+                            Text("./platforms/android/run-emulator.sh"),
+                            Text(cx.tr("preview.command.detail"))
+                                .color(tokens.colors.text_secondary),
+                        ])
+                    )
+                    .padding_all(tokens.spacing.m)
+                    .bg(tokens.colors.surface)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium)
+                } else {
+                    Text(cx.tr("preview.footer"))
+                        .color(tokens.colors.text_secondary)
+                },
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -120,23 +177,81 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidEmulatorLaunch::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::AndroidEmulatorReadiness)
+        .with_env(preview_env())
+        .with_title("Fission Android Emulator Setup")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+preview.app.name: "Android emulator setup"
+preview.badge: "Manual preflight"
+preview.title: "Get the emulator ready"
+preview.description: "Work through the Android setup checks before launching the app. This browser preview records your checklist choices; it cannot inspect the SDK or control an emulator."
+preview.step.sdk: "1. Android SDK and NDK"
+preview.step.sdk.detail: "Install the platform, build tools, NDK and an arm64 Google APIs system image."
+preview.step.avd: "2. Boot an arm64 AVD"
+preview.step.avd.detail: "Create or start the emulator after the required image is installed."
+preview.action.sdk.start: "Mark SDK and NDK check complete"
+preview.action.sdk.done: "SDK and NDK check marked"
+preview.action.avd.start: "Mark AVD boot check complete"
+preview.action.avd.done: "AVD boot check marked"
+preview.state.check: "SDK check not marked"
+preview.state.next: "SDK check marked · AVD still to verify"
+preview.state.ready: "Both checks marked manually"
+preview.status.description: "These are your checklist marks, not device results. Confirm both checks in the terminal."
+preview.command.title: "When the checks are complete, run the generated launcher"
+preview.command.detail: "The terminal command—not this browser checklist—builds, installs and launches on the AVD."
+preview.footer: "Follow the tutorial commands in a terminal to verify the real host and device."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+preview.app.name: "Configuración del emulador Android"
+preview.badge: "Comprobación manual"
+preview.title: "Prepara el emulador"
+preview.description: "Completa las comprobaciones de Android antes de iniciar la app. Esta vista web guarda tus selecciones; no puede inspeccionar el SDK ni controlar un emulador."
+preview.step.sdk: "1. SDK y NDK de Android"
+preview.step.sdk.detail: "Instala la plataforma, las herramientas de compilación, el NDK y una imagen arm64 de Google APIs."
+preview.step.avd: "2. Inicia un AVD arm64"
+preview.step.avd.detail: "Crea o inicia el emulador después de instalar la imagen necesaria."
+preview.action.sdk.start: "Marcar comprobación del SDK y NDK"
+preview.action.sdk.done: "Comprobación del SDK y NDK marcada"
+preview.action.avd.start: "Marcar comprobación de inicio del AVD"
+preview.action.avd.done: "Comprobación del AVD marcada"
+preview.state.check: "Comprobación del SDK sin marcar"
+preview.state.next: "Comprobación del SDK marcada · falta verificar el AVD"
+preview.state.ready: "Ambas comprobaciones marcadas manualmente"
+preview.status.description: "Son marcas de tu lista, no resultados del dispositivo. Confirma ambas comprobaciones en la terminal."
+preview.command.title: "Cuando termines las comprobaciones, ejecuta el lanzador generado"
+preview.command.detail: "El comando de la terminal—no esta lista del navegador—compila, instala e inicia la app en el AVD."
+preview.footer: "Sigue los comandos del tutorial en una terminal para verificar el host y el dispositivo reales."
 ```
 </TabItem>
 </Tabs>

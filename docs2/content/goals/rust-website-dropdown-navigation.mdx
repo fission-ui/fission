@@ -25,6 +25,7 @@ Install the Fission CLI and scaffold the Static site project:
 cargo install cargo-fission
 fission init harbour-site --template website
 cd harbour-site
+cargo add serde_yaml
 ```
 
 ## Project layout
@@ -102,47 +103,80 @@ Create `content/products/index.mdx`, `desktop.mdx` and `mobile.mdx`. Give each p
 <!-- fission:step id="start-screen" -->
 ## Render product links in the site header
 
-This first preview is a task card, not the site header. Its copy comes through props and its spacing uses theme tokens. Next, put Products and its destinations in the header before adding open and close behaviour.
+The preview is Harbour's product site header with working destinations. Choose Products, Desktop apps, or Mobile apps and the page content changes; the next step turns the product links into an accessible dropdown.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProductPage {
+    Overview,
+    Desktop,
+    Mobile,
+    About,
+}
+
 fission_component! {
     pub WebsiteNavigation<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
+        state {
+            active_page: ProductPage = ProductPage::Overview,
         }
     }
-    view(preview, _state, cx) {
+    view(site, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Row(gap: tokens.spacing.m,
-                    children: [Text("Harbour"),
-                        Text("Products"),
-                        Text("Desktop apps"),
-                        Text("Mobile apps")]),
-                Text(format!("Next action: {}",
-                        preview.action)),
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
+    SemanticsRegion(
+        identifier: Some("harbour.site".to_string()),
+        label: Some(cx.tr("site.a11y")),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                    Text(cx.tr("brand")).size(tokens.typography.heading2_size),
+                    Spacer(flex_grow: 1.0),
+                    Button(child: Text(cx.tr("nav.products")), key: "products",
+                        on_press: reduce { site.active_page = ProductPage::Overview; })
+                        .semantics_identifier("harbour.nav.products"),
+                    Button(child: Text(cx.tr("nav.desktop")), key: "desktop",
+                        on_press: reduce { site.active_page = ProductPage::Desktop; })
+                        .semantics_identifier("harbour.nav.desktop"),
+                    Button(child: Text(cx.tr("nav.mobile")), key: "mobile",
+                        on_press: reduce { site.active_page = ProductPage::Mobile; })
+                        .semantics_identifier("harbour.nav.mobile"),
+                ]),
+                Divider(),
+                Column(gap: tokens.spacing.s, children: [
+                    Text(if site.active_page == ProductPage::Desktop {
+                        cx.tr("page.desktop.title")
+                    } else if site.active_page == ProductPage::Mobile {
+                        cx.tr("page.mobile.title")
+                    } else {
+                        cx.tr("page.products.title")
+                    })
+                    .size(tokens.typography.heading1_size),
+                    Text(if site.active_page == ProductPage::Desktop {
+                        cx.tr("page.desktop.description")
+                    } else if site.active_page == ProductPage::Mobile {
+                        cx.tr("page.mobile.description")
+                    } else {
+                        cx.tr("page.products.description")
+                    })
+                    .color(tokens.colors.text_secondary),
+                    Text(if site.active_page == ProductPage::Desktop {
+                        cx.tr("page.desktop.platforms")
+                    } else if site.active_page == ProductPage::Mobile {
+                        cx.tr("page.mobile.platforms")
+                    } else {
+                        cx.tr("page.products.detail")
+                    }),
+                ]),
+            ])
         )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
 }
 ```
 </TabItem>
@@ -150,26 +184,97 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
-use fission::prelude::*;
 use wasm_bindgen::prelude::*;
+use fission::prelude::*;
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::WebsiteNavigation::new(
-        "Harbour products".to_string(),
-        "Choose a destination from the Products menu.".to_string(),
-        "Open Products".to_string(),
-        "The Products menu is open. Choose a destination to continue.".to_string(),
-        "No product destination is selected yet.".to_string(),
-    );
+    let preview = app::WebsiteNavigation::new();
     WebApp::<(), _>::new(preview)
+        .with_env(translations::create_env())
         .with_title("Build a Rust website with accessible dropdown navigation")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../i18n/es-ES.yaml")),
+];
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in SOURCES {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid tutorial translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+site.a11y: "Harbour product website"
+brand: "Harbour"
+nav.products: "Products"
+nav.desktop: "Desktop apps"
+nav.mobile: "Mobile apps"
+nav.products.a11y: "Products menu"
+nav.about: "About"
+nav.overview: "Products overview"
+page.desktop.title: "Desktop tools for teams that need a clear view of the work"
+page.mobile.title: "Mobile apps for teams working away from their desks"
+page.products.title: "Software that keeps your team's work moving"
+page.about.title: "Tools built around the way teams work"
+page.desktop.description: "Plan, review and share projects from one desktop workspace."
+page.mobile.description: "Keep tasks and updates available on Android and iOS."
+page.products.description: "Choose a product to see how Harbour helps your team work across devices."
+page.about.description: "Harbour brings planning, project updates and shared ownership into one calm workspace."
+page.desktop.platforms: "Desktop apps · Windows, macOS and Linux"
+page.mobile.platforms: "Mobile apps · Android and iOS"
+page.products.detail: "One product family, with a clear page for each platform."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+site.a11y: "Sitio web de productos de Harbour"
+brand: "Harbour"
+nav.products: "Productos"
+nav.desktop: "Aplicaciones de escritorio"
+nav.mobile: "Aplicaciones móviles"
+nav.products.a11y: "Menú de productos"
+nav.about: "Acerca de"
+nav.overview: "Resumen de productos"
+page.desktop.title: "Herramientas de escritorio para equipos que necesitan tener claro el trabajo"
+page.mobile.title: "Aplicaciones móviles para equipos que trabajan fuera de la oficina"
+page.products.title: "Software que mantiene el trabajo de tu equipo en marcha"
+page.about.title: "Herramientas pensadas para la forma de trabajar de los equipos"
+page.desktop.description: "Planifica, revisa y comparte proyectos desde un único espacio de trabajo."
+page.mobile.description: "Consulta tareas y novedades en Android e iOS."
+page.products.description: "Elige un producto para ver cómo Harbour ayuda a tu equipo en distintos dispositivos."
+page.about.description: "Harbour reúne planificación, novedades del proyecto y responsabilidades compartidas en un espacio de trabajo claro."
+page.desktop.platforms: "Aplicaciones de escritorio · Windows, macOS y Linux"
+page.mobile.platforms: "Aplicaciones móviles · Android e iOS"
+page.products.detail: "Una familia de productos con una página clara para cada plataforma."
 ```
 </TabItem>
 </Tabs>
@@ -185,59 +290,122 @@ Render product links in the site header: Confirm the initial screen names the ta
 
 The Products menu needs one piece of retained state: whether it is open. Keep that state in the navigation component because no other screen needs it. Use a Fission `Button` for the toggle so focus, Enter, Space and pointer activation all use the same control.
 
-Keep Products itself linked to the overview page. If the menu is closed, people can still get where they need to go. The preview below shows the menu state changing and lets you select a destination. This is view-only state; values shared across routes belong in `GlobalState` and change through reducers.
+Keep the Products overview available when the menu is closed. The preview shows the menu opening and closing, then changes the page when a destination is chosen. The menu-open value belongs in the retained navigation component; shared data across routes belongs in `GlobalState` and changes through reducers.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProductPage {
+    Overview,
+    Desktop,
+    Mobile,
+    About,
+}
+
 fission_component! {
     pub WebsiteNavigation<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
         state {
             menu_open: bool = false,
-            active_page: usize = 0,
-            has_error: bool = false,
+            active_page: ProductPage = ProductPage::Overview,
         }
     }
-    view(preview, _state, cx) {
+    view(site, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Button(child: Text(if preview.menu_open { "Close Products".to_string() } else { preview.action.clone() }),
-                    key: "products-menu",
-                    on_press: reduce { preview.menu_open = !preview.menu_open; }),
-                if preview.menu_open { Column(children: [Button(child: Text("Desktop apps"),
+    SemanticsRegion(
+        identifier: Some("harbour.site".to_string()),
+        label: Some(cx.tr("site.a11y")),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Text(cx.tr("brand")).size(tokens.typography.heading2_size),
+                    Spacer(flex_grow: 1.0),
+                    Button(
+                        child: Text(cx.tr("nav.products")),
+                        key: "products-menu",
+                        semantics: Some(Semantics {
+                            label: Some(cx.tr("nav.products.a11y")),
+                            identifier: Some("harbour.nav.products".to_string()),
+                            expanded: Some(site.menu_open),
+                            has_popup: Some(PopupKind::Menu),
+                            ..Default::default()
+                        }),
+                        on_press: reduce { site.menu_open = !site.menu_open; },
+                    ),
+                    Button(
+                        child: Text(cx.tr("nav.about")),
+                        key: "about",
+                        on_press: reduce {
+                            site.active_page = ProductPage::About;
+                            site.menu_open = false;
+                        },
+                    ).semantics_identifier("harbour.nav.about"),
+                ]),
+                if site.menu_open {
+                    Container(
+                        Column(gap: tokens.spacing.xs, children: [
+                            Button(
+                                child: Text(cx.tr("nav.overview")),
+                                key: "products-overview",
+                                on_press: reduce {
+                                    site.active_page = ProductPage::Overview;
+                                    site.menu_open = false;
+                                },
+                            ).semantics_identifier("harbour.nav.products.overview"),
+                            Button(
+                                child: Text(cx.tr("nav.desktop")),
                                 key: "desktop-link",
-                                on_press: reduce { preview.active_page = 1;
-                                    preview.menu_open = false; }),
-                            Button(child: Text("Mobile apps"),
+                                on_press: reduce {
+                                    site.active_page = ProductPage::Desktop;
+                                    site.menu_open = false;
+                                },
+                            ).semantics_identifier("harbour.nav.products.desktop"),
+                            Button(
+                                child: Text(cx.tr("nav.mobile")),
                                 key: "mobile-link",
-                                on_press: reduce { preview.active_page = 2;
-                                    preview.menu_open = false; })]) } else { Text(if preview.active_page == 1 { "Desktop apps" } else if preview.active_page == 2 { "Mobile apps" } else { "Product overview" }) },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a missing destination".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("That destination is unavailable. Return to Products and choose a current page.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
+                                on_press: reduce {
+                                    site.active_page = ProductPage::Mobile;
+                                    site.menu_open = false;
+                                },
+                            ).semantics_identifier("harbour.nav.products.mobile"),
+                        ]),
+                    )
+                    .padding_all(tokens.spacing.s)
+                    .bg(tokens.colors.surface_raised)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium)
+                },
+                Divider(),
+                Column(gap: tokens.spacing.s, children: [
+                    Text(if site.active_page == ProductPage::Desktop {
+                        cx.tr("page.desktop.title")
+                    } else if site.active_page == ProductPage::Mobile {
+                        cx.tr("page.mobile.title")
+                    } else if site.active_page == ProductPage::About {
+                        cx.tr("page.about.title")
+                    } else {
+                        cx.tr("page.products.title")
+                    })
+                    .size(tokens.typography.heading1_size),
+                    Text(if site.active_page == ProductPage::Desktop {
+                        cx.tr("page.desktop.description")
+                    } else if site.active_page == ProductPage::Mobile {
+                        cx.tr("page.mobile.description")
+                    } else if site.active_page == ProductPage::About {
+                        cx.tr("page.about.description")
+                    } else {
+                        cx.tr("page.products.description")
+                    })
+                    .color(tokens.colors.text_secondary),
+                ]),
+            ])
         )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
 }
 ```
 </TabItem>
@@ -245,6 +413,7 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -252,14 +421,9 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::WebsiteNavigation::new(
-        "Harbour products".to_string(),
-        "Choose a destination from the Products menu.".to_string(),
-        "Open Products".to_string(),
-        "The Products menu is open. Choose a destination to continue.".to_string(),
-        "No product destination is selected yet.".to_string(),
-    );
+    let preview = app::WebsiteNavigation::new();
     WebApp::<(), _>::new(preview)
+        .with_env(translations::create_env())
         .with_title("Build a Rust website with accessible dropdown navigation")
         .mount("#fission-web-mount")
         .run()
@@ -271,68 +435,131 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Add an open and close state: Use the preview control and check that the result matches the action.
+Open Products, choose Desktop apps, then open it again and choose Mobile apps. The menu should close after either destination is selected.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Handle missing destinations and test keyboard use
+## Keep destinations usable on phones and by keyboard
 
 Add the three Markdown routes and check that each one has a distinct title, a useful search description, a clear first heading and a next step. The compact layout stacks the menu entries so they still fit on a phone.
 
-The preview also has a control that simulates a missing destination. It shows the error and recovery path, but it does not make a network, database or file-system request. In the real app, keep I/O out of component conversion: reducers make the state transition, then an effect, capability, job or service performs asynchronous work without blocking the UI.
+Use Tab to reach the Products button, press Enter or Space to open it, then use the same keys to choose a destination. The preview models those screen changes locally; in the published site, each destination is a normal link to its own Markdown route. There is no network request in this menu, so it does not need an effect.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProductPage {
+    Overview,
+    Desktop,
+    Mobile,
+    About,
+}
+
 fission_component! {
     pub WebsiteNavigation<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
         state {
             menu_open: bool = false,
-            active_page: usize = 0,
-            has_error: bool = false,
+            active_page: ProductPage = ProductPage::Overview,
         }
     }
-    view(preview, _state, cx) {
+    view(site, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Button(child: Text(if preview.menu_open { "Close Products".to_string() } else { preview.action.clone() }),
-                    key: "products-menu",
-                    on_press: reduce { preview.menu_open = !preview.menu_open; }),
-                if preview.menu_open { Column(children: [Button(child: Text("Desktop apps"),
+    SemanticsRegion(
+        identifier: Some("harbour.site".to_string()),
+        label: Some(cx.tr("site.a11y")),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Text(cx.tr("brand")).size(tokens.typography.heading2_size),
+                    Spacer(flex_grow: 1.0),
+                    Button(
+                        child: Text(cx.tr("nav.products")),
+                        key: "products-menu",
+                        semantics: Some(Semantics {
+                            label: Some(cx.tr("nav.products.a11y")),
+                            identifier: Some("harbour.nav.products".to_string()),
+                            expanded: Some(site.menu_open),
+                            has_popup: Some(PopupKind::Menu),
+                            ..Default::default()
+                        }),
+                        on_press: reduce { site.menu_open = !site.menu_open; },
+                    ),
+                    Button(
+                        child: Text(cx.tr("nav.about")),
+                        key: "about",
+                        on_press: reduce {
+                            site.active_page = ProductPage::About;
+                            site.menu_open = false;
+                        },
+                    ).semantics_identifier("harbour.nav.about"),
+                ]),
+                if site.menu_open {
+                    Container(
+                        Column(gap: tokens.spacing.xs, children: [
+                            Button(
+                                child: Text(cx.tr("nav.overview")),
+                                key: "products-overview",
+                                on_press: reduce {
+                                    site.active_page = ProductPage::Overview;
+                                    site.menu_open = false;
+                                },
+                            ).semantics_identifier("harbour.nav.products.overview"),
+                            Button(
+                                child: Text(cx.tr("nav.desktop")),
                                 key: "desktop-link",
-                                on_press: reduce { preview.active_page = 1;
-                                    preview.menu_open = false; }),
-                            Button(child: Text("Mobile apps"),
+                                on_press: reduce {
+                                    site.active_page = ProductPage::Desktop;
+                                    site.menu_open = false;
+                                },
+                            ).semantics_identifier("harbour.nav.products.desktop"),
+                            Button(
+                                child: Text(cx.tr("nav.mobile")),
                                 key: "mobile-link",
-                                on_press: reduce { preview.active_page = 2;
-                                    preview.menu_open = false; })]) } else { Text(if preview.active_page == 1 { "Desktop apps" } else if preview.active_page == 2 { "Mobile apps" } else { "Product overview" }) },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a missing destination".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("That destination is unavailable. Return to Products and choose a current page.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
+                                on_press: reduce {
+                                    site.active_page = ProductPage::Mobile;
+                                    site.menu_open = false;
+                                },
+                            ).semantics_identifier("harbour.nav.products.mobile"),
+                        ]),
+                    )
+                    .padding_all(tokens.spacing.s)
+                    .bg(tokens.colors.surface_raised)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium)
+                },
+                Divider(),
+                Column(gap: tokens.spacing.s, children: [
+                    Text(if site.active_page == ProductPage::Desktop {
+                        cx.tr("page.desktop.title")
+                    } else if site.active_page == ProductPage::Mobile {
+                        cx.tr("page.mobile.title")
+                    } else if site.active_page == ProductPage::About {
+                        cx.tr("page.about.title")
+                    } else {
+                        cx.tr("page.products.title")
+                    })
+                    .size(tokens.typography.heading1_size),
+                    Text(if site.active_page == ProductPage::Desktop {
+                        cx.tr("page.desktop.description")
+                    } else if site.active_page == ProductPage::Mobile {
+                        cx.tr("page.mobile.description")
+                    } else if site.active_page == ProductPage::About {
+                        cx.tr("page.about.description")
+                    } else {
+                        cx.tr("page.products.description")
+                    })
+                    .color(tokens.colors.text_secondary),
+                ]),
+            ])
         )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
 }
 ```
 </TabItem>
@@ -340,6 +567,7 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -347,14 +575,9 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::WebsiteNavigation::new(
-        "Harbour products".to_string(),
-        "Choose a destination from the Products menu.".to_string(),
-        "Open Products".to_string(),
-        "The Products menu is open. Choose a destination to continue.".to_string(),
-        "No product destination is selected yet.".to_string(),
-    );
+    let preview = app::WebsiteNavigation::new();
     WebApp::<(), _>::new(preview)
+        .with_env(translations::create_env())
         .with_title("Build a Rust website with accessible dropdown navigation")
         .mount("#fission-web-mount")
         .run()
@@ -366,7 +589,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Handle missing destinations and test keyboard use: Trigger the error preview and confirm a recovery action remains available.
+Use the keyboard to open Products, choose one destination, and confirm the menu closes and the selected page content appears.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 

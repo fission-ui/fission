@@ -1,8 +1,8 @@
 ---
 layout: goal
-title: Add passkey sign-in to an Android app
-description: "Learn how to add passkey sign-in to a Rust Android app with Fission, Android Credential Manager, and server-verified WebAuthn assertions."
-goal: Let a Cedar Ridge Outfitters member unlock a pickup order with a passkey while keeping account verification on the server.
+title: Build an Android passkey sign-in flow in Rust
+description: "Model Android passkey sign-in with Fission, prepare Digital Asset Links, and keep WebAuthn verification on the relying-party server."
+goal: Let a Cedar Ridge Outfitters member request a passkey for a pickup order while keeping the order locked until server verification.
 path: /blog/add-passkey-sign-in-to-an-android-app/
 order: 44
 difficulty: Beginner
@@ -20,7 +20,7 @@ Mara Chen has arrived at the Cedar Ridge Outfitters pickup desk for order **CR-7
 
 We’ll build the client side of that sign-in. The app asks the passkey provider for an assertion using a fresh challenge, then keeps the order locked while the server verifies the response. The prompt may use a fingerprint, face check, device PIN, password manager, another phone, or a security key. The app never receives a fingerprint, and closing the prompt is not proof that Mara has an account. Only a server-verified assertion can establish the session.
 
-The browser preview uses Fission’s `MemoryPasskeyHost`, so you can exercise the same request and reducer path without an Android device. It returns fixture bytes, not a cryptographic assertion. The preview stops at **Ready for server verification** and never unlocks the order. There’s one important gap on Android: declaring the passkeys capability does not install a Credential Manager provider. The native shell still needs an Android `PasskeyHost` adapter.
+The browser preview uses Fission’s `MemoryPasskeyHost`, so you can exercise the request and reducer path without an Android device. It returns fixture bytes, not a cryptographic assertion. The preview stops at **Ready for server verification** and never unlocks the order. There’s one important gap on Android: declaring the passkeys capability does not install a Credential Manager provider. Fission’s generated Android shell currently uses an unsupported passkey host, so this tutorial prepares the app flow and the Digital Asset Links configuration; a product-owned `PasskeyHost` adapter is still required before an Android passkey prompt can run.
 
 ## Create the Android project
 
@@ -59,7 +59,7 @@ cedar-ridge-passkey-pickup/
 </TabItem>
 </Tabs>
 
-The order and sign-in attempt belong in app state because several parts of the screen need them. So do the loading flag and response status: Android’s credential request finishes after the first reducer has returned. The component below renders that state and binds its buttons to reducer actions. It does not start a host request while building the view.
+The order summary and sign-in attempt belong in app state because several parts of the screen need them. Start with no order loaded; do not put a sample order in the production default. The preview seeds one outside the app component, while a real app loads its order from its service. The loading flag and response status also belong in app state because Android’s credential request finishes after the first reducer has returned. The component below renders that state and binds its buttons to reducer actions. It does not start a host request while building the view.
 
 <!-- fission:step id="build-sign-in-flow" -->
 ## Model passkey sign-in and protect the pickup order
@@ -92,20 +92,9 @@ pub struct PickupOrder {
     pub pickup_window: String,
 }
 
-impl Default for PickupOrder {
-    fn default() -> Self {
-        Self {
-            reference: "CR-7712".into(),
-            pickup_location: "Troutdale trail counter".into(),
-            item_summary: "Weatherproof daypack · 2 trail maps".into(),
-            pickup_window: "Today, 14:00–18:00".into(),
-        }
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MemberPasskeySignInState {
-    pub order: PickupOrder,
+    pub order: Option<PickupOrder>,
     /// A fresh challenge from the relying-party server in a real sign-in flow.
     pub challenge: Vec<u8>,
     /// Optional allow-list returned by the server. Empty means discoverable credentials.
@@ -234,7 +223,8 @@ pub fn on_sign_in_with_passkey(
     ctx.effects
         .passkeys()
         .authenticate(PasskeyAuthenticationRequest {
-            relying_party_id: "members.cedarridge.example".into(),
+            // Replace this example relying-party domain with a domain you own.
+            relying_party_id: "members.example.com".into(),
             challenge: state.challenge.clone(),
             // An empty list asks for a discoverable credential. The server may
             // instead return credential ids for an account-first sign-in flow.
@@ -295,6 +285,7 @@ pickup.app.title=Cedar Ridge order pickup
 pickup.brand=CEDAR RIDGE OUTFITTERS
 pickup.title=Your pickup is ready
 pickup.intro=Sign in to open the collection details for this order.
+pickup.order.loading=Loading the order summary…
 pickup.order_label=Order
 pickup.code_locked=Pickup code locked · Sign in before collecting
 pickup.checking=Checking passkey support…
@@ -329,6 +320,7 @@ pickup.app.title=Recogida de pedido de Cedar Ridge
 pickup.brand=CEDAR RIDGE OUTFITTERS
 pickup.title=Tu pedido está listo para recoger
 pickup.intro=Inicia sesión para ver los detalles de recogida de este pedido.
+pickup.order.loading=Cargando el resumen del pedido…
 pickup.order_label=Pedido
 pickup.code_locked=Código de recogida bloqueado · Inicia sesión antes de recogerlo
 pickup.checking=Comprobando la compatibilidad con passkeys…
@@ -465,21 +457,31 @@ fission_component! {
                             Text(TextContent::Key("pickup.intro".into()))
                                 .color(tokens.colors.text_secondary),
                         ]),
-                        Column(gap: tokens.spacing.s, children: [
-                            Row(gap: tokens.spacing.xs, children: [
-                                Text(TextContent::Key("pickup.order_label".into()))
-                                    .weight(tokens.typography.font_weight_semibold),
-                                Text(state.order.reference.clone())
-                                    .weight(tokens.typography.font_weight_semibold),
-                            ]),
-                            Text(state.order.item_summary.clone()),
-                            Text(state.order.pickup_location.clone())
-                                .color(tokens.colors.text_secondary),
-                            Text(state.order.pickup_window.clone())
-                                .color(tokens.colors.text_secondary),
-                        ]),
-                        Text(TextContent::Key("pickup.code_locked".into()))
-                            .weight(tokens.typography.font_weight_semibold),
+                        if let Some(order) = &state.order {
+                            Column(gap: tokens.spacing.s, children: [
+                                Row(gap: tokens.spacing.xs, children: [
+                                    Text(TextContent::Key("pickup.order_label".into()))
+                                        .weight(tokens.typography.font_weight_semibold),
+                                    Text(order.reference.clone())
+                                        .weight(tokens.typography.font_weight_semibold),
+                                ]),
+                                Text(order.item_summary.clone()),
+                                Text(order.pickup_location.clone())
+                                    .color(tokens.colors.text_secondary),
+                                Text(order.pickup_window.clone())
+                                    .color(tokens.colors.text_secondary),
+                            ])
+                        } else {
+                            Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                                Spinner(),
+                                Text(TextContent::Key("pickup.order.loading".into()))
+                                    .color(tokens.colors.text_secondary),
+                            ])
+                        },
+                        if state.order.is_some() {
+                            Text(TextContent::Key("pickup.code_locked".into()))
+                                .weight(tokens.typography.font_weight_semibold)
+                        },
                         Button(
                             child: Text(TextContent::Key(check_button_key.into())),
                             key: "check-passkey-support",
@@ -536,7 +538,7 @@ fission_component! {
 ```rust
 mod app;
 
-use app::{MemberPasskeySignInState, PickupOrderSignInScreen};
+use app::{MemberPasskeySignInState, PickupOrder, PickupOrderSignInScreen};
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
@@ -545,6 +547,12 @@ pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
 
     let preview_state = MemberPasskeySignInState {
+        order: Some(PickupOrder {
+            reference: "CR-7712".into(),
+            pickup_location: "Troutdale trail counter".into(),
+            item_summary: "Weatherproof daypack · 2 trail maps".into(),
+            pickup_window: "Today, 14:00–18:00".into(),
+        }),
         // A local fixture makes the preview request deterministic. Production
         // apps must fetch a fresh challenge from their sign-in server.
         challenge: vec![0x42; 32],
@@ -607,7 +615,7 @@ For a native Android app to share credentials with its website, the production w
 ]
 ```
 
-Host this as `https://members.cedarridge.example/.well-known/assetlinks.json`. Android requires the association to be reachable directly with HTTP 200 and an `application/json` response; a redirect or an incorrect package name or signing fingerprint prevents verification. See Android’s [Credential Manager prerequisites](https://developer.android.com/identity/credential-manager/prerequisites) for the complete Digital Asset Links requirements.
+Replace `members.example.com` with the real HTTPS domain used by your relying party, then host this file at `https://<your-domain>/.well-known/assetlinks.json`. The package name and SHA-256 fingerprint must match the Android app you sign. Android requires the association URL to return HTTP 200 with `Content-Type: application/json`; redirects or a mismatched signing certificate prevent verification. See Android’s [Credential Manager prerequisites](https://developer.android.com/identity/credential-manager/prerequisites) for the complete Digital Asset Links requirements.
 
 The project command declares `passkeys`, but this checkout’s generated Android shell does not include a Credential Manager implementation of Fission’s `PasskeyHost`. Register an adapter with `MobileApp::with_passkey_host(...)`. Until you provide one, the native shell reports passkeys as unsupported. `MemoryPasskeyHost` in the next tab only supports the browser preview; it is not an Android provider and cannot sign anyone in.
 
@@ -642,7 +650,8 @@ fission build --target android --project-dir .
 </TabItem>
 <TabItem label="Check the association file">
 ```sh
-curl -i https://members.cedarridge.example/.well-known/assetlinks.json
+RP_DOMAIN=members.your-company.com
+curl -i "https://${RP_DOMAIN}/.well-known/assetlinks.json"
 ```
 </TabItem>
 <TabItem label="Inspect the capability declaration">
@@ -652,6 +661,6 @@ rg -n "passkeys" fission.toml
 </TabItem>
 </Tabs>
 
-The Android build validates the project and generated configuration. It cannot supply the missing `PasskeyHost`. Once your adapter is installed, test the successful and recovery paths: accept the prompt, cancel it, try a device with no available credential, and try an incorrect domain association. Unless the server returns a verified session, order CR-7712 and its pickup code must stay locked.
+Replace `members.your-company.com` in the shell command with a domain you control and deploy the file before running the check. The Android build validates the project and generated configuration; it cannot supply the missing `PasskeyHost`. Once your adapter is installed, test the successful and recovery paths: accept the prompt, cancel it, try a device with no available credential, and try an incorrect domain association. Unless the server returns a verified session, order CR-7712 and its pickup code must stay locked.
 
 For the request fields and host contract, see the [Passkeys reference](/reference/capabilities/passkeys/) and the [capability support matrix](/reference/capabilities/matrix/). For a working example of how Fission keeps Android host behavior behind a shared component, continue with [the Android native module tutorial](/blog/integrate-an-android-sdk-through-a-fission-native-module/).

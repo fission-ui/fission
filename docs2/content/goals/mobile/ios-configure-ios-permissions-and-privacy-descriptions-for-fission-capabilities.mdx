@@ -23,7 +23,9 @@ Create a shared Rust app and add the iOS target. Fission generates the native ho
 cargo install cargo-fission
 fission init ios-configure-ios-permissions-and-privacy-descriptions-for-fission-capabilities
 cd ios-configure-ios-permissions-and-privacy-descriptions-for-fission-capabilities
+cargo add serde_yaml
 fission add-target ios --project-dir .
+fission add-capability camera --project-dir .
 ```
 
 ## Files created by Fission
@@ -54,42 +56,46 @@ Keep app behaviour in shared Rust. Add a feature module only when it creates a u
 use fission::prelude::*;
 
 fission_component! {
-    pub IosPermissionSettings<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-    }
-    view(screen, _state, cx) {
+    pub IosConfigureIosPermissionsAndPrivacyDescriptionsForFissionCapabilities<()> {}
+    view(_screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("ios-configure-ios-permissions-and-privacy-descriptions-for-fission-capabilities".to_string()),
+        label: Some(cx.tr("preview.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
                 Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
                     Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
+                        Text(cx.tr("preview.app.name"))
                             .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
+                        Text(cx.tr("preview.route"))
                             .color(tokens.colors.text_secondary),
                     ]),
                     Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
+                    Badge(text: cx.tr("preview.status.ready")),
                 ]),
                 Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
-                        .color(tokens.colors.text_secondary),
-                ]),
+                Text(cx.tr("preview.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("preview.summary"))
+                    .color(tokens.colors.text_secondary),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("preview.context.title"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("preview.context.one")),
+                        Text(cx.tr("preview.context.two")),
+                        Text(cx.tr("preview.result"))
+                            .color(tokens.colors.text_secondary),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Text(cx.tr("preview.footer"))
+                    .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -98,6 +104,7 @@ fission_component! {
         .border_radius(tokens.radii.large),
     )
 }
+
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
@@ -108,23 +115,63 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosPermissionSettings::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::IosConfigureIosPermissionsAndPrivacyDescriptionsForFissionCapabilities)
+        .with_env(preview_env())
+        .with_title("Northbank Field Service")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+preview.app.name: "Northbank Field Service"
+preview.route: "Service visit · iOS"
+preview.title: "Camera access for inspection evidence"
+preview.summary: "Explain why the app needs camera access before the system prompt, and provide a useful denial path."
+preview.context.title: "Before requesting access"
+preview.context.one: "Use the camera to attach a condition photo to WO-1048."
+preview.context.two: "If access is denied, keep the visit editable and offer Settings guidance."
+preview.result: "The permission explanation is visible. The browser preview does not request iOS permission."
+preview.footer: "The generated host must include the matching usage description. Test allow, deny, and restricted states on iOS."
+preview.status.ready: "Camera access has not been requested"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+preview.app.name: "Northbank Field Service"
+preview.route: "Visita de servicio · iOS"
+preview.title: "Acceso a la cámara para las pruebas de inspección"
+preview.summary: "Explica por qué la app necesita la cámara antes del aviso del sistema y ofrece una salida útil si se deniega."
+preview.context.title: "Antes de solicitar acceso"
+preview.context.one: "Usa la cámara para adjuntar una foto del estado a la OT-1048."
+preview.context.two: "Si se deniega el acceso, permite editar la visita y ofrece instrucciones para Ajustes."
+preview.result: "La explicación del permiso está visible. La vista previa web no solicita permiso de iOS."
+preview.footer: "El host generado debe incluir la descripción de uso correspondiente. Prueba los estados permitido, denegado y restringido en iOS."
+preview.status.ready: "No se ha solicitado acceso a la cámara"
 ```
 </TabItem>
 </Tabs>

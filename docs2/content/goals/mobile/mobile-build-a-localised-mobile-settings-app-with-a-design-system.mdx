@@ -2,7 +2,7 @@
 layout: goal
 title: Build a localised mobile settings app with a design system
 description: "Build a localised mobile settings app with a design system using Fission."
-goal: Let users change theme and language, persist preferences and verify long translations and accessible controls.
+goal: Let users change theme and language immediately, then check long translations and accessible controls. This example keeps the choices in memory; they do not persist between launches.
 path: /blog/build-a-localised-mobile-settings-app-with-a-design-system/
 order: 113
 difficulty: Beginner
@@ -43,60 +43,234 @@ mobile-build-a-localised-mobile-settings-app-with-a-design-system/
 
 Keep the selected theme and locale in shared app state. The Android and iOS hosts launch and package the same settings screen.
 
+Add `build.rs` and an app-local `design/dsp.json` plus `design/tokens.json` when you create the design system below. The build script generates the Rust type; the JSON stays as the design source.
+
 <!-- fission:step id="start-screen" -->
 ## Create the app screen
 
-This preview is a task card, not the settings screen. The next step adds theme and locale state, then loads the settings labels from translation bundles.
+Start with a settings screen people can use: change the appearance or switch the language and see the app respond immediately. The next step connects these choices to Fission's theme tokens and translation bundles so they affect the whole app.
 
 <Tabs>
+<TabItem label="Cargo.toml (build dependency)">
+<!-- fission:file path="Cargo.toml" -->
+```toml
+[build-dependencies]
+fission-design-system-codegen = "0.15.1"
+```
+</TabItem>
+<TabItem label="build.rs">
+<!-- fission:file path="build.rs" -->
+```rust
+use std::path::PathBuf;
+
+fn main() {
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let dsp_path = manifest_dir.join("design/dsp.json");
+
+    fission_design_system_codegen::generate(
+        fission_design_system_codegen::Config::new(dsp_path)
+            .out_file("mobile_settings_design_system.rs")
+            .type_name("MobileSettingsDesignSystem")
+            .crate_path("fission::theme"),
+    )
+    .expect("failed to generate the settings design system");
+}
+```
+</TabItem>
+<TabItem label="design/dsp.json">
+<!-- fission:file path="design/dsp.json" -->
+```json
+{
+  "$package": {
+    "name": "fieldwork-settings",
+    "version": "1.0.0"
+  },
+  "tokens": {
+    "$ref": "tokens.json"
+  },
+  "components": {
+    "button": {
+      "radius": "12px"
+    }
+  }
+}
+```
+</TabItem>
+<TabItem label="design/tokens.json">
+<!-- fission:file path="design/tokens.json" -->
+```json
+{
+  "color": {
+    "light": {
+      "primary": { "value": "#0F766E", "type": "color" },
+      "on_primary": { "value": "#FFFFFF", "type": "color" },
+      "secondary": { "value": "#2F4443", "type": "color" },
+      "on_secondary": { "value": "#FFFFFF", "type": "color" },
+      "surface": { "value": "#FFFFFF", "type": "color" },
+      "background": { "value": "#F4F7F7", "type": "color" },
+      "error": { "value": "#B42318", "type": "color" },
+      "border": { "value": "#DCE5E5", "type": "color" },
+      "text_primary": { "value": "#0E1A1A", "type": "color" },
+      "text_secondary": { "value": "#2F4443", "type": "color" }
+    },
+    "dark": {
+      "primary": { "value": "#5EEAD4", "type": "color" },
+      "on_primary": { "value": "#082336", "type": "color" },
+      "secondary": { "value": "#A8D0F2", "type": "color" },
+      "on_secondary": { "value": "#082336", "type": "color" },
+      "surface": { "value": "#161B1B", "type": "color" },
+      "background": { "value": "#101515", "type": "color" },
+      "error": { "value": "#FDA29B", "type": "color" },
+      "border": { "value": "#3E4C4B", "type": "color" },
+      "text_primary": { "value": "#F4F7F7", "type": "color" },
+      "text_secondary": { "value": "#C3D0D0", "type": "color" }
+    }
+  },
+  "spacing": {
+    "none": { "value": "0px", "type": "dimension" },
+    "xs": { "value": "4px", "type": "dimension" },
+    "s": { "value": "8px", "type": "dimension" },
+    "m": { "value": "16px", "type": "dimension" },
+    "l": { "value": "24px", "type": "dimension" },
+    "xl": { "value": "32px", "type": "dimension" }
+  },
+  "typography": {
+    "font_size": {
+      "label_large": { "value": "14px", "type": "dimension" },
+      "body": { "value": "16px", "type": "dimension" },
+      "body_large": { "value": "18px", "type": "dimension" },
+      "h3": { "value": "24px", "type": "dimension" }
+    }
+  },
+  "radius": {
+    "small": { "value": "4px", "type": "dimension" },
+    "medium": { "value": "8px", "type": "dimension" },
+    "large": { "value": "12px", "type": "dimension" },
+    "full": { "value": "9999px", "type": "dimension" }
+  }
+}
+```
+</TabItem>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+use fission::i18n::Locale;
 
-fission_component! {
-    pub MobileSettingsApp<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+include!(concat!(env!("OUT_DIR"), "/mobile_settings_design_system.rs"));
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SettingsState {
+    pub locale: Locale,
+    pub theme_mode: DesignMode,
+}
+
+impl Default for SettingsState {
+    fn default() -> Self {
+        Self {
+            locale: Locale::from("en-US"),
+            theme_mode: DesignMode::Light,
         }
     }
-    view(screen, _state, cx) {
+}
+
+impl GlobalState for SettingsState {}
+
+fission_component! {
+    pub MobileSettingsApp<SettingsState>
+    view(_settings, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
+        identifier: Some("fieldwork.settings".to_string()),
+        label: Some(cx.tr("settings.title")),
+        child: SafeArea(
+            child: Scroll(
+                semantic_label: Some(cx.tr("settings.title")),
+                flex_grow: 1.0,
+                child: Some(Container(
+                    Column(gap: tokens.spacing.m, children: [
+                        Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text(cx.tr("settings.brand"))
+                                    .size(tokens.typography.heading2_size),
+                                Badge(text: cx.tr("settings.session_only")),
+                            ]),
+                            Spacer(flex_grow: 1.0),
+                        ]),
+                        Divider(),
+                        Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text(cx.tr("settings.appearance"))
+                                    .weight(tokens.typography.font_weight_semibold),
+                                Text(cx.tr(if state.theme_mode == DesignMode::Dark {
+                                "settings.dark_selected"
+                            } else {
+                                "settings.light_selected"
+                            }))
+                                .color(tokens.colors.text_secondary),
+                            ]),
+                            Spacer(flex_grow: 1.0),
+                            Switch(
+                                checked: state.theme_mode == DesignMode::Dark,
+                                key: "toggle-theme",
+                                on_toggle: reduce {
+                                    state.theme_mode = if state.theme_mode == DesignMode::Dark {
+                                        DesignMode::Light
+                                    } else {
+                                        DesignMode::Dark
+                                    };
+                                },
+                                semantics_identifier: Some("fieldwork.settings.theme".to_string()),
+                            ),
+                        ]),
+                        Divider(),
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text(cx.tr("settings.language"))
+                                .weight(tokens.typography.font_weight_semibold),
+                            Text(cx.tr(if state.locale == Locale::from("es-ES") {
+                                "settings.spanish"
+                            } else {
+                                "settings.english"
+                            }))
                             .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
-                        .color(tokens.colors.text_secondary),
-                ]),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+                            Row(gap: tokens.spacing.s, children: [
+                                Button(
+                                    child: Text(cx.tr("settings.english")),
+                                    key: "locale-en-US",
+                                    variant: if state.locale == Locale::from("en-US") {
+                                        ButtonVariant::Primary
+                                    } else {
+                                        ButtonVariant::Outline
+                                    },
+                                    on_press: reduce {
+                                        state.locale = Locale::from("en-US");
+                                    },
+                                ).semantics_identifier("fieldwork.settings.locale.en-US"),
+                                Button(
+                                    child: Text(cx.tr("settings.spanish")),
+                                    key: "locale-es-ES",
+                                    variant: if state.locale == Locale::from("es-ES") {
+                                        ButtonVariant::Primary
+                                    } else {
+                                        ButtonVariant::Outline
+                                    },
+                                    on_press: reduce {
+                                        state.locale = Locale::from("es-ES");
+                                    },
+                                ).semantics_identifier("fieldwork.settings.locale.es-ES"),
+                            ]),
+                        ]),
+                        Text(cx.tr("settings.applies"))
+                            .color(tokens.colors.text_secondary),
+                    ]))
+                    .padding_all(tokens.spacing.l)
+                    .bg(tokens.colors.surface)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.large),
+                ),
+            ),
+        ),
     )
 }
 ```
@@ -105,27 +279,83 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::MobileSettingsApp::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<app::SettingsState, _>::new(app::MobileSettingsApp)
+        .with_env(translations::create_env())
+        .with_design_system::<app::MobileSettingsDesignSystem>(DesignMode::Light)
+        .with_sync_env(|state, env| {
+            env.locale = state.locale.clone();
+            env.theme = app::MobileSettingsDesignSystem::theme(state.theme_mode);
+        })
+        .with_title("Fieldwork Settings")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../i18n/es-ES.yaml")),
+];
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in SOURCES {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid tutorial translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+settings.title: "Mobile settings"
+settings.brand: "Fieldwork"
+settings.session_only: "Session only"
+settings.appearance: "Appearance"
+settings.dark_selected: "Dark theme selected"
+settings.light_selected: "Light theme selected"
+settings.language: "Language"
+settings.english: "English"
+settings.spanish: "Spanish"
+settings.applies: "Changes apply across the app now and stay in memory only."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+settings.title: "Ajustes del móvil"
+settings.brand: "Fieldwork"
+settings.session_only: "Solo durante esta sesión"
+settings.appearance: "Apariencia"
+settings.dark_selected: "Tema oscuro seleccionado"
+settings.light_selected: "Tema claro seleccionado"
+settings.language: "Idioma"
+settings.english: "Inglés"
+settings.spanish: "Español"
+settings.applies: "Los cambios se aplican ahora en toda la aplicación y solo se guardan en memoria."
 ```
 </TabItem>
 </Tabs>
@@ -135,79 +365,146 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:step id="main-flow" -->
 ## Build a localised mobile settings app with a design system
 
-Copy the checked-in Fission DSP and token sources into design/, generate the typed design system from build.rs, and install it when the app starts. Put spacing, type and colour choices in the design tokens; read them from Env in the component. Keep light/dark selection and the selected Locale in app state, then synchronize both presentation inputs. Include English and Spanish bundles and check the longest translated setting labels at a large font scale on Android and iOS. See the [design system](/docs/guides/design-system/) and [theming and i18n](/docs/guides/theming-and-i18n/) guides.
+Put the app's DSP and token files in `design/`, generate a typed design system from `build.rs`, and install it when the app starts. This small package changes a button recipe and defines the light/dark colours, then inherits the other component recipes from Fission's default system. Read spacing, type and colour from `Env` in the component. Keep theme and locale in app state, then synchronize both presentation inputs. Include English and Spanish bundles and check the longest translated setting labels at a large font scale on Android and iOS. The choices apply immediately but this example does not persist them between launches; use a Store effect when that is part of the app's requirements. See the [design system](/docs/guides/design-system/) and [theming and i18n](/docs/guides/theming-and-i18n/) guides.
 
-The component below is a browser-safe version of this screen. It uses Fission's retained component state and widgets to make the task visible; it does not call a native provider or operating-system API.
+This preview is the settings screen, not a separate demo card. The selected theme and locale live in `GlobalState`, the view reads theme tokens from `Env`, and changing the locale changes `cx.tr` output. The preview loads the checked-in English and Spanish bundles. These settings apply for the current app session only: there is no Save button and no persistence effect. It does not call a native provider or operating-system API.
 
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+use fission::i18n::Locale;
 
-fission_component! {
-    pub MobileLocalisedSettingsDesignSystem<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            saved: bool = false,
+include!(concat!(env!("OUT_DIR"), "/mobile_settings_design_system.rs"));
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SettingsState {
+    pub locale: Locale,
+    pub theme_mode: DesignMode,
+}
+
+impl Default for SettingsState {
+    fn default() -> Self {
+        Self {
+            locale: Locale::from("en-US"),
+            theme_mode: DesignMode::Light,
         }
     }
-    view(screen, _state, cx) {
+}
+
+impl GlobalState for SettingsState {}
+
+fission_component! {
+    pub MobileLocalisedSettingsDesignSystem<SettingsState>
+    view(_screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
         identifier: Some("design-system-settings".to_string()),
-        label: Some(screen.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(screen.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(screen.goal.clone()),
-                Text("The spacing, colour, and type in this card come from the active theme tokens."),
-                Button(
-                    child: Text(if screen.saved { "Preferences saved" } else { "Save preferences" }),
-                    key: "save-preferences",
-                    on_press: reduce { screen.saved = !screen.saved; },
-                )
-                .semantics_identifier("settings.save"),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        label: Some(cx.tr("settings.title")),
+        child: SafeArea(
+            child: Scroll(
+                semantic_label: Some(cx.tr("settings.title")),
+                flex_grow: 1.0,
+                child: Some(Container(
+                    Column(gap: tokens.spacing.m, children: [
+                        Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                            Text(cx.tr("settings.brand"))
+                                .size(tokens.typography.heading2_size),
+                            Spacer(flex_grow: 1.0),
+                            Badge(text: cx.tr("settings.session_only")),
+                        ]),
+                        Divider(),
+                        Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text(cx.tr("settings.appearance"))
+                                    .weight(tokens.typography.font_weight_semibold),
+                                Text(cx.tr(if state.theme_mode == DesignMode::Dark {
+                                    "settings.dark_selected"
+                                } else {
+                                    "settings.light_selected"
+                                }))
+                                .color(tokens.colors.text_secondary),
+                            ]),
+                            Spacer(flex_grow: 1.0),
+                            Switch(
+                                checked: state.theme_mode == DesignMode::Dark,
+                                key: "toggle-theme",
+                                on_toggle: reduce {
+                                    state.theme_mode = if state.theme_mode == DesignMode::Dark {
+                                        DesignMode::Light
+                                    } else {
+                                        DesignMode::Dark
+                                    };
+                                },
+                                semantics_identifier: Some("settings.theme".to_string()),
+                            ),
+                        ]),
+                        Divider(),
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text(cx.tr("settings.language"))
+                                .weight(tokens.typography.font_weight_semibold),
+                            Row(gap: tokens.spacing.s, children: [
+                                Button(
+                                    child: Text(cx.tr("settings.english")),
+                                    key: "locale-en-US",
+                                    variant: if state.locale == Locale::from("en-US") {
+                                        ButtonVariant::Primary
+                                    } else {
+                                        ButtonVariant::Outline
+                                    },
+                                    on_press: reduce {
+                                        state.locale = Locale::from("en-US");
+                                    },
+                                ).semantics_identifier("settings.locale.en-US"),
+                                Button(
+                                    child: Text(cx.tr("settings.spanish")),
+                                    key: "locale-es-ES",
+                                    variant: if state.locale == Locale::from("es-ES") {
+                                        ButtonVariant::Primary
+                                    } else {
+                                        ButtonVariant::Outline
+                                    },
+                                    on_press: reduce {
+                                        state.locale = Locale::from("es-ES");
+                                    },
+                                ).semantics_identifier("settings.locale.es-ES"),
+                            ]),
+                        ]),
+                        Text(cx.tr("settings.applies"))
+                            .color(tokens.colors.text_secondary),
+                    ]))
+                    .padding_all(tokens.spacing.l)
+                    .bg(tokens.colors.surface)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.large),
+                ),
+            ),
+        ),
     )
 }
 ```
-
-<!-- fission:preview -->
-
 
 <Tabs>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::MobileLocalisedSettingsDesignSystem::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<app::SettingsState, _>::new(app::MobileLocalisedSettingsDesignSystem)
+        .with_env(translations::create_env())
+        .with_design_system::<app::MobileSettingsDesignSystem>(DesignMode::Light)
+        .with_sync_env(|state, env| {
+            env.locale = state.locale.clone();
+            env.theme = app::MobileSettingsDesignSystem::theme(state.theme_mode);
+        })
+        .with_title("Fieldwork Settings")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -217,7 +514,7 @@ pub fn run() -> Result<(), JsValue> {
 </Tabs>
 
 <!-- fission:checkpoint -->
-Save preferences and notice that the component reads its spacing, colour and type from the active theme tokens.
+Change the theme and language. Notice that each choice applies immediately and that the component reads its spacing, colour and type from the active theme tokens.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 

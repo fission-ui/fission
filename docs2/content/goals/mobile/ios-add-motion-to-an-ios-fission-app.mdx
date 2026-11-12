@@ -51,45 +51,54 @@ Keep app behaviour in shared Rust. Add a feature module only when it creates a u
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use fission::motion::{
+    scalar, Motion, MotionEasing, MotionPhase, MotionPropertyId, MotionStartValue, MotionTrack,
+    MotionTransition,
+};
 use fission::prelude::*;
 
 fission_component! {
-    pub IosMotionInteractions<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub IosMotion<()> {
+        state {
+            saved: bool = false,
         }
     }
     view(screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("motion-preview".to_string()),
+        label: Some(cx.tr("motion.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
-                        .color(tokens.colors.text_secondary),
-                ]),
+                Text(cx.tr("motion.title"))
+                    .weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("motion.description")),
+                Button(
+                    child: Text(if screen.saved {
+                        cx.tr("motion.reset")
+                    } else {
+                        cx.tr("motion.save")
+                    }),
+                    key: "save",
+                    on_press: reduce { screen.saved = !screen.saved; },
+                ),
+                if screen.saved {
+                    Motion {
+                        id: WidgetId::explicit("northbank.inspection-saved-banner"),
+                        tracks: vec![MotionTrack {
+                            property: MotionPropertyId::Opacity,
+                            phase: MotionPhase::Composite,
+                            from: MotionStartValue::Explicit(scalar(0.0)),
+                            to: scalar(1.0),
+                            transition: MotionTransition::tween(220, MotionEasing::EaseOut),
+                        }],
+                        child: Text::new(cx.tr("motion.saved")).into(),
+                        ..Default::default()
+                    }
+                } else {
+                    Spacer()
+                },
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -108,23 +117,50 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosMotionInteractions::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::IosMotion)
+        .with_env(preview_env())
+        .with_title("ios add motion to an ios fission app")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+motion.title: "WO-1048 inspection status"
+motion.description: "Mark the inspection complete in this preview and use a short transition to confirm the state change."
+motion.save: "Mark inspection complete in this preview"
+motion.reset: "Edit inspection"
+motion.saved: "Marked complete in this preview only; no data was stored. The status stays visible if motion is reduced or interrupted."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+motion.title: "Estado de inspección OT-1048"
+motion.description: "Marca la inspección como completa en esta vista previa y usa una transición breve para confirmar el cambio de estado."
+motion.save: "Marcar inspección completa en esta vista previa"
+motion.reset: "Editar inspección"
+motion.saved: "Marcada como completa solo en esta vista previa; no se guardaron datos. El estado permanece visible si se reduce o interrumpe el movimiento."
 ```
 </TabItem>
 </Tabs>
@@ -148,50 +184,46 @@ use fission::prelude::*;
 
 fission_component! {
     pub IosMotion<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
         state {
             saved: bool = false,
         }
     }
     view(screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let banner: Widget = if screen.saved {
-            Motion {
-                id: WidgetId::explicit("tutorial.saved-banner"),
-                tracks: vec![MotionTrack {
-                    property: MotionPropertyId::Opacity,
-                    phase: MotionPhase::Composite,
-                    from: MotionStartValue::Explicit(scalar(0.0)),
-                    to: scalar(1.0),
-                    transition: MotionTransition::tween(220, MotionEasing::EaseOut),
-                }],
-                child: Text::new("Saved. The status remains visible without motion.").into(),
-                ..Default::default()
-            }
-            .into()
-        } else {
-            Spacer::default().into()
-        };
     } =>
     SemanticsRegion(
         identifier: Some("motion-preview".to_string()),
-        label: Some(screen.title.clone()),
+        label: Some(cx.tr("motion.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(screen.title.clone())
-
+                Text(cx.tr("motion.title"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(screen.goal.clone()),
+                Text(cx.tr("motion.description")),
                 Button(
-                    child: Text(if screen.saved { "Reset saved state" } else { "Save" }),
+                    child: Text(if screen.saved {
+                        cx.tr("motion.reset")
+                    } else {
+                        cx.tr("motion.save")
+                    }),
                     key: "save",
                     on_press: reduce { screen.saved = !screen.saved; },
                 ),
-                banner,
+                if screen.saved {
+                    Motion {
+                        id: WidgetId::explicit("northbank.inspection-saved-banner"),
+                        tracks: vec![MotionTrack {
+                            property: MotionPropertyId::Opacity,
+                            phase: MotionPhase::Composite,
+                            from: MotionStartValue::Explicit(scalar(0.0)),
+                            to: scalar(1.0),
+                            transition: MotionTransition::tween(220, MotionEasing::EaseOut),
+                        }],
+                        child: Text::new(cx.tr("motion.saved")).into(),
+                        ..Default::default()
+                    }
+                } else {
+                    Spacer()
+                },
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -214,23 +246,50 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosMotion::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::IosMotion)
+        .with_env(preview_env())
+        .with_title("Northbank Field Service · iOS")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="src/i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+motion.title: "WO-1048 inspection status"
+motion.description: "Save the inspection and use a short transition to confirm the completed action."
+motion.save: "Save inspection"
+motion.reset: "Edit inspection"
+motion.saved: "Inspection saved. The status stays visible if motion is reduced or interrupted."
+```
+</TabItem>
+<TabItem label="src/i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+motion.title: "Estado de inspección OT-1048"
+motion.description: "Guarda la inspección y usa una transición breve para confirmar la acción completada."
+motion.save: "Guardar inspección"
+motion.reset: "Editar inspección"
+motion.saved: "Inspección guardada. El estado permanece visible si se reduce o interrumpe el movimiento."
 ```
 </TabItem>
 </Tabs>

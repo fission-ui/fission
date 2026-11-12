@@ -24,6 +24,8 @@ cargo install cargo-fission
 fission init ios-build-an-ios-dashboard-with-fission-charts
 cd ios-build-an-ios-dashboard-with-fission-charts
 fission add-target ios --project-dir .
+cargo add fission@0.15.1 --features charts
+cargo add serde_yaml
 ```
 
 The generated host handles launch and packaging. Keep the dashboard and its state in shared Rust code; the browser preview and iOS app use the same components.
@@ -39,6 +41,8 @@ Keep the screen focused on decisions. Three metrics summarise today’s operatio
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use crate::state::{RouteRecord, RouteStatus, TransitDashboardState};
+use fission::i18n::Locale;
 use fission::prelude::*;
 
 fission_component! {
@@ -61,67 +65,132 @@ fission_component! {
 
 fission_component! {
     pub RouteReviewRow<()> {
-        props { route: String, departure: String, detail: String, status: String }
+        props { route: RouteRecord }
     }
     view(item, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let status = match &item.route.status {
+            RouteStatus::NeedsAction => cx.tr("routes.status.action"),
+            RouteStatus::Monitoring => cx.tr("routes.status.monitoring"),
+        };
     } =>
-    Container(Column(gap: tokens.spacing.xs, children: [
-        Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-            Text(item.route.clone()).weight(tokens.typography.font_weight_semibold),
-            Spacer(flex_grow: 1.0),
-            Badge(text: item.status.clone()),
-        ]),
-        Text(item.departure.clone()).color(tokens.colors.text_secondary),
-        Text(item.detail.clone()),
-    ]))
-    .padding_all(tokens.spacing.m)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.medium)
+    SemanticsRegion(
+        identifier: Some(item.route.id.clone()),
+        label: Some(format!("{} · {} · {} · {}", cx.tr(item.route.route_key), cx.tr(item.route.departure_key), status, cx.tr(item.route.detail_key))),
+        child: Container(Column(gap: tokens.spacing.xs, children: [
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Text(cx.tr(item.route.route_key)).weight(tokens.typography.font_weight_semibold),
+                Spacer(flex_grow: 1.0),
+                Badge(text: status.clone()),
+            ]),
+            Text(cx.tr(item.route.departure_key)).color(tokens.colors.text_secondary),
+            Text(cx.tr(item.route.detail_key)),
+        ]))
+            .padding_all(tokens.spacing.m)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.medium),
+    )
 }
 
 fission_component! {
-    pub TransitOperationsDashboard<()> {}
-    view(_dashboard, _state, cx) {
+    pub TransitLocalePicker<TransitDashboardState> {}
+    view(_picker, state, cx) =>
+    Row(gap: cx.view.env().theme.tokens.spacing.xs, children: [
+        Button(
+            child: Text(cx.tr("language.english")),
+            key: "locale-en-US",
+            variant: if state.locale == Locale::from("en-US") { ButtonVariant::Primary } else { ButtonVariant::Outline },
+            on_press: reduce { state.locale = Locale::from("en-US"); },
+        ).semantics_identifier("northstar.locale.en-US"),
+        Button(
+            child: Text(cx.tr("language.spanish")),
+            key: "locale-es-ES",
+            variant: if state.locale == Locale::from("es-ES") { ButtonVariant::Primary } else { ButtonVariant::Outline },
+            on_press: reduce { state.locale = Locale::from("es-ES"); },
+        ).semantics_identifier("northstar.locale.es-ES"),
+    ])
+}
+
+fission_component! {
+    pub TransitOperationsDashboard<TransitDashboardState> {}
+    view(_dashboard, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(Column(gap: tokens.spacing.l, children: [
-        Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-            Column(gap: tokens.spacing.xs, children: [
-                Text("Northstar Transit").weight(tokens.typography.font_weight_bold),
-                Text("Metro operations · Central depot").color(tokens.colors.text_secondary),
-            ]),
-            Spacer(flex_grow: 1.0),
-            Badge(text: "Morning dispatch".to_string()),
-        ]),
-        Column(gap: tokens.spacing.xs, children: [
-            Text("Service performance").weight(tokens.typography.font_weight_bold),
-            Text("Know which routes need attention before the next departure.")
-                .color(tokens.colors.text_secondary),
-        ]),
-        Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
-            TransitMetric("Departures today".to_string(), "86".to_string(), "Across 12 active routes".to_string()),
-            TransitMetric("On-time departures".to_string(), "91%".to_string(), "Up 2 points from last week".to_string()),
-            TransitMetric("Active delays".to_string(), "4 routes".to_string(), "2 need dispatch review".to_string()),
-        ]),
-        Column(gap: tokens.spacing.s, children: [
-            Text("Routes to review").weight(tokens.typography.font_weight_semibold),
-            RouteReviewRow(
-                "Route 510 · Pike".to_string(),
-                "Northbound · 8:45 departure".to_string(),
-                "Roadworks near 3rd Avenue · 9 minutes late · notify the next stop".to_string(),
-                "Needs action".to_string(),
-            ),
-            RouteReviewRow(
-                "Route 24 · Waterfront".to_string(),
-                "Eastbound · 8:52 departure".to_string(),
-                "Passenger assistance requested · safe stop confirmed at Pier 6".to_string(),
-                "Monitoring".to_string(),
-            ),
-        ]),
-    ]))
-    .padding_all(tokens.spacing.l)
+    if let Some(data) = state.data.as_ref() {
+        SemanticsRegion(
+            identifier: Some("northstar-transit-operations".to_string()),
+            label: Some(cx.tr("dashboard.a11y")),
+            child: Container(Column(gap: tokens.spacing.l, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(cx.tr("dashboard.brand")).weight(tokens.typography.font_weight_bold),
+                        Text(cx.tr("dashboard.subtitle")).color(tokens.colors.text_secondary),
+                    ]),
+                    Spacer(flex_grow: 1.0),
+                    TransitLocalePicker(),
+                ]),
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("dashboard.performance")).weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("dashboard.summary")).color(tokens.colors.text_secondary),
+                ]),
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    TransitMetric(
+                        cx.tr("metric.departures"),
+                        data.departures_today.to_string(),
+                        cx.tr("metric.departures.detail").replace("{count}", &data.active_routes.to_string()),
+                        key: "metric-departures",
+                    ),
+                    TransitMetric(
+                        cx.tr("metric.on_time"),
+                        format!("{}%", data.on_time_percent_today),
+                        cx.tr("metric.on_time.detail").replace("{points}", &data.weekly_change_points.to_string()),
+                        key: "metric-on-time",
+                    ),
+                    TransitMetric(
+                        cx.tr("metric.delays"),
+                        cx.tr("metric.route_count").replace("{count}", &data.active_delays.to_string()),
+                        cx.tr("metric.delays.detail").replace("{count}", &data.routes_needing_review.to_string()),
+                        key: "metric-delays",
+                    ),
+                ]),
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("routes.review.title")).weight(tokens.typography.font_weight_semibold),
+                    for route in &data.route_reviews {
+                        RouteReviewRow(
+                            route.clone(),
+                            key: route.id.clone(),
+                        ).id(WidgetId::explicit(&route.id))
+                    },
+                ]),
+            ]))
+                .padding_all(tokens.spacing.l)
+                .bg(tokens.colors.background),
+        )
+    } else {
+        EmptyState {
+            title: cx.tr("dashboard.empty.title"),
+            description: Some(cx.tr("dashboard.empty.description")),
+            ..Default::default()
+        }
+    }
+}
+
+fission_component! {
+    pub TransitDashboardPage<TransitDashboardState> {}
+    view(_page, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            semantic_label: Some(cx.tr("dashboard.a11y")),
+            child: Some(Widget::from(TransitOperationsDashboard)),
+        ),
+    )
+    .width_length(Length::percent(100.0))
+    .height_length(Length::vh(100.0))
     .bg(tokens.colors.background)
 }
 ```
@@ -130,34 +199,267 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod state;
 
 use fission::prelude::*;
+use fission::i18n::{Locale, TranslationBundle};
+use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
-fission_component! {
-    pub TransitOperationsPreview<()> {}
-    view(_preview, _state, cx) =>
-    SemanticsRegion(
-        identifier: Some("northstar-transit-operations".to_string()),
-        label: Some("Northstar Transit morning operations".to_string()),
-        child: Scroll(
-            flex_grow: 1.0,
-            height: cx.view.viewport_size().height,
-            semantic_label: Some("Transit routes and dispatch metrics".to_string()),
-            child: Some(Widget::from(app::TransitOperationsDashboard)),
-        ),
-    )
+const EN_US: &str = include_str!("../i18n/en-US.yaml");
+const ES_ES: &str = include_str!("../i18n/es-ES.yaml");
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    for (locale, source) in [("en-US", EN_US), ("es-ES", ES_ES)] {
+        let messages: HashMap<String, String> = serde_yaml::from_str(source)
+            .expect("valid transit dashboard translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+
+fn preview_data() -> state::TransitData {
+    use state::{RouteRecord, RouteStatus, TransitData};
+    TransitData {
+        departures_today: 86,
+        active_routes: 12,
+        on_time_percent_today: 91,
+        weekly_change_points: 2,
+        active_delays: 4,
+        routes_needing_review: 2,
+        on_time_7_days: vec![90.0, 86.0, 92.0, 95.0, 91.0, 88.0, 94.0],
+        on_time_30_days: vec![84.0, 88.0, 90.0, 92.0],
+        route_reviews: vec![
+            RouteRecord { id: "northstar.route.510-pike".into(), route_key: "routes.name.510", departure_key: "routes.departure.510", detail_key: "routes.detail.510", status: RouteStatus::NeedsAction },
+            RouteRecord { id: "northstar.route.24-waterfront".into(), route_key: "routes.name.24", departure_key: "routes.departure.24", detail_key: "routes.detail.24", status: RouteStatus::Monitoring },
+        ],
+    }
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(TransitOperationsPreview::new())
+    WebApp::<state::TransitDashboardState, _>::new(app::TransitDashboardPage)
+        .with_state_init(|state| state.data = Some(preview_data()))
+        .with_env(preview_env())
+        .with_sync_env(|state, env| env.locale = state.locale.clone())
         .with_title("Northstar Transit operations")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::i18n::Locale;
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum RouteStatus { NeedsAction, Monitoring }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RouteRecord {
+    pub id: String,
+    pub route_key: &'static str,
+    pub departure_key: &'static str,
+    pub detail_key: &'static str,
+    pub status: RouteStatus,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TransitData {
+    pub departures_today: u32,
+    pub active_routes: u32,
+    pub on_time_percent_today: u32,
+    pub weekly_change_points: i32,
+    pub active_delays: u32,
+    pub routes_needing_review: u32,
+    pub on_time_7_days: Vec<f32>,
+    pub on_time_30_days: Vec<f32>,
+    pub route_reviews: Vec<RouteRecord>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TransitDashboardState {
+    pub locale: Locale,
+    pub data: Option<TransitData>,
+}
+
+impl Default for TransitDashboardState {
+    fn default() -> Self {
+        Self { locale: Locale::from("en-US"), data: None }
+    }
+}
+
+impl GlobalState for TransitDashboardState {}
+```
+</TabItem>
+<TabItem label="src/environment.rs">
+<!-- fission:file path="src/environment.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+const EN_US: &str = include_str!("../i18n/en-US.yaml");
+const ES_ES: &str = include_str!("../i18n/es-ES.yaml");
+
+fn load_bundle(locale: &str, source: &str) -> anyhow::Result<TranslationBundle> {
+    let messages: HashMap<String, String> = serde_yaml::from_str(source)?;
+    Ok(TranslationBundle {
+        locale: Locale::from(locale),
+        messages,
+    })
+}
+
+pub fn create_env() -> anyhow::Result<Env> {
+    let mut env = Env::default();
+    env.i18n.add_bundle(load_bundle("en-US", EN_US)?);
+    env.i18n.add_bundle(load_bundle("es-ES", ES_ES)?);
+    Ok(env)
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+pub mod environment;
+pub mod state;
+
+use crate::app::TransitDashboardPage;
+use crate::environment::create_env;
+use crate::state::TransitDashboardState;
+use fission::prelude::*;
+
+#[cfg(target_os = "ios")]
+fn mobile_app() -> anyhow::Result<MobileApp<TransitDashboardState, TransitDashboardPage>> {
+    Ok(MobileApp::<TransitDashboardState, _>::new(TransitDashboardPage)
+        .with_title("Northstar Transit operations")
+        .with_env(create_env()?)
+        .with_sync_env(|state: &TransitDashboardState, env: &mut Env| {
+            env.locale = state.locale.clone();
+        }))
+}
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<TransitDashboardState, _>::new(TransitDashboardPage)
+        .with_title("Northstar Transit operations")
+        .with_env(create_env()?)
+        .with_sync_env(|state: &TransitDashboardState, env: &mut Env| {
+            env.locale = state.locale.clone();
+        })
+        .run()
+}
+
+#[cfg(target_os = "ios")]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app()?.run()
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+language.english: "English"
+language.spanish: "Spanish"
+dashboard.a11y: "Northstar Transit dispatch dashboard"
+dashboard.brand: "Northstar Transit"
+dashboard.subtitle: "Metro operations · Central depot · Morning dispatch"
+dashboard.performance: "Service performance"
+dashboard.summary: "Review delayed routes before the next departure."
+dashboard.empty.title: "Transit data is not available yet"
+dashboard.empty.description: "Connect the dispatch service to review departures and route delays."
+metric.departures: "Departures today"
+metric.departures.detail: "Across {count} active routes"
+metric.on_time: "On-time departures"
+metric.on_time.detail: "Up {points} points from last week"
+metric.delays: "Active delays"
+metric.route_count: "{count} routes"
+metric.delays.detail: "{count} need dispatch review"
+routes.review.title: "Routes to review"
+routes.status.action: "Needs action"
+routes.status.monitoring: "Monitoring"
+routes.name.510: "Route 510 · Pike"
+routes.departure.510: "Northbound · 8:45 departure"
+routes.detail.510: "Roadworks near 3rd Avenue · 9 minutes late · notify the next stop"
+routes.name.24: "Route 24 · Waterfront"
+routes.departure.24: "Eastbound · 8:52 departure"
+routes.detail.24: "Passenger assistance requested · safe stop confirmed at Pier 6"
+chart.a11y: "Northstar Transit on-time departure rates by day or week"
+chart.title: "On-time departures"
+chart.heading: "On-time departures"
+chart.subtitle: "Scheduled services leaving within five minutes over {period}"
+chart.series.rate: "On time"
+chart.period.week1: "Week 1"
+chart.period.week2: "Week 2"
+chart.period.week3: "Week 3"
+chart.period.week4: "Week 4"
+chart.day.mon: "Mon"
+chart.day.tue: "Tue"
+chart.day.wed: "Wed"
+chart.day.thu: "Thu"
+chart.day.fri: "Fri"
+chart.day.sat: "Sat"
+chart.day.sun: "Sun"
+chart.range.7: "7 days"
+chart.range.30: "30 days"
+chart.average: "{percent}% average"
+chart.summary: "{percent}% of scheduled departures left on time on average during this period."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+language.english: "Inglés"
+language.spanish: "Español"
+dashboard.a11y: "Panel de despacho de Northstar Transit"
+dashboard.brand: "Northstar Transit"
+dashboard.subtitle: "Operaciones metropolitanas · Depósito Central · Despacho de mañana"
+dashboard.performance: "Rendimiento del servicio"
+dashboard.summary: "Revisa las rutas retrasadas antes de la próxima salida."
+dashboard.empty.title: "Los datos de tránsito aún no están disponibles"
+dashboard.empty.description: "Conecta el servicio de despacho para revisar las salidas y los retrasos de ruta."
+metric.departures: "Salidas de hoy"
+metric.departures.detail: "En {count} rutas activas"
+metric.on_time: "Salidas a tiempo"
+metric.on_time.detail: "Subió {points} puntos respecto a la semana pasada"
+metric.delays: "Retrasos activos"
+metric.route_count: "{count} rutas"
+metric.delays.detail: "{count} requieren revisión del despacho"
+routes.review.title: "Rutas por revisar"
+routes.status.action: "Requiere acción"
+routes.status.monitoring: "En seguimiento"
+routes.name.510: "Ruta 510 · Pike"
+routes.departure.510: "Hacia el norte · salida de las 8:45"
+routes.detail.510: "Obras cerca de 3rd Avenue · 9 minutos de retraso · avisa a la próxima parada"
+routes.name.24: "Ruta 24 · Waterfront"
+routes.departure.24: "Hacia el este · salida de las 8:52"
+routes.detail.24: "Se solicitó asistencia al pasajero · parada segura confirmada en Pier 6"
+chart.a11y: "Porcentaje de salidas a tiempo de Northstar Transit por día o semana"
+chart.title: "Salidas a tiempo"
+chart.heading: "Salidas a tiempo"
+chart.subtitle: "Servicios que salieron dentro de cinco minutos durante {period}"
+chart.series.rate: "A tiempo"
+chart.period.week1: "Semana 1"
+chart.period.week2: "Semana 2"
+chart.period.week3: "Semana 3"
+chart.period.week4: "Semana 4"
+chart.day.mon: "Lun"
+chart.day.tue: "Mar"
+chart.day.wed: "Mié"
+chart.day.thu: "Jue"
+chart.day.fri: "Vie"
+chart.day.sat: "Sáb"
+chart.day.sun: "Dom"
+chart.range.7: "7 días"
+chart.range.30: "30 días"
+chart.average: "{percent}% de media"
+chart.summary: "El {percent}% de las salidas programadas fue puntual de media durante este periodo."
 ```
 </TabItem>
 </Tabs>
@@ -175,79 +477,196 @@ The **7 days** and **30 days** buttons select sample data for that window. The b
 <TabItem label="src/analytics.rs">
 <!-- fission:file path="src/analytics.rs" -->
 ```rust
+use crate::app::TransitOperationsDashboard;
+use crate::state::TransitDashboardState;
 use fission::prelude::*;
-use fission::charts::{Axis, BarSeries, Chart, Legend, Tooltip};
+use fission::charts::{Axis, AxisType, BarSeries, Chart, Legend, Tooltip};
 
 fission_component! {
-    pub RoutePunctualityTrend<()> {
+    pub RoutePunctualityTrend<TransitDashboardState> {
+        props { width: f32 }
         state { thirty_days: bool = false }
     }
-    view(trend, _state, cx) {
+    view(trend, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let labels = if trend.thirty_days {
-            vec!["Week 1", "Week 2", "Week 3", "Week 4"]
-        } else {
-            vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        };
-        let rates = if trend.thirty_days {
-            vec![84.0, 88.0, 90.0, 92.0]
-        } else {
-            vec![90.0, 86.0, 92.0, 95.0, 91.0, 88.0, 94.0]
-        };
-        let average = (rates.iter().sum::<f32>() / rates.len() as f32).round() as u32;
-        let chart_width = (cx.view.env().viewport_size.width - tokens.spacing.l * 2.0).max(260.0);
-        let chart: Widget = Chart::new()
-            .width(chart_width)
-            .height(320.0)
-            .x_axis(Axis::category(labels))
-            .y_axis(Axis::value().min(0.0).max(100.0))
-            .legend(Legend::top_right())
-            .tooltip(Tooltip::axis_trigger())
-            .series(vec![BarSeries::new("On-time departures")
-                .data(rates)
-                .into()])
-            .into();
+        let trend_data = state.data.as_ref().map(|data| {
+            let (labels, rates) = if trend.thirty_days {
+                (
+                    vec![cx.tr("chart.period.week1"), cx.tr("chart.period.week2"), cx.tr("chart.period.week3"), cx.tr("chart.period.week4")],
+                    data.on_time_30_days.clone(),
+                )
+            } else {
+                (
+                    vec![cx.tr("chart.day.mon"), cx.tr("chart.day.tue"), cx.tr("chart.day.wed"), cx.tr("chart.day.thu"), cx.tr("chart.day.fri"), cx.tr("chart.day.sat"), cx.tr("chart.day.sun")],
+                    data.on_time_7_days.clone(),
+                )
+            };
+            let average = if rates.is_empty() {
+                0
+            } else {
+                (rates.iter().sum::<f32>() / rates.len() as f32).round() as u32
+            };
+            let period = cx.tr(if trend.thirty_days { "chart.range.30" } else { "chart.range.7" });
+            let chart: Widget = Chart::new()
+                .width(trend.width)
+                .height(320.0)
+                .title(cx.tr("chart.title"))
+                .x_axis(Axis {
+                    axis_type: AxisType::Category,
+                    data: labels,
+                    name: None,
+                    min: None,
+                    max: None,
+                    boundary_gap: true,
+                    inverse: false,
+                    split_line: true,
+                    label_rotate: None,
+                })
+                .y_axis(Axis::value().min(0.0).max(100.0))
+                .legend(Legend::top_right())
+                .tooltip(Tooltip::axis_trigger())
+                .series(vec![BarSeries::new(cx.tr("chart.series.rate")).data(rates).into()])
+                .into();
+            (average, period, chart)
+        });
     } =>
-    SemanticsRegion(
-        identifier: Some("northstar-on-time-departures".to_string()),
-        label: Some("Northstar Transit on-time departure rate".to_string()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
+    if let Some((average, period, chart)) = trend_data {
+        SemanticsRegion(
+            identifier: Some("northstar-on-time-departures".to_string()),
+            label: Some(cx.tr("chart.a11y")),
+            child: Container(Column(gap: tokens.spacing.m, children: [
                 Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
                     Column(gap: tokens.spacing.xs, children: [
-                        Text("On-time departures").weight(tokens.typography.font_weight_semibold),
-                        Text("Scheduled services leaving within five minutes.")
+                        Text(cx.tr("chart.heading")).weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("chart.subtitle").replace("{period}", &period))
                             .color(tokens.colors.text_secondary),
                     ]),
                     Spacer(flex_grow: 1.0),
-                    Badge(text: format!("{average}% average")),
+                    Badge(text: cx.tr("chart.average").replace("{percent}", &average.to_string())),
                 ]),
                 Row(gap: tokens.spacing.s, children: [
                     Button(
-                        child: Text("7 days"),
+                        child: Text(cx.tr("chart.range.7")),
                         key: "range-seven-days",
                         variant: if trend.thirty_days { ButtonVariant::Outline } else { ButtonVariant::Primary },
                         on_press: reduce { trend.thirty_days = false; },
-                    ),
+                    ).semantics_identifier("northstar.range.7-days"),
                     Button(
-                        child: Text("30 days"),
+                        child: Text(cx.tr("chart.range.30")),
                         key: "range-thirty-days",
                         variant: if trend.thirty_days { ButtonVariant::Primary } else { ButtonVariant::Outline },
                         on_press: reduce { trend.thirty_days = true; },
-                    ),
+                    ).semantics_identifier("northstar.range.30-days"),
                 ]),
-                Row(gap: tokens.spacing.s, children: [chart]),
-                Text(format!(
-                    "{}% of scheduled departures left on time on average in this period.",
-                    average,
-                )).color(tokens.colors.text_secondary),
-            ]),
-        )
-            .padding_all(tokens.spacing.l)
-            .bg(tokens.colors.surface)
-            .border(tokens.colors.border, 1.0)
-            .border_radius(tokens.radii.large),
+                chart,
+                Text(cx.tr("chart.summary").replace("{percent}", &average.to_string()))
+                    .color(tokens.colors.text_secondary),
+            ]))
+                .padding_all(tokens.spacing.l)
+                .bg(tokens.colors.surface)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.large),
+        ).into()
+    } else {
+        EmptyState {
+            title: cx.tr("dashboard.empty.title"),
+            description: Some(cx.tr("dashboard.empty.description")),
+            ..Default::default()
+        }.into()
+    }
+}
+
+fission_component! {
+    pub TransitPerformanceWide<TransitDashboardState> {
+        props { chart_width: f32 }
+    }
+    view(wide, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Start, children: [
+        Container(
+            flex_grow: 1.0,
+            child: Some(Widget::from(TransitOperationsDashboard)),
+        ),
+        RoutePunctualityTrend(wide.chart_width)
+            .id(WidgetId::explicit("northstar.punctuality-trend")),
+    ])
+}
+
+fission_component! {
+    pub TransitPerformanceCompact<TransitDashboardState> {
+        props { chart_width: f32 }
+    }
+    view(compact, _state, cx) =>
+    Column(gap: cx.view.env().theme.tokens.spacing.m, children: [
+        TransitOperationsDashboard(),
+        RoutePunctualityTrend(compact.chart_width)
+            .id(WidgetId::explicit("northstar.punctuality-trend")),
+    ])
+}
+
+fission_component! {
+    pub TransitPerformanceDashboard<TransitDashboardState> {}
+    view(_dashboard, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let content_width = (cx.view.viewport_size().width - tokens.spacing.l * 2.0).max(280.0);
+        let chart_width = (content_width * 0.52).max(280.0);
+    } =>
+    SemanticsRegion(
+        identifier: Some("northstar-transit-performance".to_string()),
+        label: Some(cx.tr("dashboard.a11y")),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            semantic_label: Some(cx.tr("dashboard.a11y")),
+            child: Responsive::new(TransitPerformanceWide { chart_width })
+                .id(WidgetId::explicit("northstar.performance-layout"))
+                .case(ResponsiveCase::max_width(
+                    760.0,
+                    TransitPerformanceCompact { chart_width: content_width },
+                )),
+        ),
     )
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod analytics;
+pub mod app;
+pub mod environment;
+pub mod state;
+
+use crate::analytics::TransitPerformanceDashboard;
+use crate::environment::create_env;
+use crate::state::TransitDashboardState;
+use fission::prelude::*;
+
+#[cfg(target_os = "ios")]
+fn mobile_app() -> anyhow::Result<MobileApp<TransitDashboardState, TransitPerformanceDashboard>> {
+    Ok(MobileApp::<TransitDashboardState, _>::new(TransitPerformanceDashboard)
+        .with_title("Northstar Transit service performance")
+        .with_env(create_env()?)
+        .with_sync_env(|state: &TransitDashboardState, env: &mut Env| {
+            env.locale = state.locale.clone();
+        }))
+}
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<TransitDashboardState, _>::new(TransitPerformanceDashboard)
+        .with_title("Northstar Transit service performance")
+        .with_env(create_env()?)
+        .with_sync_env(|state: &TransitDashboardState, env: &mut Env| {
+            env.locale = state.locale.clone();
+        })
+        .run()
+}
+
+#[cfg(target_os = "ios")]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app()?.run()
 }
 ```
 </TabItem>
@@ -256,36 +675,52 @@ fission_component! {
 ```rust
 mod app;
 mod analytics;
+mod state;
 
-use analytics::RoutePunctualityTrend;
-use app::TransitOperationsDashboard;
+use analytics::TransitPerformanceDashboard;
 use fission::prelude::*;
+use fission::i18n::{Locale, TranslationBundle};
+use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
-fission_component! {
-    pub TransitPerformanceDashboard<()> {}
-    view(_dashboard, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some("northstar-transit-performance".to_string()),
-        label: Some("Northstar Transit service performance dashboard".to_string()),
-        child: Scroll(
-            flex_grow: 1.0,
-            height: cx.view.viewport_size().height,
-            semantic_label: Some("Transit operations and on-time performance".to_string()),
-            child: Column(gap: tokens.spacing.m, children: [
-                TransitOperationsDashboard(),
-                RoutePunctualityTrend(),
-            ]),
-        ),
-    )
+const EN_US: &str = include_str!("../i18n/en-US.yaml");
+const ES_ES: &str = include_str!("../i18n/es-ES.yaml");
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    for (locale, source) in [("en-US", EN_US), ("es-ES", ES_ES)] {
+        let messages: HashMap<String, String> = serde_yaml::from_str(source)
+            .expect("valid transit dashboard translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+
+fn preview_data() -> state::TransitData {
+    use state::{RouteRecord, RouteStatus, TransitData};
+    TransitData {
+        departures_today: 86,
+        active_routes: 12,
+        on_time_percent_today: 91,
+        weekly_change_points: 2,
+        active_delays: 4,
+        routes_needing_review: 2,
+        on_time_7_days: vec![90.0, 86.0, 92.0, 95.0, 91.0, 88.0, 94.0],
+        on_time_30_days: vec![84.0, 88.0, 90.0, 92.0],
+        route_reviews: vec![
+            RouteRecord { id: "northstar.route.510-pike".into(), route_key: "routes.name.510", departure_key: "routes.departure.510", detail_key: "routes.detail.510", status: RouteStatus::NeedsAction },
+            RouteRecord { id: "northstar.route.24-waterfront".into(), route_key: "routes.name.24", departure_key: "routes.departure.24", detail_key: "routes.detail.24", status: RouteStatus::Monitoring },
+        ],
+    }
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(TransitPerformanceDashboard::new())
+    WebApp::<state::TransitDashboardState, _>::new(TransitPerformanceDashboard)
+        .with_state_init(|state| state.data = Some(preview_data()))
+        .with_env(preview_env())
+        .with_sync_env(|state, env| env.locale = state.locale.clone())
         .with_title("Northstar Transit service performance")
         .mount("#fission-web-mount")
         .run()

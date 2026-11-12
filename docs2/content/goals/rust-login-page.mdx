@@ -1,59 +1,58 @@
 ---
 layout: goal
-title: Build a server-rendered login page in Rust
-description: Build a server-rendered Rust login page with accessible fields, server-side validation, signed form actions, rotating sessions, and safe return navigation.
-goal: Let a user sign in, understand failures and reach the page they originally requested
+title: Build an accessible login form in Rust
+description: Build an accessible Rust login form with localized fields, retained input, and clear client-side validation feedback.
+goal: Help a warehouse employee enter their work email and understand form validation before connecting an authentication service
 path: /blog/build-a-login-page-in-rust/
 order: 6
 difficulty: Beginner
 duration: 50 minutes
-run_command: "fission run --target ssr --project-dir ."
+run_command: "fission run --target web --project-dir ."
 app: rust-login-page
 outcomes:
   - Add labelled email and password fields
-  - Validate input and show submission state
-  - Keep authentication and redirects on the server
+  - Check required fields and show accessible feedback
+  - Keep this form separate from authentication and session policy
 ---
 
-Harbour Supply staff often open the app from a shift alert or an order task. After they sign in, send them back to that page—but only when the destination is on this site. Validate the fields and keep the credentials on the server. Use the same rejection message for an unknown email and a wrong password so the form does not reveal whether an account exists.
+Harbour Supply staff open the app from a shift alert or an order task. This tutorial builds the login form, not authentication: the preview keeps its fields in the browser, checks that they look usable, and does not send credentials, sign anyone in, or create a session. A real app must verify credentials on the server and enforce access on every protected operation.
 
-The browser preview uses a fixed demo account to show the flow. It does not send credentials or create a session; the SSR app performs those checks on the server.
-
-Install the Fission CLI and scaffold the SSR project:
+Install the Fission CLI and scaffold a Web project for the form preview:
 
 ```sh
 cargo install cargo-fission
-fission init harbour-auth
-cd harbour-auth
-fission add-target ssr --project-dir .
+fission init harbour-login-form
+cd harbour-login-form
+cargo add serde_yaml
+fission add-target web --project-dir .
 ```
 
 ## Project layout
 
 ```text
-harbour-auth/
+harbour-login-form/
 ├── Cargo.toml                 # generated dependencies
 ├── fission.toml               # app identity, targets and capabilities
 ├── src/
-│   ├── main.rs                 # generated desktop entrypoint
+│   ├── main.rs                 # generated Web entrypoint
 │   ├── lib.rs                  # shared app setup
 │   ├── app.rs                  # the Fission component shown in this tutorial
-│   ├── state.rs
-│   ├── auth/session.rs
-│   ├── server/login.rs
-│   ├── components/login_form.rs
+│   ├── translations.rs         # embedded English and Spanish messages
+│   └── i18n/
+│       ├── en-US.yaml
+│       └── es-ES.yaml
 ├── platforms/                  # generated host files after add-target
 └── tests/                      # project-specific flow checks
 ```
 
-Keep cookie handling in `auth/session.rs` and credential lookup in `server/login.rs`. The form component owns the values it displays; it does not own the authenticated session. In production, the server verifies a password hash, rotates the session after sign-in and accepts only a checked local return path.
+The form owns only the values it displays. It does not own a user session or decide whether someone can access a protected page.
 
 <!-- fission:step id="start-screen" -->
 ## Add labelled email and password fields
 
 Start with the two fields a staff member needs and label them clearly. At this point the form only collects a work email and password; it does not submit them yet.
 
-Pass the page copy in as props, then read spacing, colour and type from the active theme through `cx.view.env()`. That keeps this form aligned with the rest of the app.
+Read translated copy from `cx.tr(...)` and spacing, colour, and type from the active theme through `cx.view.env()`. That keeps this form aligned with the rest of the app.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -62,36 +61,34 @@ Pass the page copy in as props, then read spacing, colour and type from the acti
 use fission::prelude::*;
 fission_component! {
     pub LoginForm<()> {
-        props {
-            title: String,
-            detail: String,
-        }
         state {
             email: String = String::new(),
             password: String = String::new(),
         }
     }
-    view(preview, _state, cx) {
+    view(login, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
         Column(
             gap: tokens.spacing.m,
             children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                TextInput(label: Some("Work email".into()),
-                    placeholder: Some("you@example.com".into()),
-                    bind: preview.email,
+                Text(cx.tr("login.brand")).weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("login.title")).color(tokens.colors.text_secondary),
+                TextInput(label: Some(cx.tr("login.email.label").into()),
+                    placeholder: Some(cx.tr("login.email.placeholder").into()),
+                    required: true,
+                    bind: login.email,
                     key: "login-email",
                     semantics_identifier: "harbour.login.email".to_string()),
-                TextInput(label: Some("Password".into()),
-                    placeholder: Some("Enter your password".into()),
+                TextInput(label: Some(cx.tr("login.password.label").into()),
+                    placeholder: Some(cx.tr("login.password.placeholder").into()),
+                    required: true,
                     obscure_text: true,
-                    bind: preview.password,
+                    bind: login.password,
                     key: "login-password",
                     semantics_identifier: "harbour.login.password".to_string()),
-                Text("Next, connect these fields to the server-side sign-in action.")
+                Text(cx.tr("login.next"))
                     .color(tokens.colors.text_secondary),
             ]
         )
@@ -107,6 +104,7 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -114,16 +112,76 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::LoginForm::new(
-        "Sign in to Harbour Supply".to_string(),
-        "Use your work account to open the fulfilment shift.".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
-        .with_title("Build a server-rendered login page in Rust")
+    WebApp::<(), _>::new(app::LoginForm::new())
+        .with_env(translations::create_env())
+        .with_title("Harbour Supply login form")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="src/translations.rs and i18n/*.yaml">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../i18n/es-ES.yaml")),
+];
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in SOURCES {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid login tutorial translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+login.brand: "Harbour Supply"
+login.title: "Sign in to your warehouse"
+login.detail: "Use your work account to open the fulfilment shift."
+login.semantics.form: "Harbour Supply sign-in"
+login.email.label: "Work email"
+login.email.placeholder: "you@example.com"
+login.password.label: "Password"
+login.password.placeholder: "Enter your password"
+login.next: "This preview checks the fields only. It does not send or verify credentials."
+login.action.validate: "Check form"
+login.validation.email_required: "Enter your work email."
+login.validation.email_invalid: "Enter an email address in the usual name@example.com format."
+login.validation.password_required: "Enter your password."
+login.validation.not_connected: "The form is ready, but this example does not send credentials or sign in."
+login.preview.note: "Your entries stay in this browser preview."
+```
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+login.brand: "Harbour Supply"
+login.title: "Inicia sesión en el almacén"
+login.detail: "Usa tu cuenta de trabajo para abrir el turno de preparación."
+login.semantics.form: "Inicio de sesión de Harbour Supply"
+login.email.label: "Correo de trabajo"
+login.email.placeholder: "tu@ejemplo.com"
+login.password.label: "Contraseña"
+login.password.placeholder: "Introduce tu contraseña"
+login.next: "Esta vista previa solo comprueba los campos. No envía ni verifica credenciales."
+login.action.validate: "Comprobar el formulario"
+login.validation.email_required: "Introduce tu correo de trabajo."
+login.validation.email_invalid: "Introduce una dirección con el formato habitual nombre@ejemplo.com."
+login.validation.password_required: "Introduce tu contraseña."
+login.validation.not_connected: "El formulario está listo, pero este ejemplo no envía credenciales ni inicia sesión."
+login.preview.note: "Tus datos permanecen en esta vista previa del navegador."
 ```
 </TabItem>
 </Tabs>
@@ -135,142 +193,93 @@ Add labelled email and password fields: Confirm the initial screen names the tas
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Validate input and show submission state
+## Check input before handing it off
 
-The preview now lets you try the sign-in flow with a fixed account. Use `demo@harbour.example` and `CedarPeak-2026` to see the signed-in screen. Change either value and the preview shows the same generic rejection. This is only an in-memory demo; no credentials leave the browser.
+Keep this example on the form side of the boundary. It checks for an empty email, a basic email shape, and an empty password, then exposes a translated message through a semantic region. This is convenience validation only; it does not verify identity or send either field anywhere.
 
-In the SSR app, the server must validate the submitted fields, verify the password hash, rate-limit failures and rotate the session after success. Show a useful field-level error, but do not echo a password or disclose whether an email is registered.
+The form retains what the user entered so they can correct a value without starting again. The button uses a reducer for the local validation result; there is no fake request, demo account, or signed-in screen.
+
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 
+fn validate_login_form(email: &str, password: &str) -> Result<(), &'static str> {
+    if email.trim().is_empty() {
+        Err("login.validation.email_required")
+    } else if !email.contains('@') {
+        Err("login.validation.email_invalid")
+    } else if password.is_empty() {
+        Err("login.validation.password_required")
+    } else {
+        Ok(())
+    }
+}
+
 fission_component! {
     pub LoginForm<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-        }
         state {
             email: String = String::new(),
             password: String = String::new(),
-            signed_in: bool = false,
-            has_error: bool = false,
-            feedback: String = String::new(),
+            feedback: Option<String> = None,
         }
     }
-    view(preview, _state, cx) {
+    view(login, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
         identifier: Some("harbour-supply-login".to_string()),
-        label: Some("Harbour Supply sign-in".to_string()),
-        child:
-        if preview.signed_in {
-            Container(Column(gap: tokens.spacing.l, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text("Harbour Supply").weight(tokens.typography.font_weight_bold),
-                        Text("Morning fulfilment shift").color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "Demo session".to_string()),
-                ]),
-                Column(gap: tokens.spacing.xs, children: [
-                    Text(format!("Welcome, {}.", preview.email.clone()))
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text("Your warehouse shift is ready to continue.")
-                        .color(tokens.colors.text_secondary),
-                ]),
-                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                    Badge(text: "6 orders ready to pick".to_string()),
-                    Badge(text: "2 stock alerts to review".to_string()),
-                ]),
-                Text("Start with the six orders due before 10:00.")
-                    .color(tokens.colors.text_secondary),
-                Button(
-                    child: Text("Sign out"),
-                    key: "sign-out",
-                    on_press: reduce {
-                        preview.signed_in = false;
-                        preview.email.clear();
-                        preview.password.clear();
-                        preview.has_error = false;
-                        preview.feedback.clear();
-                    },
-                ),
-            ]))
-                .padding_all(tokens.spacing.l)
-                .bg(tokens.colors.surface)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.large)
-        } else {
-            Container(Column(gap: tokens.spacing.m, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Text("Harbour Supply").weight(tokens.typography.font_weight_bold),
-                    Text(preview.title.clone()).weight(tokens.typography.font_weight_semibold),
-                    Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                ]),
-                TextInput(
-                    label: Some("Work email".into()),
-                    placeholder: Some("you@example.com".into()),
-                    name: Some("email".into()),
-                    required: true,
-                    bind: preview.email,
-                    key: "login-email",
-                    semantics_identifier: "harbour.login.email".to_string(),
-                ),
-                TextInput(
-                    label: Some("Password".into()),
-                    placeholder: Some("Enter your password".into()),
-                    name: Some("password".into()),
-                    required: true,
-                    obscure_text: true,
-                    bind: preview.password,
-                    key: "login-password",
-                    semantics_identifier: "harbour.login.password".to_string(),
-                ),
-                if preview.has_error {
-                    SemanticsRegion(
-                        identifier: Some("harbour-login-error".to_string()),
-                        label: Some(preview.feedback.clone()),
-                        child: Text(preview.feedback.clone())
-                            .color(tokens.colors.text_secondary),
-                    )
-                } else {
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text("Preview account").weight(tokens.typography.font_weight_semibold),
-                        Text("demo@harbour.example · CedarPeak-2026")
-                            .color(tokens.colors.text_secondary),
-                    ])
+        label: Some(cx.tr("login.semantics.form")),
+        child: Container(Column(gap: tokens.spacing.m, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text(cx.tr("login.brand")).weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("login.title")).weight(tokens.typography.font_weight_semibold),
+                Text(cx.tr("login.detail")).color(tokens.colors.text_secondary),
+            ]),
+            TextInput(
+                label: Some(cx.tr("login.email.label").into()),
+                placeholder: Some(cx.tr("login.email.placeholder").into()),
+                name: Some("email".into()),
+                required: true,
+                bind: login.email,
+                key: "login-email",
+                semantics_identifier: "harbour.login.email".to_string(),
+            ),
+            TextInput(
+                label: Some(cx.tr("login.password.label").into()),
+                placeholder: Some(cx.tr("login.password.placeholder").into()),
+                name: Some("password".into()),
+                required: true,
+                obscure_text: true,
+                bind: login.password,
+                key: "login-password",
+                semantics_identifier: "harbour.login.password".to_string(),
+            ),
+            if let Some(message_key) = &login.feedback {
+                SemanticsRegion(
+                    identifier: Some("harbour.login.feedback".to_string()),
+                    label: Some(cx.tr(message_key)),
+                    child: Text(cx.tr(message_key)).color(tokens.colors.text_secondary),
+                )
+            } else {
+                Text(cx.tr("login.preview.note")).color(tokens.colors.text_secondary)
+            },
+            Button(
+                child: Text(cx.tr("login.action.validate")),
+                key: "validate-login-form",
+                on_press: reduce {
+                    login.feedback = Some(match validate_login_form(&login.email, &login.password) {
+                        Ok(()) => "login.validation.not_connected",
+                        Err(message_key) => message_key,
+                    }.to_owned());
                 },
-                Button(
-                    child: Text(preview.action.clone()),
-                    key: "sign-in",
-                    on_press: reduce {
-                        if preview.email.trim().eq_ignore_ascii_case("demo@harbour.example")
-                            && preview.password == "CedarPeak-2026"
-                        {
-                            preview.signed_in = true;
-                            preview.has_error = false;
-                            preview.feedback.clear();
-                        } else {
-                            preview.signed_in = false;
-                            preview.has_error = true;
-                            preview.feedback = "Email or password not recognized. Check the preview account details and try again.".to_string();
-                        }
-                    },
-                ),
-                Text("This preview checks one fixed account in memory. It does not send credentials to a server.")
-                    .color(tokens.colors.text_secondary),
-            ]))
-                .padding_all(tokens.spacing.l)
-                .bg(tokens.colors.surface)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.large)
-        },
+            ).semantics_identifier("harbour.login.validate-form".to_string()),
+        ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large),
     )
 }
 ```
@@ -279,6 +288,7 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -286,13 +296,9 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::LoginForm::new(
-        "Sign in to your warehouse".to_string(),
-        "Use the sample account to open the morning fulfilment dashboard.".to_string(),
-        "Sign in".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
-        .with_title("Build a server-rendered login page in Rust")
+    WebApp::<(), _>::new(app::LoginForm::new())
+        .with_env(translations::create_env())
+        .with_title("Harbour Supply login form")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -303,216 +309,40 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Validate input and show submission state: Sign in with the sample account, then change one character and submit again. The successful action opens the shift overview; an invalid pair produces one generic recovery message.
+Check input before handing it off: Submit empty fields, then try an invalid email and a complete pair. Each result is a local validation message; the complete pair still does not sign in or leave the browser.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Keep authentication and redirects on the server
+## Keep authentication separate from the form
 
-Treat the return destination as untrusted input. Accept it only when it is a local path on this application; otherwise an attacker could send a signed-in user to an unrelated site. After a recoverable error, keep the email so the user does not have to type it again, but clear the password.
+The `@` check here is only a small example of feedback while someone fills out a form. It is not a security check. A real service still needs to verify credentials on the server, avoid revealing whether an account exists, and authorize every protected operation independently.
 
-Component conversion should not perform I/O. Use a reducer for the state transition and queue server or host work through an asynchronous effect, job, capability or service. That keeps the UI responsive and makes success and failure explicit.
-
-The preview accepts only its displayed sample account and stores the result in component state. A real server should return the same rejection for an unknown email and an incorrect password. Never put a password into rendered HTML.
-
-Configure the server-managed session cookie in `fission.toml`:
-
-<!-- fission:file path="fission.toml" -->
-```toml
-[server.sessions]
-cookie_name = "harbour_session"
-signing_key_env = "HARBOUR_SESSION_SECRET"
-secure = true
-same_site = "lax"
-```
-
-Fission signs and protects the session cookie. Your authentication service is still responsible for verifying the credentials and storing the authenticated user ID on the server. The cookie protects session data; it does not verify a user's identity on its own.
-<Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
-```rust
-use fission::prelude::*;
-
-fission_component! {
-    pub LoginForm<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-        }
-        state {
-            email: String = String::new(),
-            password: String = String::new(),
-            signed_in: bool = false,
-            has_error: bool = false,
-            feedback: String = String::new(),
-        }
-    }
-    view(preview, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some("harbour-supply-login".to_string()),
-        label: Some("Harbour Supply sign-in".to_string()),
-        child:
-        if preview.signed_in {
-            Container(Column(gap: tokens.spacing.l, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text("Harbour Supply").weight(tokens.typography.font_weight_bold),
-                        Text("Morning fulfilment shift").color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "Demo session".to_string()),
-                ]),
-                Column(gap: tokens.spacing.xs, children: [
-                    Text(format!("Welcome, {}.", preview.email.clone()))
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text("Your warehouse shift is ready to continue.")
-                        .color(tokens.colors.text_secondary),
-                ]),
-                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                    Badge(text: "6 orders ready to pick".to_string()),
-                    Badge(text: "2 stock alerts to review".to_string()),
-                ]),
-                Text("Start with the six orders due before 10:00.")
-                    .color(tokens.colors.text_secondary),
-                Button(
-                    child: Text("Sign out"),
-                    key: "sign-out",
-                    on_press: reduce {
-                        preview.signed_in = false;
-                        preview.email.clear();
-                        preview.password.clear();
-                        preview.has_error = false;
-                        preview.feedback.clear();
-                    },
-                ),
-            ]))
-                .padding_all(tokens.spacing.l)
-                .bg(tokens.colors.surface)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.large)
-        } else {
-            Container(Column(gap: tokens.spacing.m, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Text("Harbour Supply").weight(tokens.typography.font_weight_bold),
-                    Text(preview.title.clone()).weight(tokens.typography.font_weight_semibold),
-                    Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                ]),
-                TextInput(
-                    label: Some("Work email".into()),
-                    placeholder: Some("you@example.com".into()),
-                    name: Some("email".into()),
-                    required: true,
-                    bind: preview.email,
-                    key: "login-email",
-                    semantics_identifier: "harbour.login.email".to_string(),
-                ),
-                TextInput(
-                    label: Some("Password".into()),
-                    placeholder: Some("Enter your password".into()),
-                    name: Some("password".into()),
-                    required: true,
-                    obscure_text: true,
-                    bind: preview.password,
-                    key: "login-password",
-                    semantics_identifier: "harbour.login.password".to_string(),
-                ),
-                if preview.has_error {
-                    SemanticsRegion(
-                        identifier: Some("harbour-login-error".to_string()),
-                        label: Some(preview.feedback.clone()),
-                        child: Text(preview.feedback.clone())
-                            .color(tokens.colors.text_secondary),
-                    )
-                } else {
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text("Preview account").weight(tokens.typography.font_weight_semibold),
-                        Text("demo@harbour.example · CedarPeak-2026")
-                            .color(tokens.colors.text_secondary),
-                    ])
-                },
-                Button(
-                    child: Text(preview.action.clone()),
-                    key: "sign-in",
-                    on_press: reduce {
-                        if preview.email.trim().eq_ignore_ascii_case("demo@harbour.example")
-                            && preview.password == "CedarPeak-2026"
-                        {
-                            preview.signed_in = true;
-                            preview.has_error = false;
-                            preview.feedback.clear();
-                        } else {
-                            preview.signed_in = false;
-                            preview.has_error = true;
-                            preview.feedback = "Email or password not recognized. Check the preview account details and try again.".to_string();
-                        }
-                    },
-                ),
-                Text("This preview checks one fixed account in memory. It does not send credentials to a server.")
-                    .color(tokens.colors.text_secondary),
-            ]))
-                .padding_all(tokens.spacing.l)
-                .bg(tokens.colors.surface)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.large)
-        },
-    )
-}
-```
-</TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    let preview = app::LoginForm::new(
-        "Sign in to your warehouse".to_string(),
-        "Use the sample account to open the morning fulfilment dashboard.".to_string(),
-        "Sign in".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
-        .with_title("Build a server-rendered login page in Rust")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-</Tabs>
-<!-- fission:preview -->
+This tutorial stops before that service boundary because the form alone cannot implement a trustworthy sign-in flow. Fission's protected-route widget controls which component tree is built; it is not a substitute for server authorization.
 
 <!-- fission:checkpoint -->
-Keep authentication and redirects on the server: Submit an unknown account and confirm the message does not reveal whether the email exists. Then sign in with the sample account and sign out; the sign-out action clears the local password.
+Keep authentication separate from the form: Confirm the UI shows its local-only notice and never claims a user is signed in.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-## Run, test and build the finished project
+## Run, test and build the finished form
 
 Run the checks from the project root:
 
 ```sh
 fission doctor --project-dir .
-fission run --target ssr --project-dir .
+fission run --target web --project-dir .
 cargo test
-fission build --target ssr --project-dir .
-fission test --target ssr --project-dir .
+fission build --target web --project-dir .
+fission test --target web --project-dir .
 ```
 
-The preview should accept the sample account and show a recoverable error for anything else without sending credentials. For the real SSR flow, connect the form action to your authentication service and accept a local return path only after the server confirms the user.
+The preview validates the fields locally and leaves them on the page for correction. It does not send credentials or authenticate a user.
 
 ## Related Fission reference
 
 Use these precise reference pages after the working path above is clear:
 
-- [Server Sites](/docs/guides/server-sites/)
-- [Server Site Security](/docs/guides/server-site-security/)
+- [Protected Route widget](/reference/widgets/protected-route/)
+- [Server-side actions and jobs](/reference/core/commands-services-jobs/)
 - [Form Control](/reference/widgets/form-control/)

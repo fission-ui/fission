@@ -23,6 +23,7 @@ Create the project and add the target used by this guide. Fission generates the 
 cargo install cargo-fission
 fission init android-add-responsive-motion-to-an-android-fission-app
 cd android-add-responsive-motion-to-an-android-fission-app
+cargo add serde_yaml
 fission add-target android --project-dir .
 ```
 
@@ -47,7 +48,7 @@ Keep the screen, shared state, reducers and reusable `fission_component!` compon
 <!-- fission:step id="start-screen" -->
 ## Create the app screen
 
-Start with one state change to animate: save and unsave an item. Keep the saved state clear even when motion is disabled; the next step adds movement without making it the only signal.
+Start with one state change to animate: open and close the inspection details. Keep the panel state clear even when motion is disabled; the next step adds movement without making it the only signal.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -56,42 +57,74 @@ Start with one state change to animate: save and unsave an item. Keep the saved 
 use fission::prelude::*;
 
 fission_component! {
-    pub AndroidResponsiveMotion<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub AndroidAddResponsiveMotionToAnAndroidFissionApp<()> {
+        state {
+            details_open: bool = false,
         }
     }
     view(screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let status = if screen.details_open {
+            cx.tr("preview.status.done")
+        } else {
+            cx.tr("preview.status.ready")
+        };
+        let action = if screen.details_open {
+            cx.tr("preview.action.undo")
+        } else {
+            cx.tr("preview.action.start")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("android-add-responsive-motion-to-an-android-fission-app".to_string()),
+        label: Some(cx.tr("preview.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
                 Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
                     Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
+                        Text(cx.tr("preview.app.name"))
                             .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
+                        Text(cx.tr("preview.route"))
                             .color(tokens.colors.text_secondary),
                     ]),
                     Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
+                    Badge(text: status),
                 ]),
                 Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
-                        .color(tokens.colors.text_secondary),
-                ]),
+                Text(cx.tr("preview.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("preview.summary"))
+                    .color(tokens.colors.text_secondary),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("preview.context.title"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("preview.context.one")),
+                        Text(cx.tr("preview.context.two")),
+                        if screen.details_open {
+                            Text(cx.tr("preview.result"))
+                                .color(tokens.colors.primary)
+                        },
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Button(
+                    child: Text(action),
+                    key: "details_open",
+                    variant: ButtonVariant::Primary,
+                    on_press: reduce {
+                        screen.details_open = !screen.details_open;
+                    },
+                ),
+                Text(if screen.details_open {
+                    cx.tr("preview.state.active")
+                } else {
+                    cx.tr("preview.state.idle")
+                })
+                .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -100,6 +133,7 @@ fission_component! {
         .border_radius(tokens.radii.large),
     )
 }
+
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
@@ -110,23 +144,81 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidResponsiveMotion::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::AndroidAddResponsiveMotionToAnAndroidFissionApp)
+        .with_env(preview_env())
+        .with_title("Northbank Field Service")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+preview.screen.label: "Service visit details"
+preview.app.name: "Northbank Field Service"
+preview.route: "Service visit · Android"
+preview.badge: "Live preview"
+preview.title: "Service visit details"
+preview.summary: "Reveal the inspection details without making the action depend on an animation finishing."
+preview.context.title: "WO-1048 · Compressor inspection"
+preview.context.one: "Current reading: 7.2 °C"
+preview.context.two: "Last visit: filter replaced · 12 October"
+preview.result: "The inspection details are open. The underlying state changed independently of motion."
+preview.footer: "The browser preview shows the two states. Verify motion and interruption behaviour on an Android target."
+preview.status.ready: "Details are collapsed"
+preview.status.complete: "Details are collapsed"
+preview.status.done: "Details are visible"
+preview.action.start: "Show inspection details"
+preview.action.undo: "Hide inspection details"
+preview.action.complete: "Details are visible"
+preview.state.idle: "Details are collapsed"
+preview.state.active: "Details are visible"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+preview.screen.label: "Detalles de la visita"
+preview.app.name: "Northbank Field Service"
+preview.route: "Visita de servicio · Android"
+preview.badge: "Vista previa interactiva"
+preview.title: "Detalles de la visita"
+preview.summary: "Muestra los detalles de inspección sin hacer que la acción dependa de que termine una animación."
+preview.context.title: "OT-1048 · Inspección del compresor"
+preview.context.one: "Lectura actual: 7,2 °C"
+preview.context.two: "Última visita: filtro sustituido · 12 de octubre"
+preview.result: "Los detalles de inspección están abiertos. El estado cambió independientemente del movimiento."
+preview.footer: "La vista previa web muestra ambos estados. Comprueba el movimiento y las interrupciones en Android."
+preview.status.ready: "Los detalles están plegados"
+preview.status.complete: "Los detalles están plegados"
+preview.status.done: "Los detalles están visibles"
+preview.action.start: "Mostrar detalles de inspección"
+preview.action.undo: "Ocultar detalles de inspección"
+preview.action.complete: "Los detalles están visibles"
+preview.state.idle: "Los detalles están plegados"
+preview.state.active: "Los detalles están visibles"
 ```
 </TabItem>
 </Tabs>
@@ -149,51 +241,69 @@ use fission::motion::{
 use fission::prelude::*;
 
 fission_component! {
-    pub AndroidResponsiveMotion<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
+    pub AndroidAddResponsiveMotionToAnAndroidFissionApp<()> {
         state {
-            saved: bool = false,
+            details_open: bool = false,
         }
     }
     view(screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let banner: Widget = if screen.saved {
-            Motion {
-                id: WidgetId::explicit("tutorial.saved-banner"),
-                tracks: vec![MotionTrack {
-                    property: MotionPropertyId::Opacity,
-                    phase: MotionPhase::Composite,
-                    from: MotionStartValue::Explicit(scalar(0.0)),
-                    to: scalar(1.0),
-                    transition: MotionTransition::tween(220, MotionEasing::EaseOut),
-                }],
-                child: Text::new("Saved. The status remains visible without motion.").into(),
-                ..Default::default()
-            }
-            .into()
+        let status = if screen.details_open {
+            cx.tr("preview.state.active")
         } else {
-            Spacer::default().into()
+            cx.tr("preview.state.idle")
+        };
+        let action = if screen.details_open {
+            cx.tr("preview.action.undo")
+        } else {
+            cx.tr("preview.action.start")
         };
     } =>
     SemanticsRegion(
         identifier: Some("motion-preview".to_string()),
-        label: Some(screen.title.clone()),
+        label: Some(cx.tr("preview.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(screen.title.clone())
-
+                Text(cx.tr("preview.app.name"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(screen.goal.clone()),
+                Text(cx.tr("preview.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("preview.summary"))
+                    .color(tokens.colors.text_secondary),
+                Text(cx.tr("preview.context.title")),
                 Button(
-                    child: Text(if screen.saved { "Reset saved state" } else { "Save" }),
-                    key: "save",
-                    on_press: reduce { screen.saved = !screen.saved; },
+                    child: Text(action),
+                    key: "toggle-details",
+                    variant: ButtonVariant::Primary,
+                    on_press: reduce { screen.details_open = !screen.details_open; },
                 ),
-                banner,
+                if screen.details_open {
+                    Motion {
+                        id: WidgetId::explicit("northbank.inspection-details"),
+                        tracks: vec![MotionTrack {
+                            property: MotionPropertyId::Opacity,
+                            phase: MotionPhase::Composite,
+                            from: MotionStartValue::Explicit(scalar(0.0)),
+                            to: scalar(1.0),
+                            transition: MotionTransition::tween(220, MotionEasing::EaseOut),
+                        }],
+                        child: Container(
+                            Column(gap: tokens.spacing.s, children: [
+                                Text(cx.tr("preview.context.one")),
+                                Text(cx.tr("preview.context.two")),
+                            ])
+                        )
+                        .padding_all(tokens.spacing.m)
+                        .bg(tokens.colors.background)
+                        .border(tokens.colors.border, 1.0)
+                        .border_radius(tokens.radii.medium)
+                        .into(),
+                        ..Default::default()
+                    }
+                } else {
+                    Spacer()
+                },
+                Text(status).color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -207,7 +317,7 @@ fission_component! {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Toggle Save and watch the state-driven transition. The saved state changes independently of the animation.
+Open and close the inspection details. The panel state changes independently of its animation.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 

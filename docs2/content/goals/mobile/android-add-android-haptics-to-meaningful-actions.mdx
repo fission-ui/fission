@@ -46,9 +46,9 @@ android-add-android-haptics-to-meaningful-actions/
 Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
 
 <!-- fission:step id="start-screen" -->
-## Preview the screen without vibration
+## Give an inspection completion a clear response
 
-The browser preview does not vibrate or contact the Android provider. Use it to inspect the action and its visible response; the next step connects that action to Fission’s haptics request and handles the result from the native host.
+The technician is finishing the compressor check at Northbank Food Hub. The screen confirms the work in text as well as with haptics; feedback is never the only sign that the action succeeded. This first step keeps the interaction local. The next step sends the same confirmation through Fission’s haptics capability.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -57,69 +57,142 @@ The browser preview does not vibrate or contact the Android provider. Use it to 
 use fission::prelude::*;
 
 fission_component! {
-    pub AndroidHapticFeedback<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub InspectionCompletion<()> {
+        state {
+            complete: bool = false,
         }
     }
-    view(preview, _state, cx) {
+    view(inspection, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let status = if inspection.complete {
+            cx.tr("inspection.status_complete")
+        } else {
+            cx.tr("inspection.status_progress")
+        };
+        let summary = if inspection.complete {
+            cx.tr("inspection.complete")
+        } else {
+            cx.tr("inspection.ready")
+        };
+        let button_label = if inspection.complete {
+            cx.tr("inspection.reopen")
+        } else {
+            cx.tr("inspection.finish")
+        };
     } =>
-    SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
-                    .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text("The browser and device boundary".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("This website cannot call the Android host provider or reach device hardware. The preview shows the app context without pretending that the capability has run.".to_string()),
-                        Text("In the native app, the visible action starts the request. The platform host then returns the outcome that the app should explain to the user.".to_string()),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
+    Container(Column(gap: tokens.spacing.m, children: [
+        Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+            Column(gap: tokens.spacing.xs, flex_grow: 1.0, children: [
+                Text(cx.tr("inspection.site")).weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("inspection.work_order")).color(tokens.colors.text_secondary),
+            ]),
+            Badge(text: status),
+        ]),
+        Divider(),
+        Text(cx.tr("inspection.asset")).weight(tokens.typography.font_weight_semibold),
+        Text(cx.tr("inspection.summary")).color(tokens.colors.text_secondary),
+        Text(summary),
+        Button(
+            child: Text(button_label),
+            key: "complete-inspection",
+            on_press: reduce { inspection.complete = !inspection.complete; },
+        ),
+    ]))
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
 }
+```
+</TabItem>
+<TabItem label="src/i18n.rs">
+<!-- fission:file path="src/i18n.rs" -->
+```rust
+use std::collections::HashMap;
+
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::Env;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../i18n/es-ES.yaml")),
+];
+
+pub fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in SOURCES {
+        let messages: HashMap<String, String> = serde_yaml::from_str(yaml)
+            .unwrap_or_else(|error| panic!("invalid {locale} translations: {error}"));
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+inspection.site: "Northbank Food Hub"
+inspection.work_order: "WO-1048 · Cold-room compressor"
+inspection.asset: "Compressor bank A7"
+inspection.summary: "Pressure and temperature checks are recorded."
+inspection.complete: "Inspection complete. The technician can continue to the next work order."
+inspection.ready: "All checks are ready to submit."
+inspection.status_complete: "Complete"
+inspection.status_progress: "In progress"
+inspection.reopen: "Reopen inspection"
+inspection.finish: "Complete inspection"
+inspection.screen_title: "Northbank compressor inspection"
+inspection.action: "Complete inspection"
+inspection.done: "Inspection complete"
+inspection.optional: "Haptic feedback is optional."
+inspection.sending: "Inspection complete. Sending optional haptic feedback…"
+inspection.haptic_complete: "Inspection complete. The haptic request finished."
+inspection.haptic_unavailable: "Inspection complete. Haptic feedback is unavailable."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+inspection.site: "Centro de alimentos Northbank"
+inspection.work_order: "OT-1048 · Compresor de cámara fría"
+inspection.asset: "Banco de compresores A7"
+inspection.summary: "Se han registrado las comprobaciones de presión y temperatura."
+inspection.complete: "Inspección completada. El técnico puede continuar con la siguiente orden de trabajo."
+inspection.ready: "Todas las comprobaciones están listas para enviarse."
+inspection.status_complete: "Completada"
+inspection.status_progress: "En curso"
+inspection.reopen: "Reabrir inspección"
+inspection.finish: "Completar inspección"
+inspection.screen_title: "Inspección del compresor de Northbank"
+inspection.action: "Completar inspección"
+inspection.done: "Inspección completada"
+inspection.optional: "La respuesta háptica es opcional."
+inspection.sending: "Inspección completada. Enviando respuesta háptica opcional…"
+inspection.haptic_complete: "Inspección completada. La solicitud háptica ha finalizado."
+inspection.haptic_unavailable: "Inspección completada. La respuesta háptica no está disponible."
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod i18n;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidHapticFeedback::new(tutorial_title(), tutorial_step(), tutorial_goal());
+    let preview = app::InspectionCompletion::new();
     WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+        .with_env(i18n::preview_env())
+        .with_title("Northbank compressor inspection")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -130,74 +203,14 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Check the action and its visible result. This preview has not sent a device request; the Android app does that in the next step.
+Complete and reopen the inspection. The visible status explains the outcome even before haptics are connected.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Connect the Haptics provider to the user action
+## Send the haptic request through Fission
 
-This is the real Fission request path for this feature. Keep permission and hardware work outside the component view: the component dispatches one intent, the reducer queues the request, and success or error reducers store the returned result.
-
-Start with task data and status in the app state. Keep a text-field draft, open flag or selected tab in the owning component instead of duplicating that temporary state here:
-
-```rust
-#[derive(Debug, Default)]
-struct HapticsState {
-    // Add these fields to your existing app state.
-    haptic_error: Option<String>,
-}
-
-impl GlobalState for HapticsState {}
-```
-
-Handle successful and failed results separately so the screen can explain denied permission, cancellation, unsupported hardware and provider errors:
-
-```rust
-#[fission_reducer(HapticFailed)]
-fn on_haptic_failed(state: &mut HapticsState, error: HapticError) {
-    state.haptic_error = Some(error.message);
-}
-```
-
-Queue the operation after the user presses the named control. The host completes asynchronously and dispatches the matching reducer:
-
-```rust
-ctx.effects
-    .haptics()
-    .notification(HapticNotificationRequest {
-        kind: HapticNotificationKind::Success,
-    })
-    .on_err(ctx.effects.bind(
-        HapticFailed(HapticError::default()),
-        reduce_with!(on_haptic_failed),
-    ));
-```
-
-Bind the user action from a reusable Fission component. Keep the visible label in the same control so it works with touch, keyboard and assistive technology:
-
-```rust
-fission_component!
-{
-    pub PlayHapticFeedbackButton<HapticsState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<HapticsState>();
-                let run = with_reducer!(ctx, PlaySuccessHaptic, on_play_success_haptic);
-
-                Button::new("Play feedback")
-                    .disabled(false)
-                    .on_press(run)
-                    .into()
-    }
-}
-```
-
-The [complete Haptics guide](/docs/capabilities/haptics/) explains configuration and expected platform behaviour. Test a successful memory-provider response and an unavailable or denied response before relying on the physical-device check below. The preview is read-only. The native target uses Fission’s provider to perform the request and report the result.
-
-Keep platform-only code behind the generated target boundary or a typed provider; the shared component should describe the user task rather than call an operating-system API directly.
-
-
+Keep work-order state in `GlobalState` because it may be read by other screens. The reducer marks the inspection complete synchronously, then requests an optional success haptic. The separate completion reducers update the message after the host responds.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -205,41 +218,101 @@ Keep platform-only code behind the generated target boundary or a typed provider
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub AndroidHapticFeedbackResult<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum FeedbackState {
+    #[default]
+    Optional,
+    Sending,
+    Complete,
+    Unavailable,
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct InspectionState {
+    pub complete: bool,
+    feedback: FeedbackState,
+    haptic_error: Option<String>,
+}
+
+impl GlobalState for InspectionState {}
+
+#[fission_reducer(CompleteInspection)]
+fn complete_inspection(state: &mut InspectionState, ctx: &mut ReducerContext<InspectionState>) {
+    state.complete = true;
+    state.feedback = FeedbackState::Sending;
+    state.haptic_error = None;
+
+    let ok = ctx.effects.bind(HapticCompleted, reduce_with!(on_haptic_completed));
+    let err = ctx.effects.bind(HapticUnavailable, reduce_with!(on_haptic_unavailable));
+    ctx.effects
+        .haptics()
+        .notification(HapticNotificationRequest {
+            kind: HapticNotificationKind::Success,
+        })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(HapticCompleted)]
+fn on_haptic_completed(state: &mut InspectionState, ctx: &mut ReducerContext<InspectionState>) {
+    if ctx.input.capability_ok(HAPTIC_NOTIFICATION).is_some() {
+        state.feedback = FeedbackState::Complete;
+    } else {
+        state.feedback = FeedbackState::Unavailable;
     }
-    view(preview, _state, cx) {
+}
+
+#[fission_reducer(HapticUnavailable)]
+fn on_haptic_unavailable(state: &mut InspectionState, ctx: &mut ReducerContext<InspectionState>) {
+    state.haptic_error = ctx
+        .input
+        .capability_error_message(HAPTIC_NOTIFICATION)
+        .map(str::to_owned);
+    state.feedback = FeedbackState::Unavailable;
+}
+
+fission_component! {
+    pub InspectionCompletion<InspectionState> {}
+    view(_inspection, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let complete = with_reducer!(cx.build, CompleteInspection, complete_inspection);
+        let feedback = if let Some(error) = &state.haptic_error {
+            format!("{}: {error}", cx.tr("inspection.haptic_unavailable"))
+        } else {
+            match state.feedback {
+                FeedbackState::Optional => cx.tr("inspection.optional"),
+                FeedbackState::Sending => cx.tr("inspection.sending"),
+                FeedbackState::Complete => cx.tr("inspection.haptic_complete"),
+                FeedbackState::Unavailable => cx.tr("inspection.haptic_unavailable"),
+            }
+        };
+        let status = if state.complete {
+            cx.tr("inspection.done")
+        } else {
+            cx.tr("inspection.status_progress")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
-                    .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text("Where the request result comes from".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("In the target app, Fission’s native host completes the request and reports its real outcome to shared Rust state. The browser cannot manufacture that outcome, so this preview stays read-only.".to_string()),
-                        Text("Handle success and errors as separate state transitions. Keep the surrounding screen usable if the user declines, cancels, or the device does not support the capability.".to_string()),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-            ])
-        )
+        identifier: Some("inspection-completion".into()),
+        label: Some(cx.tr("inspection.screen_title")),
+        child: Container(Column(gap: tokens.spacing.m, children: [
+            Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                Column(gap: tokens.spacing.xs, flex_grow: 1.0, children: [
+                Text(cx.tr("inspection.site")).weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("inspection.work_order")).color(tokens.colors.text_secondary),
+                ]),
+                Badge(text: status),
+            ]),
+            Divider(),
+            Text(cx.tr("inspection.summary")),
+            Button(
+                child: Text(if state.complete { cx.tr("inspection.done") } else { cx.tr("inspection.action") }),
+                key: "complete-inspection",
+                disabled: state.complete,
+                on_press: complete,
+            ),
+            Text(feedback).color(tokens.colors.text_secondary),
+        ]))
         .padding_all(tokens.spacing.l)
         .bg(tokens.colors.surface)
         .border(tokens.colors.border, 1.0)
@@ -252,23 +325,18 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod i18n;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidHapticFeedbackResult::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<app::InspectionState, _>::new(app::InspectionCompletion::new())
+        .with_haptic_host(MemoryHapticHost::default())
+        .with_env(i18n::preview_env())
+        .with_title("Northbank compressor inspection")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -276,17 +344,24 @@ pub fn run() -> Result<(), JsValue> {
 ```
 </TabItem>
 </Tabs>
+
+The browser preview installs `MemoryHapticHost`, so pressing the action exercises the same Fission capability and completion reducers without vibrating hardware:
+
+The [complete Haptics guide](/docs/capabilities/haptics/) explains configuration and platform behaviour. On a physical Android device, verify the actual vibration too. If the host reports haptics are unavailable, the inspection should still be marked complete and the screen should still explain what happened.
+
+Keep platform-specific code behind Fission’s typed provider boundary; the shared component describes the work and handles outcomes without calling an Android API directly.
+
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-This preview is read-only: the actual result comes from the native host when you run the app on a supported target. Continue below to build and check that real request on a device or emulator.
+Press “Complete inspection”. The browser memory host should return success and the screen should show that the haptic request finished. This exercises the same request path without pretending the browser produced physical vibration.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
 ## Verify the native request on Android
 
-The website preview cannot exercise the native provider. Build and launch this target on a supported emulator or device, then use the feature action from the component above. Check the result the host actually returns, including denial, cancellation or unsupported hardware where those outcomes apply.
+The browser preview uses an in-memory provider, not the Android vibrator. Build and launch on a supported emulator or device, then use the same action and compare the visible result with the feedback the Android host actually provides. Also check that an unavailable or denied haptic request does not undo the completed inspection.
 
 Repeat with the feature unavailable, denied or cancelled, as applicable. Confirm the screen preserves the user’s existing data and offers the right recovery step. Use a physical device when the behavior depends on real hardware or an operating-system prompt.
 

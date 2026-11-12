@@ -53,44 +53,94 @@ Keep app state, reducers and components in shared Rust. Put direct iOS API calls
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
-
 fission_component! {
-    pub IosDatabaseMigrations<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub ProjectRenameTransaction<()> {
+        state {
+            preview_applied: bool = false,
         }
     }
-    view(screen, _state, cx) {
+    view(project, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let new_name = if project.preview_applied {
+            cx.tr("sql.project.new_name")
+        } else {
+            cx.tr("sql.project.old_name")
+        };
+        let audit_status = if project.preview_applied {
+            cx.tr("sql.audit.written")
+        } else {
+            cx.tr("sql.audit.waiting")
+        };
+        let transaction_status = if project.preview_applied {
+            cx.tr("sql.status.previewed")
+        } else {
+            cx.tr("sql.status.draft")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("ios-project-rename-transaction".to_string()),
+        label: Some(cx.tr("sql.screen.label")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("sql.app.name"))
+                        .weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("sql.route"))
                         .color(tokens.colors.text_secondary),
                 ]),
+                Badge(text: cx.tr("sql.preview.badge")),
+                Divider(),
+                Text(cx.tr("sql.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("sql.summary"))
+                    .color(tokens.colors.text_secondary),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("sql.project.label"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(new_name),
+                        Divider(),
+                        Text(cx.tr("sql.audit.label"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(audit_status),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                    Badge(text: transaction_status),
+                    Text(cx.tr("sql.status.explanation"))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Button(
+                    child: Text(cx.tr("sql.action.apply")),
+                    key: "preview-project-rename-transaction",
+                    variant: ButtonVariant::Primary,
+                    disabled: project.preview_applied,
+                    on_press: reduce { project.preview_applied = true; },
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(cx.tr("sql.action.apply")),
+                        identifier: Some("sql.preview-rename".to_string()),
+                        ..Default::default()
+                    }),
+                ),
+                Button(
+                    child: Text(cx.tr("sql.action.reset")),
+                    key: "reset-transaction-preview",
+                    disabled: !project.preview_applied,
+                    on_press: reduce { project.preview_applied = false; },
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(cx.tr("sql.action.reset")),
+                        identifier: Some("sql.preview-reset".to_string()),
+                        ..Default::default()
+                    }),
+                ),
+                Text(cx.tr("sql.preview.note"))
+                    .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -99,6 +149,7 @@ fission_component! {
         .border_radius(tokens.radii.large),
     )
 }
+
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
@@ -109,23 +160,80 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosDatabaseMigrations::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::ProjectRenameTransaction)
+        .with_env(preview_env())
+        .with_title("Project Ledger")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+sql.screen.label: "Project rename and audit transaction preview"
+sql.app.name: "Project Ledger"
+sql.route: "Projects · Rename"
+sql.preview.badge: "Transaction example"
+sql.title: "Rename the project and record the change"
+sql.summary: "The SQL example updates the project row and adds its audit entry in one transaction."
+sql.project.label: "Project record"
+sql.project.old_name: "Harbour plan"
+sql.project.new_name: "Harbour renewal plan"
+sql.audit.label: "Audit log"
+sql.audit.written: "The example includes the matching audit entry"
+sql.audit.waiting: "The example will show the audit entry beside the rename"
+sql.status.previewed: "Transaction outcome previewed"
+sql.status.draft: "Ready to preview the transaction"
+sql.status.explanation: "A real transaction keeps both database writes together."
+sql.action.apply: "Preview both writes together"
+sql.action.reset: "Reset preview"
+sql.preview.note: "Browser-only state: this interaction does not open SQLite or execute SQL."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+sql.screen.label: "Vista previa de la transacción de cambio y auditoría"
+sql.app.name: "Registro de proyectos"
+sql.route: "Proyectos · Renombrar"
+sql.preview.badge: "Ejemplo de transacción"
+sql.title: "Cambia el nombre del proyecto y registra el cambio"
+sql.summary: "El ejemplo SQL actualiza la fila del proyecto y añade la entrada de auditoría en una transacción."
+sql.project.label: "Registro del proyecto"
+sql.project.old_name: "Plan del puerto"
+sql.project.new_name: "Plan de renovación del puerto"
+sql.audit.label: "Registro de auditoría"
+sql.audit.written: "El ejemplo incluye la entrada de auditoría correspondiente"
+sql.audit.waiting: "El ejemplo mostrará la entrada de auditoría junto al cambio"
+sql.status.previewed: "Resultado de la transacción mostrado"
+sql.status.draft: "Listo para previsualizar la transacción"
+sql.status.explanation: "Una transacción real mantiene juntas ambas escrituras en la base de datos."
+sql.action.apply: "Previsualizar ambas escrituras juntas"
+sql.action.reset: "Restablecer vista previa"
+sql.preview.note: "Estado solo del navegador: esta interacción no abre SQLite ni ejecuta SQL."
 ```
 </TabItem>
 </Tabs>

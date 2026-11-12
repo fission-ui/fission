@@ -54,44 +54,107 @@ The native host lives under `platforms/ios/`, not in the shared Rust screen. The
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProjectLayer {
+    Configuration,
+    RustApp,
+    IosHost,
+}
 
 fission_component! {
-    pub IosHostProject<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub GeneratedIosHostMap<()> {
+        state {
+            selected_layer: ProjectLayer = ProjectLayer::Configuration,
         }
     }
-    view(screen, _state, cx) {
+    view(project, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let (layer_title, layer_path, layer_detail) = match project.selected_layer {
+            ProjectLayer::Configuration => (
+                cx.tr("host.layer.configuration"),
+                "fission.toml",
+                cx.tr("host.detail.configuration"),
+            ),
+            ProjectLayer::RustApp => (
+                cx.tr("host.layer.rust"),
+                "src/",
+                cx.tr("host.detail.rust"),
+            ),
+            ProjectLayer::IosHost => (
+                cx.tr("host.layer.native"),
+                "platforms/ios/",
+                cx.tr("host.detail.native"),
+            ),
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("generated-ios-host-map".to_string()),
+        label: Some(cx.tr("host.screen.label")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("host.app.name"))
+                        .weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("host.route"))
                         .color(tokens.colors.text_secondary),
                 ]),
+                Badge(text: cx.tr("host.preview.badge")),
+                Divider(),
+                Text(cx.tr("host.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("host.summary"))
+                    .color(tokens.colors.text_secondary),
+                Button(
+                    child: Text(cx.tr("host.layer.configuration")),
+                    key: "select-project-configuration",
+                    variant: if project.selected_layer == ProjectLayer::Configuration { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { project.selected_layer = ProjectLayer::Configuration; },
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(cx.tr("host.layer.configuration")),
+                        identifier: Some("host-map.configuration".to_string()),
+                        ..Default::default()
+                    }),
+                ),
+                Button(
+                    child: Text(cx.tr("host.layer.rust")),
+                    key: "select-rust-app",
+                    variant: if project.selected_layer == ProjectLayer::RustApp { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { project.selected_layer = ProjectLayer::RustApp; },
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(cx.tr("host.layer.rust")),
+                        identifier: Some("host-map.rust".to_string()),
+                        ..Default::default()
+                    }),
+                ),
+                Button(
+                    child: Text(cx.tr("host.layer.native")),
+                    key: "select-ios-host",
+                    variant: if project.selected_layer == ProjectLayer::IosHost { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { project.selected_layer = ProjectLayer::IosHost; },
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(cx.tr("host.layer.native")),
+                        identifier: Some("host-map.ios-host".to_string()),
+                        ..Default::default()
+                    }),
+                ),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(layer_title)
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(layer_path),
+                        Text(layer_detail)
+                            .color(tokens.colors.text_secondary),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Text(cx.tr("host.preview.note"))
+                    .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -100,6 +163,7 @@ fission_component! {
         .border_radius(tokens.radii.large),
     )
 }
+
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
@@ -110,23 +174,70 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosHostProject::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::GeneratedIosHostMap)
+        .with_env(preview_env())
+        .with_title("Fission iOS Project Map")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+host.screen.label: "Generated iOS host project map"
+host.app.name: "Fission iOS project map"
+host.route: "Project structure · iOS target"
+host.preview.badge: "Architecture overview"
+host.title: "Follow the build from Rust to iOS"
+host.summary: "Select a project layer to see what belongs there and where to find its instructions."
+host.layer.configuration: "Project configuration"
+host.layer.rust: "Shared Rust app"
+host.layer.native: "Generated iOS host"
+host.detail.configuration: "Select the iOS target and capabilities in the project configuration."
+host.detail.rust: "Keep app state, routes and components in the shared src/ tree."
+host.detail.native: "Read platforms/ios/README.md before changing host inputs; generated files may be replaced by Fission."
+host.preview.note: "This browser map is a guide to the project boundaries; it does not inspect files on your computer."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+host.screen.label: "Mapa del host iOS generado"
+host.app.name: "Mapa del proyecto iOS de Fission"
+host.route: "Estructura del proyecto · destino iOS"
+host.preview.badge: "Resumen de arquitectura"
+host.title: "Sigue el recorrido de Rust a iOS"
+host.summary: "Selecciona una capa del proyecto para ver qué contiene y dónde encontrar sus instrucciones."
+host.layer.configuration: "Configuración del proyecto"
+host.layer.rust: "App Rust compartida"
+host.layer.native: "Host iOS generado"
+host.detail.configuration: "Selecciona el destino iOS y sus capacidades en la configuración del proyecto."
+host.detail.rust: "Mantén el estado, las rutas y los componentes de la app en el árbol compartido src/."
+host.detail.native: "Lee platforms/ios/README.md antes de cambiar datos del host; Fission puede reemplazar los archivos generados."
+host.preview.note: "Este mapa web explica los límites del proyecto; no inspecciona archivos de tu ordenador."
 ```
 </TabItem>
 </Tabs>

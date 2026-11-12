@@ -46,9 +46,9 @@ android-use-android-volume-control-from-fission/
 Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
 
 <!-- fission:step id="start-screen" -->
-## Preview the volume controls
+## Preview an alert-volume adjustment
 
-The browser preview does not change Android’s device volume. Use it to inspect the controls and visible status; the Android steps below send the request through Fission’s volume provider.
+The receiving team needs audible delivery alerts without quietly changing a user's system setting. This first screen lets the user try a five-point adjustment in component-local preview state. It does not read the Android setting; the next step requests the platform capability after the user chooses it.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -57,38 +57,49 @@ The browser preview does not change Android’s device volume. Use it to inspect
 use fission::prelude::*;
 
 fission_component! {
-    pub AndroidVolumeControls<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub VolumeControlScreen<()> {
+        state {
+            preview_level: Option<u8> = None,
         }
     }
-    view(preview, _state, cx) {
+    view(screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let preview_level = screen.preview_level
+            .map(|level| format!("{} {level}%", cx.tr("volume.preview_level")))
+            .unwrap_or_else(|| cx.tr("volume.preview_not_set"));
     } =>
     SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("alert-volume-preview".to_string()),
+        label: Some(cx.tr("volume.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
+                Text(cx.tr("volume.site"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+                Text(cx.tr("volume.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("volume.stream"))
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
                 Container(
                     Column(gap: tokens.spacing.s, children: [
-                        Text("The browser and device boundary".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("This website cannot call the Android host provider or reach device hardware. The preview shows the app context without pretending that the capability has run.".to_string()),
-                        Text("In the native app, the visible action starts the request. The platform host then returns the outcome that the app should explain to the user.".to_string()),
+                        Text(cx.tr("volume.context")),
+                        Text(preview_level),
                     ])
                 )
                 .padding_all(tokens.spacing.m)
                 .bg(tokens.colors.background)
                 .border(tokens.colors.border, 1.0)
                 .border_radius(tokens.radii.medium),
+                Button(
+                    child: Text(cx.tr("volume.preview_action")),
+                    key: "preview-volume-adjustment",
+                    variant: ButtonVariant::Primary,
+                    disabled: screen.preview_level == Some(100),
+                    on_press: reduce {
+                        screen.preview_level = Some(
+                            screen.preview_level.unwrap_or(0).saturating_add(5).min(100),
+                        );
+                    },
+                ),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -107,110 +118,81 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid alert volume tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("../i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("../i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidVolumeControls::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::VolumeControlScreen)
+        .with_env(preview_env())
+        .with_title("Alert volume preview")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+volume.site: "Northbank Receiving"
+volume.title: "Delivery alert volume"
+volume.stream: "Notification stream · Android system setting"
+volume.context: "Move in five-point increments. The preview value is local UI state; the capability request changes the system level only after you choose it."
+volume.preview_level: "Preview level:"
+volume.preview_not_set: "No device level was read. Choose the preview action to try a local value."
+volume.preview_action: "Preview next five points"
+volume.waiting: "Adjusting notification volume…"
+volume.error: "The system volume could not be changed. Your alert preferences are still available."
+volume.level: "Notification volume is now"
+volume.ready: "System volume has not been changed."
+volume.action: "Raise notification volume by five points"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+volume.site: "Recepción Northbank"
+volume.title: "Volumen de alertas de entrega"
+volume.stream: "Canal de notificaciones · ajuste del sistema Android"
+volume.context: "El ajuste avanza de cinco en cinco. El valor de vista previa solo es estado local; la solicitud de capacidad cambia el nivel del sistema cuando la eliges."
+volume.preview_level: "Nivel de vista previa:"
+volume.preview_not_set: "No se ha leído el nivel del dispositivo. Elige la acción de vista previa para probar un valor local."
+volume.preview_action: "Previsualizar los siguientes cinco puntos"
+volume.waiting: "Ajustando el volumen de notificaciones…"
+volume.error: "No se pudo cambiar el volumen del sistema. Las preferencias de alertas siguen disponibles."
+volume.level: "El volumen de notificaciones ahora es"
+volume.ready: "El volumen del sistema no ha cambiado."
+volume.action: "Subir cinco puntos el volumen de notificaciones"
+```
+</TabItem>
 </Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Check the controls and their visible result. The preview has not changed device volume; the next step adds the native request and handles its response.
+This stage is an app screen with a real state transition, not a device mock. The next stage connects a separate user action to the typed Volume capability and shows its success or error result.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Connect the Volume Control provider to the user action
+## Run the Volume operation through Fission
 
-This is the real Fission request path for this feature. Keep permission and hardware work outside the component view: the component dispatches one intent, the reducer queues the request, and success or error reducers store the returned result.
+Keep host work out of component conversion. The button dispatches a typed action, its reducer queues the capability request, and separate completion reducers update the screen. The Web preview installs `MemoryVolumeHost` and sends the same operation through Fission’s typed capability path. Its deterministic response is not a claim about device hardware, OS permission or native platform support.
 
-Start with task data and status in the app state. Keep a text-field draft, open flag or selected tab in the owning component instead of duplicating that temporary state here:
-
-```rust
-#[derive(Debug, Default)]
-struct VolumeControlState {
-    // Add these fields to your existing app state.
-    volume: Option<VolumeLevel>,
-    volume_error: Option<String>,
-}
-
-impl GlobalState for VolumeControlState {}
-```
-
-Handle successful and failed results separately so the screen can explain denied permission, cancellation, unsupported hardware and provider errors:
-
-```rust
-#[fission_reducer(VolumeChanged)]
-fn on_volume_changed(state: &mut VolumeControlState, level: VolumeLevel) {
-    state.volume = Some(level);
-    state.volume_error = None;
-}
-
-#[fission_reducer(VolumeChangeFailed)]
-fn on_volume_change_failed(state: &mut VolumeControlState, error: VolumeError) {
-    state.volume_error = Some(error.message);
-}
-```
-
-Queue the operation after the user presses the named control. The host completes asynchronously and dispatches the matching reducer:
-
-```rust
-ctx.effects
-    .volume()
-    .adjust_level(VolumeAdjustRequest {
-        stream: VolumeStream::Media,
-        direction: VolumeAdjustDirection::Up,
-        step: 5,
-    })
-    .on_ok(ctx.effects.bind(
-        VolumeChanged(VolumeLevel::default()),
-        reduce_with!(on_volume_changed),
-    ))
-    .on_err(ctx.effects.bind(
-        VolumeChangeFailed(VolumeError::default()),
-        reduce_with!(on_volume_change_failed),
-    ));
-```
-
-Bind the user action from a reusable Fission component. Keep the visible label in the same control so it works with touch, keyboard and assistive technology:
-
-```rust
-fission_component!
-{
-    pub RaiseVolumeButton<VolumeControlState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<VolumeControlState>();
-                let run = with_reducer!(ctx, RaiseVolume, on_raise_volume);
-
-                Button::new("Raise volume")
-                    .disabled(false)
-                    .on_press(run)
-                    .into()
-    }
-}
-```
-
-The [complete Volume Control guide](/docs/capabilities/volume-control/) explains configuration and expected platform behaviour. Test a successful memory-provider response and an unavailable or denied response before relying on the physical-device check below. The preview is read-only. The native target uses Fission’s provider to perform the request and report the result.
-
-Keep platform-only code behind the generated target boundary or a typed provider; the shared component should describe the user task rather than call an operating-system API directly.
-
-
+The Web preview uses `MemoryVolumeHost` to exercise the typed capability with an in-memory volume level. It does not change the computer's or phone's system volume.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -218,39 +200,103 @@ Keep platform-only code behind the generated target boundary or a typed provider
 ```rust
 use fission::prelude::*;
 
+#[derive(Debug, Default)]
+pub struct VolumeControlState {
+    pub pending: bool,
+    pub level: Option<u8>,
+    pub failed: bool,
+}
+
+impl GlobalState for VolumeControlState {}
+
+#[fission_reducer(RunCapability)]
+pub fn run_capability(state: &mut VolumeControlState, ctx: &mut ReducerContext<VolumeControlState>) {
+    state.pending = true;
+    state.level = None;
+    state.failed = false;
+
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
+
+    ctx.effects
+        .volume().adjust_level(VolumeAdjustRequest {
+            stream: VolumeStream::Notification,
+            direction: VolumeAdjustDirection::Up,
+            step: 5,
+        })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(CapabilitySucceeded)]
+pub fn capability_succeeded(
+    state: &mut VolumeControlState,
+    ctx: &mut ReducerContext<VolumeControlState>,
+) {
+    state.pending = false;
+    state.level = ctx
+        .input
+        .capability_ok(ADJUST_VOLUME_LEVEL)
+        .map(|value| value.level);
+    state.failed = state.level.is_none();
+}
+
+#[fission_reducer(CapabilityFailed)]
+pub fn capability_failed(
+    state: &mut VolumeControlState,
+) {
+    state.pending = false;
+    state.level = None;
+    state.failed = true;
+}
+
+pub fn callback_registry() -> ActionRegistry<VolumeControlState> {
+    let mut registry = ActionRegistry::new();
+    registry.register(reduce_with!(capability_succeeded));
+    registry.register(reduce_with!(capability_failed));
+    registry
+}
+
 fission_component! {
-    pub AndroidVolumeControlsResult<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-    }
-    view(preview, _state, cx) {
+    pub VolumeControlScreen<VolumeControlState> {}
+    view(_screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let action = with_reducer!(cx.build, RunCapability, run_capability);
+        let status = if state.pending {
+            cx.tr("volume.waiting")
+        } else if state.failed {
+            cx.tr("volume.error")
+        } else if let Some(level) = state.level {
+            format!("{} {level}%", cx.tr("volume.level"))
+        } else {
+            cx.tr("volume.ready")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("alert-volume-adjustment".to_string()),
+        label: Some(cx.tr("volume.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
+                Text(cx.tr("volume.site"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+                Text(cx.tr("volume.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("volume.stream"))
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text("Where the request result comes from".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("In the target app, Fission’s native host completes the request and reports its real outcome to shared Rust state. The browser cannot manufacture that outcome, so this preview stays read-only.".to_string()),
-                        Text("Handle success and errors as separate state transitions. Keep the surrounding screen usable if the user declines, cancels, or the device does not support the capability.".to_string()),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
+                Text(cx.tr("volume.context")),
+                Button(
+                    child: Text(cx.tr("volume.action")),
+                    key: "run-capability",
+                    variant: ButtonVariant::Primary,
+                    disabled: state.pending,
+                    loading: state.pending,
+                    on_press: action,
+                ),
+                Container(Text(status))
+                    .padding_all(tokens.spacing.m)
+                    .bg(tokens.colors.background)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -269,30 +315,72 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid alert volume tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("../i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("../i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidVolumeControlsResult::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
-        .mount("#fission-web-mount")
+    let mut app = WebApp::<app::VolumeControlState, _>::new(app::VolumeControlScreen)
+        .with_env(preview_env())
+        .with_volume_host(MemoryVolumeHost::default())
+        .with_title("Android alert volume preview");
+    app.absorb_registry(app::callback_registry());
+    app.mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+volume.site: "Northbank Receiving"
+volume.title: "Delivery alert volume"
+volume.stream: "Notification stream · Android system setting"
+volume.context: "Move in five-point increments. The preview value is local UI state; the capability request changes the system level only after you choose it."
+volume.preview_level: "Preview level:"
+volume.preview_action: "Preview next five points"
+volume.waiting: "Adjusting notification volume…"
+volume.error: "The system volume could not be changed. Your alert preferences are still available."
+volume.level: "Notification volume is now"
+volume.ready: "System volume has not been changed."
+volume.action: "Raise notification volume by five points"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+volume.site: "Recepción Northbank"
+volume.title: "Volumen de alertas de entrega"
+volume.stream: "Canal de notificaciones · ajuste del sistema Android"
+volume.context: "El ajuste avanza de cinco en cinco. El valor de vista previa solo es estado local; la solicitud de capacidad cambia el nivel del sistema cuando la eliges."
+volume.preview_level: "Nivel de vista previa:"
+volume.preview_action: "Previsualizar los siguientes cinco puntos"
+volume.waiting: "Ajustando el volumen de notificaciones…"
+volume.error: "No se pudo cambiar el volumen del sistema. Las preferencias de alertas siguen disponibles."
+volume.level: "El volumen de notificaciones ahora es"
+volume.ready: "El volumen del sistema no ha cambiado."
+volume.action: "Subir cinco puntos el volumen de notificaciones"
 ```
 </TabItem>
 </Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Run the Android app on an emulator or device to check the real volume-provider response.
+The preview exercises the Volume operation with an in-memory host. On Android, keep the native permission and unsupported/error outcomes visible, then verify the same user action on the supported simulator or a physical device.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 

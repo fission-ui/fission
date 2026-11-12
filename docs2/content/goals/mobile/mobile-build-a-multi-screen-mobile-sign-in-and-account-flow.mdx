@@ -1,8 +1,8 @@
 ---
 layout: goal
-title: Build a multi-screen mobile sign-in and account flow
-description: "Build a multi-screen mobile sign-in and account flow using Fission."
-goal: Combine form validation, asynchronous effects, protected routes, logout and native deep links.
+title: Add passkey sign-in to a shared Android and iOS app
+description: "Add passkey sign-in for Android and iOS with shared Rust app state and Fission's typed host capability."
+goal: Request a passkey from a shared mobile app and keep the user signed out until the relying-party server verifies the assertion.
 path: /blog/build-a-multi-screen-mobile-sign-in-and-account-flow/
 order: 110
 difficulty: Beginner
@@ -10,9 +10,9 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: mobile-build-a-multi-screen-mobile-sign-in-and-account-flow
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify both target workflows and follow physical-device checks when the task requires them
+  - Show the account identity before requesting a passkey
+  - Queue authentication through a reducer and render its pending and result states
+  - Keep the app signed out until a relying-party server verifies the assertion
 ---
 
 ## Create the project and add the target
@@ -45,9 +45,9 @@ mobile-build-a-multi-screen-mobile-sign-in-and-account-flow/
 Keep sign-in state, validation, and route decisions in shared Rust. The generated hosts launch the same account flow with each target’s Passkeys provider.
 
 <!-- fission:step id="start-screen" -->
-## See where the browser stops
+## Build the account entry screen
 
-The browser preview shows a task card, not the account flow or a native Passkeys request. It cannot call Android or iOS’s Passkeys provider; run the app on a target to verify that path.
+Start with a person signing in to Northbank. This first stage makes the account and the server-verification boundary visible; it does not pretend that reading a label is a sign-in action. The next stage connects the passkey button to Fission and renders pending, result and recovery states in the same view. The browser preview uses an in-memory host and does not claim to authenticate the user.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -56,28 +56,25 @@ The browser preview shows a task card, not the account flow or a native Passkeys
 use fission::prelude::*;
 
 fission_component! {
-    pub MobileAccountFlow<()> {
-        props { title: String, step: String, goal: String, }
-    }
-    view(preview, _state, cx) {
+    pub AccountSignInScreen<()> {}
+    view(_screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("account-sign-in-screen".to_string()),
+        label: Some(cx.tr("auth.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
+                Text(cx.tr("auth.account"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+                Text(cx.tr("auth.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("auth.identity"))
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
                 Container(
                     Column(gap: tokens.spacing.s, children: [
-                        Text("The browser and device boundary".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("This website cannot call the Android or iOS host provider or reach device hardware. The preview shows the app context without pretending that the capability has run.".to_string()),
-                        Text("In the native app, the visible action starts the request. The platform host then returns the outcome that the app should explain to the user.".to_string()),
+                        Text(cx.tr("auth.context")),
+                        Text(cx.tr("auth.ready")),
                     ])
                 )
                 .padding_all(tokens.spacing.m)
@@ -99,22 +96,53 @@ fission_component! {
 ```rust
 mod app;
 
+use std::collections::HashMap;
+
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("en-US"),
+        messages: HashMap::from([
+            ("auth.account".into(), "Northbank account".into()),
+            ("auth.title".into(), "Welcome back".into()),
+            ("auth.identity".into(), "alex@northbank.example · this device".into()),
+            ("auth.waiting".into(), "Waiting for the Fission host…".into()),
+            ("auth.error".into(), "The host could not complete this action".into()),
+            ("auth.ready".into(), "No sign-in request has been made yet.".into()),
+            ("auth.assertion".into(), "The host returned an assertion. Send it to the relying-party server for verification; this response alone does not grant access.".into()),
+            ("auth.missing".into(), "The host completed without the expected typed result.".into()),
+            ("auth.context".into(), "This account uses a passkey for example.com. The preview host returns synthetic assertion data; only the relying-party server can verify it and grant access.".into()),
+            ("auth.action".into(), "Continue with a passkey".into())
+        ]),
+    });
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("es-ES"),
+        messages: HashMap::from([
+            ("auth.account".into(), "Cuenta de Northbank".into()),
+            ("auth.title".into(), "Te damos la bienvenida".into()),
+            ("auth.identity".into(), "alex@northbank.example · este dispositivo".into()),
+            ("auth.waiting".into(), "Esperando al host de Fission…".into()),
+            ("auth.error".into(), "El host no pudo completar esta acción".into()),
+            ("auth.ready".into(), "Todavía no se ha iniciado sesión.".into()),
+            ("auth.assertion".into(), "El host devolvió una respuesta. Envíala al servidor para que la verifique; esta respuesta por sí sola no concede acceso.".into()),
+            ("auth.missing".into(), "El host terminó sin devolver el resultado tipado esperado.".into()),
+            ("auth.context".into(), "Esta cuenta usa una clave de acceso para example.com. El host de vista previa devuelve datos sintéticos; solo el servidor de confianza puede verificarlos y conceder acceso.".into()),
+            ("auth.action".into(), "Continuar con una clave de acceso".into())
+        ]),
+    });
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::MobileAccountFlow::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::AccountSignInScreen)
+        .with_env(preview_env())
+        .with_title("Northbank account sign-in")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -125,97 +153,16 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-The preview has not issued a request. Next, wire the user action to the Passkeys provider and handle its result.
+This stage establishes the account screen and its security boundary. It deliberately has no fake “reviewed” action; the next stage adds the real passkey request and its pending, success or recovery states.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Connect the Passkeys provider to the user action
+## Run the Passkey operation through Fission
 
-This is the real Fission request path for this feature. Keep permission and hardware work outside the component view: the component dispatches one intent, the reducer queues the request, and success or error reducers store the returned result.
+Keep host work out of component conversion. The button dispatches a typed action, its reducer queues the capability request, and separate completion reducers update the screen. The Web preview installs `MemoryPasskeyHost` and sends the same operation through Fission’s typed capability path. Its deterministic response is not a claim about device hardware, OS permission or native platform support.
 
-Start with task data and status in the app state. Keep a text-field draft, open flag or selected tab in the owning component instead of duplicating that temporary state here:
-
-```rust
-#[derive(Debug, Default)]
-struct PasskeyState {
-    // Add these fields to your existing app state.
-    login_challenge: Vec<u8>,
-    known_credentials: Vec<PasskeyCredentialDescriptor>,
-    pending_assertion: Option<PasskeyAuthenticationResult>,
-    login_error: Option<String>,
-}
-
-impl GlobalState for PasskeyState {}
-```
-
-Handle successful and failed results separately so the screen can explain denied permission, cancellation, unsupported hardware and provider errors:
-
-```rust
-#[fission_reducer(PasskeyAssertionReady)]
-fn on_passkey_assertion_ready(state: &mut PasskeyState, assertion: PasskeyAuthenticationResult) {
-    state.pending_assertion = Some(assertion);
-    state.login_error = None;
-}
-
-#[fission_reducer(PasskeySignInFailed)]
-fn on_passkey_sign_in_failed(state: &mut PasskeyState, error: PasskeyError) {
-    state.pending_assertion = None;
-    state.login_error = Some(error.message);
-}
-```
-
-Queue the operation after the user presses the named control. The host completes asynchronously and dispatches the matching reducer:
-
-```rust
-ctx.effects
-    .passkeys()
-    .authenticate(PasskeyAuthenticationRequest {
-        relying_party_id: "example.com".into(),
-        challenge: state.login_challenge.clone(),
-        allow_credentials: state.known_credentials.clone(),
-        user_verification: PasskeyUserVerification::Preferred,
-        mediation: PasskeyMediation::Conditional,
-        timeout_ms: Some(60_000),
-    })
-    .on_ok(ctx.effects.bind(
-        PasskeyAssertionReady(PasskeyAuthenticationResult::default()),
-        reduce_with!(on_passkey_assertion_ready),
-    ))
-    .on_err(ctx.effects.bind(
-        PasskeySignInFailed(PasskeyError::default()),
-        reduce_with!(on_passkey_sign_in_failed),
-    ));
-```
-
-Bind the user action from a reusable Fission component. Keep the visible label in the same control so it works with touch, keyboard and assistive technology:
-
-```rust
-fission_component!
-{
-    pub PasskeySignInButton<PasskeyState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<PasskeyState>();
-                let run = with_reducer!(ctx, SignInWithPasskey, on_sign_in_with_passkey);
-
-                Button::new("Sign in with passkey")
-                    .disabled(false)
-                    .on_press(run)
-                    .into()
-    }
-}
-```
-
-The [complete Passkeys guide](/docs/capabilities/passkeys/) explains configuration and expected platform behaviour. Test a successful memory-provider response and an unavailable or denied response before relying on the physical-device check below.
-
-Keep platform-only code behind the generated target boundary or a typed provider; the shared component should describe the user task rather than call an operating-system API directly.
-
-### Keep authentication and navigation separate
-
-Use a form component for the email and password draft, a reducer for submission state, and a service or effect for the remote request. Do not navigate to a protected route until the service returns a valid session. Store the session in the chosen persistent store only after success; route guards should read the resulting app state, not a boolean that the form sets optimistically. On logout or expiry, clear the session and return to the sign-in route. Verify invalid input, failed credentials, an expired session, direct access to a protected URL, a cold-start deep link and logout.
-
-
+The preview's MemoryPasskeyHost returns synthetic assertion data. The app refuses to open the passkey prompt until it has a challenge; the preview injects deterministic bytes only to exercise the UI. A real sign-in attempt fetches a fresh challenge from the relying-party server, consumes it for one passkey request, and sends the returned assertion back for verification. Keep the assertion in memory only; do not persist or log it, and do not treat it as a signed-in session. A retry needs a new challenge from the server.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -223,35 +170,144 @@ Use a form component for the email and password draft, a reducer for submission 
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub MobileAccountFlowResult<()> {
-        props { title: String, step: String, goal: String, }
+#[derive(Debug)]
+pub enum SignInError {
+    ChallengeMissing,
+    MissingAssertion,
+    Host(String),
+    HostWithoutDetails,
+}
+
+#[derive(Debug, Default)]
+pub struct AccountSignInState {
+    pub pending: bool,
+    /// Fresh challenge supplied by the relying-party server for this attempt.
+    pub challenge: Option<Vec<u8>>,
+    /// Keep the response only long enough to send it to the server for verification.
+    pub assertion: Option<PasskeyAuthenticationResult>,
+    pub error: Option<SignInError>,
+}
+
+impl GlobalState for AccountSignInState {}
+
+#[fission_reducer(RunCapability)]
+pub fn run_capability(state: &mut AccountSignInState, ctx: &mut ReducerContext<AccountSignInState>) {
+    if state.pending || state.assertion.is_some() {
+        return;
     }
-    view(preview, _state, cx) {
+
+    state.error = None;
+    let Some(challenge) = state.challenge.take() else {
+        state.error = Some(SignInError::ChallengeMissing);
+        return;
+    };
+    state.pending = true;
+    state.assertion = None;
+
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
+
+    ctx.effects
+        .passkeys().authenticate(PasskeyAuthenticationRequest {
+            relying_party_id: "example.com".into(),
+            challenge,
+            allow_credentials: Vec::new(),
+            user_verification: PasskeyUserVerification::Preferred,
+            mediation: PasskeyMediation::Required,
+            timeout_ms: Some(60_000),
+        })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(CapabilitySucceeded)]
+pub fn capability_succeeded(
+    state: &mut AccountSignInState,
+    ctx: &mut ReducerContext<AccountSignInState>,
+) {
+    state.pending = false;
+    if let Some(assertion) = ctx.input.capability_ok(AUTHENTICATE_PASSKEY) {
+        state.assertion = Some(assertion);
+        state.error = None;
+    } else {
+        state.assertion = None;
+        state.error = Some(SignInError::MissingAssertion);
+    }
+}
+
+#[fission_reducer(CapabilityFailed)]
+pub fn capability_failed(
+    state: &mut AccountSignInState,
+    ctx: &mut ReducerContext<AccountSignInState>,
+) {
+    state.pending = false;
+    state.assertion = None;
+    let code = ctx
+        .input
+        .capability_error(AUTHENTICATE_PASSKEY)
+        .map(|error| error.code);
+    state.error = Some(code.map(SignInError::Host).unwrap_or(SignInError::HostWithoutDetails));
+}
+
+pub fn callback_registry() -> ActionRegistry<AccountSignInState> {
+    let mut registry = ActionRegistry::new();
+    registry.register(reduce_with!(capability_succeeded));
+    registry.register(reduce_with!(capability_failed));
+    registry
+}
+
+fission_component! {
+    pub AccountSignInScreen<AccountSignInState> {}
+    view(_screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let action = with_reducer!(cx.build, RunCapability, run_capability);
+        let status = if state.pending {
+            cx.tr("auth.waiting")
+        } else if let Some(error) = &state.error {
+            match error {
+                SignInError::ChallengeMissing => cx.tr("auth.challenge_missing"),
+                SignInError::MissingAssertion => cx.tr("auth.missing"),
+                SignInError::Host(code) => cx.tr(match code.as_str() {
+                    "cancelled" | "canceled" | "user_cancel" | "not_allowed" => "auth.error.cancelled",
+                    "unsupported" | "unavailable" => "auth.error.unavailable",
+                    "security_error" => "auth.error.domain",
+                    _ => "auth.error.generic",
+                }),
+                SignInError::HostWithoutDetails => cx.tr("auth.error_unknown"),
+            }
+        } else if state.assertion.is_some() {
+            cx.tr("auth.assertion")
+        } else if state.challenge.is_none() {
+            cx.tr("auth.challenge_missing")
+        } else {
+            cx.tr("auth.ready")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("account-passkey-sign-in".to_string()),
+        label: Some(cx.tr("auth.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
+                Text(cx.tr("auth.account"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+                Text(cx.tr("auth.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("auth.identity"))
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text("Where the request result comes from".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("In the target app, Fission’s native host completes the request and reports its real outcome to shared Rust state. The browser cannot manufacture that outcome, so this preview stays read-only.".to_string()),
-                        Text("Handle success and errors as separate state transitions. Keep the surrounding screen usable if the user declines, cancels, or the device does not support the capability.".to_string()),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
+                Text(cx.tr("auth.context")),
+                Button(
+                    child: Text(cx.tr("auth.action")),
+                    key: "run-capability",
+                    variant: ButtonVariant::Primary,
+                    disabled: state.pending || state.challenge.is_none() || state.assertion.is_some(),
+                    loading: state.pending,
+                    on_press: action,
+                ),
+                Container(Text(status))
+                    .padding_all(tokens.spacing.m)
+                    .bg(tokens.colors.background)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -267,23 +323,69 @@ fission_component! {
 ```rust
 mod app;
 
+use std::collections::HashMap;
+
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("en-US"),
+        messages: HashMap::from([
+            ("auth.account".into(), "Northbank account".into()),
+            ("auth.title".into(), "Welcome back".into()),
+            ("auth.identity".into(), "alex@northbank.example · this device".into()),
+            ("auth.waiting".into(), "Waiting for the Fission host…".into()),
+            ("auth.error".into(), "The host could not complete this action".into()),
+            ("auth.ready".into(), "No sign-in request has been made yet.".into()),
+            ("auth.assertion".into(), "The host returned an assertion. Send it to the relying-party server for verification; this response alone does not grant access.".into()),
+            ("auth.missing".into(), "The host completed without the expected typed result.".into()),
+            ("auth.challenge_missing".into(), "The sign-in server has not supplied a fresh challenge, so no passkey request was made.".into()),
+            ("auth.error_unknown".into(), "The passkey host failed without returning an error detail. Try again or use another sign-in method.".into()),
+            ("auth.error.cancelled".into(), "Passkey sign-in was cancelled. Request a fresh challenge before trying again.".into()),
+            ("auth.error.unavailable".into(), "No passkey provider is available here. Use another sign-in method.".into()),
+            ("auth.error.domain".into(), "This app is not associated with the relying-party domain. Check its native domain configuration.".into()),
+            ("auth.error.generic".into(), "The passkey request failed. Request a fresh challenge before trying again.".into()),
+            ("auth.context".into(), "This account uses a passkey for example.com. The preview host returns synthetic assertion data; only the relying-party server can verify it and grant access.".into()),
+            ("auth.action".into(), "Continue with a passkey".into())
+        ]),
+    });
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("es-ES"),
+        messages: HashMap::from([
+            ("auth.account".into(), "Cuenta de Northbank".into()),
+            ("auth.title".into(), "Te damos la bienvenida".into()),
+            ("auth.identity".into(), "alex@northbank.example · este dispositivo".into()),
+            ("auth.waiting".into(), "Esperando al host de Fission…".into()),
+            ("auth.error".into(), "El host no pudo completar esta acción".into()),
+            ("auth.ready".into(), "Todavía no se ha iniciado sesión.".into()),
+            ("auth.assertion".into(), "El host devolvió una respuesta. Envíala al servidor para que la verifique; esta respuesta por sí sola no concede acceso.".into()),
+            ("auth.missing".into(), "El host terminó sin devolver el resultado tipado esperado.".into()),
+            ("auth.challenge_missing".into(), "El servidor de inicio de sesión no ha enviado un desafío nuevo, así que no se ha solicitado ninguna clave de acceso.".into()),
+            ("auth.error_unknown".into(), "El host de claves de acceso falló sin devolver detalles. Inténtalo de nuevo o usa otro método de inicio de sesión.".into()),
+            ("auth.error.cancelled".into(), "Se canceló el inicio de sesión con clave de acceso. Solicita un desafío nuevo antes de volver a intentarlo.".into()),
+            ("auth.error.unavailable".into(), "No hay ningún proveedor de claves de acceso disponible. Usa otro método de inicio de sesión.".into()),
+            ("auth.error.domain".into(), "Esta app no está asociada al dominio de confianza. Comprueba la configuración de dominios nativos.".into()),
+            ("auth.error.generic".into(), "La solicitud de clave de acceso falló. Solicita un desafío nuevo antes de volver a intentarlo.".into()),
+            ("auth.context".into(), "Esta cuenta usa una clave de acceso para example.com. El host de vista previa devuelve datos sintéticos; solo el servidor de confianza puede verificarlos y conceder acceso.".into()),
+            ("auth.action".into(), "Continuar con una clave de acceso".into())
+        ]),
+    });
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::MobileAccountFlowResult::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
-        .mount("#fission-web-mount")
+    let mut app = WebApp::<app::AccountSignInState, _>::new(app::AccountSignInScreen)
+        .with_env(preview_env())
+        .with_state_init(|state| state.challenge = Some(b"preview-only-challenge".to_vec()))
+        .with_passkey_host(MemoryPasskeyHost::default())
+        .with_title("Northbank account passkey sign-in");
+    app.absorb_registry(app::callback_registry());
+    app.mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
@@ -293,16 +395,16 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-This preview does not call the native Passkeys provider. Continue below to test it on a supported Android or iOS target.
+The preview exercises the Passkey operation with an in-memory host. On Android and iOS, keep cancellation, missing-credential and unsupported-host outcomes visible, then verify the same user action in the supported emulator or Simulator and on a physical device where required.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
 ## Verify the native request on Android and iOS
 
-The website preview cannot exercise the native provider. Build and launch this target on a supported emulator or device, then use the feature action from the component above. Check the result the host actually returns, including denial, cancellation or unsupported hardware where those outcomes apply.
+The website preview cannot exercise the native provider. Build and launch this target in an Android emulator, an iOS Simulator or on a physical device, then use the feature action from the component above. Check the result the host actually returns, including cancellation, no matching credential, an unavailable provider or a domain-association error where those apply.
 
-Repeat with the feature unavailable, denied or cancelled, as applicable. Confirm the screen preserves the user’s existing data and offers the right recovery step. Use a physical device when the behavior depends on real hardware or an operating-system prompt.
+Repeat with no matching credential and with the user cancelling the prompt. Confirm the screen remains signed out and offers a recovery path. Use a physical device when the behavior depends on native passkey support or an operating-system prompt.
 
 ### Run, test and build
 

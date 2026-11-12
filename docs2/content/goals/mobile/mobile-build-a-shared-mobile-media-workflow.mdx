@@ -1,8 +1,8 @@
 ---
 layout: goal
-title: Build a shared mobile media workflow
-description: "Build a shared mobile media workflow using Fission."
-goal: Compose camera and microphone inputs with video or media playback while handling permission, interruption and platform support.
+title: Capture repair photos in a shared Android and iOS app
+description: "Add Fission camera capture to a shared Rust repair workflow, handle permission and capture errors, and test both Android and iOS hosts."
+goal: Request camera permission and capture a still image from shared Android/iOS code, then handle the typed metadata and one-shot image stream.
 path: /blog/build-a-shared-mobile-media-workflow/
 order: 118
 difficulty: Beginner
@@ -10,9 +10,9 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: mobile-build-a-shared-mobile-media-workflow
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify both target workflows and follow physical-device checks when the task requires them
+  - Request camera access and capture a still image through Fission's typed capability
+  - Keep capture state and error feedback in shared Rust reducers
+  - Verify the deterministic browser preview, then test the native camera on Android and iOS
 ---
 
 ## Create the project and add the target
@@ -42,12 +42,12 @@ mobile-build-a-shared-mobile-media-workflow/
     └── ios/                  # generated iOS host
 ```
 
-Keep media state and the shared screen in Rust. Request camera and microphone access through Fission capabilities; the generated hosts handle the platform-specific provider.
+Keep the repair screen and capture state in shared Rust. Request camera access through Fission's capability; the generated hosts handle the platform-specific provider. This guide covers still photos, not microphone recording or video playback.
 
 <!-- fission:step id="start-screen" -->
-## See where the browser stops
+## Build the equipment photo screen
 
-The browser preview shows a task card, not the media screen. It cannot exercise Android or iOS camera and microphone providers or verify their permission prompts; use a native build for those checks.
+Start with an equipment inspection that needs a photo of a damaged part. The screen identifies the asset and lets the technician draft what they observed before adding a photo. That note remains a component-local draft in this preview; a production workflow would save it with the work order. The next step requests permission and captures through Fission.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -56,34 +56,42 @@ The browser preview shows a task card, not the media screen. It cannot exercise 
 use fission::prelude::*;
 
 fission_component! {
-    pub SharedMobileMedia<()> {
-        props { title: String, step: String, goal: String, }
+    pub WorkOrderScreen<()> {
+        state {
+            note_draft: String = String::new(),
+        }
     }
-    view(preview, _state, cx) {
+    view(screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("work-order-screen".to_string()),
+        label: Some(cx.tr("work.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
+                Text(cx.tr("work.site"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+                Text(cx.tr("work.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("work.asset"))
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
                 Container(
                     Column(gap: tokens.spacing.s, children: [
-                        Text("The browser and device boundary".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("This website cannot call the Android or iOS host provider or reach device hardware. The preview shows the app context without pretending that the capability has run.".to_string()),
-                        Text("In the native app, the visible action starts the request. The platform host then returns the outcome that the app should explain to the user.".to_string()),
+                        Text(cx.tr("work.context")),
                     ])
                 )
                 .padding_all(tokens.spacing.m)
                 .bg(tokens.colors.background)
                 .border(tokens.colors.border, 1.0)
                 .border_radius(tokens.radii.medium),
+                TextInput(
+                    label: Some(cx.tr("work.note.label").into()),
+                    placeholder: Some(cx.tr("work.note.placeholder").into()),
+                    helper_text: Some(cx.tr("work.note.help").into()),
+                    bind: screen.note_draft,
+                    multiline: true,
+                    semantics_identifier: "work-order.note-draft".to_string(),
+                ),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -99,22 +107,65 @@ fission_component! {
 ```rust
 mod app;
 
+use std::collections::HashMap;
+
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("en-US"),
+        messages: HashMap::from([
+            ("work.site".into(), "Northbank Maintenance · compressor bay".into()),
+            ("work.title".into(), "Capture evidence for a repair".into()),
+            ("work.asset".into(), "CMP-7A-2219 · worn coupling guard".into()),
+            ("work.pending".into(), "Inspection notes not confirmed".into()),
+            ("work.complete".into(), "Inspection notes confirmed".into()),
+            ("work.mark".into(), "Confirm inspection notes".into()),
+            ("work.recorded".into(), "Notes confirmed".into()),
+            ("work.waiting".into(), "Waiting for the Fission host…".into()),
+            ("work.error".into(), "The host could not complete this action".into()),
+            ("work.result".into(), "Host result".into()),
+            ("work.ready".into(), "Ready. This preview uses a deterministic in-memory provider.".into()),
+            ("work.note.label".into(), "Inspection note draft".into()),
+            ("work.note.placeholder".into(), "Describe what you found on site".into()),
+            ("work.note.help".into(), "Draft only; it stays in this screen and is not saved or attached.".into()),
+            ("work.context".into(), "Check the framing and purpose before opening the camera.".into()),
+            ("work.action".into(), "Record photo review".into())
+        ]),
+    });
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("es-ES"),
+        messages: HashMap::from([
+            ("work.site".into(), "Mantenimiento Northbank · sala de compresores".into()),
+            ("work.title".into(), "Capturar evidencia para una reparación".into()),
+            ("work.asset".into(), "CMP-7A-2219 · protector de acoplamiento desgastado".into()),
+            ("work.pending".into(), "Notas de inspección sin confirmar".into()),
+            ("work.complete".into(), "Notas de inspección confirmadas".into()),
+            ("work.mark".into(), "Confirmar las notas de inspección".into()),
+            ("work.recorded".into(), "Notas confirmadas".into()),
+            ("work.waiting".into(), "Esperando al host de Fission…".into()),
+            ("work.error".into(), "El host no pudo completar esta acción".into()),
+            ("work.result".into(), "Resultado del host".into()),
+            ("work.ready".into(), "Listo. Esta vista previa usa un proveedor en memoria.".into()),
+            ("work.note.label".into(), "Borrador de nota de inspección".into()),
+            ("work.note.placeholder".into(), "Describe lo que observaste en el lugar".into()),
+            ("work.note.help".into(), "Solo borrador; permanece en esta pantalla y no se guarda ni se adjunta.".into()),
+            ("work.context".into(), "Revisa el encuadre y el propósito antes de abrir la cámara.".into()),
+            ("work.action".into(), "Registrar revisión de la foto".into())
+        ]),
+    });
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::SharedMobileMedia::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::WorkOrderScreen)
+        .with_env(preview_env())
+        .with_title("Work-order preview")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -125,98 +176,16 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-The preview has not requested camera access. Next, queue the Camera capability from the user action and handle the provider result.
+This stage is an app screen with a real state transition, not a device mock. The next stage connects a separate user action to the typed Camera capability and shows its success or error result.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Connect the Camera provider to the user action
+## Run the Camera operation through Fission
 
-This is the real Fission request path for this feature. Keep permission and hardware work outside the component view: the component dispatches one intent, the reducer queues the request, and success or error reducers store the returned result.
+Keep host work out of component conversion. The button dispatches a typed action; the reducer requests permission and only queues capture after the host grants it. Separate completion reducers update the screen. The Web preview installs `MemoryCameraHost`, whose deterministic permission and sample image exercise the same typed path without opening a browser camera.
 
-Start with task data and status in the app state. Keep a text-field draft, open flag or selected tab in the owning component instead of duplicating that temporary state here:
-
-```rust
-#[derive(Debug, Default)]
-struct CameraDemoState {
-    // Add these fields to your existing app state.
-    profile_photo_stream: Option<DataStreamId>,
-    camera_error: Option<String>,
-    capturing: bool,
-}
-
-impl GlobalState for CameraDemoState {}
-```
-
-Handle successful and failed results separately so the screen can explain denied permission, cancellation, unsupported hardware and provider errors:
-
-```rust
-#[fission_reducer(PhotoCaptured)]
-fn on_photo_captured(state: &mut CameraDemoState, capture: CameraCapture) {
-    state.capturing = false;
-    state.profile_photo_stream = Some(capture.stream);
-    state.camera_error = None;
-}
-
-#[fission_reducer(PhotoCaptureFailed)]
-fn on_photo_capture_failed(state: &mut CameraDemoState, error: CameraError) {
-    state.capturing = false;
-    state.camera_error = Some(error.message);
-}
-```
-
-Queue the operation after the user presses the named control. The host completes asynchronously and dispatches the matching reducer:
-
-```rust
-state.capturing = true;
-ctx.effects
-    .camera()
-    .capture_photo(CameraCaptureRequest {
-        facing: CameraFacing::Back,
-        resolution: Some(CameraResolution { width: 1280, height: 720 }),
-        format: CameraImageFormat::Jpeg,
-        flash: CameraFlashMode::Auto,
-        quality: Some(90),
-        ..Default::default()
-    })
-    .on_ok(ctx.effects.bind(
-        PhotoCaptured(CameraCapture::default()),
-        reduce_with!(on_photo_captured),
-    ))
-    .on_err(ctx.effects.bind(
-        PhotoCaptureFailed(CameraError::default()),
-        reduce_with!(on_photo_capture_failed),
-    ));
-```
-
-Bind the user action from a reusable Fission component. Keep the visible label in the same control so it works with touch, keyboard and assistive technology:
-
-```rust
-fission_component!
-{
-    pub CaptureProfilePhotoButton<CameraDemoState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<CameraDemoState>();
-                let run = with_reducer!(ctx, CaptureProfilePhoto, on_capture_profile_photo);
-
-                Button::new("Take photo")
-                    .disabled(view.state().capturing)
-                    .on_press(run)
-                    .into()
-    }
-}
-```
-
-The [complete Camera guide](/docs/capabilities/camera/) explains configuration and expected platform behaviour. Test a successful memory-provider response and an unavailable or denied response before relying on the physical-device check below.
-
-Keep platform-only code behind the generated target boundary or a typed provider; the shared component should describe the user task rather than call an operating-system API directly.
-
-### Coordinate capture, recording and playback
-
-Model camera, microphone and playback as separate operations. Each one needs a user action, pending state, success payload and recoverable error; requesting camera access must not imply microphone access. Keep the selected asset in app state and dispose or pause active media when the app leaves the foreground. On Android, check audio-focus interruption. On iOS, check the audio-session interruption and test a signed device build for camera or microphone behaviour. The browser preview can show the screen states, but cannot validate native capture or playback.
-
-
+The result includes image metadata and a one-shot stream handle. This example reports the metadata; it does not save or upload the photo. Consume the stream in a job or service before treating it as attached evidence.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -224,35 +193,191 @@ Model camera, microphone and playback as separate operations. Each one needs a u
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub SharedMobileMediaResult<()> {
-        props { title: String, step: String, goal: String, }
+#[derive(Debug, Default)]
+pub struct WorkOrderState {
+    pub pending: bool,
+    pub result: Option<String>,
+    pub error: Option<String>,
+}
+
+impl GlobalState for WorkOrderState {}
+
+#[fission_reducer(RunCapability)]
+pub fn run_capability(state: &mut WorkOrderState, ctx: &mut ReducerContext<WorkOrderState>) {
+    state.pending = true;
+    state.result = None;
+    state.error = None;
+
+    let ok: ActionEnvelope = CameraPermissionReceived.into();
+    let err: ActionEnvelope = CameraPermissionFailed.into();
+
+    ctx.effects
+        .camera()
+        .request_permission(CameraPermissionRequest {
+            reason: Some("Capture a photo of the damaged compressor guard.".into()),
+        })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(CameraPermissionReceived)]
+pub fn camera_permission_received(
+    state: &mut WorkOrderState,
+    ctx: &mut ReducerContext<WorkOrderState>,
+) {
+    match ctx.input.capability_ok(REQUEST_CAMERA_PERMISSION) {
+        Some(CameraPermission::Granted) => {
+            state.pending = true;
+            let ok: ActionEnvelope = CapabilitySucceeded.into();
+            let err: ActionEnvelope = CapabilityFailed.into();
+
+            ctx.effects
+                .camera()
+                .capture_photo(CameraCaptureRequest {
+                    camera_id: None,
+                    facing: CameraFacing::Back,
+                    resolution: Some(CameraResolution { width: 1_600, height: 1_200 }),
+                    format: CameraImageFormat::Jpeg,
+                    flash: CameraFlashMode::Auto,
+                    quality: Some(86),
+                })
+                .on_ok(ok)
+                .on_err(err);
+        }
+        Some(CameraPermission::Denied | CameraPermission::Restricted) => {
+            state.pending = false;
+            state.error = Some(
+                "Camera access was not granted. Allow it in device Settings to capture evidence."
+                    .into(),
+            );
+        }
+        Some(CameraPermission::Unknown) | None => {
+            state.pending = false;
+            state.error = Some("The host did not confirm camera permission.".into());
+        }
     }
-    view(preview, _state, cx) {
+}
+
+#[fission_reducer(CameraPermissionFailed)]
+pub fn camera_permission_failed(
+    state: &mut WorkOrderState,
+    ctx: &mut ReducerContext<WorkOrderState>,
+) {
+    state.pending = false;
+    state.result = None;
+    state.error = Some(ctx
+        .input
+        .capability_error(REQUEST_CAMERA_PERMISSION)
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .or_else(|| {
+            ctx.input
+                .capability_error_message(REQUEST_CAMERA_PERMISSION)
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "The host returned no camera permission result.".into()));
+}
+
+#[fission_reducer(CapabilitySucceeded)]
+pub fn capability_succeeded(
+    state: &mut WorkOrderState,
+    ctx: &mut ReducerContext<WorkOrderState>,
+) {
+    state.pending = false;
+    state.error = None;
+    state.result = ctx
+        .input
+        .capability_ok(CAPTURE_PHOTO)
+        .map(|value| {
+            format!(
+                "Camera returned a {}×{} {} image in a one-shot stream.",
+                value.width, value.height, value.content_type
+            )
+        });
+    if state.result.is_none() {
+        state.error = Some("The host completed without the expected typed result.".into());
+    }
+}
+
+#[fission_reducer(CapabilityFailed)]
+pub fn capability_failed(
+    state: &mut WorkOrderState,
+    ctx: &mut ReducerContext<WorkOrderState>,
+) {
+    state.pending = false;
+    state.result = None;
+    state.error = Some(ctx
+        .input
+        .capability_error(CAPTURE_PHOTO)
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .or_else(|| {
+            ctx.input
+                .capability_error_message(CAPTURE_PHOTO)
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "The host returned an error without details.".into()));
+}
+
+pub fn callback_registry() -> ActionRegistry<WorkOrderState> {
+    let mut registry = ActionRegistry::new();
+    registry.register(reduce_with!(camera_permission_received));
+    registry.register(reduce_with!(camera_permission_failed));
+    registry.register(reduce_with!(capability_succeeded));
+    registry.register(reduce_with!(capability_failed));
+    registry
+}
+
+fission_component! {
+    pub WorkOrderScreen<WorkOrderState> {
+        state {
+            note_draft: String = String::new(),
+        }
+    }
+    view(screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let action = with_reducer!(cx.build, RunCapability, run_capability);
+        let status = if state.pending {
+            cx.tr("work.waiting")
+        } else if let Some(error) = &state.error {
+            format!("{}: {error}", cx.tr("work.error"))
+        } else if let Some(result) = &state.result {
+            format!("{}: {result}", cx.tr("work.result"))
+        } else {
+            cx.tr("work.ready")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("work-order-camera".to_string()),
+        label: Some(cx.tr("work.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
+                Text(cx.tr("work.site"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+                Text(cx.tr("work.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("work.asset"))
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text("Where the request result comes from".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("In the target app, Fission’s native host completes the request and reports its real outcome to shared Rust state. The browser cannot manufacture that outcome, so this preview stays read-only.".to_string()),
-                        Text("Handle success and errors as separate state transitions. Keep the surrounding screen usable if the user declines, cancels, or the device does not support the capability.".to_string()),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
+                Text(cx.tr("work.context")),
+                TextInput(
+                    label: Some(cx.tr("work.note.label").into()),
+                    placeholder: Some(cx.tr("work.note.placeholder").into()),
+                    helper_text: Some(cx.tr("work.note.help").into()),
+                    bind: screen.note_draft,
+                    multiline: true,
+                    semantics_identifier: "work-order.note-draft".to_string(),
+                ),
+                Button(
+                    child: Text(cx.tr("work.action")),
+                    key: "run-capability",
+                    variant: ButtonVariant::Primary,
+                    disabled: state.pending,
+                    loading: state.pending,
+                    on_press: action,
+                ),
+                Container(Text(status))
+                    .padding_all(tokens.spacing.m)
+                    .bg(tokens.colors.background)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -268,23 +393,68 @@ fission_component! {
 ```rust
 mod app;
 
+use std::collections::HashMap;
+
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("en-US"),
+        messages: HashMap::from([
+            ("work.site".into(), "Northbank Food Hub".into()),
+            ("work.title".into(), "WO-1048 · Cold-room compressor".into()),
+            ("work.asset".into(), "Asset CMP-7A-2219 · due today".into()),
+            ("work.pending".into(), "No camera request prepared".into()),
+            ("work.complete".into(), "Camera returned a sample image".into()),
+            ("work.mark".into(), "Capture equipment photo".into()),
+            ("work.recorded".into(), "Capture complete".into()),
+            ("work.waiting".into(), "Waiting for the Fission host…".into()),
+            ("work.error".into(), "The host could not complete this action".into()),
+            ("work.result".into(), "Host result".into()),
+            ("work.ready".into(), "Ready. This preview uses a deterministic in-memory provider.".into()),
+            ("work.note.label".into(), "Inspection note draft".into()),
+            ("work.note.placeholder".into(), "Describe what you found on site".into()),
+            ("work.note.help".into(), "Draft only; it stays in this screen and is not saved or attached.".into()),
+            ("work.context".into(), "Capture the damaged guard. The result is an image stream; store or upload it in a job before treating it as attached evidence.".into()),
+            ("work.action".into(), "Capture inspection photo".into())
+        ]),
+    });
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("es-ES"),
+        messages: HashMap::from([
+            ("work.site".into(), "Centro de alimentos Northbank".into()),
+            ("work.title".into(), "OT-1048 · Compresor de cámara fría".into()),
+            ("work.asset".into(), "Activo CMP-7A-2219 · vence hoy".into()),
+            ("work.pending".into(), "No se ha preparado una solicitud de cámara".into()),
+            ("work.complete".into(), "La cámara devolvió una imagen de ejemplo".into()),
+            ("work.mark".into(), "Capturar foto del equipo".into()),
+            ("work.recorded".into(), "Captura completada".into()),
+            ("work.waiting".into(), "Esperando al host de Fission…".into()),
+            ("work.error".into(), "El host no pudo completar esta acción".into()),
+            ("work.result".into(), "Resultado del host".into()),
+            ("work.ready".into(), "Listo. Esta vista previa usa un proveedor en memoria.".into()),
+            ("work.note.label".into(), "Borrador de nota de inspección".into()),
+            ("work.note.placeholder".into(), "Describe lo que observaste en el lugar".into()),
+            ("work.note.help".into(), "Solo borrador; permanece en esta pantalla y no se guarda ni se adjunta.".into()),
+            ("work.context".into(), "Captura el protector dañado. El resultado es un flujo de imagen; guárdalo o súbelo mediante un job antes de tratarlo como evidencia adjunta.".into()),
+            ("work.action".into(), "Capturar foto de inspección".into())
+        ]),
+    });
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::SharedMobileMediaResult::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
-        .mount("#fission-web-mount")
+    let mut app = WebApp::<app::WorkOrderState, _>::new(app::WorkOrderScreen)
+        .with_env(preview_env())
+        .with_camera_host(MemoryCameraHost::default())
+        .with_title("Mobile Camera capability preview");
+    app.absorb_registry(app::callback_registry());
+    app.mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
@@ -294,7 +464,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-The preview never starts a device request; only a native host can return a camera-provider result.
+The preview exercises permission and capture with an in-memory host. On Android and iOS, verify the native permission prompt, denial path, and captured metadata on a supported simulator or physical device. To retain the actual photo, consume its one-shot stream in a job or service.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 

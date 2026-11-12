@@ -32,6 +32,7 @@ Add the Android target and declare the biometric capability. Fission records the
 cargo install cargo-fission
 fission init cedar-ridge-stock-review
 cd cedar-ridge-stock-review
+cargo add serde_yaml
 fission add-target android --project-dir .
 fission add-capability biometric --project-dir .
 ```
@@ -67,6 +68,7 @@ Open the tabs from left to right. The app module separates adjustment state and 
 <!-- fission:file path="src/app.rs" -->
 ```rust
 pub mod approval;
+pub mod translations;
 pub mod widgets;
 
 pub use approval::{StockAdjustment, StockApprovalState};
@@ -88,18 +90,86 @@ pub struct StockAdjustment {
     pub physical_count: u32,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BiometricMethod {
+    Fingerprint,
+    Face,
+    Iris,
+    DeviceCredential,
+    Other,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ApprovalNotice {
+    CheckingDevice,
+    DeviceAvailable,
+    DeviceUnavailable,
+    AvailabilityFailed,
+    CheckDeviceFirst,
+    NoCredential,
+    AdjustmentMissing,
+    WaitingForPrompt,
+    ResultMissing,
+    NotVerified,
+    Verified(BiometricMethod),
+    PromptCancelled,
+    TemporarilyLocked,
+    AuthenticationUnavailable,
+    AuthenticationFailed,
+}
+
+impl ApprovalNotice {
+    pub fn translation_key(&self) -> &'static str {
+        match self {
+            Self::CheckingDevice => "approval.status.checking_device",
+            Self::DeviceAvailable => "approval.status.device_available",
+            Self::DeviceUnavailable => "approval.status.device_unavailable",
+            Self::AvailabilityFailed => "approval.status.availability_failed",
+            Self::CheckDeviceFirst => "approval.status.check_device_first",
+            Self::NoCredential => "approval.status.no_credential",
+            Self::AdjustmentMissing => "approval.status.adjustment_missing",
+            Self::WaitingForPrompt => "approval.status.waiting_for_prompt",
+            Self::ResultMissing => "approval.status.result_missing",
+            Self::NotVerified => "approval.status.not_verified",
+            Self::Verified(_) => "approval.status.verified",
+            Self::PromptCancelled => "approval.status.prompt_cancelled",
+            Self::TemporarilyLocked => "approval.status.temporarily_locked",
+            Self::AuthenticationUnavailable => "approval.status.authentication_unavailable",
+            Self::AuthenticationFailed => "approval.status.authentication_failed",
+        }
+    }
+}
+
+impl BiometricMethod {
+    pub fn translation_key(&self) -> &'static str {
+        match self {
+            Self::Fingerprint => "approval.method.fingerprint",
+            Self::Face => "approval.method.face",
+            Self::Iris => "approval.method.iris",
+            Self::DeviceCredential => "approval.method.device_credential",
+            Self::Other => "approval.method.other",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StockApprovalState {
+    pub locale: Locale,
     pub adjustment: Option<StockAdjustment>,
     pub availability: Option<BiometricAvailability>,
     pub checking_device: bool,
     pub authenticating: bool,
-    pub verified_with: Option<String>,
-    pub message: Option<String>,
-    pub error: Option<String>,
+    pub verified_with: Option<BiometricMethod>,
+    pub message: Option<ApprovalNotice>,
+    pub error: Option<ApprovalNotice>,
 }
 
 impl GlobalState for StockApprovalState {}
+
+#[fission_reducer(SetApprovalLocale)]
+pub fn on_set_approval_locale(state: &mut StockApprovalState, locale: Locale) {
+    state.locale = locale;
+}
 
 fn device_can_verify(availability: &BiometricAvailability) -> bool {
     availability.supported && (availability.enrolled || availability.device_credential)
@@ -116,7 +186,7 @@ pub fn on_check_android_biometrics(
 
     state.checking_device = true;
     state.error = None;
-    state.message = Some("Checking this Android device’s authentication options…".to_string());
+    state.message = Some(ApprovalNotice::CheckingDevice);
 
     let on_ok = ctx.effects.bind(
         AndroidBiometricsAvailable,
@@ -143,20 +213,17 @@ pub fn on_android_biometrics_available(
     let Some(availability) = ctx.input.capability_ok(GET_BIOMETRIC_AVAILABILITY) else {
         state.availability = None;
         state.message = None;
-        state.error = Some("The device returned no availability result. Use warehouse account sign-in before continuing.".to_string());
+        state.error = Some(ApprovalNotice::AvailabilityFailed);
         return;
     };
 
     let ready = device_can_verify(&availability);
-    let reason = availability.reason.clone();
     state.availability = Some(availability);
     state.error = None;
     state.message = Some(if ready {
-        "An enrolled local method is available. The lead can continue with this adjustment.".to_string()
-    } else if let Some(reason) = reason {
-        format!("This device cannot verify a local user: {reason}. Use warehouse account sign-in instead.")
+        ApprovalNotice::DeviceAvailable
     } else {
-        "No enrolled biometric or allowed device credential is available. Use warehouse account sign-in instead.".to_string()
+        ApprovalNotice::DeviceUnavailable
     });
 }
 
@@ -169,49 +236,48 @@ pub fn on_android_biometrics_unavailable(
     state.availability = None;
     state.message = None;
     let Some(error) = ctx.input.capability_error(GET_BIOMETRIC_AVAILABILITY) else {
-        state.error = Some("The device could not check its authentication options. Use warehouse account sign-in instead.".to_string());
+        state.error = Some(ApprovalNotice::AvailabilityFailed);
         return;
     };
 
     state.error = Some(match error.code.as_str() {
-        "unsupported" | "unavailable" => {
-            "This Android device does not support the requested local check. Use warehouse account sign-in instead.".to_string()
-        }
-        _ => "The device could not check its authentication options. Use warehouse account sign-in instead.".to_string(),
+        "unsupported" | "unavailable" => ApprovalNotice::DeviceUnavailable,
+        _ => ApprovalNotice::AvailabilityFailed,
     });
 }
 
 #[fission_reducer(VerifyWarehouseLead)]
 pub fn on_verify_warehouse_lead(
     state: &mut StockApprovalState,
+    reason: String,
+    title: String,
+    subtitle: String,
+    fallback_title: String,
+    cancel_title: String,
     ctx: &mut ReducerContext<StockApprovalState>,
 ) {
     if state.authenticating || state.verified_with.is_some() {
         return;
     }
     let Some(availability) = state.availability.as_ref() else {
-        state.error = Some("Check the device before asking it to verify the warehouse lead.".to_string());
+        state.error = Some(ApprovalNotice::CheckDeviceFirst);
         state.message = None;
         return;
     };
     if !device_can_verify(availability) {
-        state.error = Some("No usable local credential is available. Use warehouse account sign-in instead.".to_string());
+        state.error = Some(ApprovalNotice::NoCredential);
         state.message = None;
         return;
     }
     let Some(adjustment) = state.adjustment.as_ref() else {
-        state.error = Some("Open a stock adjustment before asking the lead to verify.".to_string());
+        state.error = Some(ApprovalNotice::AdjustmentMissing);
         state.message = None;
         return;
     };
 
-    let reference = adjustment.reference.clone();
-    let sku = adjustment.sku.clone();
-    let physical_count = adjustment.physical_count;
-    let system_quantity = adjustment.system_quantity;
     state.authenticating = true;
     state.error = None;
-    state.message = Some("Waiting for the Android authentication prompt…".to_string());
+    state.message = Some(ApprovalNotice::WaitingForPrompt);
 
     let on_ok = ctx.effects.bind(
         WarehouseLeadVerified,
@@ -225,13 +291,11 @@ pub fn on_verify_warehouse_lead(
     ctx.effects
         .biometrics()
         .authenticate(BiometricAuthenticateRequest {
-            reason: format!(
-                "Review stock adjustment {reference} for {sku}: {physical_count} counted, {system_quantity} in the system"
-            ),
-            title: Some("Review stock adjustment".into()),
-            subtitle: Some(format!("{sku} · {reference}")),
-            fallback_title: Some("Use device credential".into()),
-            cancel_title: Some("Cancel".into()),
+            reason,
+            title: Some(title),
+            subtitle: Some(subtitle),
+            fallback_title: Some(fallback_title),
+            cancel_title: Some(cancel_title),
             allow_device_credential: true,
             required_strength: BiometricStrength::Any,
         })
@@ -248,32 +312,30 @@ pub fn on_warehouse_lead_verified(
     let Some(result) = ctx.input.capability_ok(AUTHENTICATE_BIOMETRIC) else {
         state.verified_with = None;
         state.message = None;
-        state.error = Some("The device returned no verification result. The stock adjustment remains a proposal.".to_string());
+        state.error = Some(ApprovalNotice::ResultMissing);
         return;
     };
     if !result.verified {
         state.verified_with = None;
         state.message = None;
-        state.error = Some("The device did not verify the lead. Inventory remains unchanged; try again or use account sign-in.".to_string());
+        state.error = Some(ApprovalNotice::NotVerified);
         return;
     }
 
     let method = if result.used_device_credential {
-        "device credential"
+        BiometricMethod::DeviceCredential
     } else {
         match result.kind {
-            Some(BiometricKind::Fingerprint) => "fingerprint",
-            Some(BiometricKind::Face) => "face recognition",
-            Some(BiometricKind::Iris) => "iris recognition",
-            Some(BiometricKind::DeviceCredential) => "device credential",
-            Some(BiometricKind::Unknown) | None => "local authentication",
+            Some(BiometricKind::Fingerprint) => BiometricMethod::Fingerprint,
+            Some(BiometricKind::Face) => BiometricMethod::Face,
+            Some(BiometricKind::Iris) => BiometricMethod::Iris,
+            Some(BiometricKind::DeviceCredential) => BiometricMethod::DeviceCredential,
+            Some(BiometricKind::Unknown) | None => BiometricMethod::Other,
         }
     };
-    state.verified_with = Some(method.to_string());
+    state.verified_with = Some(method.clone());
     state.error = None;
-    state.message = Some(format!(
-        "Local verification passed with {method}. The adjustment is ready for inventory-service review; saved stock is unchanged."
-    ));
+    state.message = Some(ApprovalNotice::Verified(method));
 }
 
 #[fission_reducer(WarehouseLeadVerificationFailed)]
@@ -285,18 +347,17 @@ pub fn on_warehouse_lead_verification_failed(
     state.verified_with = None;
     state.message = None;
     let Some(error) = ctx.input.capability_error(AUTHENTICATE_BIOMETRIC) else {
-        state.error = Some("No verification result came back. The adjustment is unchanged; try again or use warehouse account sign-in.".to_string());
+        state.error = Some(ApprovalNotice::AuthenticationFailed);
         return;
     };
 
     state.error = Some(match error.code.as_str() {
-        "cancelled" | "canceled" | "user_cancel" => {
-            "The prompt was cancelled. The adjustment is unchanged; try again or use warehouse account sign-in.".to_string()
-        }
+        "cancelled" | "canceled" | "user_cancel" | "system_cancelled" => ApprovalNotice::PromptCancelled,
+        "locked_out" | "lockout" => ApprovalNotice::TemporarilyLocked,
         "not_enrolled" | "unavailable" | "unsupported" | "permission_denied" => {
-            "This device cannot complete local verification right now. Use warehouse account sign-in instead.".to_string()
+            ApprovalNotice::AuthenticationUnavailable
         }
-        _ => "The device did not verify the lead. The adjustment is unchanged; try again or use warehouse account sign-in.".to_string(),
+        _ => ApprovalNotice::AuthenticationFailed,
     });
 }
 ```
@@ -307,22 +368,54 @@ pub fn on_warehouse_lead_verification_failed(
 use fission::prelude::*;
 
 use super::approval::{
-    on_check_android_biometrics, on_verify_warehouse_lead, CheckAndroidBiometrics,
-    StockApprovalState, VerifyWarehouseLead,
+    on_check_android_biometrics, on_set_approval_locale, on_verify_warehouse_lead,
+    ApprovalNotice, CheckAndroidBiometrics, SetApprovalLocale, StockApprovalState,
+    VerifyWarehouseLead,
 };
 
 fission_component! {
     pub StockAdjustmentApproval<StockApprovalState> {}
     view(screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let (prompt_reason, prompt_subtitle) = state.adjustment.as_ref().map(|adjustment| {
+            (
+                cx.tr("approval.prompt.reason")
+                    .replace("{reference}", &adjustment.reference)
+                    .replace("{sku}", &adjustment.sku)
+                    .replace("{counted}", &adjustment.physical_count.to_string())
+                    .replace("{system}", &adjustment.system_quantity.to_string()),
+                cx.tr("approval.prompt.subtitle")
+                    .replace("{sku}", &adjustment.sku)
+                    .replace("{reference}", &adjustment.reference),
+            )
+        }).unwrap_or_else(|| (
+            cx.tr("approval.prompt.reason_fallback"),
+            cx.tr("approval.prompt.subtitle_fallback"),
+        ));
         let check_device = with_reducer!(
             cx.build,
             CheckAndroidBiometrics,
             on_check_android_biometrics,
         );
+        let use_english = with_reducer!(
+            cx.build,
+            SetApprovalLocale(Locale::from("en-US")),
+            on_set_approval_locale,
+        );
+        let use_spanish = with_reducer!(
+            cx.build,
+            SetApprovalLocale(Locale::from("es-ES")),
+            on_set_approval_locale,
+        );
         let verify_lead = with_reducer!(
             cx.build,
-            VerifyWarehouseLead,
+            VerifyWarehouseLead(
+                prompt_reason,
+                cx.tr("approval.prompt.title"),
+                prompt_subtitle,
+                cx.tr("approval.prompt.fallback"),
+                cx.tr("approval.prompt.cancel"),
+            ),
             on_verify_warehouse_lead,
         );
         let can_verify = state.availability.as_ref().map(|availability| {
@@ -331,7 +424,7 @@ fission_component! {
     } =>
     SemanticsRegion(
         identifier: Some("stock-adjustment-approval".to_string()),
-        label: Some("Warehouse stock adjustment review".to_string()),
+        label: Some(cx.tr("approval.screen.label")),
         child: Container(
             Column(gap: tokens.spacing.none, children: [
                 Spacer(flex_grow: 1.0),
@@ -340,28 +433,53 @@ fission_component! {
                     Container(
                         Column(gap: tokens.spacing.l, children: [
                             Column(gap: tokens.spacing.xs, children: [
-                                Text("Cedar Ridge · stock adjustment")
+                                Text(cx.tr("approval.eyebrow"))
                                     .weight(tokens.typography.font_weight_bold),
-                                Text("Lead review · adjustment CR-7712")
+                                Text(cx.tr("approval.title").replace(
+                                    "{reference}",
+                                    &state.adjustment.as_ref()
+                                        .map(|adjustment| adjustment.reference.as_str())
+                                        .unwrap_or("—"),
+                                ))
                                     .color(tokens.colors.text_secondary),
+                            ]),
+                            Row(gap: tokens.spacing.s, children: [
+                                Button(
+                                    child: Text(cx.tr("approval.locale.english")),
+                                    key: "locale-en-US",
+                                    variant: if state.locale == Locale::from("en-US") { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                                    on_press: use_english,
+                                ).semantics_identifier("approval.locale.en-US"),
+                                Button(
+                                    child: Text(cx.tr("approval.locale.spanish")),
+                                    key: "locale-es-ES",
+                                    variant: if state.locale == Locale::from("es-ES") { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                                    on_press: use_spanish,
+                                ).semantics_identifier("approval.locale.es-ES"),
                             ]),
                             if let Some(adjustment) = &state.adjustment {
                                 Column(gap: tokens.spacing.xs, children: [
-                                    Text(format!("{} · {}", adjustment.product_name, adjustment.sku))
+                                    Text(cx.tr("approval.adjustment.product")
+                                        .replace("{product}", &adjustment.product_name)
+                                        .replace("{sku}", &adjustment.sku))
                                         .weight(tokens.typography.font_weight_semibold),
-                                    Text(format!("Bin {} · {} in system · {} counted", adjustment.bin, adjustment.system_quantity, adjustment.physical_count)),
-                                    Text(format!("Proposed difference: {:+} unit", i64::from(adjustment.physical_count) - i64::from(adjustment.system_quantity)))
+                                    Text(cx.tr("approval.adjustment.quantity")
+                                        .replace("{bin}", &adjustment.bin)
+                                        .replace("{system}", &adjustment.system_quantity.to_string())
+                                        .replace("{counted}", &adjustment.physical_count.to_string())),
+                                    Text(cx.tr("approval.adjustment.difference")
+                                        .replace("{difference}", &format!("{:+}", i64::from(adjustment.physical_count) - i64::from(adjustment.system_quantity))))
                                         .color(tokens.colors.text_secondary),
                                 ])
                             } else {
-                                Text("Open a stock-count discrepancy before requesting lead verification.")
+                                Text(cx.tr("approval.adjustment.empty"))
                                     .color(tokens.colors.text_secondary)
                             },
                             Button(
                                 child: Text(if state.checking_device {
-                                    "Checking device…"
+                                    cx.tr("approval.action.checking")
                                 } else {
-                                    "Check this device"
+                                    cx.tr("approval.action.check_device")
                                 }),
                                 key: "check-android-biometrics",
                                 variant: ButtonVariant::Outline,
@@ -372,11 +490,11 @@ fission_component! {
                             if can_verify {
                                 Button(
                                     child: Text(if state.authenticating {
-                                        "Waiting for verification…"
+                                        cx.tr("approval.action.authenticating")
                                     } else if state.verified_with.is_some() {
-                                        "Lead verified on this device"
+                                        cx.tr("approval.action.verified")
                                     } else {
-                                        "Verify warehouse lead"
+                                        cx.tr("approval.action.verify_lead")
                                     }),
                                     key: "verify-warehouse-lead",
                                     variant: ButtonVariant::Primary,
@@ -385,16 +503,21 @@ fission_component! {
                                 )
                                 .semantics_identifier("stock-review.verify-lead".to_string())
                             } else {
-                                Text("The approval action appears after the host confirms an enrolled local method. If this device cannot verify the lead, use account sign-in.")
+                                Text(cx.tr("approval.hint.no_credential"))
                                     .color(tokens.colors.text_secondary)
                             },
                             if let Some(message) = &state.message {
-                                Text(message.clone()).color(tokens.colors.text_secondary)
+                                if let ApprovalNotice::Verified(method) = message {
+                                    Text(cx.tr(message.translation_key()).replace("{method}", &cx.tr(method.translation_key())))
+                                        .color(tokens.colors.text_secondary)
+                                } else {
+                                    Text(cx.tr(message.translation_key())).color(tokens.colors.text_secondary)
+                                }
                             },
                             if let Some(error) = &state.error {
-                                Text(error.clone()).color(tokens.colors.error)
+                                Text(cx.tr(error.translation_key())).color(tokens.colors.error)
                             },
-                            Text("A local result confirms who is holding this device; the inventory service still checks the lead’s account and role before changing stock.")
+                            Text(cx.tr("approval.security.note"))
                                 .color(tokens.colors.text_secondary),
                         ])
                     )
@@ -416,6 +539,130 @@ fission_component! {
         .height_length(Length::percent(100.0)),
     )
 }
+```
+</TabItem>
+<TabItem label="src/app/translations.rs">
+<!-- fission:file path="src/app/translations.rs" -->
+```rust
+use std::collections::HashMap;
+
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../../i18n/es-ES.yaml")),
+];
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in SOURCES {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid biometric tutorial translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+approval.screen.label: "Warehouse stock adjustment review"
+approval.eyebrow: "Cedar Ridge · stock adjustment"
+approval.title: "Lead review · adjustment {reference}"
+approval.adjustment.product: "{product} · {sku}"
+approval.adjustment.quantity: "Bin {bin} · {system} in system · {counted} counted"
+approval.adjustment.difference: "Proposed difference: {difference} units"
+approval.adjustment.empty: "Open a stock-count discrepancy before requesting lead verification."
+approval.action.checking: "Checking device…"
+approval.action.check_device: "Check this device"
+approval.action.authenticating: "Waiting for verification…"
+approval.action.verified: "Lead verified on this device"
+approval.action.verify_lead: "Verify warehouse lead"
+approval.hint.no_credential: "The verification action appears only after the host reports an enrolled local method. If this device cannot verify the lead, use account sign-in."
+approval.security.note: "A local result confirms who is holding this device; the inventory service still checks the lead’s account and role before changing stock."
+approval.locale.english: "English"
+approval.locale.spanish: "Español"
+approval.prompt.reason: "Review stock adjustment {reference} for {sku}: {counted} counted, {system} in the system."
+approval.prompt.reason_fallback: "Review this stock adjustment."
+approval.prompt.title: "Review stock adjustment"
+approval.prompt.subtitle: "{sku} · {reference}"
+approval.prompt.subtitle_fallback: "Warehouse stock review"
+approval.prompt.fallback: "Use device credential"
+approval.prompt.cancel: "Cancel"
+approval.status.checking_device: "Checking this Android device’s authentication options…"
+approval.status.device_available: "An enrolled local method is available. The lead can continue with this adjustment."
+approval.status.device_unavailable: "No enrolled biometric or allowed device credential is available. Use warehouse account sign-in instead."
+approval.status.availability_failed: "The device could not check its authentication options. Use warehouse account sign-in instead."
+approval.status.check_device_first: "Check the device before asking it to verify the warehouse lead."
+approval.status.no_credential: "No usable local credential is available. Use warehouse account sign-in instead."
+approval.status.adjustment_missing: "Open a stock adjustment before asking the lead to verify."
+approval.status.waiting_for_prompt: "Waiting for the Android authentication prompt…"
+approval.status.result_missing: "The device returned no verification result. The stock adjustment remains a proposal."
+approval.status.not_verified: "The device did not verify the lead. Inventory remains unchanged; try again or use account sign-in."
+approval.status.verified: "Local verification passed with {method}. The adjustment is ready for inventory-service review; saved stock is unchanged."
+approval.status.prompt_cancelled: "The prompt was cancelled. The adjustment is unchanged; try again or use warehouse account sign-in."
+approval.status.temporarily_locked: "Local authentication is temporarily locked. Wait for the device to unlock it, or use warehouse account sign-in."
+approval.status.authentication_unavailable: "This device cannot complete local verification right now. Use warehouse account sign-in instead."
+approval.status.authentication_failed: "The device did not verify the lead. The adjustment is unchanged; try again or use warehouse account sign-in."
+approval.method.fingerprint: "fingerprint"
+approval.method.face: "face recognition"
+approval.method.iris: "iris recognition"
+approval.method.device_credential: "device credential"
+approval.method.other: "local authentication"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+approval.screen.label: "Revisión de ajuste de inventario"
+approval.eyebrow: "Cedar Ridge · ajuste de inventario"
+approval.title: "Revisión de responsable · ajuste {reference}"
+approval.adjustment.product: "{product} · {sku}"
+approval.adjustment.quantity: "Ubicación {bin} · {system} en sistema · {counted} contados"
+approval.adjustment.difference: "Diferencia propuesta: {difference} unidades"
+approval.adjustment.empty: "Abre una discrepancia de inventario antes de pedir la verificación del responsable."
+approval.action.checking: "Comprobando dispositivo…"
+approval.action.check_device: "Comprobar este dispositivo"
+approval.action.authenticating: "Esperando verificación…"
+approval.action.verified: "Responsable verificado en este dispositivo"
+approval.action.verify_lead: "Verificar responsable de almacén"
+approval.hint.no_credential: "La acción de verificación aparece solo cuando el sistema detecta un método local configurado. Si este dispositivo no puede verificar al responsable, usa el inicio de sesión de la cuenta."
+approval.security.note: "El resultado local confirma quién sostiene el dispositivo; el servicio de inventario aún comprueba la cuenta y el rol antes de cambiar las existencias."
+approval.locale.english: "Inglés"
+approval.locale.spanish: "Español"
+approval.prompt.reason: "Revisar el ajuste {reference} para {sku}: se contaron {counted}; el sistema indica {system}."
+approval.prompt.reason_fallback: "Revisar este ajuste de inventario."
+approval.prompt.title: "Revisar ajuste de inventario"
+approval.prompt.subtitle: "{sku} · {reference}"
+approval.prompt.subtitle_fallback: "Revisión de inventario"
+approval.prompt.fallback: "Usar credencial del dispositivo"
+approval.prompt.cancel: "Cancelar"
+approval.status.checking_device: "Comprobando las opciones de autenticación de este dispositivo Android…"
+approval.status.device_available: "Hay un método local configurado. El responsable puede continuar con este ajuste."
+approval.status.device_unavailable: "No hay una biometría configurada ni una credencial de dispositivo permitida. Usa el inicio de sesión de la cuenta del almacén."
+approval.status.availability_failed: "El dispositivo no pudo comprobar las opciones de autenticación. Usa el inicio de sesión de la cuenta del almacén."
+approval.status.check_device_first: "Comprueba el dispositivo antes de pedirle que verifique al responsable."
+approval.status.no_credential: "No hay una credencial local disponible. Usa el inicio de sesión de la cuenta del almacén."
+approval.status.adjustment_missing: "Abre un ajuste de inventario antes de pedir la verificación del responsable."
+approval.status.waiting_for_prompt: "Esperando la solicitud de autenticación de Android…"
+approval.status.result_missing: "El dispositivo no devolvió un resultado de verificación. El ajuste de inventario sigue siendo una propuesta."
+approval.status.not_verified: "El dispositivo no verificó al responsable. El inventario no cambia; vuelve a intentarlo o inicia sesión en la cuenta."
+approval.status.verified: "Verificación local correcta con {method}. El ajuste está listo para que lo revise el servicio de inventario; las existencias guardadas no cambian."
+approval.status.prompt_cancelled: "Se canceló la solicitud. El ajuste no cambia; vuelve a intentarlo o usa el inicio de sesión de la cuenta del almacén."
+approval.status.temporarily_locked: "La autenticación local está bloqueada temporalmente. Espera a que se desbloquee el dispositivo o inicia sesión en la cuenta del almacén."
+approval.status.authentication_unavailable: "Este dispositivo no puede completar la verificación local ahora. Usa el inicio de sesión de la cuenta del almacén."
+approval.status.authentication_failed: "El dispositivo no verificó al responsable. El ajuste no cambia; vuelve a intentarlo o inicia sesión en la cuenta del almacén."
+approval.method.fingerprint: "huella digital"
+approval.method.face: "reconocimiento facial"
+approval.method.iris: "reconocimiento del iris"
+approval.method.device_credential: "credencial del dispositivo"
+approval.method.other: "autenticación local"
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
@@ -443,8 +690,12 @@ pub fn run() -> Result<(), JsValue> {
         ..Default::default()
     };
     WebApp::<StockApprovalState, _>::new(StockAdjustmentApproval)
+        .with_env(app::translations::create_env())
         .with_state_init(move |state: &mut StockApprovalState| {
             *state = preview_state.clone();
+        })
+        .with_sync_env(|state, env| {
+            env.locale = state.locale.clone();
         })
         .with_title("Cedar Ridge stock review")
         .mount("#fission-web-mount")
@@ -474,6 +725,16 @@ On a supported device, check availability and approve the discrepancy with a fin
 Run the target checks from the generated project root:
 
 <Tabs>
+<TabItem label="Native MobileApp environment">
+```rust
+MobileApp::<StockApprovalState, _>::new(StockAdjustmentApproval)
+    .with_env(app::translations::create_env())
+    .with_sync_env(|state, env| {
+        env.locale = state.locale.clone();
+    })
+    .with_title("Cedar Ridge stock review")
+```
+</TabItem>
 <TabItem label="Test Android">
 ```sh
 fission doctor android --project-dir .

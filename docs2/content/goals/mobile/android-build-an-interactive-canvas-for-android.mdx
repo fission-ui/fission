@@ -24,6 +24,7 @@ cargo install cargo-fission
 fission init android-build-an-interactive-canvas-for-android
 cd android-build-an-interactive-canvas-for-android
 fission add-target android --project-dir .
+cargo add serde_yaml
 ```
 
 ## Files created by Fission
@@ -47,7 +48,7 @@ Keep the screen, shared state, reducers and reusable `fission_component!` compon
 <!-- fission:step id="start-screen" -->
 ## Create the app screen
 
-Start with a small canvas and a few identified nodes. The next step adds movement and selection; a readable list gives users another way to reach the same items without precise gestures.
+Start with the three steps of a real compressor inspection. This first screen is a visual scaffold; the next step connects selection and movement to app state and adds a list for people who do not want to rely on canvas gestures.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -56,42 +57,77 @@ Start with a small canvas and a few identified nodes. The next step adds movemen
 use fission::prelude::*;
 
 fission_component! {
-    pub AndroidDrawingCanvas<()> {
+    pub InspectionStepCard<()> {
         props {
+            identifier: String,
             title: String,
-            step: String,
-            goal: String,
+            detail: String,
+            selected: bool,
         }
     }
-    view(screen, _state, cx) {
+    view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some(card.identifier.clone()),
+        label: Some(card.title.clone()),
+        child: Container(Column(gap: tokens.spacing.xs, children: [
+            Text(card.title.clone()).weight(tokens.typography.font_weight_semibold),
+            Text(card.detail.clone()).size(tokens.typography.font_size_sm)
+                .color(tokens.colors.text_secondary),
+        ]))
+        .padding_all(tokens.spacing.m)
+        .bg(if card.selected { tokens.colors.primary_subtle } else { tokens.colors.surface })
+        .border(if card.selected { tokens.colors.primary } else { tokens.colors.border }, 1.0)
+        .border_radius(tokens.radii.medium),
+    )
+}
+
+fission_component! {
+    pub App<()>
+    view(_screen, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let isolate = InfiniteCanvasNode::new(
+            CanvasNodeId::explicit("wo-1048-isolate-power"),
+            LayoutRect::new(0.0, 0.0, 180.0, 84.0),
+            Widget::from(InspectionStepCard::new(
+                "inspection-step-isolate-power".to_string(),
+                cx.tr("canvas.step.isolate"),
+                cx.tr("canvas.detail.isolate"),
+                false,
+            )),
+        );
+        let inspect = InfiniteCanvasNode::new(
+            CanvasNodeId::explicit("wo-1048-check-pressure"),
+            LayoutRect::new(240.0, 0.0, 180.0, 84.0),
+            Widget::from(InspectionStepCard::new(
+                "inspection-step-check-pressure".to_string(),
+                cx.tr("canvas.step.pressure"),
+                cx.tr("canvas.detail.pressure"),
+                false,
+            )),
+        );
+        let evidence = InfiniteCanvasNode::new(
+            CanvasNodeId::explicit("wo-1048-attach-photo"),
+            LayoutRect::new(480.0, 0.0, 180.0, 84.0),
+            Widget::from(InspectionStepCard::new(
+                "inspection-step-attach-photo".to_string(),
+                cx.tr("canvas.step.evidence"),
+                cx.tr("canvas.detail.evidence"),
+                false,
+            )),
+        );
+        let canvas: Widget = InfiniteCanvas::new(vec![isolate, inspect, evidence]).into();
+    } =>
+    SemanticsRegion(
+        identifier: Some("canvas-workflow".to_string()),
+        label: Some(cx.tr("canvas.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
-                        .color(tokens.colors.text_secondary),
-                ]),
+                Text(cx.tr("canvas.title"))
+                    .weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("canvas.description")),
+                canvas,
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -110,23 +146,56 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidDrawingCanvas::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::App)
+        .with_env(preview_env())
+        .with_title("android build an interactive canvas for android")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+canvas.title: "WO-1048 compressor inspection"
+canvas.description: "The cold-room visit has three steps. Start by isolating power, then check pressure and attach the inspection photo."
+canvas.step.isolate: "Isolate power"
+canvas.detail.isolate: "Confirm the unit is safe to inspect."
+canvas.step.pressure: "Check pressure"
+canvas.detail.pressure: "Record the compressor reading."
+canvas.step.evidence: "Attach inspection photo"
+canvas.detail.evidence: "Add a photo to the work order."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+canvas.title: "Inspección del compresor · OT-1048"
+canvas.description: "La visita a la cámara fría tiene tres pasos. Primero, aísla la corriente; después, comprueba la presión y adjunta la foto de inspección."
+canvas.step.isolate: "Aislar la corriente"
+canvas.detail.isolate: "Confirma que la unidad sea segura para inspeccionarla."
+canvas.step.pressure: "Comprobar la presión"
+canvas.detail.pressure: "Registra la lectura del compresor."
+canvas.step.evidence: "Adjuntar foto de inspección"
+canvas.detail.evidence: "Añade una foto a la orden de trabajo."
 ```
 </TabItem>
 </Tabs>
@@ -138,43 +207,141 @@ pub fn run() -> Result<(), JsValue> {
 
 Keep the document model separate from the camera transform: selection and node edits belong to product state, while pan and zoom describe the current viewport. Assign each drawn item a stable ID so selecting an item still selects the same item after an insert or reorder. Put keyboard and touch actions on the same semantic command path, and provide a readable list or inspector as an alternative to precise canvas gestures. Test an empty canvas, a dense canvas, zoom limits, a selected item after reorder, and a narrow screen. Use the [interactive canvas reference](/reference/widgets/infinite-canvas/) for the public widget contract.
 
-The component below is a browser-safe version of this screen. It uses Fission's retained component state and widgets to make the task visible; it does not call a native provider or operating-system API.
+The browser preview uses a sample work order seeded by the preview host. The app’s normal state starts empty and can be populated from the selected work order; the sample is not production data. The canvas reports gestures through the reducer, while the buttons below it provide a non-gesture way to select a step.
+
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Debug, Clone)]
+pub struct InspectionStep {
+    pub key: &'static str,
+    pub id: CanvasNodeId,
+    pub title: &'static str,
+    pub detail: &'static str,
+    pub bounds: LayoutRect,
+}
+
+impl InspectionStep {
+    pub fn new(
+        key: &'static str,
+        title: &'static str,
+        detail: &'static str,
+        bounds: LayoutRect,
+    ) -> Self {
+        Self { key, id: CanvasNodeId::explicit(key), title, detail, bounds }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct InspectionCanvasState {
+    pub steps: Vec<InspectionStep>,
+    pub selected_step: Option<CanvasNodeId>,
+}
+
+impl GlobalState for InspectionCanvasState {}
+
+#[fission_reducer(SelectInspectionStep)]
+pub fn select_inspection_step(state: &mut InspectionCanvasState, step: CanvasNodeId) {
+    state.selected_step = Some(step);
+}
+
+#[fission_reducer(EditInspectionCanvas)]
+pub fn edit_inspection_canvas(
+    state: &mut InspectionCanvasState,
+    ctx: &mut ReducerContext<InspectionCanvasState>,
+) {
+    let Some(interaction) = ctx.input.canvas_interaction().cloned() else {
+        return;
+    };
+
+    match interaction.kind {
+        CanvasInteractionKind::SelectNode { node_id }
+            if interaction.phase == CanvasInteractionPhase::Activate =>
+        {
+            state.selected_step = Some(CanvasNodeId::from_u128(node_id));
+        }
+        CanvasInteractionKind::MoveNode { .. }
+            if interaction.phase == CanvasInteractionPhase::Update =>
+        {
+            for change in interaction.node_changes {
+                if let Some(step) = state.steps.iter_mut().find(|step| step.id.0 == change.node_id) {
+                    step.bounds = change.after;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+```
 
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use fission::op::{Fill, LineCap, LineJoin, Stroke};
 use fission::prelude::*;
-use fission::op::{Color, Fill, LineCap, LineJoin, Stroke};
+
+use crate::state::{
+    edit_inspection_canvas, select_inspection_step, EditInspectionCanvas,
+    InspectionCanvasState, SelectInspectionStep,
+};
 
 fission_component! {
-    pub AndroidInteractiveCanvas<()> {
+    pub InspectionStepCard<()> {
         props {
+            identifier: String,
             title: String,
-            step: String,
-            goal: String,
+            detail: String,
+            selected: bool,
         }
     }
-    view(screen, _state, cx) {
+    view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let source = InfiniteCanvasNode::new(
-            CanvasNodeId::explicit("source"),
-            LayoutRect::new(-150.0, 20.0, 140.0, 72.0),
-            Card { child: Text::new("Source").into(), ..Default::default() },
-        );
-        let output = InfiniteCanvasNode::new(
-            CanvasNodeId::explicit("output"),
-            LayoutRect::new(100.0, 20.0, 140.0, 72.0),
-            Card { child: Text::new("Output").into(), ..Default::default() },
-        );
-        let canvas: Widget = InfiniteCanvas {
-            id: Some(WidgetId::explicit("tutorial.pipeline")),
-            nodes: vec![source.clone(), output.clone()],
-            edges: vec![InfiniteCanvasEdge {
-                id: CanvasEdgeId::explicit("source-output"),
-                from: CanvasEdgeEndpoint::Node { node: source.id, anchor: CanvasNodeAnchor::Right },
-                to: CanvasEdgeEndpoint::Node { node: output.id, anchor: CanvasNodeAnchor::Left },
+    } =>
+    SemanticsRegion(
+        identifier: Some(card.identifier.clone()),
+        label: Some(card.title.clone()),
+        child: Container(Column(gap: tokens.spacing.xs, children: [
+            Text(card.title.clone()).weight(tokens.typography.font_weight_semibold),
+            Text(card.detail.clone()).size(tokens.typography.font_size_sm)
+                .color(tokens.colors.text_secondary),
+        ]))
+        .padding_all(tokens.spacing.m)
+        .bg(if card.selected { tokens.colors.primary_subtle } else { tokens.colors.surface })
+        .border(if card.selected { tokens.colors.primary } else { tokens.colors.border }, 1.0)
+        .border_radius(tokens.radii.medium),
+    )
+}
+
+fission_component! {
+    pub App<InspectionCanvasState>
+    view(_app, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let edit = with_reducer!(cx.build, EditInspectionCanvas, edit_inspection_canvas);
+        let selected_nodes = state.selected_step.into_iter().collect();
+        let nodes = state.steps.iter().map(|step| {
+            let selected = state.selected_step == Some(step.id);
+            let mut node = InfiniteCanvasNode::new(
+                step.id,
+                step.bounds,
+                Widget::from(InspectionStepCard::new(
+                    format!("inspection-step-{}", step.key),
+                    cx.tr(step.title),
+                    cx.tr(step.detail),
+                    selected,
+                )),
+            );
+            node.resizable = false;
+            node
+        }).collect::<Vec<_>>();
+        let edges = state.steps.windows(2).map(|steps| {
+            let (from, to) = (&steps[0], &steps[1]);
+            InfiniteCanvasEdge {
+                id: CanvasEdgeId::explicit(&format!("wo-1048-{}-to-{}", from.key, to.key)),
+                from: CanvasEdgeEndpoint::Node { node: from.id, anchor: CanvasNodeAnchor::Right },
+                to: CanvasEdgeEndpoint::Node { node: to.id, anchor: CanvasNodeAnchor::Left },
                 route: CanvasEdgeRoute::Straight,
                 stroke: Stroke {
-                    fill: Fill::Solid(Color::BLACK),
+                    fill: Fill::Solid(tokens.colors.primary),
                     width: 2.0,
                     dash_array: None,
                     dash_offset: 0.0,
@@ -184,26 +351,71 @@ fission_component! {
                 },
                 start_marker: None,
                 end_marker: None,
-                label: Some(CanvasEdgeLabel::new(Text::new("records"))),
-            }],
-            selection_policy: CanvasSelectionPolicy::Marquee,
-            snap: CanvasSnap { enabled: true, spacing: 16.0, threshold: 4.0 },
-            ..Default::default()
-        }.into();
+                label: Some(CanvasEdgeLabel::new(
+                    Text(cx.tr("canvas.edge")).size(tokens.typography.font_size_sm),
+                )),
+            }
+        }).collect::<Vec<_>>();
+        let step_buttons = state.steps.iter().map(|step| {
+            let action = with_reducer!(
+                cx.build,
+                SelectInspectionStep(step.id),
+                select_inspection_step,
+            );
+            Button {
+                id: Some(WidgetId::explicit(&format!("inspection-step-{}", step.key))),
+                child: Some(Text::new(cx.tr(step.title)).into()),
+                on_press: Some(action),
+                ..Default::default()
+            }
+            .into()
+        }).collect::<Vec<_>>();
+        let selected_title = state.steps.iter()
+            .find(|step| Some(step.id) == state.selected_step)
+            .map(|step| cx.tr(step.title))
+            .unwrap_or_else(|| cx.tr("canvas.none_selected"));
     } =>
     SemanticsRegion(
         identifier: Some("canvas-workflow".to_string()),
-        label: Some(screen.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(screen.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(screen.goal.clone()),
-                canvas,
-                Text("Drag a node or pan the canvas; the stable node ids keep identity tied to records."),
-            ])
-        )
+        label: Some(cx.tr("canvas.title")),
+        child: Container(Column(gap: tokens.spacing.m, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text(cx.tr("canvas.title")).weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("canvas.description")),
+            ]),
+            Container(
+                if state.steps.is_empty() {
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(cx.tr("canvas.empty.title")).weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("canvas.empty.description")).color(tokens.colors.text_secondary),
+                    ])
+                } else {
+                    InfiniteCanvas(
+                        id: Some(WidgetId::explicit("northbank.wo-1048.inspection-plan")),
+                        nodes: nodes,
+                        edges: edges,
+                        selected_nodes: selected_nodes,
+                        selection_policy: CanvasSelectionPolicy::Single,
+                        snap: CanvasSnap { enabled: true, spacing: 16.0, threshold: 4.0 },
+                        grid: Some(CanvasGrid::lines(32.0, tokens.colors.border, 1.0)),
+                        actions: InfiniteCanvasActions {
+                            on_selection_change: Some(edit.clone()),
+                            on_node_move: Some(edit),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    )
+                }
+            )
+                .height(320.0)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+            Text(format!("{}: {}", cx.tr("canvas.selected"), selected_title))
+                .color(tokens.colors.text_secondary),
+            Text(cx.tr("canvas.step_list")).weight(tokens.typography.font_weight_semibold),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: step_buttons),
+        ]))
         .padding_all(tokens.spacing.l)
         .bg(tokens.colors.surface)
         .border(tokens.colors.border, 1.0)
@@ -220,33 +432,95 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod state;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidInteractiveCanvas::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<state::InspectionCanvasState, _>::new(app::App)
+        .with_state_init(|state| {
+            state.steps = vec![
+                state::InspectionStep::new(
+                    "isolate-power", "canvas.step.isolate", "canvas.detail.isolate",
+                    LayoutRect::new(0.0, 24.0, 180.0, 88.0),
+                ),
+                state::InspectionStep::new(
+                    "check-pressure", "canvas.step.pressure", "canvas.detail.pressure",
+                    LayoutRect::new(240.0, 24.0, 180.0, 88.0),
+                ),
+                state::InspectionStep::new(
+                    "attach-photo", "canvas.step.evidence", "canvas.detail.evidence",
+                    LayoutRect::new(480.0, 24.0, 180.0, 88.0),
+                ),
+            ];
+        })
+        .with_env(preview_env())
+        .with_title("Northbank Field Service · Android")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
+<TabItem label="src/i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+canvas.title: "WO-1048 inspection plan"
+canvas.description: "Map how the cold-room compressor visit moves from inspection to evidence."
+canvas.step.isolate: "Isolate power"
+canvas.detail.isolate: "Confirm the unit is safe to inspect."
+canvas.step.pressure: "Check pressure"
+canvas.detail.pressure: "Record the compressor reading."
+canvas.step.evidence: "Attach inspection photo"
+canvas.detail.evidence: "Add a photo to the work order."
+canvas.edge: "next"
+canvas.none_selected: "No step selected"
+canvas.selected: "Selected"
+canvas.step_list: "Select a step without dragging"
+canvas.empty.title: "No inspection steps yet"
+canvas.empty.description: "Open a work order to add its inspection plan."
+```
+</TabItem>
+<TabItem label="src/i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+canvas.title: "Plan de inspección OT-1048"
+canvas.description: "Organiza la visita al compresor de la cámara fría, desde la inspección hasta las pruebas."
+canvas.step.isolate: "Aislar la corriente"
+canvas.detail.isolate: "Confirma que la unidad sea segura para inspeccionarla."
+canvas.step.pressure: "Comprobar la presión"
+canvas.detail.pressure: "Registra la lectura del compresor."
+canvas.step.evidence: "Adjuntar foto de inspección"
+canvas.detail.evidence: "Añade una foto a la orden de trabajo."
+canvas.edge: "siguiente"
+canvas.none_selected: "Ningún paso seleccionado"
+canvas.selected: "Seleccionado"
+canvas.step_list: "Selecciona un paso sin arrastrar"
+canvas.empty.title: "Aún no hay pasos de inspección"
+canvas.empty.description: "Abre una orden de trabajo para añadir su plan de inspección."
+```
+</TabItem>
 </Tabs>
 
 <!-- fission:checkpoint -->
-Drag a node or pan the surface. The example assigns stable IDs to nodes and the connection.
+Select a step by tapping it or by using the labelled buttons, then drag it to change its position. The reducer stores the new bounds in `GlobalState`; the sample order and its plan exist only in the browser preview. Pan and zoom change the canvas viewport, not the work-order data.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 

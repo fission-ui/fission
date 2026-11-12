@@ -19,7 +19,7 @@ Repair work gets hard to follow when the queue, checklist and shift notes each t
 
 We will build **Harbour Desk**, a desktop work-order app for a warehouse maintenance team. It has four jobs, a searchable queue, locations and due windows, safety and repair checks, status changes, and notes attached to the selected order. The buttons change the work order in app state; none of them pretend to save or use hardware. The browser preview keeps its sample data in memory for the current session. The native desktop window runs the same Rust app, where a production version can connect a real store or service.
 
-The app is split into named `fission_component!` components. `ServiceDeskState` owns the work orders because the queue, summary cards and detail panel all need the same records. Each reducer handles one action, such as selecting an order or finishing an inspection step. That keeps the rules visible and makes each state change easier to test.
+The app is split into named `fission_component!` components. `ServiceDeskState` owns the work orders because the queue, summary cards and detail panel all need the same records. A small selection change stays beside its button in an inline `reduce` block; the inspection and status rules remain named reducers because they validate and update related work-order data. That keeps simple UI transitions concise without hiding the domain rules.
 
 ## Create the desktop project
 
@@ -32,6 +32,8 @@ The app is split into named `fission_component!` components. `ServiceDeskState` 
 cargo install cargo-fission
 fission init harbour-service-desk
 cd harbour-service-desk
+cargo add serde --features derive
+cargo add serde_yaml
 ```
 
 </TabItem>
@@ -46,6 +48,7 @@ harbour-service-desk/
 │   ├── app.rs                  # WorkOrderDesk screen composition
 │   ├── models.rs               # work orders, checks and notes
 │   ├── state.rs                # shared state and reducers
+│   ├── translations.rs          # embedded English and Spanish messages
 │   └── components/
 │       ├── metric_card.rs
 │       ├── service_desk_sidebar.rs
@@ -54,6 +57,9 @@ harbour-service-desk/
 │       ├── work_order_detail_panel.rs
 │       ├── inspection_step_row.rs
 │       └── shift_note_row.rs
+├── i18n/
+│   ├── en-US.yaml
+│   └── es-ES.yaml
 └── platforms/
     └── linux/                  # generated desktop host files
 ```
@@ -72,6 +78,8 @@ The first checkpoint is read-only, with the first work order selected. The queue
 
 These snippets make up one project. Add the work-order records and default state first, then the reusable cards and sidebar, and finally compose them in `WorkOrderDesk`. Each component has one job: `WorkOrderQueueCard` summarizes a repair, `WorkOrderDetailPanel` shows the selected repair, and `ServiceDeskSidebar` identifies the workspace.
 
+The queue and detail components receive a work order as a typed prop. Keep the record serializable across that component boundary, and use owned strings so it can be deserialized as well as displayed.
+
 
 <Tabs>
 
@@ -79,7 +87,9 @@ These snippets make up one project. Add the work-order records and default state
 
 <!-- fission:file path="src/models.rs" -->
 ```rust
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WorkOrderStatus {
     Open,
     InProgress,
@@ -89,154 +99,129 @@ pub enum WorkOrderStatus {
 }
 
 impl WorkOrderStatus {
-    pub fn label(self) -> &'static str {
+    pub fn translation_key(self) -> &'static str {
         match self {
-            Self::Open => "Open",
-            Self::InProgress => "In progress",
-            Self::WaitingForParts => "Waiting for parts",
-            Self::ReadyForPickup => "Ready for pickup",
-            Self::Closed => "Closed",
+            Self::Open => "service_desk.status.open",
+            Self::InProgress => "service_desk.status.in_progress",
+            Self::WaitingForParts => "service_desk.status.waiting_for_parts",
+            Self::ReadyForPickup => "service_desk.status.ready_for_pickup",
+            Self::Closed => "service_desk.status.closed",
+        }
+    }
+
+    pub fn search_term(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::InProgress => "in progress",
+            Self::WaitingForParts => "waiting for parts",
+            Self::ReadyForPickup => "ready for pickup",
+            Self::Closed => "closed",
+        }
+    }
+
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InspectionCategory {
+    Safety,
+    Inspection,
+    Repair,
+    Verification,
+}
+
+impl InspectionCategory {
+    pub fn translation_key(self) -> &'static str {
+        match self {
+            Self::Safety => "service_desk.category.safety",
+            Self::Inspection => "service_desk.category.inspection",
+            Self::Repair => "service_desk.category.repair",
+            Self::Verification => "service_desk.category.verification",
         }
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkOrderPriority {
+    High,
+    Normal,
+}
+
+impl WorkOrderPriority {
+    pub fn translation_key(self) -> &'static str {
+        match self {
+            Self::High => "service_desk.priority.high",
+            Self::Normal => "service_desk.priority.normal",
+        }
+    }
+
+    fn search_term(self) -> &'static str {
+        match self {
+            Self::High => "high",
+            Self::Normal => "normal",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct InspectionStep {
-    pub title: &'static str,
-    pub category: &'static str,
+    pub id: String,
+    pub title_key: String,
+    pub category: InspectionCategory,
     pub complete: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ShiftNote {
-    pub author: &'static str,
-    pub time: &'static str,
+    pub id: String,
+    pub author: Option<String>,
+    pub time: Option<String>,
     pub message: String,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+impl ShiftNote {
+    pub(crate) fn draft(id: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            author: None,
+            time: None,
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WorkOrder {
     pub id: u32,
-    pub reference: &'static str,
-    pub title: &'static str,
-    pub description: &'static str,
-    pub location: &'static str,
-    pub requested_by: &'static str,
-    pub due_window: &'static str,
+    pub reference: String,
+    pub title: String,
+    pub description: String,
+    pub location: String,
+    pub requested_by: String,
+    pub due_window: String,
     pub due_today: bool,
-    pub priority: &'static str,
+    pub priority: WorkOrderPriority,
     pub status: WorkOrderStatus,
     pub steps: Vec<InspectionStep>,
     pub shift_notes: Vec<ShiftNote>,
 }
 
-pub fn sample_work_orders() -> Vec<WorkOrder> {
-    vec![
-        WorkOrder {
-            id: 2483,
-            reference: "WO-2483",
-            title: "Conveyor motor check",
-            description: "Intermittent shutdown reported during the morning pick wave.",
-            location: "North warehouse · Bay 2",
-            requested_by: "Rosa Martinez",
-            due_window: "Today, 10:30–11:00",
-            due_today: true,
-            priority: "High priority",
-            status: WorkOrderStatus::InProgress,
-            steps: vec![
-                InspectionStep { title: "Isolate power and verify lockout", category: "Safety", complete: true },
-                InspectionStep { title: "Inspect belt and drive alignment", category: "Inspection", complete: true },
-                InspectionStep { title: "Replace worn return roller", category: "Repair", complete: false },
-                InspectionStep { title: "Run a five-minute safety test", category: "Verification", complete: false },
-            ],
-            shift_notes: vec![ShiftNote {
-                author: "Morgan Lee",
-                time: "8:42 AM",
-                message: "Lockout is in place. The return roller has visible wear; replacement is in the parts cage.".to_string(),
-            }],
-        },
-        WorkOrder {
-            id: 2471,
-            reference: "WO-2471",
-            title: "Replace scanner dock",
-            description: "Receiving scanner loses power when it is moved between stations.",
-            location: "North warehouse · Receiving",
-            requested_by: "Devon Price",
-            due_window: "Today, 12:00–12:30",
-            due_today: true,
-            priority: "Normal priority",
-            status: WorkOrderStatus::WaitingForParts,
-            steps: vec![
-                InspectionStep { title: "Confirm the dock serial number", category: "Inspection", complete: true },
-                InspectionStep { title: "Fit replacement power lead", category: "Repair", complete: false },
-                InspectionStep { title: "Test the scanner at both stations", category: "Verification", complete: false },
-            ],
-            shift_notes: vec![ShiftNote {
-                author: "Morgan Lee",
-                time: "9:06 AM",
-                message: "Replacement lead is due from stores before noon. The scanner is still usable at station 3.".to_string(),
-            }],
-        },
-        WorkOrder {
-            id: 2468,
-            reference: "WO-2468",
-            title: "Repair dispatch label printer",
-            description: "Labels are skewing after the first roll is loaded.",
-            location: "North warehouse · Dispatch",
-            requested_by: "Samir Patel",
-            due_window: "Today, 11:15–11:45",
-            due_today: true,
-            priority: "Normal priority",
-            status: WorkOrderStatus::ReadyForPickup,
-            steps: vec![
-                InspectionStep { title: "Clean the feed rollers", category: "Repair", complete: true },
-                InspectionStep { title: "Align the label guides", category: "Repair", complete: true },
-                InspectionStep { title: "Print and inspect a test label", category: "Verification", complete: true },
-            ],
-            shift_notes: vec![ShiftNote {
-                author: "Avery Chen",
-                time: "9:18 AM",
-                message: "Test label is straight and the printer is back at the dispatch desk.".to_string(),
-            }],
-        },
-        WorkOrder {
-            id: 2459,
-            reference: "WO-2459",
-            title: "Inspect loading-bay door",
-            description: "The lower seal catches as the door closes at the end of a shift.",
-            location: "East warehouse · Bay 4",
-            requested_by: "Elena Brooks",
-            due_window: "Today, 1:30–2:00 PM",
-            due_today: false,
-            priority: "Normal priority",
-            status: WorkOrderStatus::Open,
-            steps: vec![
-                InspectionStep { title: "Check the floor track for debris", category: "Inspection", complete: false },
-                InspectionStep { title: "Inspect the lower seal", category: "Inspection", complete: false },
-                InspectionStep { title: "Cycle the door and record the result", category: "Verification", complete: false },
-            ],
-            shift_notes: Vec::new(),
-        },
-    ]
-}
 ```
 
 <!-- fission:file path="src/state.rs" -->
 ```rust
-use crate::models::sample_work_orders;
 use fission::prelude::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ServiceDeskState {
     pub work_orders: Vec<crate::models::WorkOrder>,
-    pub selected_work_order: u32,
+    pub selected_work_order: Option<u32>,
 }
 
 impl Default for ServiceDeskState {
     fn default() -> Self {
         Self {
-            work_orders: sample_work_orders(),
-            selected_work_order: 2483,
+            work_orders: Vec::new(),
+            selected_work_order: None,
         }
     }
 }
@@ -269,6 +254,7 @@ use fission::prelude::*;
 fission_component! {
     pub MetricCard<ServiceDeskState> {
         props {
+            id: String,
             label: String,
             value: String,
             detail: String,
@@ -278,7 +264,7 @@ fission_component! {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some(format!("service-desk.metric:{}", card.label.to_lowercase().replace(' ', "-"))),
+        identifier: Some(format!("service-desk.metric:{}", card.id)),
         label: Some(format!("{}: {}", card.label, card.value)),
         child: Container(
             Column(gap: tokens.spacing.xs, children: [
@@ -317,19 +303,19 @@ fission_component! {
     } =>
     SemanticsRegion(
         identifier: Some(format!("service-desk.order:{}", card.order.reference)),
-        label: Some(format!("{} · {} · {}", card.order.reference, card.order.title, card.order.status.label())),
+        label: Some(format!("{} · {} · {}", card.order.reference, card.order.title, cx.tr(card.order.status.translation_key()))),
         child: Container(
             Column(gap: tokens.spacing.xs, children: [
                 Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, align_items: ir_op::AlignItems::Center, children: [
                     Column(gap: tokens.spacing.xs, children: [
-                        Text(card.order.title).weight(tokens.typography.font_weight_semibold),
+                        Text(card.order.title.clone()).weight(tokens.typography.font_weight_semibold),
                         Text(format!("{} · {}", card.order.reference, card.order.location))
                             .color(tokens.colors.text_secondary),
                     ]),
                     Spacer(flex_grow: 1.0),
-                    Badge(text: card.order.status.label().to_string()),
+                    Badge(text: cx.tr(card.order.status.translation_key())),
                 ]),
-                Text(format!("Due {}", card.order.due_window))
+                Text(format!("{} {}", cx.tr("service_desk.due"), card.order.due_window))
                     .color(tokens.colors.text_secondary),
             ]),
         )
@@ -366,9 +352,9 @@ fission_component! {
                     Text(format!("{} · {}", panel.order.reference, panel.order.title))
                         .weight(tokens.typography.font_weight_bold),
                     Spacer(flex_grow: 1.0),
-                    Badge(text: panel.order.priority.to_string()),
+                    Badge(text: cx.tr(panel.order.priority.translation_key())),
                 ]),
-                Text(panel.order.description).color(tokens.colors.text_secondary),
+                Text(panel.order.description.clone()).color(tokens.colors.text_secondary),
             ]),
             Grid(
                 columns: vec![GridTrack::auto_fit(GridTrack::minmax(
@@ -378,45 +364,54 @@ fission_component! {
                 column_gap: tokens.spacing.m,
                 row_gap: tokens.spacing.s,
                 children: [
-                    Column(gap: tokens.spacing.xs, children: [Text("LOCATION"), Text(panel.order.location)]),
-                    Column(gap: tokens.spacing.xs, children: [Text("REQUESTED BY"), Text(panel.order.requested_by)]),
-                    Column(gap: tokens.spacing.xs, children: [Text("DUE WINDOW"), Text(panel.order.due_window)]),
+                    Column(gap: tokens.spacing.xs, children: [Text(cx.tr("service_desk.location")), Text(panel.order.location.clone())]),
+                    Column(gap: tokens.spacing.xs, children: [Text(cx.tr("service_desk.requested_by")), Text(panel.order.requested_by.clone())]),
+                    Column(gap: tokens.spacing.xs, children: [Text(cx.tr("service_desk.due_window")), Text(panel.order.due_window.clone())]),
                 ],
             ),
             Divider(),
             Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, align_items: ir_op::AlignItems::Center, children: [
-                Text("Safety and repair checklist").weight(tokens.typography.font_weight_semibold),
+                Text(cx.tr("service_desk.checklist.title")).weight(tokens.typography.font_weight_semibold),
                 Spacer(flex_grow: 1.0),
-                Text(format!("{} of {} complete", complete_count, total_count))
+                Text(format!("{} {} {}", complete_count, cx.tr("service_desk.checklist.of"), total_count))
                     .color(tokens.colors.text_secondary),
             ]),
             ProgressBar(
                 value: progress,
-                label: format!("{} of {} inspection steps complete", complete_count, total_count),
+                label: format!("{} {} {} {}", complete_count, cx.tr("service_desk.checklist.of"), total_count, cx.tr("service_desk.checklist.steps_complete")),
             ),
             Column(gap: tokens.spacing.s, children: [
-                for (index, step) in panel.order.steps.iter().enumerate() {
-                    Row(key: format!("{}-step-{}", panel.order.id, index),
+                for step in panel.order.steps.iter() {
+                    Row(key: format!("{}-step-{}", panel.order.id, step.id),
                         gap: tokens.spacing.s,
                         align_items: ir_op::AlignItems::Center,
                         children: [
-                        Badge(text: if step.complete { "Done" } else { "Next" }.to_string()),
+                        Badge(text: cx.tr(if step.complete {
+                            "service_desk.checklist.done"
+                        } else {
+                            "service_desk.checklist.next"
+                        })),
                         Column(gap: tokens.spacing.xs, children: [
-                            Text(step.title),
-                            Text(step.category).color(tokens.colors.text_secondary),
+                            Text(cx.tr(&step.title_key)),
+                            Text(cx.tr(step.category.translation_key())).color(tokens.colors.text_secondary),
                         ]),
                     ])
                 },
             ]),
             Divider(),
-            Text("Shift notes").weight(tokens.typography.font_weight_semibold),
+            Text(cx.tr("service_desk.shift_notes.title")).weight(tokens.typography.font_weight_semibold),
             Column(gap: tokens.spacing.s, children: [
                 for note in panel.order.shift_notes.iter() {
-                    Column(key: format!("{}-{}", note.author, note.time),
+                    Column(key: note.id.clone(),
                         gap: tokens.spacing.xs,
                         children: [
-                        Text(format!("{} · {}", note.author, note.time))
-                            .weight(tokens.typography.font_weight_semibold),
+                        if let (Some(author), Some(time)) = (&note.author, &note.time) {
+                            Text(format!("{} · {}", author, time))
+                                .weight(tokens.typography.font_weight_semibold)
+                        } else {
+                            Text(cx.tr("service_desk.shift_notes.draft"))
+                                .weight(tokens.typography.font_weight_semibold)
+                        },
                         Text(note.message.clone()).color(tokens.colors.text_secondary),
                     ])
                 },
@@ -450,27 +445,27 @@ fission_component! {
     } =>
     SemanticsRegion(
         identifier: Some("harbour-service-desk.navigation".to_string()),
-        label: Some("Harbour Desk workspace navigation".to_string()),
+        label: Some(cx.tr("service_desk.workspace.navigation")),
         child: Container(
             Column(gap: tokens.spacing.xl, children: [
                 Column(gap: tokens.spacing.l, children: [
                     Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
                         Container(
-                            Text("H")
+                            Text(cx.tr("service_desk.brand.initial"))
                                 .weight(tokens.typography.font_weight_bold)
                                 .color(tokens.colors.on_primary),
                         )
                         .padding_all(tokens.spacing.s)
                         .bg(tokens.colors.primary)
                         .border_radius(tokens.radii.medium),
-                        Text("Harbour Desk")
+                        Text(cx.tr("service_desk.brand"))
                             .weight(tokens.typography.font_weight_bold)
                             .color(tokens.colors.on_secondary),
                     ]),
                     Container(
                         Column(gap: tokens.spacing.xs, children: [
-                            Text("WORKSPACE").color(tokens.colors.on_secondary),
-                            Text("North warehouse")
+                            Text(cx.tr("service_desk.workspace.label")).color(tokens.colors.on_secondary),
+                            Text(cx.tr("service_desk.workspace.name"))
                                 .weight(tokens.typography.font_weight_semibold)
                                 .color(tokens.colors.on_secondary),
                         ]),
@@ -479,12 +474,12 @@ fission_component! {
                     .border(tokens.colors.text_muted, 1.0)
                     .border_radius(tokens.radii.medium),
                     Column(gap: tokens.spacing.s, children: [
-                        Text("WORK")
+                        Text(cx.tr("service_desk.navigation.work"))
                             .weight(tokens.typography.font_weight_semibold)
                             .color(tokens.colors.on_secondary),
                         Container(
                             Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                                Text("Work orders").weight(tokens.typography.font_weight_semibold),
+                                Text(cx.tr("service_desk.title")).weight(tokens.typography.font_weight_semibold),
                                 Spacer(flex_grow: 1.0),
                                 Text(active_count.to_string()).color(tokens.colors.text_secondary),
                             ]),
@@ -497,9 +492,9 @@ fission_component! {
                 Spacer(flex_grow: 1.0),
                 Container(
                     Column(gap: tokens.spacing.s, children: [
-                        Text("Local workspace")
+                        Text(cx.tr("service_desk.workspace.local"))
                             .weight(tokens.typography.font_weight_semibold),
-                        Text("Changes stay in this session. A production desktop app can connect this workflow to its store or service.")
+                        Text(cx.tr("service_desk.workspace.local_description"))
                             .color(tokens.colors.text_secondary),
                     ]),
                 )
@@ -513,6 +508,225 @@ fission_component! {
         .bg(tokens.colors.secondary),
     )
 }
+```
+
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid Harbour Desk translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+service_desk.app.semantic_label: "Harbour Supply service work orders"
+service_desk.brand: "Harbour Desk"
+service_desk.brand.initial: "H"
+service_desk.workspace.semantic_label: "Harbour Supply service desk workspace"
+service_desk.workspace.navigation: "Harbour Desk workspace navigation"
+service_desk.workspace.label: "WORKSPACE"
+service_desk.workspace.name: "North warehouse"
+service_desk.workspace.local: "Local preview"
+service_desk.workspace.local_description: "Changes stay in this session. Connect a store or service before using this workflow in production."
+service_desk.navigation.work: "WORK"
+service_desk.navigation.operations: "Operations"
+service_desk.title: "Work orders"
+service_desk.intro: "Keep today's repairs moving from diagnosis to customer pickup."
+service_desk.metric.active: "Active"
+service_desk.metric.due_today: "Due today"
+service_desk.metric.due_today.detail: "Open jobs scheduled for this shift"
+service_desk.metric.waiting_for_parts: "Waiting for parts"
+service_desk.metric.waiting_for_parts.detail: "Jobs that can resume when parts arrive"
+service_desk.metric.ready_for_pickup: "Ready for pickup"
+service_desk.metric.ready_for_pickup.detail: "Repairs that passed their checks"
+service_desk.queue.title: "Today's queue"
+service_desk.queue.description: "Select a job to review its location, checks and handoff notes."
+service_desk.work_orders: "work orders"
+service_desk.queue.matches: "matches"
+service_desk.empty.title: "No work orders yet"
+service_desk.empty.description: "Work orders will appear here when they are loaded from your service."
+service_desk.due: "Due"
+service_desk.location: "Location"
+service_desk.requested_by: "Requested by"
+service_desk.due_window: "Due window"
+service_desk.checklist.title: "Safety and repair checklist"
+service_desk.checklist.of: "of"
+service_desk.checklist.steps_complete: "inspection steps complete"
+service_desk.checklist.done: "Done"
+service_desk.checklist.next: "Next"
+service_desk.shift_notes.title: "Shift notes"
+service_desk.shift_notes.visibility: "Visible to the service team"
+service_desk.shift_notes.empty: "No shift notes yet. Add the detail the next technician will need."
+service_desk.shift_notes.label: "Add a shift note"
+service_desk.shift_notes.placeholder: "What should the next technician know?"
+service_desk.shift_notes.add: "Add note to work order"
+service_desk.shift_notes.draft: "Draft · not yet attributed"
+service_desk.action.selected: "Selected"
+service_desk.action.open_details: "Open details"
+service_desk.action.start_work: "Start work order"
+service_desk.action.mark_ready: "Mark ready for pickup"
+service_desk.action.record_parts: "Record parts received"
+service_desk.action.record_pickup: "Record customer pickup"
+service_desk.action.closed: "Closed"
+service_desk.action.closed_badge: "Work order closed"
+service_desk.priority.high: "High priority"
+service_desk.priority.normal: "Normal priority"
+service_desk.workflow.finish_checks: "Finish every inspection step before marking the equipment ready for pickup."
+service_desk.feedback.step_updated: "Inspection checklist updated."
+service_desk.feedback.step_missing: "That inspection step is no longer available."
+service_desk.feedback.started: "Work has started on this order."
+service_desk.feedback.parts_received: "Parts received. The repair can continue."
+service_desk.feedback.ready: "The repair passed inspection and is ready for pickup."
+service_desk.feedback.checklist_incomplete: "Complete every inspection step before marking the order ready for pickup."
+service_desk.feedback.pickup_recorded: "Customer pickup recorded."
+service_desk.feedback.order_closed: "This work order is already closed."
+service_desk.feedback.order_missing: "That work order is no longer in the queue."
+service_desk.feedback.select_order: "Select a work order before adding a shift note."
+service_desk.feedback.note_empty: "Write a shift note before adding it to this work order."
+service_desk.feedback.note_added: "Shift note added to the selected work order."
+service_desk.search.label: "Search work orders"
+service_desk.search.placeholder: "Reference, equipment, location or requester"
+service_desk.search.queue_empty: "No matching work orders"
+service_desk.search.queue_empty_detail: "Try a reference, equipment name, location or requester."
+service_desk.search.detail_empty: "No work order selected"
+service_desk.search.detail_empty_detail: "Clear the search to return to the current work order."
+service_desk.status.open: "Open"
+service_desk.status.in_progress: "In progress"
+service_desk.status.waiting_for_parts: "Waiting for parts"
+service_desk.status.ready_for_pickup: "Ready for pickup"
+service_desk.status.closed: "Closed"
+service_desk.category.safety: "Safety"
+service_desk.category.inspection: "Inspection"
+service_desk.category.repair: "Repair"
+service_desk.category.verification: "Verification"
+service_desk.step.lockout: "Isolate power and verify lockout"
+service_desk.step.belt_alignment: "Inspect belt and drive alignment"
+service_desk.step.replace_roller: "Replace worn return roller"
+service_desk.step.safety_test: "Run a five-minute safety test"
+service_desk.step.dock_serial: "Confirm the dock serial number"
+service_desk.step.power_lead: "Fit replacement power lead"
+service_desk.step.scanner_test: "Test the scanner at both stations"
+service_desk.step.clean_rollers: "Clean the feed rollers"
+service_desk.step.align_guides: "Align the label guides"
+service_desk.step.test_label: "Print and inspect a test label"
+service_desk.step.floor_track: "Check the floor track for debris"
+service_desk.step.lower_seal: "Inspect the lower seal"
+service_desk.step.cycle_door: "Cycle the door and record the result"
+```
+
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+service_desk.app.semantic_label: "Órdenes de trabajo de mantenimiento de Harbour Supply"
+service_desk.brand: "Harbour Desk"
+service_desk.brand.initial: "H"
+service_desk.workspace.semantic_label: "Espacio de mantenimiento de Harbour Supply"
+service_desk.workspace.navigation: "Navegación del espacio de Harbour Desk"
+service_desk.workspace.label: "ESPACIO DE TRABAJO"
+service_desk.workspace.name: "Almacén norte"
+service_desk.workspace.local: "Vista previa local"
+service_desk.workspace.local_description: "Los cambios se conservan durante esta sesión. Conecta un almacenamiento o servicio antes de usar este flujo en producción."
+service_desk.navigation.work: "TRABAJO"
+service_desk.navigation.operations: "Operaciones"
+service_desk.title: "Órdenes de trabajo"
+service_desk.intro: "Mantén las reparaciones de hoy en marcha, desde el diagnóstico hasta la entrega."
+service_desk.metric.active: "Activas"
+service_desk.metric.due_today: "Para hoy"
+service_desk.metric.due_today.detail: "Trabajos abiertos previstos para este turno"
+service_desk.metric.waiting_for_parts: "En espera de piezas"
+service_desk.metric.waiting_for_parts.detail: "Trabajos que pueden continuar cuando lleguen las piezas"
+service_desk.metric.ready_for_pickup: "Listas para entregar"
+service_desk.metric.ready_for_pickup.detail: "Reparaciones que superaron las comprobaciones"
+service_desk.queue.title: "Cola de hoy"
+service_desk.queue.description: "Selecciona un trabajo para revisar su ubicación, comprobaciones y notas."
+service_desk.work_orders: "órdenes"
+service_desk.queue.matches: "coincidencias"
+service_desk.empty.title: "Todavía no hay órdenes de trabajo"
+service_desk.empty.description: "Las órdenes aparecerán aquí cuando se carguen desde tu servicio."
+service_desk.due: "Fecha límite"
+service_desk.location: "Ubicación"
+service_desk.requested_by: "Solicitada por"
+service_desk.due_window: "Plazo previsto"
+service_desk.checklist.title: "Lista de seguridad y reparación"
+service_desk.checklist.of: "de"
+service_desk.checklist.steps_complete: "pasos de inspección completados"
+service_desk.checklist.done: "Hecho"
+service_desk.checklist.next: "Pendiente"
+service_desk.shift_notes.title: "Notas del turno"
+service_desk.shift_notes.visibility: "Visible para el equipo de mantenimiento"
+service_desk.shift_notes.empty: "Todavía no hay notas. Añade la información que necesitará la siguiente persona."
+service_desk.shift_notes.label: "Añadir una nota del turno"
+service_desk.shift_notes.placeholder: "¿Qué debería saber la siguiente persona?"
+service_desk.shift_notes.add: "Añadir nota a la orden"
+service_desk.shift_notes.draft: "Borrador · sin atribución todavía"
+service_desk.action.selected: "Seleccionada"
+service_desk.action.open_details: "Ver detalles"
+service_desk.action.start_work: "Iniciar orden de trabajo"
+service_desk.action.mark_ready: "Marcar como lista para entregar"
+service_desk.action.record_parts: "Registrar piezas recibidas"
+service_desk.action.record_pickup: "Registrar entrega al cliente"
+service_desk.action.closed: "Cerrada"
+service_desk.action.closed_badge: "Orden de trabajo cerrada"
+service_desk.priority.high: "Prioridad alta"
+service_desk.priority.normal: "Prioridad normal"
+service_desk.workflow.finish_checks: "Completa todos los pasos de inspección antes de marcar el equipo como listo para entregar."
+service_desk.feedback.step_updated: "Lista de inspección actualizada."
+service_desk.feedback.step_missing: "Ese paso de inspección ya no está disponible."
+service_desk.feedback.started: "El trabajo de esta orden ha comenzado."
+service_desk.feedback.parts_received: "Piezas recibidas. La reparación puede continuar."
+service_desk.feedback.ready: "La reparación superó la inspección y está lista para entregar."
+service_desk.feedback.checklist_incomplete: "Completa todos los pasos de inspección antes de marcar la orden como lista."
+service_desk.feedback.pickup_recorded: "Entrega al cliente registrada."
+service_desk.feedback.order_closed: "Esta orden de trabajo ya está cerrada."
+service_desk.feedback.order_missing: "Esa orden ya no está en la cola."
+service_desk.feedback.select_order: "Selecciona una orden antes de añadir una nota del turno."
+service_desk.feedback.note_empty: "Escribe una nota antes de añadirla a esta orden."
+service_desk.feedback.note_added: "Nota añadida a la orden seleccionada."
+service_desk.search.label: "Buscar órdenes de trabajo"
+service_desk.search.placeholder: "Referencia, equipo, ubicación o solicitante"
+service_desk.search.queue_empty: "No hay órdenes que coincidan"
+service_desk.search.queue_empty_detail: "Prueba con una referencia, equipo, ubicación o solicitante."
+service_desk.search.detail_empty: "No hay una orden seleccionada"
+service_desk.search.detail_empty_detail: "Borra la búsqueda para volver a la orden actual."
+service_desk.status.open: "Abierta"
+service_desk.status.in_progress: "En curso"
+service_desk.status.waiting_for_parts: "En espera de piezas"
+service_desk.status.ready_for_pickup: "Lista para entregar"
+service_desk.status.closed: "Cerrada"
+service_desk.category.safety: "Seguridad"
+service_desk.category.inspection: "Inspección"
+service_desk.category.repair: "Reparación"
+service_desk.category.verification: "Verificación"
+service_desk.step.lockout: "Aísla la alimentación y verifica el bloqueo"
+service_desk.step.belt_alignment: "Inspecciona la alineación de la correa y el accionamiento"
+service_desk.step.replace_roller: "Sustituye el rodillo de retorno desgastado"
+service_desk.step.safety_test: "Realiza una prueba de seguridad de cinco minutos"
+service_desk.step.dock_serial: "Confirma el número de serie de la base"
+service_desk.step.power_lead: "Instala el cable de alimentación de repuesto"
+service_desk.step.scanner_test: "Prueba el escáner en ambas estaciones"
+service_desk.step.clean_rollers: "Limpia los rodillos de alimentación"
+service_desk.step.align_guides: "Alinea las guías de etiquetas"
+service_desk.step.test_label: "Imprime y revisa una etiqueta de prueba"
+service_desk.step.floor_track: "Comprueba si hay residuos en el carril del suelo"
+service_desk.step.lower_seal: "Inspecciona el sello inferior"
+service_desk.step.cycle_door: "Acciona la puerta y registra el resultado"
 ```
 
 <!-- fission:file path="src/app.rs" -->
@@ -529,11 +743,6 @@ fission_component! {
         let viewport = cx.view.viewport_size();
         let show_sidebar = viewport.width >= tokens.breakpoints.expanded_max;
         let panel_width = Length::percent(if show_sidebar { 48.0 } else { 100.0 });
-        let search_width = if viewport.width < tokens.breakpoints.compact_max {
-            Length::percent(100.0)
-        } else {
-            Length::clamp(Length::points(220.0), Length::percent(58.0), Length::points(460.0))
-        };
         let active_count = state.work_orders
             .iter()
             .filter(|order| order.status != WorkOrderStatus::Closed)
@@ -552,14 +761,14 @@ fission_component! {
             .count();
         let selected_order = state.work_orders
             .iter()
-            .find(|order| order.id == state.selected_work_order)
-            .unwrap_or(&state.work_orders[0]);
+            .find(|order| Some(order.id) == state.selected_work_order)
+            .or_else(|| state.work_orders.first());
 
     } =>
     Container(
         SemanticsRegion(
         identifier: Some("harbour-service-desk".to_string()),
-        label: Some("Harbour Supply service work orders".to_string()),
+        label: Some(cx.tr("service_desk.app.semantic_label")),
         child: Row(
             align_items: ir_op::AlignItems::Stretch,
             children: [
@@ -568,7 +777,7 @@ fission_component! {
                     id: Some(WidgetId::explicit("harbour-service-desk.scroll")),
                     flex_grow: 1.0,
                     height: viewport.height,
-                    semantic_label: Some("Harbour Supply service desk workspace".to_string()),
+                    semantic_label: Some(cx.tr("service_desk.workspace.semantic_label")),
                     child: Column(gap: 0.0, children: [
                         Container(
                             Row(
@@ -576,10 +785,10 @@ fission_component! {
                                 wrap: ir_op::FlexWrap::Wrap,
                                 align_items: ir_op::AlignItems::Center,
                                 children: [
-                                    Text("Operations / Work orders")
+                                    Text(format!("{} / {}", cx.tr("service_desk.navigation.operations"), cx.tr("service_desk.title")))
                                         .color(tokens.colors.text_secondary),
                                     Spacer(flex_grow: 1.0),
-                                    Text("North warehouse")
+                                    Text(cx.tr("service_desk.workspace.name"))
                                         .color(tokens.colors.text_secondary)
                                 ],
                             ),
@@ -594,13 +803,37 @@ fission_component! {
                                     align_items: ir_op::AlignItems::Center,
                                     children: [
                                         Column(gap: tokens.spacing.xs, children: [
-                                            Text("Work orders").weight(tokens.typography.font_weight_bold),
-                                            Text("Keep today’s repairs moving from diagnosis to customer pickup.")
+                                            Text(cx.tr("service_desk.title")).weight(tokens.typography.font_weight_bold),
+                                            Text(cx.tr("service_desk.intro"))
                                                 .color(tokens.colors.text_secondary),
                                         ]),
                                         Spacer(flex_grow: 1.0),
-                                        Text(format!("{} active", active_count))
+                                        Text(format!("{}: {}", cx.tr("service_desk.metric.active"), active_count))
                                             .color(tokens.colors.text_secondary),
+                                    ],
+                                ),
+                SimpleGrid(
+                                    min_child_width: 180.0,
+                                    gap: Some(tokens.spacing.m),
+                    children: [
+                        MetricCard(
+                            "due-today".to_string(),
+                            cx.tr("service_desk.metric.due_today"),
+                            due_count.to_string(),
+                            cx.tr("service_desk.metric.due_today.detail"),
+                        ),
+                        MetricCard(
+                            "waiting-for-parts".to_string(),
+                            cx.tr("service_desk.metric.waiting_for_parts"),
+                            waiting_count.to_string(),
+                            cx.tr("service_desk.metric.waiting_for_parts.detail"),
+                        ),
+                        MetricCard(
+                            "ready-for-pickup".to_string(),
+                            cx.tr("service_desk.metric.ready_for_pickup"),
+                            ready_count.to_string(),
+                            cx.tr("service_desk.metric.ready_for_pickup.detail"),
+                        ),
                                     ],
                                 ),
                                 Row(
@@ -615,19 +848,19 @@ fission_component! {
                                                     wrap: ir_op::FlexWrap::Wrap,
                                                     align_items: ir_op::AlignItems::Center,
                                                     children: [
-                                                        Text("Today’s queue").weight(tokens.typography.font_weight_semibold),
+                                                        Text(cx.tr("service_desk.queue.title")).weight(tokens.typography.font_weight_semibold),
                                                         Spacer(flex_grow: 1.0),
-                                                        Text(format!("{} work orders", state.work_orders.len()))
+                                                        Text(format!("{} {}", state.work_orders.len(), cx.tr("service_desk.work_orders")))
                                                             .color(tokens.colors.text_secondary),
                                                     ],
                                                 ),
-                                                Text("Select a job to review its location, checks and handoff notes.")
+                                                Text(cx.tr("service_desk.queue.description"))
                                                     .color(tokens.colors.text_secondary),
                                                 Column(gap: tokens.spacing.s, children: [
-                                                    for order in state.work_orders.iter().cloned() {
+                                                    for order in state.work_orders.iter() {
                                                         WorkOrderQueueCard(
                                                             order.clone(),
-                                                            order.id == state.selected_work_order,
+                                                            Some(order.id) == state.selected_work_order,
                                                             key: order.id,
                                                         )
                                                     }
@@ -640,7 +873,14 @@ fission_component! {
                                         .border_radius(tokens.radii.large)
                                         .flex_grow(1.0)
                                         .width_length(panel_width.clone()),
-                                        Container(WorkOrderDetailPanel(selected_order.clone()))
+                                        Container(if let Some(order) = selected_order {
+                                            WorkOrderDetailPanel(order.clone())
+                                        } else {
+                                            EmptyState(
+                                                title: cx.tr("service_desk.empty.title"),
+                                                description: Some(cx.tr("service_desk.empty.description")),
+                                            )
+                                        })
                                             .flex_grow(1.0)
                                             .width_length(panel_width),
                                     ],
@@ -664,8 +904,11 @@ fission_component! {
 ```rust
 mod app;
 mod components;
+#[path = "../preview/fixtures.rs"]
+mod fixtures;
 mod models;
 mod state;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -674,6 +917,11 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     WebApp::<state::ServiceDeskState, _>::new(app::WorkOrderDesk::new())
+        .with_env(translations::create_env())
+        .with_state_init(|state| {
+            state.work_orders = fixtures::sample_work_orders();
+            state.selected_work_order = state.work_orders.first().map(|order| order.id);
+        })
         .with_title("Harbour Desk · Work orders")
         .mount("#fission-web-mount")
         .run()
@@ -681,6 +929,100 @@ pub fn run() -> Result<(), JsValue> {
 }
 ```
 
+</TabItem>
+<TabItem label="preview/fixtures.rs">
+<!-- fission:file path="preview/fixtures.rs" -->
+```rust
+use crate::models::{InspectionCategory, InspectionStep, ShiftNote, WorkOrder, WorkOrderPriority, WorkOrderStatus};
+
+pub fn sample_work_orders() -> Vec<WorkOrder> {
+    vec![
+        WorkOrder {
+            id: 2483,
+            reference: "WO-2483".into(),
+            title: "Conveyor motor check".into(),
+            description: "Intermittent shutdown reported during the morning pick wave.".into(),
+            location: "North warehouse · Bay 2".into(),
+            requested_by: "Rosa Martinez".into(),
+            due_window: "Today, 10:30–11:00".into(),
+            due_today: true,
+            priority: WorkOrderPriority::High,
+            status: WorkOrderStatus::InProgress,
+            steps: vec![
+                InspectionStep { id: "lockout".into(), title_key: "service_desk.step.lockout".into(), category: InspectionCategory::Safety, complete: true },
+                InspectionStep { id: "belt-alignment".into(), title_key: "service_desk.step.belt_alignment".into(), category: InspectionCategory::Inspection, complete: true },
+                InspectionStep { id: "return-roller".into(), title_key: "service_desk.step.replace_roller".into(), category: InspectionCategory::Repair, complete: false },
+                InspectionStep { id: "safety-test".into(), title_key: "service_desk.step.safety_test".into(), category: InspectionCategory::Verification, complete: false },
+            ],
+            shift_notes: vec![ShiftNote {
+                id: "work-order-2483-note-1".into(),
+                author: Some("Morgan Lee".into()),
+                time: Some("8:42 AM".into()),
+                message: "Lockout is in place. The return roller has visible wear; replacement is in the parts cage.".into(),
+            }],
+        },
+        WorkOrder {
+            id: 2471,
+            reference: "WO-2471".into(),
+            title: "Replace scanner dock".into(),
+            description: "Receiving scanner loses power when it is moved between stations.".into(),
+            location: "North warehouse · Receiving".into(),
+            requested_by: "Devon Price".into(),
+            due_window: "Today, 12:00–12:30".into(),
+            due_today: true,
+            priority: WorkOrderPriority::Normal,
+            status: WorkOrderStatus::WaitingForParts,
+            steps: vec![
+                InspectionStep { id: "dock-serial".into(), title_key: "service_desk.step.dock_serial".into(), category: InspectionCategory::Inspection, complete: true },
+                InspectionStep { id: "power-lead".into(), title_key: "service_desk.step.power_lead".into(), category: InspectionCategory::Repair, complete: false },
+                InspectionStep { id: "station-test".into(), title_key: "service_desk.step.scanner_test".into(), category: InspectionCategory::Verification, complete: false },
+            ],
+            shift_notes: vec![ShiftNote {
+                id: "work-order-2471-note-1".into(),
+                author: Some("Morgan Lee".into()),
+                time: Some("9:06 AM".into()),
+                message: "Replacement lead is due from stores before noon. The scanner is still usable at station 3.".into(),
+            }],
+        },
+        WorkOrder {
+            id: 2468,
+            reference: "WO-2468".into(),
+            title: "Repair dispatch label printer".into(),
+            description: "Labels are skewing after the first roll is loaded.".into(),
+            location: "North warehouse · Dispatch".into(),
+            requested_by: "Samir Patel".into(),
+            due_window: "Today, 11:15–11:45".into(),
+            due_today: true,
+            priority: WorkOrderPriority::Normal,
+            status: WorkOrderStatus::ReadyForPickup,
+            steps: vec![
+                InspectionStep { id: "feed-rollers".into(), title_key: "service_desk.step.clean_rollers".into(), category: InspectionCategory::Repair, complete: true },
+                InspectionStep { id: "label-guides".into(), title_key: "service_desk.step.align_guides".into(), category: InspectionCategory::Repair, complete: true },
+                InspectionStep { id: "test-label".into(), title_key: "service_desk.step.test_label".into(), category: InspectionCategory::Verification, complete: true },
+            ],
+            shift_notes: vec![],
+        },
+        WorkOrder {
+            id: 2459,
+            reference: "WO-2459".into(),
+            title: "Inspect loading-bay door".into(),
+            description: "The lower seal catches as the door closes at the end of a shift.".into(),
+            location: "East warehouse · Bay 4".into(),
+            requested_by: "Elena Brooks".into(),
+            due_window: "Today, 1:30–2:00 PM".into(),
+            due_today: false,
+            priority: WorkOrderPriority::Normal,
+            status: WorkOrderStatus::Open,
+            steps: vec![
+                InspectionStep { id: "floor-track".into(), title_key: "service_desk.step.floor_track".into(), category: InspectionCategory::Inspection, complete: false },
+                InspectionStep { id: "lower-seal".into(), title_key: "service_desk.step.lower_seal".into(), category: InspectionCategory::Inspection, complete: false },
+                InspectionStep { id: "door-cycle".into(), title_key: "service_desk.step.cycle_door".into(), category: InspectionCategory::Verification, complete: false },
+            ],
+            shift_notes: vec![],
+        },
+    ]
+}
+```
 </TabItem>
 
 </Tabs>
@@ -710,13 +1052,13 @@ The reducer receives the current state and action, finds the work order, then ap
 
 <!-- fission:file path="src/state.rs" -->
 ```rust
-use crate::models::{sample_work_orders, InspectionStep, WorkOrderStatus};
+use crate::models::{InspectionStep, WorkOrderStatus};
 use fission::prelude::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ServiceDeskState {
     pub work_orders: Vec<crate::models::WorkOrder>,
-    pub selected_work_order: u32,
+    pub selected_work_order: Option<u32>,
     pub feedback: String,
     pub feedback_is_error: bool,
 }
@@ -724,8 +1066,8 @@ pub struct ServiceDeskState {
 impl Default for ServiceDeskState {
     fn default() -> Self {
         Self {
-            work_orders: sample_work_orders(),
-            selected_work_order: 2483,
+            work_orders: Vec::new(),
+            selected_work_order: None,
             feedback: String::new(),
             feedback_is_error: false,
         }
@@ -734,79 +1076,60 @@ impl Default for ServiceDeskState {
 
 impl GlobalState for ServiceDeskState {}
 
-#[fission_reducer(SelectWorkOrder)]
-pub fn on_select_work_order(state: &mut ServiceDeskState, order_id: u32) {
-    state.selected_work_order = order_id;
-    state.feedback.clear();
-    state.feedback_is_error = false;
-}
-
 #[fission_reducer(ToggleInspectionStep)]
 pub fn on_toggle_inspection_step(
     state: &mut ServiceDeskState,
     order_id: u32,
-    step_index: u32,
+    step_id: String,
 ) {
-    let result = state
+    let updated = state
         .work_orders
         .iter_mut()
         .find(|order| order.id == order_id)
         .and_then(|order| {
-            order.steps.get_mut(step_index as usize).map(|step| {
+            order.steps.iter_mut().find(|step| step.id == step_id.as_str()).map(|step| {
                 step.complete = !step.complete;
-                format!("{}: {}.", order.reference, step.title)
             })
-        });
-    match result {
-        Some(message) => {
-            state.feedback = message;
-            state.feedback_is_error = false;
-        }
-        None => {
-            state.feedback = "That inspection step is no longer available.".to_string();
-            state.feedback_is_error = true;
-        }
-    }
+        })
+        .is_some();
+    state.feedback = if updated {
+        "service_desk.feedback.step_updated".to_string()
+    } else {
+        "service_desk.feedback.step_missing".to_string()
+    };
+    state.feedback_is_error = !updated;
 }
 
 #[fission_reducer(AdvanceWorkOrder)]
 pub fn on_advance_work_order(state: &mut ServiceDeskState, order_id: u32) {
-    let result = if let Some(order) = state.work_orders.iter_mut().find(|order| order.id == order_id) {
-        match order.status {
-            WorkOrderStatus::Open => {
-                order.status = WorkOrderStatus::InProgress;
-                Ok(format!("{} is now in progress.", order.reference))
-            }
-            WorkOrderStatus::WaitingForParts => {
-                order.status = WorkOrderStatus::InProgress;
-                Ok(format!("Parts received for {}. The repair can continue.", order.reference))
-            }
-            WorkOrderStatus::InProgress if order.steps.iter().all(|step| step.complete) => {
-                order.status = WorkOrderStatus::ReadyForPickup;
-                Ok(format!("{} passed inspection and is ready for pickup.", order.reference))
-            }
-            WorkOrderStatus::InProgress => Err(format!(
-                "Complete every inspection step before marking {} ready for pickup.", order.reference,
-            )),
-            WorkOrderStatus::ReadyForPickup => {
-                order.status = WorkOrderStatus::Closed;
-                Ok(format!("Customer pickup recorded for {}.", order.reference))
-            }
-            WorkOrderStatus::Closed => Err(format!("{} is already closed.", order.reference)),
-        }
-    } else {
-        Err("That work order is no longer in the queue.".to_string())
+    let Some(order) = state.work_orders.iter_mut().find(|order| order.id == order_id) else {
+        state.feedback = "service_desk.feedback.order_missing".to_string();
+        state.feedback_is_error = true;
+        return;
     };
-    match result {
-        Ok(message) => {
-            state.feedback = message;
-            state.feedback_is_error = false;
+
+    let (feedback, is_error) = match order.status {
+        WorkOrderStatus::Open => {
+            order.status = WorkOrderStatus::InProgress;
+            ("service_desk.feedback.started", false)
         }
-        Err(message) => {
-            state.feedback = message;
-            state.feedback_is_error = true;
+        WorkOrderStatus::WaitingForParts => {
+            order.status = WorkOrderStatus::InProgress;
+            ("service_desk.feedback.parts_received", false)
         }
-    }
+        WorkOrderStatus::InProgress if order.steps.iter().all(|step| step.complete) => {
+            order.status = WorkOrderStatus::ReadyForPickup;
+            ("service_desk.feedback.ready", false)
+        }
+        WorkOrderStatus::InProgress => ("service_desk.feedback.checklist_incomplete", true),
+        WorkOrderStatus::ReadyForPickup => {
+            order.status = WorkOrderStatus::Closed;
+            ("service_desk.feedback.pickup_recorded", false)
+        }
+        WorkOrderStatus::Closed => ("service_desk.feedback.order_closed", true),
+    };
+    state.feedback = feedback.to_string();
+    state.feedback_is_error = is_error;
 }
 
 pub fn completed_steps(steps: &[InspectionStep]) -> usize {
@@ -843,22 +1166,22 @@ fission_component! {
     pub InspectionStepRow<ServiceDeskState> {
         props {
             order_id: u32,
-            index: u32,
+            step_id: String,
             step: InspectionStep,
         }
     }
     view(row, _state, cx) {
         let toggle = with_reducer!(
             cx.build,
-            ToggleInspectionStep(row.order_id, row.index),
+            ToggleInspectionStep(row.order_id, row.step_id.clone()),
             on_toggle_inspection_step,
         );
     } =>
     Checkbox {
         checked: row.step.complete,
-        label: Some(format!("{} · {}", row.step.title, row.step.category)),
+        label: Some(format!("{} · {}", cx.tr(&row.step.title_key), cx.tr(row.step.category.translation_key()))),
         on_toggle: Some(toggle),
-        semantics_identifier: Some(format!("work-order.{}.inspection.{}", row.order_id, row.index)),
+        semantics_identifier: Some(format!("work-order.{}.inspection.{}", row.order_id, row.step_id)),
         ..Default::default()
     }
 }
@@ -871,7 +1194,7 @@ fission_component! {
 <!-- fission:file path="src/components/work_order_queue_card.rs" -->
 ```rust
 use crate::models::WorkOrder;
-use crate::state::{on_select_work_order, SelectWorkOrder, ServiceDeskState};
+use crate::state::ServiceDeskState;
 use fission::prelude::*;
 
 fission_component! {
@@ -881,36 +1204,41 @@ fission_component! {
             selected: bool,
         }
     }
-    view(card, _state, cx) {
+    view(card, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
         identifier: Some(format!("service-desk.order:{}", card.order.reference)),
-        label: Some(format!("{} · {} · {}", card.order.reference, card.order.title, card.order.status.label())),
+        label: Some(format!("{} · {} · {}", card.order.reference, card.order.title, cx.tr(card.order.status.translation_key()))),
         child: Container(
             Column(gap: tokens.spacing.s, children: [
                 Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, align_items: ir_op::AlignItems::Center, children: [
                     Column(gap: tokens.spacing.xs, children: [
-                        Text(card.order.title).weight(tokens.typography.font_weight_semibold),
+                        Text(card.order.title.clone()).weight(tokens.typography.font_weight_semibold),
                         Text(format!("{} · {}", card.order.reference, card.order.location))
                             .color(tokens.colors.text_secondary),
                     ]),
                     Spacer(flex_grow: 1.0),
-                    Badge(text: card.order.status.label().to_string()),
+                    Badge(text: cx.tr(card.order.status.translation_key())),
                 ]),
                 Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, align_items: ir_op::AlignItems::Center, children: [
-                    Text(format!("Due {}", card.order.due_window))
+                    Text(format!("{} {}", cx.tr("service_desk.due"), card.order.due_window))
                         .color(tokens.colors.text_secondary),
                     Spacer(flex_grow: 1.0),
                     Button(
-                        child: Text(if card.selected { "Selected" } else { "Open details" }),
+                        child: Text(cx.tr(if card.selected {
+                            "service_desk.action.selected"
+                        } else {
+                            "service_desk.action.open_details"
+                        })),
                         key: format!("select-order-{}", card.order.id),
+                        handler: "select-order",
                         variant: if card.selected { ButtonVariant::Primary } else { ButtonVariant::Outline },
-                        on_press: with_reducer!(
-                            cx.build,
-                            SelectWorkOrder(card.order.id),
-                            on_select_work_order,
-                        ),
+                        on_press: reduce {
+                            state.selected_work_order = Some(card.order.id);
+                            state.feedback.clear();
+                            state.feedback_is_error = false;
+                        },
                     )
                     .semantics_identifier(format!("service-desk.select-order.{}", card.order.id)),
                 ]),
@@ -945,11 +1273,11 @@ fission_component! {
         let total_count = panel.order.steps.len();
         let progress = if total_count == 0 { 0.0 } else { complete_count as f32 / total_count as f32 };
         let next_action = match panel.order.status {
-            WorkOrderStatus::Open => "Start work order",
-            WorkOrderStatus::InProgress => "Mark ready for pickup",
-            WorkOrderStatus::WaitingForParts => "Record parts received",
-            WorkOrderStatus::ReadyForPickup => "Record customer pickup",
-            WorkOrderStatus::Closed => "Closed",
+            WorkOrderStatus::Open => cx.tr("service_desk.action.start_work"),
+            WorkOrderStatus::InProgress => cx.tr("service_desk.action.mark_ready"),
+            WorkOrderStatus::WaitingForParts => cx.tr("service_desk.action.record_parts"),
+            WorkOrderStatus::ReadyForPickup => cx.tr("service_desk.action.record_pickup"),
+            WorkOrderStatus::Closed => cx.tr("service_desk.action.closed"),
         };
         let can_advance = panel.order.status != WorkOrderStatus::Closed;
     } =>
@@ -960,9 +1288,9 @@ fission_component! {
                     Text(format!("{} · {}", panel.order.reference, panel.order.title))
                         .weight(tokens.typography.font_weight_bold),
                     Spacer(flex_grow: 1.0),
-                    Badge(text: panel.order.priority.to_string()),
+                    Badge(text: cx.tr(panel.order.priority.translation_key())),
                 ]),
-                Text(panel.order.description).color(tokens.colors.text_secondary),
+                Text(panel.order.description.clone()).color(tokens.colors.text_secondary),
             ]),
             Grid(
                 columns: vec![GridTrack::auto_fit(GridTrack::minmax(
@@ -972,43 +1300,48 @@ fission_component! {
                 column_gap: tokens.spacing.m,
                 row_gap: tokens.spacing.s,
                 children: [
-                    Column(gap: tokens.spacing.xs, children: [Text("LOCATION"), Text(panel.order.location)]),
-                    Column(gap: tokens.spacing.xs, children: [Text("REQUESTED BY"), Text(panel.order.requested_by)]),
-                    Column(gap: tokens.spacing.xs, children: [Text("DUE WINDOW"), Text(panel.order.due_window)]),
+                    Column(gap: tokens.spacing.xs, children: [Text(cx.tr("service_desk.location")), Text(panel.order.location.clone())]),
+                    Column(gap: tokens.spacing.xs, children: [Text(cx.tr("service_desk.requested_by")), Text(panel.order.requested_by.clone())]),
+                    Column(gap: tokens.spacing.xs, children: [Text(cx.tr("service_desk.due_window")), Text(panel.order.due_window.clone())]),
                 ],
             ),
             Divider(),
             Column(gap: tokens.spacing.s, children: [
                 Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, align_items: ir_op::AlignItems::Center, children: [
-                    Text("Safety and repair checklist").weight(tokens.typography.font_weight_semibold),
+                    Text(cx.tr("service_desk.checklist.title")).weight(tokens.typography.font_weight_semibold),
                     Spacer(flex_grow: 1.0),
-                    Text(format!("{} of {} complete", complete_count, total_count))
+                    Text(format!("{} {} {}", complete_count, cx.tr("service_desk.checklist.of"), total_count))
                         .color(tokens.colors.text_secondary),
                 ]),
                 ProgressBar(
                     value: progress,
-                    label: format!("{} of {} inspection steps complete", complete_count, total_count),
+                    label: format!("{} {} {} {}", complete_count, cx.tr("service_desk.checklist.of"), total_count, cx.tr("service_desk.checklist.steps_complete")),
                 ),
                 Column(gap: tokens.spacing.xs, children: [
-                    for (index, step) in panel.order.steps.iter().cloned().enumerate() {
+                    for step in panel.order.steps.iter() {
                         InspectionStepRow(
                             panel.order.id,
-                            index as u32,
-                            step,
-                            key: format!("{}-{}", panel.order.id, index),
+                            step.id.to_string(),
+                            step.clone(),
+                            key: format!("{}-{}", panel.order.id, step.id),
                         )
                     },
                 ]),
             ]),
             Divider(),
             Column(gap: tokens.spacing.s, children: [
-                Text("Shift notes").weight(tokens.typography.font_weight_semibold),
-                for (index, note) in panel.order.shift_notes.iter().enumerate() {
-                    Column(key: format!("{}-note-{}", panel.order.id, index),
+                Text(cx.tr("service_desk.shift_notes.title")).weight(tokens.typography.font_weight_semibold),
+                for note in panel.order.shift_notes.iter() {
+                    Column(key: format!("{}-note-{}", panel.order.id, note.id),
                         gap: tokens.spacing.xs,
                         children: [
-                        Text(format!("{} · {}", note.author, note.time))
-                            .weight(tokens.typography.font_weight_semibold),
+                        if let (Some(author), Some(time)) = (&note.author, &note.time) {
+                            Text(format!("{} · {}", author, time))
+                                .weight(tokens.typography.font_weight_semibold)
+                        } else {
+                            Text(cx.tr("service_desk.shift_notes.draft"))
+                                .weight(tokens.typography.font_weight_semibold)
+                        },
                         Text(note.message.clone()).color(tokens.colors.text_secondary),
                     ])
                 },
@@ -1020,8 +1353,8 @@ fission_component! {
                     } else {
                         "service-desk.feedback".to_string()
                     }),
-                    label: Some(state.feedback.clone()),
-                    child: Text(state.feedback.clone()).color(if state.feedback_is_error {
+                    label: Some(cx.tr(state.feedback.as_str())),
+                    child: Text(cx.tr(state.feedback.as_str())).color(if state.feedback_is_error {
                         tokens.colors.error
                     } else {
                         tokens.colors.text_secondary
@@ -1029,7 +1362,7 @@ fission_component! {
                 )
             },
             if panel.order.status == WorkOrderStatus::InProgress && complete_count != total_count {
-                Text("Finish every inspection step before marking the equipment ready for pickup.")
+                Text(cx.tr("service_desk.workflow.finish_checks"))
                     .color(tokens.colors.text_secondary)
             },
             if can_advance {
@@ -1042,8 +1375,9 @@ fission_component! {
                         on_advance_work_order,
                     ),
                 )
+                .semantics_identifier(format!("service-desk.advance-order.{}", panel.order.id))
             } else if panel.order.status == WorkOrderStatus::Closed {
-                Badge(text: "Work order closed".to_string())
+                Badge(text: cx.tr("service_desk.action.closed_badge"))
             },
         ]),
     )
@@ -1083,15 +1417,16 @@ The browser example keeps notes in app memory, so closing the preview resets the
 
 <!-- fission:file path="src/state.rs" -->
 ```rust
-use crate::models::{sample_work_orders, InspectionStep, WorkOrderStatus};
+use crate::models::{InspectionStep, WorkOrderStatus};
 use fission::prelude::*;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ServiceDeskState {
     pub work_orders: Vec<crate::models::WorkOrder>,
-    pub selected_work_order: u32,
+    pub selected_work_order: Option<u32>,
     pub note_drafts: HashMap<u32, String>,
+    pub next_note_id: u64,
     pub feedback: String,
     pub feedback_is_error: bool,
     pub search_query: String,
@@ -1100,9 +1435,10 @@ pub struct ServiceDeskState {
 impl Default for ServiceDeskState {
     fn default() -> Self {
         Self {
-            work_orders: sample_work_orders(),
-            selected_work_order: 2483,
+            work_orders: Vec::new(),
+            selected_work_order: None,
             note_drafts: HashMap::new(),
+            next_note_id: 1,
             feedback: String::new(),
             feedback_is_error: false,
             search_query: String::new(),
@@ -1112,80 +1448,60 @@ impl Default for ServiceDeskState {
 
 impl GlobalState for ServiceDeskState {}
 
-#[fission_reducer(SelectWorkOrder)]
-pub fn on_select_work_order(state: &mut ServiceDeskState, order_id: u32) {
-    state.selected_work_order = order_id;
-    state.feedback.clear();
-    state.feedback_is_error = false;
-}
-
 #[fission_reducer(ToggleInspectionStep)]
 pub fn on_toggle_inspection_step(
     state: &mut ServiceDeskState,
     order_id: u32,
-    step_index: u32,
+    step_id: String,
 ) {
-    let result = state
+    let updated = state
         .work_orders
         .iter_mut()
         .find(|order| order.id == order_id)
         .and_then(|order| {
-            order.steps.get_mut(step_index as usize).map(|step| {
+            order.steps.iter_mut().find(|step| step.id == step_id.as_str()).map(|step| {
                 step.complete = !step.complete;
-                format!("{}: {}.", order.reference, step.title)
             })
-        });
-    match result {
-        Some(message) => {
-            state.feedback = message;
-            state.feedback_is_error = false;
-        }
-        None => {
-            state.feedback = "That inspection step is no longer available.".to_string();
-            state.feedback_is_error = true;
-        }
-    }
+        })
+        .is_some();
+    state.feedback = if updated {
+        "service_desk.feedback.step_updated".to_string()
+    } else {
+        "service_desk.feedback.step_missing".to_string()
+    };
+    state.feedback_is_error = !updated;
 }
 
 #[fission_reducer(AdvanceWorkOrder)]
 pub fn on_advance_work_order(state: &mut ServiceDeskState, order_id: u32) {
-    let result = if let Some(order) = state.work_orders.iter_mut().find(|order| order.id == order_id) {
-        match order.status {
-            WorkOrderStatus::Open => {
-                order.status = WorkOrderStatus::InProgress;
-                Ok(format!("{} is now in progress.", order.reference))
-            }
-            WorkOrderStatus::WaitingForParts => {
-                order.status = WorkOrderStatus::InProgress;
-                Ok(format!("Parts received for {}. The repair can continue.", order.reference))
-            }
-            WorkOrderStatus::InProgress if order.steps.iter().all(|step| step.complete) => {
-                order.status = WorkOrderStatus::ReadyForPickup;
-                Ok(format!("{} passed inspection and is ready for pickup.", order.reference))
-            }
-            WorkOrderStatus::InProgress => Err(format!(
-                "Complete every inspection step before marking {} ready for pickup.",
-                order.reference,
-            )),
-            WorkOrderStatus::ReadyForPickup => {
-                order.status = WorkOrderStatus::Closed;
-                Ok(format!("Customer pickup recorded for {}.", order.reference))
-            }
-            WorkOrderStatus::Closed => Err(format!("{} is already closed.", order.reference)),
-        }
-    } else {
-        Err("That work order is no longer in the queue.".to_string())
+    let Some(order) = state.work_orders.iter_mut().find(|order| order.id == order_id) else {
+        state.feedback = "service_desk.feedback.order_missing".to_string();
+        state.feedback_is_error = true;
+        return;
     };
-    match result {
-        Ok(message) => {
-            state.feedback = message;
-            state.feedback_is_error = false;
+
+    let (feedback, is_error) = match order.status {
+        WorkOrderStatus::Open => {
+            order.status = WorkOrderStatus::InProgress;
+            ("service_desk.feedback.started", false)
         }
-        Err(message) => {
-            state.feedback = message;
-            state.feedback_is_error = true;
+        WorkOrderStatus::WaitingForParts => {
+            order.status = WorkOrderStatus::InProgress;
+            ("service_desk.feedback.parts_received", false)
         }
-    }
+        WorkOrderStatus::InProgress if order.steps.iter().all(|step| step.complete) => {
+            order.status = WorkOrderStatus::ReadyForPickup;
+            ("service_desk.feedback.ready", false)
+        }
+        WorkOrderStatus::InProgress => ("service_desk.feedback.checklist_incomplete", true),
+        WorkOrderStatus::ReadyForPickup => {
+            order.status = WorkOrderStatus::Closed;
+            ("service_desk.feedback.pickup_recorded", false)
+        }
+        WorkOrderStatus::Closed => ("service_desk.feedback.order_closed", true),
+    };
+    state.feedback = feedback.to_string();
+    state.feedback_is_error = is_error;
 }
 
 #[fission_reducer(UpdateShiftNoteDraft)]
@@ -1207,26 +1523,25 @@ pub fn on_update_shift_note_draft(
 }
 
 #[fission_reducer(AddShiftNote)]
-pub fn on_add_shift_note(state: &mut ServiceDeskState) {
-    let order_id = state.selected_work_order;
+pub fn on_add_shift_note(state: &mut ServiceDeskState, order_id: u32) {
     let message = state.note_drafts.get(&order_id).cloned().unwrap_or_default();
     if message.trim().is_empty() {
-        state.feedback = "Write a shift note before adding it to this work order.".to_string();
+        state.feedback = "service_desk.feedback.note_empty".to_string();
         state.feedback_is_error = true;
         return;
     }
-    let Some(order) = state.work_orders.iter_mut().find(|order| order.id == order_id) else {
-        state.feedback = "That work order is no longer in the queue.".to_string();
+    let Some(order_index) = state.work_orders.iter().position(|order| order.id == order_id) else {
+        state.feedback = "service_desk.feedback.order_missing".to_string();
         state.feedback_is_error = true;
         return;
     };
-    order.shift_notes.push(crate::models::ShiftNote {
-        author: "Morgan Lee",
-        time: "Just now",
-        message: message.trim().to_string(),
-    });
+    let note_id = format!("shift-note-{}", state.next_note_id);
+    state.next_note_id += 1;
+    state.work_orders[order_index]
+        .shift_notes
+        .push(crate::models::ShiftNote::draft(note_id, message.trim().to_string()));
     state.note_drafts.remove(&order_id);
-    state.feedback = format!("Shift note added to {}.", order.reference);
+    state.feedback = "service_desk.feedback.note_added".to_string();
     state.feedback_is_error = false;
 }
 
@@ -1246,7 +1561,7 @@ pub fn on_update_work_order_search(
             .iter()
             .find(|order| order.matches_search(&query))
         {
-            state.selected_work_order = order.id;
+            state.selected_work_order = Some(order.id);
         }
         state.search_query = query;
         state.feedback.clear();
@@ -1269,18 +1584,24 @@ fission_component! {
     pub ShiftNoteRow<ServiceDeskState> { note: ShiftNote }
     view(row, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let attribution = match (&row.note.author, &row.note.time) {
+            (Some(author), Some(time)) => format!("{} at {}", author, time),
+            _ => cx.tr("service_desk.shift_notes.draft"),
+        };
+        let author_initials = row.note.author.as_ref().map(|author| {
+            author.chars().take(2).collect::<String>()
+        });
     } =>
     SemanticsRegion(
-        identifier: Some("service-desk.shift-note".to_string()),
-        label: Some(format!("{} at {}: {}", row.note.author, row.note.time, row.note.message)),
+        identifier: Some(format!("service-desk.shift-note:{}", row.note.id)),
+        label: Some(format!("{}: {}", attribution, row.note.message)),
         child: Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-            Badge(text: row.note.author.chars().take(2).collect::<String>()),
+            if let Some(initials) = author_initials {
+                Badge(text: initials)
+            },
             Column(gap: tokens.spacing.xs, children: [
-                Row(gap: tokens.spacing.xs, wrap: ir_op::FlexWrap::Wrap, align_items: ir_op::AlignItems::Center, children: [
-                    Text(row.note.author).weight(tokens.typography.font_weight_semibold),
-                    Text(row.note.time).color(tokens.colors.text_secondary),
-                ]),
-                Text(row.note.message).color(tokens.colors.text_secondary),
+                Text(attribution).weight(tokens.typography.font_weight_semibold),
+                Text(row.note.message.clone()).color(tokens.colors.text_secondary),
             ]),
         ]),
     )
@@ -1305,11 +1626,11 @@ fission_component! {
         let total_count = panel.order.steps.len();
         let progress = if total_count == 0 { 0.0 } else { complete_count as f32 / total_count as f32 };
         let next_action = match panel.order.status {
-            WorkOrderStatus::Open => "Start work order",
-            WorkOrderStatus::InProgress => "Mark ready for pickup",
-            WorkOrderStatus::WaitingForParts => "Record parts received",
-            WorkOrderStatus::ReadyForPickup => "Record customer pickup",
-            WorkOrderStatus::Closed => "Closed",
+            WorkOrderStatus::Open => cx.tr("service_desk.action.start_work"),
+            WorkOrderStatus::InProgress => cx.tr("service_desk.action.mark_ready"),
+            WorkOrderStatus::WaitingForParts => cx.tr("service_desk.action.record_parts"),
+            WorkOrderStatus::ReadyForPickup => cx.tr("service_desk.action.record_pickup"),
+            WorkOrderStatus::Closed => cx.tr("service_desk.action.closed"),
         };
         let can_advance = panel.order.status != WorkOrderStatus::Closed;
         let note_draft = state.note_drafts.get(&panel.order.id).cloned().unwrap_or_default();
@@ -1326,9 +1647,9 @@ fission_component! {
                     Text(format!("{} · {}", panel.order.reference, panel.order.title))
                         .weight(tokens.typography.font_weight_bold),
                     Spacer(flex_grow: 1.0),
-                    Badge(text: panel.order.priority.to_string()),
+                    Badge(text: cx.tr(panel.order.priority.translation_key())),
                 ]),
-                Text(panel.order.description).color(tokens.colors.text_secondary),
+                Text(panel.order.description.clone()).color(tokens.colors.text_secondary),
             ]),
             Grid(
                 columns: vec![GridTrack::auto_fit(GridTrack::minmax(
@@ -1340,39 +1661,39 @@ fission_component! {
                 row_gap: tokens.spacing.s,
                 children: [
                     Column(gap: tokens.spacing.xs, children: [
-                        Text("LOCATION").color(tokens.colors.text_secondary),
-                        Text(panel.order.location),
+                        Text(cx.tr("service_desk.location")).color(tokens.colors.text_secondary),
+                        Text(panel.order.location.clone()),
                     ]),
                     Column(gap: tokens.spacing.xs, children: [
-                        Text("REQUESTED BY").color(tokens.colors.text_secondary),
-                        Text(panel.order.requested_by),
+                        Text(cx.tr("service_desk.requested_by")).color(tokens.colors.text_secondary),
+                        Text(panel.order.requested_by.clone()),
                     ]),
                     Column(gap: tokens.spacing.xs, children: [
-                        Text("DUE WINDOW").color(tokens.colors.text_secondary),
-                        Text(panel.order.due_window),
+                        Text(cx.tr("service_desk.due_window")).color(tokens.colors.text_secondary),
+                        Text(panel.order.due_window.clone()),
                     ]),
                 ],
             ),
             Divider(),
             Column(gap: tokens.spacing.s, children: [
                 Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, align_items: ir_op::AlignItems::Center, children: [
-                    Text("Safety and repair checklist")
+                    Text(cx.tr("service_desk.checklist.title"))
                         .weight(tokens.typography.font_weight_semibold),
                     Spacer(flex_grow: 1.0),
-                    Text(format!("{} of {} complete", complete_count, total_count))
+                    Text(format!("{} {} {}", complete_count, cx.tr("service_desk.checklist.of"), total_count))
                         .color(tokens.colors.text_secondary),
                 ]),
                 ProgressBar(
                     value: progress,
-                    label: format!("{} of {} inspection steps complete", complete_count, total_count),
+                    label: format!("{} {} {} {}", complete_count, cx.tr("service_desk.checklist.of"), total_count, cx.tr("service_desk.checklist.steps_complete")),
                 ),
                 Column(gap: tokens.spacing.xs, children: [
-                    for (index, step) in panel.order.steps.iter().cloned().enumerate() {
+                    for step in panel.order.steps.iter() {
                         InspectionStepRow(
                             panel.order.id,
-                            index as u32,
-                            step,
-                            key: format!("{}-{}", panel.order.id, index),
+                            step.id.to_string(),
+                            step.clone(),
+                            key: format!("{}-{}", panel.order.id, step.id),
                         )
                     },
                 ]),
@@ -1380,23 +1701,23 @@ fission_component! {
             Divider(),
             Column(gap: tokens.spacing.s, children: [
                 Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, align_items: ir_op::AlignItems::Center, children: [
-                    Text("Shift notes").weight(tokens.typography.font_weight_semibold),
+                Text(cx.tr("service_desk.shift_notes.title")).weight(tokens.typography.font_weight_semibold),
                     Spacer(flex_grow: 1.0),
-                    Text("Visible to the service team").color(tokens.colors.text_secondary),
+                    Text(cx.tr("service_desk.shift_notes.visibility")).color(tokens.colors.text_secondary),
                 ]),
                 Column(gap: tokens.spacing.s, children: [
-                    for (index, note) in panel.order.shift_notes.iter().cloned().enumerate() {
-                        ShiftNoteRow(note, key: format!("{}-note-{index}", panel.order.id))
+                    for note in panel.order.shift_notes.iter() {
+                        ShiftNoteRow(note.clone(), key: note.id.clone())
                     },
                     if panel.order.shift_notes.is_empty() {
-                        Text("No shift notes yet. Add the detail the next technician will need.")
+                        Text(cx.tr("service_desk.shift_notes.empty"))
                             .color(tokens.colors.text_secondary)
                     },
                 ]),
                 TextInput(
                     value: note_draft,
-                    label: Some("Add a shift note".into()),
-                    placeholder: Some("What should the next technician know?".into()),
+                    label: Some(cx.tr("service_desk.shift_notes.label").into()),
+                    placeholder: Some(cx.tr("service_desk.shift_notes.placeholder").into()),
                     multiline: true,
                     min_lines: Some(3),
                     max_lines: Some(5),
@@ -1405,11 +1726,12 @@ fission_component! {
                     semantics_identifier: format!("work-order.{}.note-draft", panel.order.id),
                 ),
                 Button(
-                    child: Text("Add note to work order"),
+                    child: Text(cx.tr("service_desk.shift_notes.add")),
                     key: format!("add-shift-note-{}", panel.order.id),
                     variant: ButtonVariant::Outline,
-                    on_press: with_reducer!(cx.build, AddShiftNote, on_add_shift_note),
-                ),
+                    on_press: with_reducer!(cx.build, AddShiftNote(panel.order.id), on_add_shift_note),
+                )
+                .semantics_identifier(format!("service-desk.add-shift-note.{}", panel.order.id)),
             ]),
             if !state.feedback.is_empty() {
                 SemanticsRegion(
@@ -1418,8 +1740,8 @@ fission_component! {
                     } else {
                         "service-desk.feedback".to_string()
                     }),
-                    label: Some(state.feedback.clone()),
-                    child: Text(state.feedback.clone()).color(if state.feedback_is_error {
+                    label: Some(cx.tr(state.feedback.as_str())),
+                    child: Text(cx.tr(state.feedback.as_str())).color(if state.feedback_is_error {
                         tokens.colors.error
                     } else {
                         tokens.colors.text_secondary
@@ -1427,7 +1749,7 @@ fission_component! {
                 )
             },
             if panel.order.status == WorkOrderStatus::InProgress && complete_count != total_count {
-                Text("Finish every inspection step before marking the equipment ready for pickup.")
+                Text(cx.tr("service_desk.workflow.finish_checks"))
                     .color(tokens.colors.text_secondary)
             },
             if can_advance {
@@ -1440,8 +1762,9 @@ fission_component! {
                         on_advance_work_order,
                     ),
                 )
+                .semantics_identifier(format!("service-desk.advance-order.{}", panel.order.id))
             } else if panel.order.status == WorkOrderStatus::Closed {
-                Badge(text: "Work order closed".to_string())
+                Badge(text: cx.tr("service_desk.action.closed_badge"))
             },
         ]),
     )
@@ -1461,7 +1784,9 @@ fission_component! {
 
 <!-- fission:file path="src/models.rs" -->
 ```rust
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WorkOrderStatus {
     Open,
     InProgress,
@@ -1471,42 +1796,107 @@ pub enum WorkOrderStatus {
 }
 
 impl WorkOrderStatus {
-    pub fn label(self) -> &'static str {
+    pub fn translation_key(self) -> &'static str {
         match self {
-            Self::Open => "Open",
-            Self::InProgress => "In progress",
-            Self::WaitingForParts => "Waiting for parts",
-            Self::ReadyForPickup => "Ready for pickup",
-            Self::Closed => "Closed",
+            Self::Open => "service_desk.status.open",
+            Self::InProgress => "service_desk.status.in_progress",
+            Self::WaitingForParts => "service_desk.status.waiting_for_parts",
+            Self::ReadyForPickup => "service_desk.status.ready_for_pickup",
+            Self::Closed => "service_desk.status.closed",
+        }
+    }
+
+    pub fn search_term(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::InProgress => "in progress",
+            Self::WaitingForParts => "waiting for parts",
+            Self::ReadyForPickup => "ready for pickup",
+            Self::Closed => "closed",
+        }
+    }
+
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InspectionCategory {
+    Safety,
+    Inspection,
+    Repair,
+    Verification,
+}
+
+impl InspectionCategory {
+    pub fn translation_key(self) -> &'static str {
+        match self {
+            Self::Safety => "service_desk.category.safety",
+            Self::Inspection => "service_desk.category.inspection",
+            Self::Repair => "service_desk.category.repair",
+            Self::Verification => "service_desk.category.verification",
         }
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkOrderPriority {
+    High,
+    Normal,
+}
+
+impl WorkOrderPriority {
+    pub fn translation_key(self) -> &'static str {
+        match self {
+            Self::High => "service_desk.priority.high",
+            Self::Normal => "service_desk.priority.normal",
+        }
+    }
+
+    fn search_term(self) -> &'static str {
+        match self {
+            Self::High => "high",
+            Self::Normal => "normal",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct InspectionStep {
-    pub title: &'static str,
-    pub category: &'static str,
+    pub id: String,
+    pub title_key: String,
+    pub category: InspectionCategory,
     pub complete: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ShiftNote {
-    pub author: &'static str,
-    pub time: &'static str,
+    pub id: String,
+    pub author: Option<String>,
+    pub time: Option<String>,
     pub message: String,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+impl ShiftNote {
+    pub(crate) fn draft(id: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            author: None,
+            time: None,
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WorkOrder {
     pub id: u32,
-    pub reference: &'static str,
-    pub title: &'static str,
-    pub description: &'static str,
-    pub location: &'static str,
-    pub requested_by: &'static str,
-    pub due_window: &'static str,
+    pub reference: String,
+    pub title: String,
+    pub description: String,
+    pub location: String,
+    pub requested_by: String,
+    pub due_window: String,
     pub due_today: bool,
-    pub priority: &'static str,
+    pub priority: WorkOrderPriority,
     pub status: WorkOrderStatus,
     pub steps: Vec<InspectionStep>,
     pub shift_notes: Vec<ShiftNote>,
@@ -1519,108 +1909,19 @@ impl WorkOrder {
             return true;
         }
         [
-            self.reference,
-            self.title,
-            self.description,
-            self.location,
-            self.requested_by,
-            self.priority,
-            self.status.label(),
+            self.reference.as_str(),
+            self.title.as_str(),
+            self.description.as_str(),
+            self.location.as_str(),
+            self.requested_by.as_str(),
+            self.priority.search_term(),
+            self.status.search_term(),
         ]
         .iter()
         .any(|field| field.to_lowercase().contains(&query))
     }
 }
 
-pub fn sample_work_orders() -> Vec<WorkOrder> {
-    vec![
-        WorkOrder {
-            id: 2483,
-            reference: "WO-2483",
-            title: "Conveyor motor check",
-            description: "Intermittent shutdown reported during the morning pick wave.",
-            location: "North warehouse · Bay 2",
-            requested_by: "Rosa Martinez",
-            due_window: "Today, 10:30–11:00",
-            due_today: true,
-            priority: "High priority",
-            status: WorkOrderStatus::InProgress,
-            steps: vec![
-                InspectionStep { title: "Isolate power and verify lockout", category: "Safety", complete: true },
-                InspectionStep { title: "Inspect belt and drive alignment", category: "Inspection", complete: true },
-                InspectionStep { title: "Replace worn return roller", category: "Repair", complete: false },
-                InspectionStep { title: "Run a five-minute safety test", category: "Verification", complete: false },
-            ],
-            shift_notes: vec![ShiftNote {
-                author: "Morgan Lee",
-                time: "8:42 AM",
-                message: "Lockout is in place. The return roller has visible wear; replacement is in the parts cage.".to_string(),
-            }],
-        },
-        WorkOrder {
-            id: 2471,
-            reference: "WO-2471",
-            title: "Replace scanner dock",
-            description: "Receiving scanner loses power when it is moved between stations.",
-            location: "North warehouse · Receiving",
-            requested_by: "Devon Price",
-            due_window: "Today, 12:00–12:30",
-            due_today: true,
-            priority: "Normal priority",
-            status: WorkOrderStatus::WaitingForParts,
-            steps: vec![
-                InspectionStep { title: "Confirm the dock serial number", category: "Inspection", complete: true },
-                InspectionStep { title: "Fit replacement power lead", category: "Repair", complete: false },
-                InspectionStep { title: "Test the scanner at both stations", category: "Verification", complete: false },
-            ],
-            shift_notes: vec![ShiftNote {
-                author: "Morgan Lee",
-                time: "9:06 AM",
-                message: "Replacement lead is due from stores before noon. The scanner is still usable at station 3.".to_string(),
-            }],
-        },
-        WorkOrder {
-            id: 2468,
-            reference: "WO-2468",
-            title: "Repair dispatch label printer",
-            description: "Labels are skewing after the first roll is loaded.",
-            location: "North warehouse · Dispatch",
-            requested_by: "Samir Patel",
-            due_window: "Today, 11:15–11:45",
-            due_today: true,
-            priority: "Normal priority",
-            status: WorkOrderStatus::ReadyForPickup,
-            steps: vec![
-                InspectionStep { title: "Clean the feed rollers", category: "Repair", complete: true },
-                InspectionStep { title: "Align the label guides", category: "Repair", complete: true },
-                InspectionStep { title: "Print and inspect a test label", category: "Verification", complete: true },
-            ],
-            shift_notes: vec![ShiftNote {
-                author: "Avery Chen",
-                time: "9:18 AM",
-                message: "Test label is straight and the printer is back at the dispatch desk.".to_string(),
-            }],
-        },
-        WorkOrder {
-            id: 2459,
-            reference: "WO-2459",
-            title: "Inspect loading-bay door",
-            description: "The lower seal catches as the door closes at the end of a shift.",
-            location: "East warehouse · Bay 4",
-            requested_by: "Elena Brooks",
-            due_window: "Today, 1:30–2:00 PM",
-            due_today: false,
-            priority: "Normal priority",
-            status: WorkOrderStatus::Open,
-            steps: vec![
-                InspectionStep { title: "Check the floor track for debris", category: "Inspection", complete: false },
-                InspectionStep { title: "Inspect the lower seal", category: "Inspection", complete: false },
-                InspectionStep { title: "Cycle the door and record the result", category: "Verification", complete: false },
-            ],
-            shift_notes: Vec::new(),
-        },
-    ]
-}
 ```
 
 <!-- fission:file path="src/components/mod.rs" -->
@@ -1654,11 +1955,11 @@ fission_component! {
             on_input: ActionEnvelope,
         }
     }
-    view(search, _state, _cx) {} =>
+    view(search, _state, cx) {} =>
     TextInput(
         value: search.query,
-        label: Some("Search work orders".into()),
-        placeholder: Some("Reference, equipment, location or requester".into()),
+        label: Some(cx.tr("service_desk.search.label").into()),
+        placeholder: Some(cx.tr("service_desk.search.placeholder").into()),
         on_input: search.on_input,
         semantics_identifier: "service-desk.search-work-orders".to_string(),
     )
@@ -1702,20 +2003,20 @@ fission_component! {
             .count();
         let selected_order = state.work_orders
             .iter()
-            .find(|order| order.id == state.selected_work_order)
-            .unwrap_or(&state.work_orders[0]);
+            .find(|order| Some(order.id) == state.selected_work_order)
+            .or_else(|| state.work_orders.first());
         let search_input = with_reducer!(cx.build, UpdateWorkOrderSearch, on_update_work_order_search);
         let visible_order_count = state.work_orders.iter().filter(|order| order.matches_search(&state.search_query)).count();
         let queue_count_label = if state.search_query.trim().is_empty() {
-            format!("{} work orders", state.work_orders.len())
+            format!("{} {}", state.work_orders.len(), cx.tr("service_desk.work_orders"))
         } else {
-            format!("{} matches", visible_order_count)
+            format!("{} {}", visible_order_count, cx.tr("service_desk.queue.matches"))
         };
     } =>
     Container(
         SemanticsRegion(
         identifier: Some("harbour-service-desk".to_string()),
-        label: Some("Harbour Supply service work orders".to_string()),
+        label: Some(cx.tr("service_desk.app.semantic_label")),
         child: Row(
             align_items: ir_op::AlignItems::Stretch,
             children: [
@@ -1724,7 +2025,7 @@ fission_component! {
                     id: Some(WidgetId::explicit("harbour-service-desk.scroll")),
                     flex_grow: 1.0,
                     height: viewport.height,
-                    semantic_label: Some("Harbour Supply service desk workspace".to_string()),
+                    semantic_label: Some(cx.tr("service_desk.workspace.semantic_label")),
                     child: Column(gap: 0.0, children: [
                         Container(
                             Row(
@@ -1732,7 +2033,7 @@ fission_component! {
                                 wrap: ir_op::FlexWrap::Wrap,
                                 align_items: ir_op::AlignItems::Center,
                                 children: [
-                                    Text("Operations / Work orders")
+                                    Text(format!("{} / {}", cx.tr("service_desk.navigation.operations"), cx.tr("service_desk.title")))
                                         .color(tokens.colors.text_secondary),
                                     Spacer(flex_grow: 1.0),
                                     Container(WorkOrderSearch(state.search_query.clone(), search_input))
@@ -1750,13 +2051,37 @@ fission_component! {
                                     align_items: ir_op::AlignItems::Center,
                                     children: [
                                         Column(gap: tokens.spacing.xs, children: [
-                                            Text("Work orders").weight(tokens.typography.font_weight_bold),
-                                            Text("Keep today’s repairs moving from diagnosis to customer pickup.")
+                                            Text(cx.tr("service_desk.title")).weight(tokens.typography.font_weight_bold),
+                                            Text(cx.tr("service_desk.intro"))
                                                 .color(tokens.colors.text_secondary),
                                         ]),
                                         Spacer(flex_grow: 1.0),
-                                        Text(format!("{} active", active_count))
+                                        Text(format!("{}: {}", cx.tr("service_desk.metric.active"), active_count))
                                             .color(tokens.colors.text_secondary),
+                                    ],
+                                ),
+                                SimpleGrid(
+                                    min_child_width: 180.0,
+                                    gap: Some(tokens.spacing.m),
+                                    children: [
+                                        MetricCard(
+                                            "due-today".to_string(),
+                                            cx.tr("service_desk.metric.due_today"),
+                                            due_count.to_string(),
+                                            cx.tr("service_desk.metric.due_today.detail"),
+                                        ),
+                                        MetricCard(
+                                            "waiting-for-parts".to_string(),
+                                            cx.tr("service_desk.metric.waiting_for_parts"),
+                                            waiting_count.to_string(),
+                                            cx.tr("service_desk.metric.waiting_for_parts.detail"),
+                                        ),
+                                        MetricCard(
+                                            "ready-for-pickup".to_string(),
+                                            cx.tr("service_desk.metric.ready_for_pickup"),
+                                            ready_count.to_string(),
+                                            cx.tr("service_desk.metric.ready_for_pickup.detail"),
+                                        ),
                                     ],
                                 ),
                                 Row(
@@ -1771,26 +2096,34 @@ fission_component! {
                                                     wrap: ir_op::FlexWrap::Wrap,
                                                     align_items: ir_op::AlignItems::Center,
                                                     children: [
-                                                        Text("Today’s queue").weight(tokens.typography.font_weight_semibold),
+                                                        Text(cx.tr("service_desk.queue.title")).weight(tokens.typography.font_weight_semibold),
                                                         Spacer(flex_grow: 1.0),
                                                         Text(queue_count_label.clone())
                                                             .color(tokens.colors.text_secondary),
                                                     ],
                                                 ),
-                                                Text("Select a job to review its location, checks and handoff notes.")
+                                                Text(cx.tr("service_desk.queue.description"))
                                                     .color(tokens.colors.text_secondary),
                                                 Column(gap: tokens.spacing.s, children: [
-                                                    for order in state.work_orders.iter().filter(|order| order.matches_search(&state.search_query)).cloned() {
-                                                        WorkOrderQueueCard(
-                                                            order.clone(),
-                                                            order.id == state.selected_work_order,
-                                                            key: order.id,
-                                                        )
+                                                    if state.work_orders.is_empty() {
+                                                        Widget::from(EmptyState {
+                                                            title: cx.tr("service_desk.empty.title"),
+                                                            description: Some(cx.tr("service_desk.empty.description")),
+                                                            ..Default::default()
+                                                        })
+                                                    } else {
+                                                        for order in state.work_orders.iter().filter(|order| order.matches_search(&state.search_query)).cloned() {
+                                                            WorkOrderQueueCard(
+                                                                order.clone(),
+                                                                Some(order.id) == state.selected_work_order,
+                                                                key: order.id,
+                                                            )
+                                                        }
                                                     },
-                                                    if visible_order_count == 0 {
+                                                    if !state.work_orders.is_empty() && visible_order_count == 0 {
                                                         Container(Column(gap: tokens.spacing.s, children: [
-                                                            Text("No matching work orders").weight(tokens.typography.font_weight_semibold),
-                                                            Text(format!("No work order matches ‘{}’. Try a reference, equipment name, location or requester.", state.search_query.trim()))
+                                                            Text(cx.tr("service_desk.search.queue_empty")).weight(tokens.typography.font_weight_semibold),
+                                                            Text(cx.tr("service_desk.search.queue_empty_detail"))
                                                                 .color(tokens.colors.text_secondary),
                                                         ]))
                                                         .padding_all(tokens.spacing.m)
@@ -1804,12 +2137,26 @@ fission_component! {
                                         .border_radius(tokens.radii.large)
                                         .flex_grow(1.0)
                                         .width_length(panel_width.clone()),
-                                        Container(if visible_order_count > 0 {
-                                            WorkOrderDetailPanel(selected_order.clone())
+                                        Container(if state.work_orders.is_empty() {
+                                            Widget::from(EmptyState {
+                                                title: cx.tr("service_desk.empty.title"),
+                                                description: Some(cx.tr("service_desk.empty.description")),
+                                                ..Default::default()
+                                            })
+                                        } else if visible_order_count > 0 {
+                                            if let Some(order) = selected_order {
+                                                WorkOrderDetailPanel(order.clone())
+                                            } else {
+                                                Widget::from(EmptyState {
+                                                    title: cx.tr("service_desk.search.detail_empty"),
+                                                    description: Some(cx.tr("service_desk.search.detail_empty_detail")),
+                                                    ..Default::default()
+                                                })
+                                            }
                                         } else {
                                             Container(Column(gap: tokens.spacing.s, children: [
-                                                Text("No work order selected").weight(tokens.typography.font_weight_semibold),
-                                                Text("Clear the search to return to the current work order.")
+                                                Text(cx.tr("service_desk.search.detail_empty")).weight(tokens.typography.font_weight_semibold),
+                                                Text(cx.tr("service_desk.search.detail_empty_detail"))
                                                     .color(tokens.colors.text_secondary),
                                             ]))
                                             .padding_all(tokens.spacing.l)
@@ -1861,13 +2208,16 @@ pub mod app;
 pub mod components;
 pub mod models;
 pub mod state;
+pub mod translations;
 
 use app::WorkOrderDesk;
 use fission::prelude::*;
 use state::ServiceDeskState;
 
 pub fn run_desktop() -> anyhow::Result<()> {
-    DesktopApp::<ServiceDeskState, _>::new(WorkOrderDesk::new()).run()
+    DesktopApp::<ServiceDeskState, _>::new(WorkOrderDesk::new())
+        .with_env(translations::create_env())
+        .run()
 }
 ```
 
@@ -1896,6 +2246,6 @@ Search for the scanner dock and record the parts update. Then return to the conv
 ## Where to go next
 
 - [Desktop target reference](/reference/platform/targets/) explains how shared app code runs inside the desktop host.
-- [Platform capabilities](/docs/guides/platform-capabilities/) explains how to request host work without starting it during component conversion.
+- [Platform capabilities](/reference/core/platform-capabilities/) explains how to request host work without starting it during component conversion.
 - [Filesystem capability](/reference/capabilities/file-system/) covers native file access and target-specific behaviour for local documents.
-- [Testing and diagnostics](/docs/guides/testing-and-diagnostics/) shows how to check real user flows on a target.
+- [Testing and diagnostics](/reference/core/testing-and-diagnostics/) shows how to check real user flows on a target.

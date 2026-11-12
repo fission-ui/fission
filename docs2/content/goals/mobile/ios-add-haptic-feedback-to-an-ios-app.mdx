@@ -46,9 +46,9 @@ ios-add-haptic-feedback-to-an-ios-app/
 Keep app behaviour in shared Rust. Add a feature module only when it creates a useful boundary, and keep iOS APIs behind the generated host.
 
 <!-- fission:step id="start-screen" -->
-## See where the browser stops
+## Confirm a completed inspection
 
-The browser preview cannot trigger haptics on an iPhone. It shows the screen only; the next step connects the button to Fission’s native haptics provider.
+Start with the technician finishing a compressor inspection. The screen records that inspection as complete; the next step adds a haptic response to the same action. The browser preview updates app state but cannot vibrate a device.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -57,34 +57,55 @@ The browser preview cannot trigger haptics on an iPhone. It shows the screen onl
 use fission::prelude::*;
 
 fission_component! {
-    pub IosHapticFeedback<()> {
-        props { title: String, step: String, goal: String, }
+    pub WorkOrderScreen<()> {
+        state {
+            inspection_complete: bool = false,
+        }
     }
-    view(preview, _state, cx) {
+    view(screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let step_status = if screen.inspection_complete {
+            cx.tr("work.complete")
+        } else {
+            cx.tr("work.pending")
+        };
+        let button_label = if screen.inspection_complete {
+            cx.tr("work.recorded")
+        } else {
+            cx.tr("work.mark")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("work-order-screen".to_string()),
+        label: Some(cx.tr("work.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
+                Text(cx.tr("work.site"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+                Text(cx.tr("work.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("work.asset"))
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
                 Container(
                     Column(gap: tokens.spacing.s, children: [
-                        Text("The browser and device boundary".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("This website cannot call the iOS host provider or reach device hardware. The preview shows the app context without pretending that the capability has run.".to_string()),
-                        Text("In the native app, the visible action starts the request. The platform host then returns the outcome that the app should explain to the user.".to_string()),
+                        Text(cx.tr("work.context")),
+                        Text(step_status),
                     ])
                 )
                 .padding_all(tokens.spacing.m)
                 .bg(tokens.colors.background)
                 .border(tokens.colors.border, 1.0)
                 .border_radius(tokens.radii.medium),
+                Button(
+                    child: Text(button_label),
+                    key: "complete-compressor-inspection",
+                    variant: ButtonVariant::Primary,
+                    disabled: screen.inspection_complete,
+                    on_press: reduce {
+                        screen.inspection_complete = true;
+                    },
+                )
+                .semantics_identifier("work-order.complete-inspection"),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -100,22 +121,59 @@ fission_component! {
 ```rust
 mod app;
 
+use std::collections::HashMap;
+
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("en-US"),
+        messages: HashMap::from([
+            ("work.site".into(), "Northbank Maintenance · shift B".into()),
+            ("work.title".into(), "Compressor inspection".into()),
+            ("work.asset".into(), "CMP-7A-2219 · bearing temperature normal".into()),
+            ("work.pending".into(), "Inspection awaiting confirmation".into()),
+            ("work.complete".into(), "Inspection completed".into()),
+            ("work.mark".into(), "Confirm inspection".into()),
+            ("work.recorded".into(), "Inspection confirmed".into()),
+            ("work.waiting".into(), "Waiting for the Fission host…".into()),
+            ("work.error".into(), "The host could not complete this action".into()),
+            ("work.result".into(), "Host result".into()),
+            ("work.ready".into(), "Ready. This preview uses a deterministic in-memory provider.".into()),
+            ("work.context".into(), "The technician can confirm this inspection after checking the bearing temperature.".into()),
+            ("work.action".into(), "Complete compressor inspection".into())
+        ]),
+    });
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("es-ES"),
+        messages: HashMap::from([
+            ("work.site".into(), "Mantenimiento Northbank · turno B".into()),
+            ("work.title".into(), "Inspección del compresor".into()),
+            ("work.asset".into(), "CMP-7A-2219 · temperatura del cojinete normal".into()),
+            ("work.pending".into(), "Inspección pendiente de confirmación".into()),
+            ("work.complete".into(), "Inspección completada".into()),
+            ("work.mark".into(), "Confirmar inspección".into()),
+            ("work.recorded".into(), "Inspección confirmada".into()),
+            ("work.waiting".into(), "Esperando al host de Fission…".into()),
+            ("work.error".into(), "El host no pudo completar esta acción".into()),
+            ("work.result".into(), "Resultado del host".into()),
+            ("work.ready".into(), "Listo. Esta vista previa usa un proveedor en memoria.".into()),
+            ("work.context".into(), "El técnico puede confirmar esta inspección después de comprobar la temperatura del cojinete.".into()),
+            ("work.action".into(), "Completar la inspección del compresor".into())
+        ]),
+    });
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosHapticFeedback::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::WorkOrderScreen)
+        .with_env(preview_env())
+        .with_title("Work-order preview")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -126,74 +184,16 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-The preview does not trigger haptic feedback. Continue to the provider request below.
+This stage is an app screen with a real state transition, not a device mock. The next stage connects a separate user action to the typed Haptic capability and shows its success or error result.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Connect the Haptics provider to the user action
+## Run the Haptic operation through Fission
 
-Keep haptic work out of component conversion. The screen dispatches an action, a reducer queues the request, and separate reducers store the host result or error.
+Keep host work out of component conversion. The button dispatches a typed action, its reducer queues the capability request, and separate completion reducers update the screen. The Web preview installs `MemoryHapticHost` and sends the same operation through Fission’s typed capability path. Its deterministic response is not a claim about device hardware, OS permission or native platform support.
 
-Keep the feature result and status in app state. Keep temporary UI choices, such as open flags or selected tabs, local to their component:
-
-```rust
-#[derive(Debug, Default)]
-struct HapticsState {
-    // Add these fields to your existing app state.
-    haptic_error: Option<String>,
-}
-
-impl GlobalState for HapticsState {}
-```
-
-Handle success and failure separately so the screen reflects the provider result instead of assuming the haptic ran:
-
-```rust
-#[fission_reducer(HapticFailed)]
-fn on_haptic_failed(state: &mut HapticsState, error: HapticError) {
-    state.haptic_error = Some(error.message);
-}
-```
-
-When the user presses the button, the reducer queues the request. The host responds asynchronously, and Fission dispatches the matching success or error action:
-
-```rust
-ctx.effects
-    .haptics()
-    .notification(HapticNotificationRequest {
-        kind: HapticNotificationKind::Success,
-    })
-    .on_err(ctx.effects.bind(
-        HapticFailed(HapticError::default()),
-        reduce_with!(on_haptic_failed),
-    ));
-```
-
-Keep the action and visible label together in the button so touch, keyboard and assistive-technology users get the same control:
-
-```rust
-fission_component!
-{
-    pub PlayHapticFeedbackButton<HapticsState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<HapticsState>();
-                let run = with_reducer!(ctx, PlaySuccessHaptic, on_play_success_haptic);
-
-                Button::new("Play feedback")
-                    .disabled(false)
-                    .on_press(run)
-                    .into()
-    }
-}
-```
-
-The [Haptics guide](/docs/capabilities/haptics/) covers configuration and target behaviour. Use the memory provider to test success and error handling, then check the feedback on a supported iPhone. The web preview does not trigger a haptic.
-
-Keep iOS-only API calls in the host or typed provider. The shared component requests haptics through Fission.
-
-
+The Web preview uses MemoryHapticHost and displays the completed request. It cannot produce a physical vibration.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -201,35 +201,114 @@ Keep iOS-only API calls in the host or typed provider. The shared component requ
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub IosHapticFeedbackResult<()> {
-        props { title: String, step: String, goal: String, }
+#[derive(Debug, Default)]
+pub struct WorkOrderState {
+    pub pending: bool,
+    pub result: Option<String>,
+    pub error: Option<String>,
+}
+
+impl GlobalState for WorkOrderState {}
+
+#[fission_reducer(RunCapability)]
+pub fn run_capability(state: &mut WorkOrderState, ctx: &mut ReducerContext<WorkOrderState>) {
+    state.pending = true;
+    state.result = None;
+    state.error = None;
+
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
+
+    ctx.effects
+        .haptics().notification(HapticNotificationRequest {
+            kind: HapticNotificationKind::Success,
+        })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(CapabilitySucceeded)]
+pub fn capability_succeeded(
+    state: &mut WorkOrderState,
+    ctx: &mut ReducerContext<WorkOrderState>,
+) {
+    state.pending = false;
+    state.error = None;
+    state.result = ctx
+        .input
+        .capability_ok(HAPTIC_NOTIFICATION)
+        .map(|value| "Success feedback request completed.".to_string());
+    if state.result.is_none() {
+        state.error = Some("The host completed without the expected typed result.".into());
     }
-    view(preview, _state, cx) {
+}
+
+#[fission_reducer(CapabilityFailed)]
+pub fn capability_failed(
+    state: &mut WorkOrderState,
+    ctx: &mut ReducerContext<WorkOrderState>,
+) {
+    state.pending = false;
+    state.result = None;
+    state.error = Some(ctx
+        .input
+        .capability_error(HAPTIC_NOTIFICATION)
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .or_else(|| {
+            ctx.input
+                .capability_error_message(HAPTIC_NOTIFICATION)
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "The host returned an error without details.".into()));
+}
+
+pub fn callback_registry() -> ActionRegistry<WorkOrderState> {
+    let mut registry = ActionRegistry::new();
+    registry.register(reduce_with!(capability_succeeded));
+    registry.register(reduce_with!(capability_failed));
+    registry
+}
+
+fission_component! {
+    pub WorkOrderScreen<WorkOrderState> {}
+    view(_screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let action = with_reducer!(cx.build, RunCapability, run_capability);
+        let status = if state.pending {
+            cx.tr("work.waiting")
+        } else if let Some(error) = &state.error {
+            format!("{}: {error}", cx.tr("work.error"))
+        } else if let Some(result) = &state.result {
+            format!("{}: {result}", cx.tr("work.result"))
+        } else {
+            cx.tr("work.ready")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("work-order-haptic".to_string()),
+        label: Some(cx.tr("work.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
+                Text(cx.tr("work.site"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+                Text(cx.tr("work.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("work.asset"))
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text("Where the request result comes from".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("In the target app, Fission’s native host completes the request and reports its real outcome to shared Rust state. The browser cannot manufacture that outcome, so this preview stays read-only.".to_string()),
-                        Text("Handle success and errors as separate state transitions. Keep the surrounding screen usable if the user declines, cancels, or the device does not support the capability.".to_string()),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
+                Text(cx.tr("work.context")),
+                Button(
+                    child: Text(cx.tr("work.action")),
+                    key: "run-capability",
+                    variant: ButtonVariant::Primary,
+                    disabled: state.pending,
+                    loading: state.pending,
+                    on_press: action,
+                ),
+                Container(Text(status))
+                    .padding_all(tokens.spacing.m)
+                    .bg(tokens.colors.background)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -245,23 +324,62 @@ fission_component! {
 ```rust
 mod app;
 
+use std::collections::HashMap;
+
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("en-US"),
+        messages: HashMap::from([
+            ("work.site".into(), "Northbank Food Hub".into()),
+            ("work.title".into(), "WO-1048 · Cold-room compressor".into()),
+            ("work.asset".into(), "Asset CMP-7A-2219 · due today".into()),
+            ("work.pending".into(), "Inspection awaiting confirmation".into()),
+            ("work.complete".into(), "Inspection completed".into()),
+            ("work.mark".into(), "Confirm inspection".into()),
+            ("work.recorded".into(), "Inspection confirmed".into()),
+            ("work.waiting".into(), "Waiting for the Fission host…".into()),
+            ("work.error".into(), "The host could not complete this action".into()),
+            ("work.result".into(), "Host result".into()),
+            ("work.ready".into(), "Ready. This preview uses a deterministic in-memory provider.".into()),
+            ("work.context".into(), "Give a short success cue after the technician records a completed checklist step.".into()),
+            ("work.action".into(), "Confirm inspection step".into())
+        ]),
+    });
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("es-ES"),
+        messages: HashMap::from([
+            ("work.site".into(), "Centro de alimentos Northbank".into()),
+            ("work.title".into(), "OT-1048 · Compresor de cámara fría".into()),
+            ("work.asset".into(), "Activo CMP-7A-2219 · vence hoy".into()),
+            ("work.pending".into(), "Inspección pendiente de confirmación".into()),
+            ("work.complete".into(), "Inspección completada".into()),
+            ("work.mark".into(), "Confirmar inspección".into()),
+            ("work.recorded".into(), "Inspección confirmada".into()),
+            ("work.waiting".into(), "Esperando al host de Fission…".into()),
+            ("work.error".into(), "El host no pudo completar esta acción".into()),
+            ("work.result".into(), "Resultado del host".into()),
+            ("work.ready".into(), "Listo. Esta vista previa usa un proveedor en memoria.".into()),
+            ("work.context".into(), "Ofrece una señal breve de éxito cuando el técnico registra un paso completado.".into()),
+            ("work.action".into(), "Confirmar paso de inspección".into())
+        ]),
+    });
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosHapticFeedbackResult::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
-        .mount("#fission-web-mount")
+    let mut app = WebApp::<app::WorkOrderState, _>::new(app::WorkOrderScreen)
+        .with_env(preview_env())
+        .with_haptic_host(MemoryHapticHost::default())
+        .with_title("iOS Haptic capability preview");
+    app.absorb_registry(app::callback_registry());
+    app.mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
@@ -271,7 +389,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-This preview is read-only: the actual result comes from the native host when you run the app on a supported target. Continue below to build and check that real request on a device or emulator.
+The preview exercises the Haptic operation with an in-memory host. On iOS, keep the native permission and unsupported/error outcomes visible, then verify the same user action on the supported simulator or a physical device.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 

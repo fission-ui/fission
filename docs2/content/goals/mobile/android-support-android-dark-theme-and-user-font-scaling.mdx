@@ -23,6 +23,7 @@ Create the project and add the target used by this guide. Fission generates the 
 cargo install cargo-fission
 fission init android-support-android-dark-theme-and-user-font-scaling
 cd android-support-android-dark-theme-and-user-font-scaling
+cargo add serde_yaml
 fission add-target android --project-dir .
 ```
 
@@ -56,42 +57,78 @@ Start with a settings screen that uses design-system tokens. Then sync the activ
 use fission::prelude::*;
 
 fission_component! {
-    pub AndroidAppearanceSettings<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub AndroidSupportAndroidDarkThemeAndUserFontScaling<()> {
+        state {
+            large_text: bool = false,
         }
     }
     view(screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let reading_size = if screen.large_text {
+            tokens.typography.body_medium_size * 1.4
+        } else {
+            tokens.typography.body_medium_size
+        };
+        let status = if screen.large_text {
+            cx.tr("preview.status.done")
+        } else {
+            cx.tr("preview.status.ready")
+        };
+        let action = if screen.large_text {
+            cx.tr("preview.action.undo")
+        } else {
+            cx.tr("preview.action.start")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("android-support-android-dark-theme-and-user-font-scaling".to_string()),
+        label: Some(cx.tr("preview.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
                 Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
                     Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
+                        Text(cx.tr("preview.app.name"))
                             .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
+                        Text(cx.tr("preview.route"))
                             .color(tokens.colors.text_secondary),
                     ]),
                     Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
+                    Badge(text: status),
                 ]),
                 Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
-                        .color(tokens.colors.text_secondary),
-                ]),
+                Text(cx.tr("preview.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("preview.summary"))
+                    .color(tokens.colors.text_secondary),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("preview.context.title"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("preview.context.one")).size(reading_size),
+                        Text(cx.tr("preview.context.two")).size(reading_size),
+                        Text(cx.tr("preview.result"))
+                            .size(reading_size)
+                            .color(tokens.colors.text_secondary),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Button(
+                    child: Text(action),
+                    key: "large_text",
+                    variant: ButtonVariant::Primary,
+                    on_press: reduce {
+                        screen.large_text = !screen.large_text;
+                    },
+                ),
+                Text(if screen.large_text {
+                    cx.tr("preview.state.active")
+                } else {
+                    cx.tr("preview.state.idle")
+                })
+                .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -100,6 +137,7 @@ fission_component! {
         .border_radius(tokens.radii.large),
     )
 }
+
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
@@ -110,23 +148,73 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidAppearanceSettings::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::AndroidSupportAndroidDarkThemeAndUserFontScaling)
+        .with_env(preview_env())
+        .with_title("Northbank Field Service")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+preview.app.name: "Northbank Field Service"
+preview.route: "Service visit · Android"
+preview.title: "Reading preferences"
+preview.summary: "Keep a visit summary readable when the user chooses larger text or a different appearance."
+preview.context.title: "WO-1048 · Compressor inspection"
+preview.context.one: "Current reading: 7.2 °C"
+preview.context.two: "Last visit: filter replaced · 12 October"
+preview.result: "This local control enlarges the reading sample. It does not change Android system settings."
+preview.footer: "The screen demonstrates content hierarchy; it does not change the browser or Android system settings."
+preview.status.ready: "Standard reading sample"
+preview.status.done: "Large-text sample"
+preview.action.start: "Enlarge reading sample"
+preview.action.undo: "Use standard sample size"
+preview.state.idle: "Standard reading sample"
+preview.state.active: "Large-text sample"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+preview.app.name: "Northbank Field Service"
+preview.route: "Visita de servicio · Android"
+preview.title: "Preferencias de lectura"
+preview.summary: "Mantén legible el resumen de una visita cuando la persona elige texto más grande u otra apariencia."
+preview.context.title: "OT-1048 · Inspección del compresor"
+preview.context.one: "Lectura actual: 7,2 °C"
+preview.context.two: "Última visita: filtro sustituido · 12 de octubre"
+preview.result: "Este control local amplía la muestra de lectura. No cambia los ajustes del sistema Android."
+preview.footer: "La pantalla demuestra la jerarquía del contenido; no cambia los ajustes del navegador ni del sistema Android."
+preview.status.ready: "Muestra de lectura estándar"
+preview.status.done: "Muestra de texto grande"
+preview.action.start: "Ampliar muestra de lectura"
+preview.action.undo: "Usar el tamaño estándar"
+preview.state.idle: "Muestra de lectura estándar"
+preview.state.active: "Muestra de texto grande"
 ```
 </TabItem>
 </Tabs>

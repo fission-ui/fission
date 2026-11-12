@@ -53,42 +53,79 @@ Start with a screen that gives this task a clear home. The first version keeps t
 use fission::prelude::*;
 
 fission_component! {
-    pub AndroidTargetSetup<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub AndroidAddAndroidToAnExistingFissionApp<()> {
+        state {
+            selection: usize = 0,
         }
     }
-    view(screen, _state, cx) {
+    view(panel, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let (case_title, detail, command) = match panel.selection {
+            0 => (cx.tr("preview.case.one"), cx.tr("preview.detail.one"), cx.tr("preview.command.one")),
+            1 => (cx.tr("preview.case.two"), cx.tr("preview.detail.two"), cx.tr("preview.command.two")),
+            _ => (cx.tr("preview.case.three"), cx.tr("preview.detail.three"), cx.tr("preview.command.three")),
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("android-add-android-to-an-existing-fission-app".to_string()),
+        label: Some(cx.tr("preview.screen.label")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
                 Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
                     Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
+                        Text(cx.tr("preview.app.name"))
                             .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
+                        Text(cx.tr("preview.route"))
                             .color(tokens.colors.text_secondary),
                     ]),
                     Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
+                    Badge(text: cx.tr("preview.badge")),
                 ]),
                 Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
+                Text(cx.tr("preview.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("preview.summary"))
+                    .color(tokens.colors.text_secondary),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(case_title)
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(detail)
+                            .color(tokens.colors.text_secondary),
+                        Divider(),
+                        Text(cx.tr("preview.command.label"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(command),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
                 Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
+                    Button(
+                        child: Text(cx.tr("preview.action.previous")),
+                        key: "previous-case",
+                        variant: ButtonVariant::Outline,
+                        on_press: reduce {
+                            panel.selection = panel.selection.saturating_sub(1);
+                        },
+                    ),
+                    Spacer(flex_grow: 1.0),
+                    Text(format!("{} {}", cx.tr("preview.case.count"), panel.selection + 1))
                         .color(tokens.colors.text_secondary),
+                    Spacer(flex_grow: 1.0),
+                    Button(
+                        child: Text(cx.tr("preview.action.next")),
+                        key: "next-case",
+                        variant: ButtonVariant::Primary,
+                        on_press: reduce {
+                            panel.selection = (panel.selection + 1) % 3;
+                        },
+                    ),
                 ]),
+                Text(cx.tr("preview.footer"))
+                    .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -107,23 +144,83 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidTargetSetup::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::AndroidAddAndroidToAnExistingFissionApp)
+        .with_env(preview_env())
+        .with_title("Northbank Field Service")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+preview.screen.label: "Add Android to an existing Fission app"
+preview.app.name: "Fission Android project"
+preview.route: "Developer setup · Android"
+preview.badge: "Add Android"
+preview.title: "Add Android to an existing Fission app"
+preview.summary: "Choose a stage to see a concrete next check. The browser preview does not run commands on your device."
+preview.case.count: "Scenario"
+preview.command.label: "Next command or file"
+preview.case.one: "The shared Rust app is ready"
+preview.detail.one: "Keep the current app, routes and state. Add Android as another target instead of creating a second app."
+preview.command.one: "fission add-target android --project-dir ."
+preview.case.two: "Check the generated Android host"
+preview.detail.two: "Fission checks whether the SDK, NDK and Rust target are available before the native build."
+preview.command.two: "fission doctor android --project-dir ."
+preview.case.three: "Run the existing app on Android"
+preview.detail.three: "Build and launch the shared app through the generated Android host."
+preview.command.three: "fission run --target android --project-dir ."
+preview.action.previous: "Previous"
+preview.action.next: "Next scenario"
+preview.footer: "Use terminal output to confirm the real host state."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+preview.screen.label: "Añade Android a una app Fission existente"
+preview.app.name: "Proyecto Android Fission"
+preview.route: "Configuración del proyecto · Android"
+preview.badge: "Añadir Android"
+preview.title: "Añade Android a una app Fission existente"
+preview.summary: "Elige una etapa para ver una comprobación concreta. La vista web no ejecuta comandos en tu dispositivo."
+preview.case.count: "Caso"
+preview.command.label: "Siguiente comando o archivo"
+preview.case.one: "La app Rust compartida está lista"
+preview.detail.one: "Conserva la app, las rutas y el estado actuales. Añade Android como otro destino en vez de crear una app aparte."
+preview.command.one: "fission add-target android --project-dir ."
+preview.case.two: "Comprueba el host Android generado"
+preview.detail.two: "Fission comprueba si el SDK, el NDK y el destino Rust están disponibles antes de la compilación nativa."
+preview.command.two: "fission doctor android --project-dir ."
+preview.case.three: "Ejecuta la app actual en Android"
+preview.detail.three: "Compila e inicia la app compartida mediante el host Android generado."
+preview.command.three: "fission run --target android --project-dir ."
+preview.action.previous: "Anterior"
+preview.action.next: "Siguiente caso"
+preview.footer: "Usa la salida del terminal para confirmar el estado real del host."
 ```
 </TabItem>
 </Tabs>

@@ -1,53 +1,40 @@
 ---
 layout: goal
-title: Play media in an Android app
-description: "Play media in an Android app using Fission."
-goal: Use Fission media widgets and handle pause, resume, audio focus and interruption without blocking reducers.
+title: Play video in an Android app with Fission
+description: "Embed a host-managed video in an Android app, add typed play and pause actions, and test interruptions on an emulator or phone."
+goal: Add an accessible video player to a field-survey screen and verify Android playback controls.
 path: /blog/play-media-in-an-android-app/
 order: 60
 difficulty: Beginner
-duration: 35 minutes
+duration: 25 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-play-media-in-an-android-app
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - Embed an accessible Fission Video widget with a real media source
+  - Bind play and pause buttons to the stable video identity
+  - Check playback and interruptions on an Android target
 ---
 
-## Create the project and add the target
+This guide builds a short training-video screen for a plant survey app. Fission’s `Video` widget owns video playback state and connects it to the Android host player. It is not an audio-only player; if your app needs background music or audio playback without video, use an app-owned native module until Fission adds a standalone audio API.
 
-Create the project and add the target used by this guide. Fission generates the native host; the app and its behaviour stay in shared Rust code.
+The preview uses a public MP4 sample so it can play in the browser. Replace it with a video you own before shipping. A network video needs connectivity; bundle a checked-in asset when the screen must work offline.
+
+## Create the Android project
 
 ```sh
 cargo install cargo-fission
-fission init android-play-media-in-an-android-app
-cd android-play-media-in-an-android-app
+fission init harbour-plant-survey
+cd harbour-plant-survey
+cargo add serde_yaml
 fission add-target android --project-dir .
 ```
 
-## Files created by Fission
+Fission creates the Android host under `platforms/android/`. Keep the player, controls, and screen in shared Rust code; don’t reach into the generated host to control playback.
 
-This is the starter tree Fission generates. Keep shared app code in `src/`; the generated platform files handle native launch and packaging.
+<!-- fission:step id="player-screen" -->
+## Add the video surface and its controls
 
-```text
-android-play-media-in-an-android-app/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
-├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
-└── platforms/
-    └── android/              # generated Android host
-```
-
-Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
-
-<!-- fission:step id="start-screen" -->
-## Create the app screen
-
-Start with a player screen and its controls. Then wire play and pause through Fission’s media widgets and handle Android audio focus and interruptions.
+The survey team uses the clip to compare a plant’s growth stage before recording a field observation. The video has an explicit ID because both control actions must address this exact surface. The runtime owns playback state; the buttons send its typed play and pause actions.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -55,43 +42,57 @@ Start with a player screen and its controls. Then wire play and pause through Fi
 ```rust
 use fission::prelude::*;
 
+const SAMPLE_VIDEO_URL: &str =
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
+
 fission_component! {
-    pub AndroidMediaPlayer<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-    }
-    view(screen, _state, cx) {
+    pub PlantSurveyPlayer<()> {}
+    view(_screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let video_width = (cx.view.viewport_size().width - 2.0 * tokens.spacing.l)
+            .clamp(1.0, 640.0);
+        let video_id = WidgetId::explicit("plant-survey.growth-reference");
+        let controls = cx.build.video_controls(video_id);
+        let video = Video::network(SAMPLE_VIDEO_URL)
+            .id(video_id)
+            .size(video_width, video_width * 9.0 / 16.0)
+            .semantic_label(cx.tr("player.video.label"));
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("plant-survey.player".to_string()),
+        label: Some(cx.tr("player.screen.label")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("player.app.title"))
+                        .weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("player.app.subtitle"))
                         .color(tokens.colors.text_secondary),
                 ]),
+                Divider(),
+                Text(cx.tr("player.clip.title"))
+                    .weight(tokens.typography.font_weight_semibold),
+                Container(video)
+                    .width(video_width)
+                    .height(video_width * 9.0 / 16.0)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Button(
+                        child: Text(cx.tr("player.action.play")),
+                        key: "play-growth-video",
+                        variant: ButtonVariant::Primary,
+                        on_press: Some(controls.play()),
+                    ),
+                    Button(
+                        child: Text(cx.tr("player.action.pause")),
+                        key: "pause-growth-video",
+                        variant: ButtonVariant::Outline,
+                        on_press: Some(controls.pause()),
+                    ),
+                ]),
+                Text(cx.tr("player.scope"))
+                    .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -110,80 +111,94 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidMediaPlayer::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::PlantSurveyPlayer)
+        .with_env(preview_env())
+        .with_title("Harbour Plant Survey")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+player.screen.label: "Plant survey video player"
+player.app.title: "Harbour Plant Survey"
+player.app.subtitle: "Northbank reserve · Growth reference"
+player.clip.title: "Flower growth-stage sample"
+player.video.label: "Flower growth-stage reference video"
+player.action.play: "Play video"
+player.action.pause: "Pause video"
+player.scope: "Browser preview uses an external sample video; use an app-owned source in production."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+player.screen.label: "Reproductor de vídeo del inventario de plantas"
+player.app.title: "Inventario de plantas de Harbour"
+player.app.subtitle: "Reserva de Northbank · Referencia de crecimiento"
+player.clip.title: "Muestra de las etapas de crecimiento de una flor"
+player.video.label: "Vídeo de referencia de las etapas de crecimiento de una flor"
+player.action.play: "Reproducir vídeo"
+player.action.pause: "Pausar vídeo"
+player.scope: "La vista previa web usa un vídeo externo de muestra; usa una fuente propia en producción."
+```
+</TabItem>
 </Tabs>
-<!-- fission:preview -->
-<!-- /fission:step -->
-
-<!-- fission:step id="main-flow" -->
-## Play media in an Android app
-
-Make playback controls reflect the actual player state: loading, ready, playing, paused, interrupted and failed. Keep the position and chosen media separate from the audio-focus or decoder lifecycle. On Android, test an incoming call, switching to another audio app, returning from background and a missing or unsupported media file. Provide an accessible Play or Pause label and keep the action usable without animation. If the selected Fission media widget does not own decoding, put the platform player behind the typed capability or native-module boundary described in its reference.
-
-
 
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-The compiled preview changes browser-local state only; it does not perform this task on an Android emulator or phone, inspect your toolchain or access native hardware. Use the commands below to verify the generated project on the target.
+Press **Play video**, then **Pause video**. The same video ID is used for the player and both actions. The browser preview plays the sample from its public URL; it does not test the Android player backend.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Verify the user task on Android
+<!-- fission:step id="android-interruptions" -->
+## Verify playback on Android
 
-On an Android emulator, repeat the feature path described above and check the expected result. If this task has an unavailable, denied or failure path, run that path too and confirm the screen offers a way to continue. The browser preview demonstrates component state only; the commands below verify the native host.
+Run the app on an emulator or phone with a network connection:
 
-Use LiveTest with the semantic identifiers shown in the component to confirm focus and action behavior. If this screen adapts to window size, repeat the flow at a narrow phone width and a wider display.
+```sh
+fission doctor android --project-dir .
+fission devices --project-dir .
+fission run --target android --project-dir .
+```
 
-### Run, test and build
+On the device, start the clip and check the host video surface, then pause and resume it. While it is playing, background the app and play audio in another app; return to the survey and verify the player is still in a sensible state. Repeat with a network interruption. A network source cannot play offline, so package a local asset when field use requires playback without connectivity.
+
+Fission’s runtime handles the video play/pause actions and Android’s native video backend. `VideoAudioOptions::playback()` requests foreground video playback behavior; it does not turn the widget into a general-purpose background audio service. For phone calls, focus loss, and app lifecycle transitions, test on the Android version you intend to support.
 
 ```sh
 cargo test
-fission doctor android --project-dir .
-fission run --target android --project-dir .
 fission test --target android --project-dir .
 fission build --target android --project-dir . --release
 ```
 
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
+`fission test` checks that the generated Android host starts. It does not validate codecs, network availability, or audio focus on a physical phone.
 
+### References
 
-### Emulator and connected-device commands
-
-Run these emulator checks from the generated project root:
-
-```sh
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
-```
-
-
-### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
-- [Media](/reference/widgets/media/)
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
+- [Video widget](/reference/widgets/video/)
+- [Android device setup](/blog/set-up-rust-android-development-with-fission/)
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->

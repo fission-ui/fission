@@ -25,6 +25,7 @@ Install the Fission CLI and create a Static site project:
 cargo install cargo-fission
 fission init fieldnotes-site --template website
 cd fieldnotes-site
+cargo add serde_yaml
 ```
 
 ## Project layout
@@ -91,47 +92,94 @@ Make sure the copy and links still work without JavaScript. At phone width, chec
 <!-- fission:step id="start-screen" -->
 ## Write a clear hero and page outline
 
-This first preview is a task card, not the Fieldnotes landing page. Its copy comes through props and its spacing uses theme tokens. Next, build the hero, benefit sections, and question section that the anchor links will target.
+The preview is the Fieldnotes landing page: a focused promise, one call to action, and links to the sections a visitor is likely to need. The selected section updates in the preview; the published site uses fragment links so those sections remain directly addressable.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LandingSection {
+    Overview,
+    Features,
+    Pricing,
+    Questions,
+}
+
 fission_component! {
     pub StudioWebsite<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
+        state {
+            active_section: LandingSection = LandingSection::Overview,
         }
     }
-    view(preview, _state, cx) {
+    view(site, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Text("A clear promise for the page visitor"),
-                Row(gap: tokens.spacing.m,
-                    children: [Text("Features"),
-                        Text("Pricing"),
-                        Text("Contact")]),
-                Text(format!("Next action: {}",
-                        preview.action)),
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
+    SemanticsRegion(
+        identifier: Some("fieldnotes.site".to_string()),
+        label: Some(cx.tr("site.a11y")),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Text(cx.tr("brand")).size(tokens.typography.heading2_size),
+                    Spacer(flex_grow: 1.0),
+                    Button(child: Text(cx.tr("nav.features")), key: "features",
+                        on_press: reduce { site.active_section = LandingSection::Features; })
+                        .semantics_identifier("fieldnotes.nav.features"),
+                    Button(child: Text(cx.tr("nav.pricing")), key: "pricing",
+                        on_press: reduce { site.active_section = LandingSection::Pricing; })
+                        .semantics_identifier("fieldnotes.nav.pricing"),
+                    Button(child: Text(cx.tr("nav.questions")), key: "questions",
+                        on_press: reduce { site.active_section = LandingSection::Questions; })
+                        .semantics_identifier("fieldnotes.nav.questions"),
+                ]),
+                Divider(),
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("hero.title"))
+                        .size(tokens.typography.heading1_size),
+                    Text(cx.tr("hero.description"))
+                        .color(tokens.colors.text_secondary),
+                    Button(
+                        child: Text(cx.tr("hero.action")),
+                        key: "primary-action",
+                        on_press: reduce { site.active_section = LandingSection::Features; },
+                    ).semantics_identifier("fieldnotes.primary-action"),
+                ]),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(if site.active_section == LandingSection::Features {
+                            cx.tr("section.features.title")
+                        } else if site.active_section == LandingSection::Pricing {
+                            cx.tr("section.pricing.title")
+                        } else if site.active_section == LandingSection::Questions {
+                            cx.tr("section.questions.title")
+                        } else {
+                            cx.tr("section.overview.title")
+                        })
+                        .weight(tokens.typography.font_weight_semibold),
+                        Text(if site.active_section == LandingSection::Features {
+                            cx.tr("section.features.description")
+                        } else if site.active_section == LandingSection::Pricing {
+                            cx.tr("section.pricing.description")
+                        } else if site.active_section == LandingSection::Questions {
+                            cx.tr("section.questions.description")
+                        } else {
+                            cx.tr("section.overview.description")
+                        })
+                        .color(tokens.colors.text_secondary),
+                    ]),
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.surface_raised)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+            ])
         )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
 }
 ```
 </TabItem>
@@ -139,6 +187,7 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -146,19 +195,87 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::StudioWebsite::new(
-        "Fieldnotes".to_string(),
-        "Plan your team’s next project.".to_string(),
-        "View plans".to_string(),
-        "The plan details are visible.".to_string(),
-        "The landing page is ready.".to_string(),
-    );
+    let preview = app::StudioWebsite::new();
     WebApp::<(), _>::new(preview)
+        .with_env(translations::create_env())
         .with_title("Build a single-page website in Rust")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../i18n/es-ES.yaml")),
+];
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in SOURCES {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid tutorial translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+site.a11y: "Fieldnotes project planning website"
+brand: "Fieldnotes"
+nav.features: "Features"
+nav.pricing: "Pricing"
+nav.questions: "Questions"
+hero.title: "Project planning that keeps everyone moving"
+hero.description: "Fieldnotes gives small teams one clear place to plan work, share decisions and see what needs attention next."
+hero.action: "See how Fieldnotes works"
+hero.action.back: "Back to the overview"
+hero.action.questions: "Talk through your next project"
+section.features.title: "A shared view of the work"
+section.pricing.title: "A plan your team can understand"
+section.questions.title: "Common questions"
+section.overview.title: "A calmer way to plan a project"
+section.features.description: "Keep tasks, owners and decisions together, then see what is blocked and what is ready to move."
+section.pricing.description: "Start with the work your team needs to coordinate. Add people when the process is working for you."
+section.questions.description: "Can I try it with one project? Yes. Start with a small team and keep the plan readable as it grows."
+section.overview.description: "The sections below explain how teams use Fieldnotes, how to get started and what to expect."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+site.a11y: "Sitio web de planificación de proyectos Fieldnotes"
+brand: "Fieldnotes"
+nav.features: "Funciones"
+nav.pricing: "Precios"
+nav.questions: "Preguntas"
+hero.title: "Planificación de proyectos para que todo el equipo avance"
+hero.description: "Fieldnotes ofrece a los equipos pequeños un lugar claro para planificar el trabajo, compartir decisiones y ver qué necesita atención."
+hero.action: "Descubre cómo funciona Fieldnotes"
+hero.action.back: "Volver al resumen"
+hero.action.questions: "Habla de tu próximo proyecto"
+section.features.title: "Una vista compartida del trabajo"
+section.pricing.title: "Un plan que tu equipo entiende"
+section.questions.title: "Preguntas frecuentes"
+section.overview.title: "Una forma más tranquila de planificar un proyecto"
+section.features.description: "Reúne tareas, responsables y decisiones para ver qué está bloqueado y qué puede avanzar."
+section.pricing.description: "Empieza por el trabajo que el equipo necesita coordinar. Añade personas cuando el proceso ya te funcione."
+section.questions.description: "¿Puedo probarlo con un proyecto? Sí. Empieza con un equipo pequeño y mantén el plan claro a medida que crece."
+section.overview.description: "Estas secciones explican cómo usan Fieldnotes los equipos, cómo empezar y qué esperar."
 ```
 </TabItem>
 </Tabs>
@@ -174,56 +291,99 @@ Write a clear hero and page outline: Confirm the initial screen names the task a
 
 Give the page one clear H1, a short explanation of who the product helps, and one main action. Add an in-page navigation row with links to stable section IDs such as `#features` and `#questions`. Make each section answer a different question instead of repeating the same sales claim.
 
-The selected section and missing-section message are local to this preview. The published page uses fragment links such as `#features`; it does not need a second copy of its content in app state.
+The selected section is local to this preview. In the published page, link to real fragment IDs such as `#features` and `#questions`; do not duplicate the page content in application state.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LandingSection {
+    Overview,
+    Features,
+    Pricing,
+    Questions,
+}
+
 fission_component! {
     pub StudioWebsite<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
         state {
-            active_section: usize = 0,
-            has_error: bool = false,
+            active_section: LandingSection = LandingSection::Overview,
         }
     }
-    view(preview, _state, cx) {
+    view(site, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Button(child: Text("Features"),
-                    key: "features",
-                    on_press: reduce { preview.active_section = 1; }),
-                Button(child: Text("Pricing"),
-                    key: "pricing",
-                    on_press: reduce { preview.active_section = 2; }),
-                Text(if preview.active_section == 1 { "Features: one shared Rust app model" } else if preview.active_section == 2 { "Pricing: compare the full plan cost" } else { "Overview: build and ship a Fission app" }),
-                Button(child: Text(preview.action.clone()),
-                    key: "primary-action"),
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a missing section".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("This section is not on the page. Choose an available section link.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
+    SemanticsRegion(
+        identifier: Some("fieldnotes.site".to_string()),
+        label: Some(cx.tr("site.a11y")),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Text(cx.tr("brand")).size(tokens.typography.heading2_size),
+                    Spacer(flex_grow: 1.0),
+                    Button(child: Text(cx.tr("nav.features")), key: "features",
+                        on_press: reduce { site.active_section = LandingSection::Features; })
+                        .semantics_identifier("fieldnotes.nav.features"),
+                    Button(child: Text(cx.tr("nav.pricing")), key: "pricing",
+                        on_press: reduce { site.active_section = LandingSection::Pricing; })
+                        .semantics_identifier("fieldnotes.nav.pricing"),
+                    Button(child: Text(cx.tr("nav.questions")), key: "questions",
+                        on_press: reduce { site.active_section = LandingSection::Questions; })
+                        .semantics_identifier("fieldnotes.nav.questions"),
+                ]),
+                Divider(),
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("hero.title"))
+                        .size(tokens.typography.heading1_size),
+                    Text(cx.tr("hero.description"))
+                        .color(tokens.colors.text_secondary),
+                    Button(
+                        child: Text(cx.tr(if site.active_section == LandingSection::Questions { "hero.action.back" } else { "hero.action.questions" })),
+                        key: "primary-action",
+                        on_press: reduce {
+                            site.active_section = if site.active_section == LandingSection::Questions {
+                                LandingSection::Overview
+                            } else {
+                                LandingSection::Questions
+                            };
+                        },
+                    ).semantics_identifier("fieldnotes.primary-action"),
+                ]),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(if site.active_section == LandingSection::Features {
+                            cx.tr("section.features.title")
+                        } else if site.active_section == LandingSection::Pricing {
+                            cx.tr("section.pricing.title")
+                        } else if site.active_section == LandingSection::Questions {
+                            cx.tr("section.questions.title")
+                        } else {
+                            cx.tr("section.overview.title")
+                        })
+                        .weight(tokens.typography.font_weight_semibold),
+                        Text(if site.active_section == LandingSection::Features {
+                            cx.tr("section.features.description")
+                        } else if site.active_section == LandingSection::Pricing {
+                            cx.tr("section.pricing.description")
+                        } else if site.active_section == LandingSection::Questions {
+                            cx.tr("section.questions.description")
+                        } else {
+                            cx.tr("section.overview.description")
+                        })
+                        .color(tokens.colors.text_secondary),
+                    ]),
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.surface_raised)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+            ])
         )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
 }
 ```
 </TabItem>
@@ -231,6 +391,7 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -238,14 +399,9 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::StudioWebsite::new(
-        "Fieldnotes".to_string(),
-        "Plan your team’s next project.".to_string(),
-        "View plans".to_string(),
-        "The plan details are visible.".to_string(),
-        "The landing page is ready.".to_string(),
-    );
+    let preview = app::StudioWebsite::new();
     WebApp::<(), _>::new(preview)
+        .with_env(translations::create_env())
         .with_title("Build a single-page website in Rust")
         .mount("#fission-web-mount")
         .run()
@@ -257,7 +413,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Connect section navigation and the call to action: Use the preview control and check that the result matches the action.
+Select Features, Pricing, and Questions. Confirm each choice changes the matching section; use the main action to open Questions and then return to the overview.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -266,56 +422,99 @@ Connect section navigation and the call to action: Use the preview control and c
 
 Check the page at narrow and wide widths. Let columns wrap or stack, keep headings readable, and make sure anchor targets are not hidden under a sticky header. The generated HTML should include the page heading and main copy for search crawlers.
 
-Do not perform I/O during component conversion. Use reducers for state changes, then request host work through an effect, capability, job, or service so the UI stays responsive. The preview control only simulates a failed host operation and its recovery path; it does not perform authentication, database, network, or filesystem work.
+The preview changes the selected section locally; it does not make a host request. Keep effects out of this page because fragment navigation and showing content are synchronous UI work, not asynchronous operations.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LandingSection {
+    Overview,
+    Features,
+    Pricing,
+    Questions,
+}
+
 fission_component! {
     pub StudioWebsite<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
         state {
-            active_section: usize = 0,
-            has_error: bool = false,
+            active_section: LandingSection = LandingSection::Overview,
         }
     }
-    view(preview, _state, cx) {
+    view(site, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Button(child: Text("Features"),
-                    key: "features",
-                    on_press: reduce { preview.active_section = 1; }),
-                Button(child: Text("Pricing"),
-                    key: "pricing",
-                    on_press: reduce { preview.active_section = 2; }),
-                Text(if preview.active_section == 1 { "Features: one shared Rust app model" } else if preview.active_section == 2 { "Pricing: compare the full plan cost" } else { "Overview: build and ship a Fission app" }),
-                Button(child: Text(preview.action.clone()),
-                    key: "primary-action"),
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a missing section".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("This section is not on the page. Choose an available section link.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
+    SemanticsRegion(
+        identifier: Some("fieldnotes.site".to_string()),
+        label: Some(cx.tr("site.a11y")),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Text(cx.tr("brand")).size(tokens.typography.heading2_size),
+                    Spacer(flex_grow: 1.0),
+                    Button(child: Text(cx.tr("nav.features")), key: "features",
+                        on_press: reduce { site.active_section = LandingSection::Features; })
+                        .semantics_identifier("fieldnotes.nav.features"),
+                    Button(child: Text(cx.tr("nav.pricing")), key: "pricing",
+                        on_press: reduce { site.active_section = LandingSection::Pricing; })
+                        .semantics_identifier("fieldnotes.nav.pricing"),
+                    Button(child: Text(cx.tr("nav.questions")), key: "questions",
+                        on_press: reduce { site.active_section = LandingSection::Questions; })
+                        .semantics_identifier("fieldnotes.nav.questions"),
+                ]),
+                Divider(),
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("hero.title"))
+                        .size(tokens.typography.heading1_size),
+                    Text(cx.tr("hero.description"))
+                        .color(tokens.colors.text_secondary),
+                    Button(
+                        child: Text(cx.tr(if site.active_section == LandingSection::Questions { "hero.action.back" } else { "hero.action.questions" })),
+                        key: "primary-action",
+                        on_press: reduce {
+                            site.active_section = if site.active_section == LandingSection::Questions {
+                                LandingSection::Overview
+                            } else {
+                                LandingSection::Questions
+                            };
+                        },
+                    ).semantics_identifier("fieldnotes.primary-action"),
+                ]),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(if site.active_section == LandingSection::Features {
+                            cx.tr("section.features.title")
+                        } else if site.active_section == LandingSection::Pricing {
+                            cx.tr("section.pricing.title")
+                        } else if site.active_section == LandingSection::Questions {
+                            cx.tr("section.questions.title")
+                        } else {
+                            cx.tr("section.overview.title")
+                        })
+                        .weight(tokens.typography.font_weight_semibold),
+                        Text(if site.active_section == LandingSection::Features {
+                            cx.tr("section.features.description")
+                        } else if site.active_section == LandingSection::Pricing {
+                            cx.tr("section.pricing.description")
+                        } else if site.active_section == LandingSection::Questions {
+                            cx.tr("section.questions.description")
+                        } else {
+                            cx.tr("section.overview.description")
+                        })
+                        .color(tokens.colors.text_secondary),
+                    ]),
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.surface_raised)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+            ])
         )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
 }
 ```
 </TabItem>
@@ -323,6 +522,7 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -330,14 +530,9 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::StudioWebsite::new(
-        "Fieldnotes".to_string(),
-        "Plan your team’s next project.".to_string(),
-        "View plans".to_string(),
-        "The plan details are visible.".to_string(),
-        "The landing page is ready.".to_string(),
-    );
+    let preview = app::StudioWebsite::new();
     WebApp::<(), _>::new(preview)
+        .with_env(translations::create_env())
         .with_title("Build a single-page website in Rust")
         .mount("#fission-web-mount")
         .run()
@@ -349,7 +544,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Check phone and desktop layouts: Trigger the error preview and confirm a recovery action remains available.
+Check phone and desktop layouts: At a narrow width, confirm the page still has a clear heading, reachable section controls and a usable main action. On desktop, check that the content has enough width to read comfortably.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 

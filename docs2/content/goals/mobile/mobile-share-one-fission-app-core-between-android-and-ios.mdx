@@ -45,7 +45,7 @@ Keep routes, app state, reducers, and reusable components in the Rust core. The 
 <!-- fission:step id="start-screen" -->
 ## Create the app screen
 
-This preview is a task card, not the app screen. The next step adds Android and iOS hosts and checks the shared app on both.
+This is the shared app screen: an evening inspection checklist with local completion state. The same Rust component, state transitions, and layout run inside both generated mobile hosts; only launch and packaging stay platform-specific.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -53,43 +53,64 @@ This preview is a task card, not the app screen. The next step adds Android and 
 ```rust
 use fission::prelude::*;
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InspectionState {
+    pub pump_checked: bool,
+    pub seal_checked: bool,
+    pub temperature_checked: bool,
+}
+
+impl GlobalState for InspectionState {}
+
 fission_component! {
-    pub SharedMobileApp<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-    }
-    view(screen, _state, cx) {
+    pub SharedMobileApp<InspectionState>
+    view(_screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("fieldwork.evening-round".to_string()),
+        label: Some(cx.tr("inspection.a11y")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
                 Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
                     Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
+                        Text(cx.tr("inspection.title"))
+                            .size(tokens.typography.heading2_size),
+                        Text(cx.tr("inspection.work_order"))
                             .color(tokens.colors.text_secondary),
                     ]),
                     Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
+                    Badge(text: cx.tr("inspection.progress")
+                        .replace("{completed}", &(state.pump_checked as u8
+                            + state.seal_checked as u8
+                            + state.temperature_checked as u8).to_string())),
                 ]),
                 Divider(),
+                Text(cx.tr("inspection.instructions"))
+                    .color(tokens.colors.text_secondary),
                 Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
+                    Checkbox(
+                        checked: state.pump_checked,
+                        label: Some(cx.tr("check.pump.label")),
+                        on_toggle: reduce { state.pump_checked = !state.pump_checked; },
+                    ).semantics_identifier("fieldwork.check.pump"),
+                    Checkbox(
+                        checked: state.seal_checked,
+                        label: Some(cx.tr("check.seal.label")),
+                        on_toggle: reduce { state.seal_checked = !state.seal_checked; },
+                    ).semantics_identifier("fieldwork.check.seal"),
+                    Checkbox(
+                        checked: state.temperature_checked,
+                        label: Some(cx.tr("check.temperature.label")),
+                        on_toggle: reduce { state.temperature_checked = !state.temperature_checked; },
+                    ).semantics_identifier("fieldwork.check.temperature"),
                 ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
-                        .color(tokens.colors.text_secondary),
-                ]),
+                Text(if state.pump_checked && state.seal_checked && state.temperature_checked {
+                    cx.tr("inspection.complete")
+                } else {
+                    cx.tr("inspection.in_progress")
+                })
+                .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -104,27 +125,79 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::SharedMobileApp::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    let preview = app::SharedMobileApp::new();
+    WebApp::<app::InspectionState, _>::new(preview)
+        .with_env(translations::create_env())
+        .with_title("Northbank Food Hub — Evening Inspection")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../i18n/es-ES.yaml")),
+];
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in SOURCES {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid tutorial translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+inspection.a11y: "Evening inspection checklist"
+inspection.title: "Evening round"
+inspection.work_order: "Northbank Food Hub · Work order 1048"
+inspection.progress: "{completed} of 3 checks complete"
+inspection.instructions: "Complete the checks before handing over to the morning shift."
+check.pump.label: "Check pump vibration"
+check.seal.label: "Check door seal"
+check.temperature.label: "Record temperature"
+inspection.complete: "All checks are ready for handover."
+inspection.in_progress: "Your progress stays in the shared app state while you work."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+inspection.a11y: "Lista de inspección de la tarde"
+inspection.title: "Ronda de la tarde"
+inspection.work_order: "Centro de alimentos Northbank · Orden de trabajo 1048"
+inspection.progress: "{completed} de 3 comprobaciones completadas"
+inspection.instructions: "Completa las comprobaciones antes de entregar el turno de mañana."
+check.pump.label: "Comprobar la vibración de la bomba"
+check.seal.label: "Comprobar el sello de la puerta"
+check.temperature.label: "Anotar la temperatura"
+inspection.complete: "Todas las comprobaciones están listas para la entrega."
+inspection.in_progress: "El progreso se mantiene en el estado compartido de la app mientras trabajas."
 ```
 </TabItem>
 </Tabs>

@@ -56,42 +56,38 @@ Start with the task screen. As we add controls, give each one a useful label and
 use fission::prelude::*;
 
 fission_component! {
-    pub AndroidAccessibleScreen<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub AndroidAccessibilityTalkback<()> {
+        state {
+            saved: bool = false,
         }
     }
     view(screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("accessible-settings".to_string()),
+        label: Some(cx.tr("accessibility.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
-                        .color(tokens.colors.text_secondary),
-                ]),
+                Text(cx.tr("accessibility.title"))
+                    .weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("accessibility.description")),
+                Button(
+                    child: Text(if screen.saved {
+                        cx.tr("accessibility.saved")
+                    } else {
+                        cx.tr("accessibility.save")
+                    }),
+                    key: "save-settings",
+                    on_press: reduce { screen.saved = !screen.saved; },
+                )
+                .semantics_identifier("settings.save"),
+                Text(if screen.saved {
+                    cx.tr("accessibility.status.saved")
+                } else {
+                    cx.tr("accessibility.status.ready")
+                })
+                    .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -110,23 +106,52 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidAccessibleScreen::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::AndroidAccessibilityTalkback)
+        .with_env(preview_env())
+        .with_title("android make a fission android app accessible with talkback")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+accessibility.title: "Inspection notifications"
+accessibility.description: "Choose whether Northbank should remind you about an assigned service visit."
+accessibility.save: "Toggle reminder setting in this preview"
+accessibility.saved: "Reminder setting selected in this preview only"
+accessibility.status.ready: "The action has a visible label and a stable test identifier."
+accessibility.status.saved: "Selected in this screen only. This preview does not write to storage."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+accessibility.title: "Avisos de inspección"
+accessibility.description: "Elige si Northbank debe recordarte una visita de servicio asignada."
+accessibility.save: "Cambiar el ajuste de avisos en esta vista previa"
+accessibility.saved: "Ajuste seleccionado solo en esta vista previa"
+accessibility.status.ready: "La acción tiene una etiqueta visible y un identificador de prueba estable."
+accessibility.status.saved: "Seleccionado solo en esta pantalla. Esta vista previa no guarda datos."
 ```
 </TabItem>
 </Tabs>
@@ -146,11 +171,6 @@ use fission::prelude::*;
 
 fission_component! {
     pub AndroidAccessibilityTalkback<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
         state {
             saved: bool = false,
         }
@@ -160,20 +180,27 @@ fission_component! {
     } =>
     SemanticsRegion(
         identifier: Some("accessible-settings".to_string()),
-        label: Some(screen.title.clone()),
+        label: Some(cx.tr("accessibility.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(screen.title.clone())
-
+                Text(cx.tr("accessibility.title"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(screen.goal.clone()),
+                Text(cx.tr("accessibility.description")),
                 Button(
-                    child: Text(if screen.saved { "Settings saved" } else { "Save settings" }),
+                    child: Text(if screen.saved {
+                        cx.tr("accessibility.saved")
+                    } else {
+                        cx.tr("accessibility.save")
+                    }),
                     key: "save-settings",
                     on_press: reduce { screen.saved = !screen.saved; },
                 )
                 .semantics_identifier("settings.save"),
-                Text(if screen.saved { "A clear status is announced after the action." } else { "The control has a visible label and a stable test identifier." })
+                Text(if screen.saved {
+                    cx.tr("accessibility.status.saved")
+                } else {
+                    cx.tr("accessibility.status.ready")
+                })
                     .color(tokens.colors.text_secondary),
             ])
         )
@@ -197,23 +224,52 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidAccessibilityTalkback::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::AndroidAccessibilityTalkback)
+        .with_env(preview_env())
+        .with_title("Northbank Field Service · Android")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="src/i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+accessibility.title: "Inspection notifications"
+accessibility.description: "Choose whether Northbank should remind you about an assigned service visit."
+accessibility.save: "Save reminder setting"
+accessibility.saved: "Reminder setting saved"
+accessibility.status.ready: "The action has a visible label and a stable test identifier."
+accessibility.status.saved: "Setting saved. The status is now visible to assistive technology."
+```
+</TabItem>
+<TabItem label="src/i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+accessibility.title: "Avisos de inspección"
+accessibility.description: "Elige si Northbank debe recordarte una visita de servicio asignada."
+accessibility.save: "Guardar ajuste de avisos"
+accessibility.saved: "Ajuste de avisos guardado"
+accessibility.status.ready: "La acción tiene una etiqueta visible y un identificador de prueba estable."
+accessibility.status.saved: "Ajuste guardado. La tecnología de asistencia puede leer el estado."
 ```
 </TabItem>
 </Tabs>

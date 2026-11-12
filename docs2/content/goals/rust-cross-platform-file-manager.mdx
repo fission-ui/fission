@@ -1,8 +1,8 @@
 ---
 layout: goal
-title: Build a cross-platform file manager in Rust
-description: Build a Rust file manager that chooses a directory safely, browses entries and streams file reads and writes with progress across desktop, mobile and Web.
-goal: Let a user choose a directory and work with files safely on every supported host
+title: Build a file browser UI in Rust
+description: Build a localized Rust file browser UI with stable file identities and a clear boundary between sample data and host filesystem access.
+goal: Help users browse a file hierarchy in a Fission UI while keeping real filesystem access behind the capability API
 path: /blog/build-a-cross-platform-file-manager-in-rust/
 order: 14
 difficulty: Beginner
@@ -12,52 +12,48 @@ app: rust-cross-platform-file-manager
 outcomes:
   - Render the folder path and its contents
   - Navigate with stable file identities
-  - Handle permissions across host targets
+  - Show an empty-folder state without inventing a filesystem permission result
 ---
 
-The browser preview cannot read your files, and a file picker must not be replaced with guessed paths. It demonstrates directory-selection states without touching the host filesystem. In a real app, Fission’s asynchronous filesystem capability handles reads and writes while the screen stays responsive.
+This tutorial builds the file-browser UI, not a complete file manager. The preview uses sample entries and never reads or writes host files. When you connect it to real storage, use Fission’s filesystem capability and its asynchronous reducer/effect flow; do not substitute guessed paths or synthetic permission results.
 
-Build a file browser that asks the host to choose a directory, lists entries, opens a text file and saves a change with visible progress.
+The screen lists folders and files, keeps a stable selection while you move through the sample hierarchy, and handles an empty folder. The [File System capability reference](/reference/capabilities/file-system/) covers the separate picker, listing, read, and write operations needed for host access.
 
-Install the Fission CLI and scaffold the Linux, Web, Android and iOS project:
+Install the Fission CLI and scaffold a Web project for the interactive UI preview:
 
 ```sh
 cargo install cargo-fission
-fission init harbour-files
-cd harbour-files
-fission add-target web android ios --project-dir .
-fission add-capability filesystem --project-dir .
+fission init harbour-file-browser
+cd harbour-file-browser
+cargo add serde_yaml
+fission add-target web --project-dir .
 ```
 
 ## Project layout
 
 ```text
-harbour-files/
+harbour-file-browser/
 ├── Cargo.toml                 # generated dependencies
 ├── fission.toml               # app identity, targets and capabilities
 ├── src/
-│   ├── main.rs                 # generated desktop entrypoint
+│   ├── main.rs                 # generated application entrypoint
 │   ├── lib.rs                  # shared app setup
 │   ├── app.rs                  # the Fission component shown in this tutorial
 │   ├── state.rs
-│   ├── effects/filesystem.rs
 │   ├── components/file_list.rs
 ├── platforms/
-│   ├── android/
-│   ├── ios/
-│   ├── linux/
 │   └── web/
 └── tests/                      # project-specific flow checks
 ```
 
-`fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs` and `src/app.rs`. Add the task modules in the tree as you build the feature. Keep data shared across routes in `GlobalState`, and keep retained interaction such as a disclosure or draft field in the owning `fission_component!`. Request database, filesystem, network and session work through a reducer effect, job or service; never run host work while a component view is being built.
+`fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs` and `src/app.rs`. The first screen keeps its folder and selection as local component state. Once the list and preview become separate components, the later version moves the shared directory state into `FileManagerState` so both can observe it. This UI sample does not request filesystem access; when you add it, queue host work from a reducer through the filesystem capability rather than doing it during component conversion.
 
-`preview/lib.rs` compiles the complete `src/app.rs` into WebAssembly so you can try the shared screen here. Its host responses are predictable; use the target-specific steps below to test real host work.
+`preview/lib.rs` compiles the complete `src/app.rs` into WebAssembly with sample entries. Those entries are preview fixtures, not files from the host.
 
 <!-- fission:step id="start-screen" -->
 ## Render the folder path and its contents
 
-This first preview is a task card, not a file browser. Its copy comes through props and its spacing uses theme tokens. Next, render the folder path and sample entries; the real app requests file access through Fission's filesystem capability.
+The preview starts at Harbour Files with a sample Documents folder and a readable README. Open the folder and select the file to see the first screen in the app. A production file browser can replace these preview entries with a user-selected directory from Fission's filesystem capability.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -66,37 +62,85 @@ This first preview is a task card, not a file browser. Its copy comes through pr
 use fission::prelude::*;
 fission_component! {
     pub FileManager<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
+        state {
+            documents_open: bool = false,
+            readme_open: bool = false,
         }
     }
-    view(preview, _state, cx) {
+    view(files, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Text("Home / Documents"),
-                Text("Projects/"),
-                Text("Photos/"),
-                Text("Readme.txt"),
-                Text(format!("Next action: {}",
-                        preview.action)),
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
+    SemanticsRegion(
+        identifier: Some("harbour-files.browser".to_string()),
+        label: Some(cx.tr("files.a11y.browser")),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(cx.tr("files.brand")).size(tokens.typography.heading2_size),
+                        Text(cx.tr("files.description"))
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                    Spacer(flex_grow: 1.0),
+                    Badge(text: cx.tr("files.sample_folder")),
+                ]),
+                Divider(),
+                Text(if files.documents_open { cx.tr("files.path.documents") } else { cx.tr("files.path.home") })
+                    .color(tokens.colors.text_secondary),
+                if files.documents_open {
+                    Column(gap: tokens.spacing.s, children: [
+                        Button(
+                            child: Text(cx.tr("files.action.home")),
+                            key: "home-folder",
+                            on_press: reduce {
+                                files.documents_open = false;
+                                files.readme_open = false;
+                            },
+                        ),
+                        Text(cx.tr("files.folder.documents")).weight(tokens.typography.font_weight_semibold),
+                        Button(
+                            child: Text(cx.tr("files.entry.readme")),
+                            key: "readme-file",
+                            on_press: reduce { files.readme_open = !files.readme_open; },
+                        ).semantics_identifier("harbour-files.readme"),
+                        if files.readme_open {
+                            Container(
+                                Column(gap: tokens.spacing.s, children: [
+                                    Text(cx.tr("files.preview.title")).weight(tokens.typography.font_weight_semibold),
+                                    Text(cx.tr("files.preview.content"))
+                                        .color(tokens.colors.text_secondary),
+                                    Text(cx.tr("files.preview.browser_notice")),
+                                ]),
+                            )
+                            .padding_all(tokens.spacing.m)
+                            .bg(tokens.colors.surface_raised)
+                            .border(tokens.colors.border, 1.0)
+                            .border_radius(tokens.radii.medium)
+                        } else {
+                            Text(cx.tr("files.preview.choose_file"))
+                                .color(tokens.colors.text_secondary)
+                        },
+                    ])
+                } else {
+                    Column(gap: tokens.spacing.s, children: [
+                        Button(
+                            child: Text(cx.tr("files.folder.documents_count")),
+                            key: "documents-folder",
+                            on_press: reduce { files.documents_open = true; },
+                        ).semantics_identifier("harbour-files.documents"),
+                        Text(cx.tr("files.folder.downloads_count")),
+                        Text(cx.tr("files.recent")).weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("files.recent.readme")),
+                        Text(cx.tr("files.recent.budget")),
+                    ])
+                },
+            ])
         )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.large),
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
 }
 ```
 </TabItem>
@@ -104,6 +148,7 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -111,19 +156,121 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::FileManager::new(
-        "Project files".to_string(),
-        "Choose a folder to browse its entries.".to_string(),
-        "Choose a directory".to_string(),
-        "A directory was selected and its entries are ready.".to_string(),
-        "Choose a directory to begin browsing.".to_string(),
-    );
+    let preview = app::FileManager::new();
     WebApp::<(), _>::new(preview)
-        .with_title("Build a cross-platform file manager in Rust")
+        .with_env(translations::create_env())
+        .with_title("Build a file browser UI in Rust")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../i18n/es-ES.yaml")),
+];
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in SOURCES {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid tutorial translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+files.a11y.browser: "Harbour Files browser"
+files.brand: "Harbour Files"
+files.description: "A safe place to browse project files."
+files.sample_folder: "Sample folder"
+files.path.home: "Home"
+files.path.documents: "Home / Documents"
+files.path.downloads: "Home / Downloads"
+files.path.shared: "Home / Shared drive"
+files.action.home: "← Home"
+files.folder.home: "Home"
+files.folder.documents: "Documents"
+files.folder.downloads: "Downloads"
+files.folder.shared: "Shared drive"
+files.entries.title: "This folder"
+files.entry.readme: "README.md · 4 KB"
+files.preview.title: "README.md"
+files.preview.content: "Harbour Files keeps project notes close to the work."
+files.preview.browser_notice: "This previews the file contents. No host file has been opened."
+files.preview.choose_file: "Choose a file to preview its contents."
+files.folder.documents_count: "Documents / 3 items"
+files.folder.downloads_count: "Downloads / 2 items"
+files.recent: "Recent files"
+files.recent.readme: "README.md · Documents · Modified today"
+files.recent.budget: "budget.csv · Downloads · Modified yesterday"
+files.path.home_breadcrumb: "Home"
+files.open: "Open"
+files.preview.heading: "File details"
+files.preview.choose: "Select a file to see its details."
+files.detail.folder: "Folder"
+files.detail.readme: "Markdown document · 4 KB · modified today"
+files.detail.plan: "Markdown document · 8 KB · modified yesterday"
+files.detail.budget: "CSV spreadsheet · 12 KB · modified yesterday"
+files.empty.folder: "This folder is empty."
+files.empty.title: "No files here yet"
+files.empty.help: "Choose another folder or return Home to keep browsing."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+files.a11y.browser: "Explorador de archivos Harbour Files"
+files.brand: "Harbour Files"
+files.description: "Un lugar seguro para explorar los archivos del proyecto."
+files.sample_folder: "Carpeta de ejemplo"
+files.path.home: "Inicio"
+files.path.documents: "Inicio / Documentos"
+files.path.downloads: "Inicio / Descargas"
+files.path.shared: "Inicio / Unidad compartida"
+files.action.home: "← Inicio"
+files.folder.home: "Inicio"
+files.folder.documents: "Documentos"
+files.folder.downloads: "Descargas"
+files.folder.shared: "Unidad compartida"
+files.entries.title: "Esta carpeta"
+files.entry.readme: "README.md · 4 KB"
+files.preview.title: "README.md"
+files.preview.content: "Harbour Files mantiene las notas del proyecto junto al trabajo."
+files.preview.browser_notice: "Esta vista muestra el archivo. No se ha abierto ningún archivo del dispositivo."
+files.preview.choose_file: "Elige un archivo para ver su contenido."
+files.folder.documents_count: "Documentos / 3 elementos"
+files.folder.downloads_count: "Descargas / 2 elementos"
+files.recent: "Archivos recientes"
+files.recent.readme: "README.md · Documentos · Modificado hoy"
+files.recent.budget: "budget.csv · Descargas · Modificado ayer"
+files.path.home_breadcrumb: "Inicio"
+files.open: "Abrir"
+files.preview.heading: "Detalles del archivo"
+files.preview.choose: "Selecciona un archivo para ver sus detalles."
+files.detail.folder: "Carpeta"
+files.detail.readme: "Documento Markdown · 4 KB · modificado hoy"
+files.detail.plan: "Documento Markdown · 8 KB · modificado ayer"
+files.detail.budget: "Hoja de cálculo CSV · 12 KB · modificado ayer"
+files.empty.folder: "Esta carpeta está vacía."
+files.empty.title: "Todavía no hay archivos"
+files.empty.help: "Elige otra carpeta o vuelve a Inicio para seguir explorando."
 ```
 </TabItem>
 </Tabs>
@@ -137,60 +284,152 @@ Render the folder path and its contents: Confirm the initial screen names the ta
 <!-- fission:step id="main-flow" -->
 ## Navigate with stable file identities
 
-Use the filesystem capability instead of assuming a path can be read directly. Treat the selected directory as a user-granted handle, validate each child name, and keep reads and writes in asynchronous jobs so large files do not freeze the interface.
+This step adds navigation over a small, preview-only directory tree. The records are sample data; selecting a file shows its name and details, not bytes read from the host. The filesystem capability reference describes the separate asynchronous picker and listing flow for real files.
 
-`documents_open`, `selected_file`, and `has_error` only drive this screen's simulated path, selection, and error. In a real file browser, request access through Fission's filesystem capability and keep results in app state if another route needs them.
+The preview seeds shared state with a small sample directory. The list, keyed row components, and detail pane all read or update that state; the row sends a stable entry ID to a reducer instead of capturing a loop variable. In the real app, load entries through the filesystem capability. Keep a field local when only one component needs it, and put it in `GlobalState` when separately composed parts of the app share it.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use crate::state::{open_file_entry, FileManagerState, OpenFileEntry};
 use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileEntry {
+    pub id: String,
+    pub parent_id: String,
+    pub name: String,
+    pub detail: String,
+    pub is_folder: bool,
+}
+
 fission_component! {
-    pub FileManager<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
-        state {
-            documents_open: bool = false,
-            selected_file: bool = false,
-            has_error: bool = false,
+    pub FileEntryRow<FileManagerState> { entry: FileEntry }
+    view(row, _state, cx) =>
+    Button(
+        child: Text(if row.entry.is_folder {
+            format!("{} /", row.entry.name)
+        } else {
+            format!("{} · {}", row.entry.name, row.entry.detail)
+        }),
+        key: "open-entry",
+        on_press: with_reducer!(
+            cx.build,
+            OpenFileEntry(row.entry.id.clone()),
+            open_file_entry,
+        ),
+    ).semantics_identifier(format!("harbour-files.entry.{}", row.entry.id))
+}
+
+fission_component! {
+    pub FileManager<FileManagerState> {}
+    view(_browser, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let breadcrumb = match state.current_folder.as_str() {
+            "documents" => cx.tr("files.path.documents"),
+            "downloads" => cx.tr("files.path.downloads"),
+            "shared" => cx.tr("files.path.shared"),
+            _ => cx.tr("files.path.home"),
+        };
+    } =>
+    SemanticsRegion(
+        identifier: Some("harbour-files.browser".to_string()),
+        label: Some(cx.tr("files.a11y.browser")),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(cx.tr("files.brand")).size(tokens.typography.heading2_size),
+                        Text(cx.tr("files.description")).color(tokens.colors.text_secondary),
+                    ]),
+                    Spacer(flex_grow: 1.0),
+                    Badge(text: cx.tr("files.sample_folder")),
+                ]),
+                Divider(),
+                Text(breadcrumb).color(tokens.colors.text_secondary),
+                Button(
+                    child: Text(cx.tr("files.action.home")),
+                    key: "go-home",
+                    on_press: reduce {
+                        state.current_folder = "home".to_string();
+                        state.selected_entry = None;
+                    },
+                ).semantics_identifier("harbour-files.go-home"),
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("files.entries.title"))
+                        .weight(tokens.typography.font_weight_semibold),
+                    for entry in state.entries.iter().filter(|entry| entry.parent_id == state.current_folder) {
+                        FileEntryRow(entry.clone(), key: entry.id.clone())
+                    },
+                ]),
+                Divider(),
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("files.preview.heading"))
+                        .weight(tokens.typography.font_weight_semibold),
+                    if let Some(selected_id) = &state.selected_entry {
+                        if let Some(entry) = state.entries.iter().find(|entry| &entry.id == selected_id) {
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text(entry.name.clone()).weight(tokens.typography.font_weight_semibold),
+                                Text(entry.detail.clone()).color(tokens.colors.text_secondary),
+                            ])
+                        } else {
+                            Text(cx.tr("files.preview.choose"))
+                        }
+                    } else {
+                        Text(cx.tr("files.preview.choose"))
+                    },
+                ]),
+            ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use crate::app::FileEntry;
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileManagerState {
+    pub entries: Vec<FileEntry>,
+    pub current_folder: String,
+    pub selected_entry: Option<String>,
+}
+
+impl Default for FileManagerState {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+            current_folder: "home".to_string(),
+            selected_entry: None,
         }
     }
-    view(preview, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Text(if preview.documents_open { "Home / Documents" } else { "Home" }),
-                Button(child: Text(if preview.documents_open { "Back to Home".to_string() } else { preview.action.clone() }),
-                    key: "open-documents",
-                    on_press: reduce { preview.documents_open = !preview.documents_open;
-                        preview.selected_file = false; }),
-                if preview.documents_open { Column(children: [Text("Projects/"),
-                            Button(child: Text("Readme.txt"),
-                                key: "select-readme",
-                                on_press: reduce { preview.selected_file = !preview.selected_file; }),
-                            if preview.selected_file { Text("Selected: Readme.txt") } else { Text("Choose a file to see its details.") }]) } else { Text("Documents/") },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview denied access".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("Access to this folder was denied. Return to the previous folder or choose another location.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
-    )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
+}
+
+impl GlobalState for FileManagerState {}
+
+#[fission_reducer(OpenFileEntry)]
+pub fn open_file_entry(state: &mut FileManagerState, entry_id: String) {
+    let Some((entry_id, is_folder)) = state
+        .entries
+        .iter()
+        .find(|entry| entry.id == entry_id)
+        .map(|entry| (entry.id.clone(), entry.is_folder))
+    else {
+        return;
+    };
+
+    if is_folder {
+        state.current_folder = entry_id;
+        state.selected_entry = None;
+    } else {
+        state.selected_entry = Some(entry_id);
+    }
 }
 ```
 </TabItem>
@@ -198,22 +437,34 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod state;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
+fn sample_entries() -> Vec<app::FileEntry> {
+    vec![
+        app::FileEntry { id: "documents".into(), parent_id: "home".into(), name: "Documents".into(), detail: "3 items".into(), is_folder: true },
+        app::FileEntry { id: "downloads".into(), parent_id: "home".into(), name: "Downloads".into(), detail: "2 items".into(), is_folder: true },
+        app::FileEntry { id: "shared".into(), parent_id: "home".into(), name: "Shared drive".into(), detail: String::new(), is_folder: true },
+        app::FileEntry { id: "readme".into(), parent_id: "documents".into(), name: "README.md".into(), detail: "4 KB · modified today".into(), is_folder: false },
+        app::FileEntry { id: "plan".into(), parent_id: "documents".into(), name: "release-plan.md".into(), detail: "8 KB · modified yesterday".into(), is_folder: false },
+        app::FileEntry { id: "budget".into(), parent_id: "downloads".into(), name: "budget.csv".into(), detail: "12 KB · modified yesterday".into(), is_folder: false },
+    ]
+}
+
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::FileManager::new(
-        "Project files".to_string(),
-        "Choose a folder to browse its entries.".to_string(),
-        "Choose a directory".to_string(),
-        "A directory was selected and its entries are ready.".to_string(),
-        "Choose a directory to begin browsing.".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
-        .with_title("Build a cross-platform file manager in Rust")
+    let preview = app::FileManager::new();
+    WebApp::<state::FileManagerState, _>::new(preview)
+        .with_global_state(state::FileManagerState {
+            entries: sample_entries(),
+            ..Default::default()
+        })
+        .with_env(translations::create_env())
+        .with_title("Build a file browser UI in Rust")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -229,63 +480,162 @@ Navigate with stable file identities: Use the preview control and check that the
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Handle permissions across host targets
+## Handle an empty folder
 
-Show pending progress and a useful error when access is denied, the file disappears or storage runs out. Keep the same capability call in shared code, then verify the different permission prompts and file access rules on desktop, mobile and Web.
+An empty folder is different from a denied folder. This preview demonstrates the empty state only; it does not simulate an operating-system permission result. When you connect the real picker and list effects, render their pending and error results from the actions returned by that capability.
 
-Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
-The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+The sample Shared folder has no entries. The screen says so and lets the user return Home; the browser preview does not request real filesystem access.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use crate::state::{open_file_entry, FileManagerState, OpenFileEntry};
 use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileEntry {
+    pub id: String,
+    pub parent_id: String,
+    pub name: String,
+    pub detail: String,
+    pub is_folder: bool,
+}
+
 fission_component! {
-    pub FileManager<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
-        state {
-            documents_open: bool = false,
-            selected_file: bool = false,
-            has_error: bool = false,
+    pub FileEntryRow<FileManagerState> { entry: FileEntry }
+    view(row, _state, cx) =>
+    Button(
+        child: Text(if row.entry.is_folder {
+            format!("{} /", row.entry.name)
+        } else {
+            format!("{} · {}", row.entry.name, row.entry.detail)
+        }),
+        key: "open-entry",
+        on_press: with_reducer!(
+            cx.build,
+            OpenFileEntry(row.entry.id.clone()),
+            open_file_entry,
+        ),
+    ).semantics_identifier(format!("harbour-files.entry.{}", row.entry.id))
+}
+
+fission_component! {
+    pub FileManager<FileManagerState> {}
+    view(_browser, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let breadcrumb = match state.current_folder.as_str() {
+            "documents" => cx.tr("files.path.documents"),
+            "downloads" => cx.tr("files.path.downloads"),
+            "shared" => cx.tr("files.path.shared"),
+            _ => cx.tr("files.path.home"),
+        };
+    } =>
+    SemanticsRegion(
+        identifier: Some("harbour-files.browser".to_string()),
+        label: Some(cx.tr("files.a11y.browser")),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(cx.tr("files.brand")).size(tokens.typography.heading2_size),
+                        Text(cx.tr("files.description")).color(tokens.colors.text_secondary),
+                    ]),
+                    Spacer(flex_grow: 1.0),
+                    Badge(text: cx.tr("files.sample_folder")),
+                ]),
+                Divider(),
+                Text(breadcrumb).color(tokens.colors.text_secondary),
+                Column(gap: tokens.spacing.m, children: [
+                        Button(
+                            child: Text(cx.tr("files.action.home")),
+                            key: "go-home",
+                            on_press: reduce {
+                                state.current_folder = "home".to_string();
+                                state.selected_entry = None;
+                            },
+                        ).semantics_identifier("harbour-files.go-home"),
+                        Column(gap: tokens.spacing.s, children: [
+                            Text(cx.tr("files.entries.title"))
+                                .weight(tokens.typography.font_weight_semibold),
+                            if state.entries.iter().all(|entry| entry.parent_id != state.current_folder) {
+                                EmptyState(
+                                    title: cx.tr("files.empty.title"),
+                                    description: Some(cx.tr("files.empty.help")),
+                                )
+                            },
+                            for entry in state.entries.iter().filter(|entry| entry.parent_id == state.current_folder) {
+                                FileEntryRow(entry.clone(), key: entry.id.clone())
+                            },
+                        ]),
+                        Divider(),
+                        Column(gap: tokens.spacing.s, children: [
+                            Text(cx.tr("files.preview.heading"))
+                                .weight(tokens.typography.font_weight_semibold),
+                            if let Some(selected_id) = &state.selected_entry {
+                                    if let Some(entry) = state.entries.iter().find(|entry| &entry.id == selected_id) {
+                                        Column(gap: tokens.spacing.xs, children: [
+                                            Text(entry.name.clone()).weight(tokens.typography.font_weight_semibold),
+                                            Text(entry.detail.clone()).color(tokens.colors.text_secondary),
+                                        ])
+                                } else {
+                                    Text(cx.tr("files.preview.choose"))
+                                }
+                            } else {
+                                Text(cx.tr("files.preview.choose"))
+                            },
+                        ]),
+                    ]),
+            ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.large),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use crate::app::FileEntry;
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileManagerState {
+    pub entries: Vec<FileEntry>,
+    pub current_folder: String,
+    pub selected_entry: Option<String>,
+}
+
+impl Default for FileManagerState {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+            current_folder: "home".to_string(),
+            selected_entry: None,
         }
     }
-    view(preview, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Text(if preview.documents_open { "Home / Documents" } else { "Home" }),
-                Button(child: Text(if preview.documents_open { "Back to Home".to_string() } else { preview.action.clone() }),
-                    key: "open-documents",
-                    on_press: reduce { preview.documents_open = !preview.documents_open;
-                        preview.selected_file = false; }),
-                if preview.documents_open { Column(children: [Text("Projects/"),
-                            Button(child: Text("Readme.txt"),
-                                key: "select-readme",
-                                on_press: reduce { preview.selected_file = !preview.selected_file; }),
-                            if preview.selected_file { Text("Selected: Readme.txt") } else { Text("Choose a file to see its details.") }]) } else { Text("Documents/") },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview denied access".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("Access to this folder was denied. Return to the previous folder or choose another location.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
-    )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
+}
+
+impl GlobalState for FileManagerState {}
+
+#[fission_reducer(OpenFileEntry)]
+pub fn open_file_entry(state: &mut FileManagerState, entry_id: String) {
+    let Some((entry_id, is_folder)) = state
+        .entries
+        .iter()
+        .find(|entry| entry.id == entry_id)
+        .map(|entry| (entry.id.clone(), entry.is_folder))
+    else {
+        return;
+    };
+
+    if is_folder {
+        state.current_folder = entry_id;
+        state.selected_entry = None;
+    } else {
+        state.selected_entry = Some(entry_id);
+    }
 }
 ```
 </TabItem>
@@ -293,22 +643,34 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod state;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
+fn sample_entries() -> Vec<app::FileEntry> {
+    vec![
+        app::FileEntry { id: "documents".into(), parent_id: "home".into(), name: "Documents".into(), detail: "3 items".into(), is_folder: true },
+        app::FileEntry { id: "downloads".into(), parent_id: "home".into(), name: "Downloads".into(), detail: "2 items".into(), is_folder: true },
+        app::FileEntry { id: "shared".into(), parent_id: "home".into(), name: "Shared drive".into(), detail: String::new(), is_folder: true },
+        app::FileEntry { id: "readme".into(), parent_id: "documents".into(), name: "README.md".into(), detail: "4 KB · modified today".into(), is_folder: false },
+        app::FileEntry { id: "plan".into(), parent_id: "documents".into(), name: "release-plan.md".into(), detail: "8 KB · modified yesterday".into(), is_folder: false },
+        app::FileEntry { id: "budget".into(), parent_id: "downloads".into(), name: "budget.csv".into(), detail: "12 KB · modified yesterday".into(), is_folder: false },
+    ]
+}
+
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::FileManager::new(
-        "Project files".to_string(),
-        "Choose a folder to browse its entries.".to_string(),
-        "Choose a directory".to_string(),
-        "A directory was selected and its entries are ready.".to_string(),
-        "Choose a directory to begin browsing.".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
-        .with_title("Build a cross-platform file manager in Rust")
+    let preview = app::FileManager::new();
+    WebApp::<state::FileManagerState, _>::new(preview)
+        .with_global_state(state::FileManagerState {
+            entries: sample_entries(),
+            ..Default::default()
+        })
+        .with_env(translations::create_env())
+        .with_title("Build a file browser UI in Rust")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -319,30 +681,27 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Handle permissions across host targets: Trigger the error preview and confirm a recovery action remains available.
+Handle an empty folder: Open Documents and select README.md. Then return Home, open the empty Shared folder, and confirm the screen says the folder is empty. No filesystem picker or permission flow runs in this preview.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 ## Run, test and build the finished project
 
-From the project root, run the checks in order:
+This project is deliberately scoped to the Web UI preview. From the project root, run the checks in order:
 
 ```sh
 fission doctor --project-dir .
 cargo test
-fission build --target linux --project-dir .
 fission build --target web --project-dir .
-fission build --target android --project-dir .
-fission build --target ios --project-dir .
 fission test --target web --project-dir .
 ```
 
-Expected result: The file browser navigates by stable paths and explains empty or denied folders on each host.
+Expected result: The Web preview browses the sample hierarchy, keeps selection tied to stable file IDs, and shows a genuine empty-folder state. It does not ask for host filesystem access. To build a real file manager, implement the picker/list/read flow with the [File System capability](/reference/capabilities/file-system/) and add targets only after testing their capability support.
 
 ## Related Fission reference
 
 Use these precise reference pages after the working path above is clear:
 
-- [File System](/docs/capabilities/file-system/)
-- [Platform Capabilities](/docs/guides/platform-capabilities/)
+- [File System](/reference/capabilities/file-system/)
+- [Platform Capabilities](/reference/core/platform-capabilities/)
 - [Commands Services Jobs](/reference/core/commands-services-jobs/)

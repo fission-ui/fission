@@ -46,7 +46,7 @@ Keep the operation and its request ID in shared app state so a screen rebuild do
 <!-- fission:step id="start-screen" -->
 ## Create the app screen
 
-This preview is a task card, not the operation's live state. The next step gives each request an ID so a late result cannot overwrite newer state.
+Start with a real field-service task: add a note to a work order and mark the draft ready for sync. The next step models what happens when a sync response arrives late. This preview keeps the note in the running app state; use Fission Store if it must survive process termination.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -54,43 +54,75 @@ This preview is a task card, not the operation's live state. The next step gives
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub MobileLifecycleEffects<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkOrderState {
+    pub note: String,
+    pub ready_for_sync: bool,
+}
+
+impl Default for WorkOrderState {
+    fn default() -> Self {
+        Self {
+            note: String::new(),
+            ready_for_sync: false,
         }
     }
-    view(screen, _state, cx) {
+}
+
+impl GlobalState for WorkOrderState {}
+
+fission_component! {
+    pub MobileLifecycleEffects<WorkOrderState>
+    view(_screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("work-order.note".to_string()),
+        label: Some(cx.tr("work_order.a11y")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
                 Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
                     Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
+                        Text(cx.tr("work_order.heading"))
+                            .size(tokens.typography.heading2_size),
+                        Text(cx.tr("work_order.location"))
                             .color(tokens.colors.text_secondary),
                     ]),
                     Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
+                    Badge(text: cx.tr(if state.ready_for_sync {
+                        "work_order.status.ready"
+                    } else {
+                        "work_order.status.draft"
+                    })),
                 ]),
                 Divider(),
                 Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
+                    Text(cx.tr("work_order.note.heading"))
                         .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
+                    TextInput(
+                        label: Some(cx.tr("work_order.note.label").into()),
+                        bind: state.note,
+                        placeholder: Some(cx.tr("work_order.note.placeholder").into()),
+                        multiline: true,
+                        semantics_identifier: "work-order.note.input".to_string(),
+                    ),
                 ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
-                        .color(tokens.colors.text_secondary),
-                ]),
+                Button(
+                    child: Text(cx.tr(if state.ready_for_sync {
+                        "work_order.note.return_to_draft"
+                    } else {
+                        "work_order.note.ready"
+                    })),
+                    key: "mark-note-ready",
+                    disabled: state.note.trim().is_empty() && !state.ready_for_sync,
+                    on_press: reduce { state.ready_for_sync = !state.ready_for_sync; },
+                ).semantics_identifier("work-order.note.ready"),
+                Text(cx.tr(if state.ready_for_sync {
+                    "work_order.note.ready_detail"
+                } else {
+                    "work_order.note.draft_detail"
+                }))
+                .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -105,27 +137,98 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::MobileLifecycleEffects::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<app::WorkOrderState, _>::new(app::MobileLifecycleEffects)
+        .with_env(translations::create_env())
+        .with_title("Fieldwork Work Order")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../i18n/es-ES.yaml")),
+];
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in SOURCES {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid tutorial translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+work_order.a11y: "Work order note"
+work_order.heading: "Work order 1048"
+work_order.location: "Northbank Food Hub · Cold-room fan inspection"
+work_order.status.draft: "Draft"
+work_order.status.ready: "Ready to sync"
+work_order.status.syncing: "Sync in progress"
+work_order.status.failed: "Sync failed"
+work_order.note.heading: "Shift note"
+work_order.note.label: "Inspection note"
+work_order.note.placeholder: "Record what the next technician should know"
+work_order.note.ready: "Mark note ready for sync"
+work_order.note.return_to_draft: "Return to draft"
+work_order.note.ready_detail: "The draft is ready to sync. This preview keeps it in the running app state."
+work_order.note.draft_detail: "Add the detail the next technician needs, then mark the draft ready."
+work_order.sync.start: "Sync work order"
+work_order.sync.pending: "A sync request is still in progress."
+work_order.sync.latest: "Sync latest draft"
+work_order.sync.done: "The preview sync request completed for this version of the note."
+work_order.sync.failed: "The sync request failed. The draft remains available to retry."
+work_order.sync.retry: "Retry sync"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+work_order.a11y: "Nota de la orden de trabajo"
+work_order.heading: "Orden de trabajo 1048"
+work_order.location: "Centro de alimentos Northbank · Inspección del ventilador de la cámara fría"
+work_order.status.draft: "Borrador"
+work_order.status.ready: "Lista para sincronizar"
+work_order.status.syncing: "Sincronización en curso"
+work_order.status.failed: "Error de sincronización"
+work_order.note.heading: "Nota del turno"
+work_order.note.label: "Nota de inspección"
+work_order.note.placeholder: "Anota lo que deba saber el próximo técnico"
+work_order.note.ready: "Marcar nota para sincronizar"
+work_order.note.return_to_draft: "Volver al borrador"
+work_order.note.ready_detail: "El borrador está listo para sincronizar. Esta vista previa lo mantiene en el estado de la app en ejecución."
+work_order.note.draft_detail: "Añade los detalles que necesita el próximo técnico y marca el borrador como listo."
+work_order.sync.start: "Sincronizar orden de trabajo"
+work_order.sync.pending: "Hay una solicitud de sincronización en curso."
+work_order.sync.latest: "Sincronizar el último borrador"
+work_order.sync.done: "La solicitud de sincronización de esta vista previa terminó para esta versión de la nota."
+work_order.sync.failed: "La solicitud de sincronización falló. El borrador sigue disponible para volver a intentarlo."
+work_order.sync.retry: "Reintentar sincronización"
 ```
 </TabItem>
 </Tabs>
@@ -135,64 +238,159 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:step id="main-flow" -->
 ## Handle mobile lifecycle changes while effects are in flight
 
-When the app pauses, keep product state in GlobalState or persistent storage; do not expect a component conversion or a background thread to preserve an unfinished operation. On resume, re-check the request ID, refresh transient permission status and ignore results from an obsolete screen. Persist an edit before starting sync if losing it would harm the user. Test pausing during a request, process termination, restart with a pending record, and a late response after the user navigates away. Do not promise background execution unless the operating system service has been configured for it.
+When the app pauses, keep product state in GlobalState for the current app session or persist it in Fission Store if it must survive process termination. Do not expect a component conversion or a background thread to preserve an unfinished operation. On resume, re-check the request ID, refresh transient permission status and ignore results from an obsolete screen. Test pausing during a request, process termination, restart with a pending record, and a late response after the user navigates away. Do not promise background execution unless the operating system service has been configured for it.
 
-The component below is a browser-safe version of this screen. It uses Fission's retained component state and widgets to make the task visible; it does not call a native provider or operating-system API.
+This browser-safe preview keeps its work-order data in `GlobalState` and uses a local effect to exercise request IDs and completion reducers. It does not call a server, persist data, or test an operating-system lifecycle callback.
 
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub MobileLifecycleChangesEffectsAre<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            draft_revision: u32 = 0,
-            sync_pending: bool = false,
-            sync_error: bool = false,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkOrderState {
+    pub note: String,
+    pub ready_for_sync: bool,
+    pub sync_request_id: u64,
+    pub sync_pending: bool,
+    pub sync_failed: bool,
+    pub synced_note: Option<String>,
+}
+
+impl Default for WorkOrderState {
+    fn default() -> Self {
+        Self {
+            note: String::new(),
+            ready_for_sync: false,
+            sync_request_id: 0,
+            sync_pending: false,
+            sync_failed: false,
+            synced_note: None,
         }
     }
-    view(screen, _state, cx) {
+}
+
+impl GlobalState for WorkOrderState {}
+
+#[fission_effect]
+async fn sync_work_order_note(
+    request_id: u64,
+    note: String,
+) -> Result<(u64, String), (u64, String)> {
+    if note.trim().is_empty() {
+        Err((request_id, "empty-note".to_string()))
+    } else {
+        Ok((request_id, note))
+    }
+}
+
+fission_component! {
+    pub MobileLifecycleChangesEffectsAre<WorkOrderState>
+    view(_screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let note_is_synced = state.synced_note.as_ref() == Some(&state.note);
     } =>
     SemanticsRegion(
-        identifier: Some("offline-workflow".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("work-order.note".to_string()),
+        label: Some(cx.tr("work_order.a11y")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(screen.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(screen.goal.clone()),
-                Text(format!("Local draft revision {}", screen.draft_revision)),
-                Button(
-                    child: Text("Save a local edit"),
-                    key: "edit-draft",
-                    on_press: reduce {
-                        screen.draft_revision += 1;
-                        screen.sync_pending = true;
-                        screen.sync_error = false;
-                    },
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(cx.tr("work_order.heading"))
+                            .size(tokens.typography.heading2_size),
+                        Text(cx.tr("work_order.location"))
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                    Spacer(flex_grow: 1.0),
+                    Badge(text: cx.tr(if state.sync_pending {
+                        "work_order.status.syncing"
+                    } else if state.sync_failed {
+                        "work_order.status.failed"
+                    } else if state.ready_for_sync {
+                        "work_order.status.ready"
+                    } else {
+                        "work_order.status.draft"
+                    })),
+                ]),
+                Divider(),
+                Text(cx.tr("work_order.note.heading"))
+                    .weight(tokens.typography.font_weight_semibold),
+                TextInput(
+                    label: Some(cx.tr("work_order.note.label").into()),
+                    bind: state.note,
+                    placeholder: Some(cx.tr("work_order.note.placeholder").into()),
+                    multiline: true,
+                    semantics_identifier: "work-order.note.input".to_string(),
                 ),
-                Button(
-                    child: Text("Simulate sync response"),
-                    key: "sync-response",
-                    on_press: reduce {
-                        screen.sync_pending = false;
-                        screen.sync_error = true;
-                    },
-                ),
-                Text(if screen.sync_pending {
-                    "Saved locally; waiting for sync."
-                } else if screen.sync_error {
-                    "Sync failed; the local draft is still available to retry."
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Button(
+                        child: Text(cx.tr(if state.ready_for_sync {
+                            "work_order.note.return_to_draft"
+                        } else {
+                            "work_order.note.ready"
+                        })),
+                        key: "mark-note-ready",
+                        disabled: state.note.trim().is_empty() && !state.ready_for_sync,
+                        on_press: reduce {
+                            state.ready_for_sync = !state.ready_for_sync;
+                            state.sync_failed = false;
+                        },
+                    ).semantics_identifier("work-order.note.ready"),
+                    Button(
+                        child: Text(cx.tr(if state.sync_pending {
+                            "work_order.sync.latest"
+                        } else if state.sync_failed {
+                            "work_order.sync.retry"
+                        } else {
+                            "work_order.sync.start"
+                        })),
+                        key: "sync-work-order-note",
+                        disabled: state.note.trim().is_empty() || !state.ready_for_sync,
+                        on_press: effect sync_work_order_note(
+                            state.sync_request_id + 1,
+                            state.note.clone(),
+                        ) {
+                            on_start {
+                                state.sync_request_id += 1;
+                                state.sync_pending = true;
+                                state.sync_failed = false;
+                            }
+                            on_ok(result) {
+                                let (request_id, synced_note) = result;
+                                if state.sync_request_id == request_id {
+                                    state.sync_pending = false;
+                                    state.synced_note = Some(synced_note);
+                                }
+                            }
+                            on_err(error) {
+                                let (request_id, _message) = error;
+                                if state.sync_request_id == request_id {
+                                    state.sync_pending = false;
+                                    state.sync_failed = true;
+                                }
+                            }
+                        },
+                    ).semantics_identifier("work-order.note.sync"),
+                ]),
+                if state.sync_pending {
+                    Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                        Spinner(),
+                        Text(cx.tr("work_order.sync.pending"))
+                            .color(tokens.colors.text_secondary),
+                    ])
+                } else if state.sync_failed {
+                    Text(cx.tr("work_order.sync.failed"))
+                        .color(tokens.colors.text_secondary)
+                } else if note_is_synced {
+                    Text(cx.tr("work_order.sync.done"))
+                        .color(tokens.colors.text_secondary)
+                } else if state.ready_for_sync {
+                    Text(cx.tr("work_order.note.ready_detail"))
+                        .color(tokens.colors.text_secondary)
                 } else {
-                    "All local changes are saved."
-                }),
+                    Text(cx.tr("work_order.note.draft_detail"))
+                        .color(tokens.colors.text_secondary)
+                },
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -211,23 +409,17 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::MobileLifecycleChangesEffectsAre::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<app::WorkOrderState, _>::new(app::MobileLifecycleChangesEffectsAre)
+        .with_env(translations::create_env())
+        .with_title("Fieldwork Work Order")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -237,7 +429,7 @@ pub fn run() -> Result<(), JsValue> {
 </Tabs>
 
 <!-- fission:checkpoint -->
-Save a local edit and then simulate a delayed failure. The example keeps the draft visible while the request is pending.
+Mark a non-empty draft ready and start the sync request. After completion, edit the note and confirm the older synced snapshot is no longer shown as current.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 

@@ -46,9 +46,9 @@ ios-request-ios-location-access/
 Keep app behaviour in shared Rust. Add a feature module only when it creates a useful boundary, and keep iOS APIs behind the generated host.
 
 <!-- fission:step id="start-screen" -->
-## See where the browser stops
+## Show a consent-first arrival check-in
 
-The preview does not request location. It shows the permission and result UI only; the next step connects an app action to Fission’s location provider.
+The receiving clerk is checking in at Dock 3. The screen explains why location is useful and makes clear that the app asks only while it is in use; the first preview simply opens that explanation.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -56,35 +56,57 @@ The preview does not request location. It shows the permission and result UI onl
 ```rust
 use fission::prelude::*;
 
+#[derive(Debug, Default)]
+pub struct LocationCheckInState {
+    pub privacy_details_open: bool,
+}
+
+impl GlobalState for LocationCheckInState {}
+
 fission_component! {
-    pub IosLocationAccess<()> {
-        props { title: String, step: String, goal: String, }
-    }
-    view(preview, _state, cx) {
+    pub LocationCheckInScreen<LocationCheckInState> {}
+    view(_screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let details = if state.privacy_details_open {
+            cx.tr("location.details_open")
+        } else {
+            cx.tr("location.details_closed")
+        };
+        let button_label = if state.privacy_details_open {
+            cx.tr("location.hide_details")
+        } else {
+            cx.tr("location.show_details")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("dock-three-check-in".to_string()),
+        label: Some(cx.tr("location.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
+                Text(cx.tr("location.site"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+                Text(cx.tr("location.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("location.scope"))
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
                 Container(
                     Column(gap: tokens.spacing.s, children: [
-                        Text("The browser and device boundary".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("This website cannot call the iOS host provider or reach device hardware. The preview shows the app context without pretending that the capability has run.".to_string()),
-                        Text("In the native app, the visible action starts the request. The platform host then returns the outcome that the app should explain to the user.".to_string()),
+                        Text(cx.tr("location.context")),
+                        Text(details),
                     ])
                 )
                 .padding_all(tokens.spacing.m)
                 .bg(tokens.colors.background)
                 .border(tokens.colors.border, 1.0)
                 .border_radius(tokens.radii.medium),
+                Button(
+                    child: Text(button_label),
+                    key: "toggle-location-details",
+                    variant: ButtonVariant::Primary,
+                    on_press: reduce {
+                        state.privacy_details_open = !state.privacy_details_open;
+                    },
+                ),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -103,123 +125,93 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid location tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("../i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("../i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosLocationAccess::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<app::LocationCheckInState, _>::new(app::LocationCheckInScreen)
+        .with_env(preview_env())
+        .with_title("Dock 3 check-in")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+location.site: "Northbank Receiving"
+location.title: "Arrival check-in · Dock 3"
+location.scope: "Location access · while using the app only"
+location.context: "Location can suggest the receiving site for this check-in. The clerk can still continue if access is denied."
+location.details_open: "The app requests access only while it is open. It does not track location in the background."
+location.details_closed: "Location is not requested until the clerk chooses the check-in action."
+location.show_details: "Why this app needs location"
+location.hide_details: "Hide location details"
+location.pending: "Permission has not been requested."
+location.waiting: "Requesting location permission…"
+location.granted: "Location permission granted while using the app."
+location.denied: "Access was denied. The check-in remains available without location."
+location.prompt: "The system can ask the user for permission."
+location.unknown: "Permission status is not known."
+location.unsupported: "Location permission is not supported on this host."
+location.error: "The permission request could not be completed. The check-in remains available."
+location.ready: "Location permission has not been requested."
+location.action: "Request while using the app"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+location.site: "Recepción Northbank"
+location.title: "Registro de llegada · Muelle 3"
+location.scope: "Acceso a ubicación · solo mientras se usa la aplicación"
+location.context: "La ubicación puede sugerir el centro de recepción para este registro. El personal puede continuar si deniega el acceso."
+location.details_open: "La aplicación solicita acceso solo cuando está abierta. No rastrea la ubicación en segundo plano."
+location.details_closed: "La ubicación no se solicita hasta que el usuario elige registrar la llegada."
+location.show_details: "Por qué la aplicación necesita la ubicación"
+location.hide_details: "Ocultar detalles de ubicación"
+location.pending: "No se ha solicitado permiso."
+location.waiting: "Solicitando permiso de ubicación…"
+location.granted: "Permiso de ubicación concedido mientras se usa la aplicación."
+location.denied: "Se denegó el acceso. El registro sigue disponible sin ubicación."
+location.prompt: "El sistema puede pedir permiso al usuario."
+location.unknown: "No se conoce el estado del permiso."
+location.unsupported: "Este host no admite el permiso de ubicación."
+location.error: "No se pudo completar la solicitud. El registro sigue disponible."
+location.ready: "Aún no se ha solicitado permiso de ubicación."
+location.action: "Solicitar mientras se usa la aplicación"
+```
+</TabItem>
 </Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-No location request runs in this preview. Continue to the provider wiring below.
+This stage is an app screen with a real state transition, not a device mock. The next stage connects a separate user action to the typed Geolocation capability and shows its success or error result.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Connect the Geolocation provider to the user action
+## Run the Geolocation operation through Fission
 
-Keep location requests out of component conversion. The screen dispatches an action, a reducer queues the request, and completion reducers store the coordinates or error.
+Keep host work out of component conversion. The button dispatches a typed action, its reducer queues the capability request, and separate completion reducers update the screen. The Web preview installs `MemoryGeolocationHost` and sends the same operation through Fission’s typed capability path. Its deterministic response is not a claim about device hardware, OS permission or native platform support.
 
-Keep the latest location and any error in app state. Keep temporary UI choices, such as open flags or selected tabs, local to their component:
-
-```rust
-#[derive(Debug, Default)]
-struct GeolocationState {
-    // Add these fields to your existing app state.
-    position: Option<GeolocationPosition>,
-    location_error: Option<String>,
-    locating: bool,
-}
-
-impl GlobalState for GeolocationState {}
-```
-
-Handle a location result and an error separately so denial, cancellation and provider failure cannot look like a successful position:
-
-```rust
-#[fission_reducer(PositionLoaded)]
-fn on_position_loaded(state: &mut GeolocationState, position: GeolocationPosition) {
-    state.locating = false;
-    state.position = Some(position);
-    state.location_error = None;
-}
-
-#[fission_reducer(PositionFailed)]
-fn on_position_failed(state: &mut GeolocationState, error: GeolocationError) {
-    state.locating = false;
-    state.location_error = Some(error.message);
-}
-```
-
-Start the location request from the user action. The sample `PositionLoaded` value below supplies the action's payload type; the host replaces it with the actual coordinates when the request completes:
-
-```rust
-state.locating = true;
-ctx.effects
-    .geolocation()
-    .current_position(GeolocationPositionRequest {
-        high_accuracy: true,
-        timeout_ms: Some(10_000),
-        maximum_age_ms: Some(60_000),
-    })
-    .on_ok(ctx.effects.bind(
-        PositionLoaded(GeolocationPosition {
-            latitude: 0.0,
-            longitude: 0.0,
-            altitude_meters: None,
-            accuracy_meters: 0.0,
-            altitude_accuracy_meters: None,
-            heading_degrees: None,
-            speed_mps: None,
-            timestamp_unix_ms: 0,
-        }),
-        reduce_with!(on_position_loaded),
-    ))
-    .on_err(ctx.effects.bind(
-        PositionFailed(GeolocationError::default()),
-        reduce_with!(on_position_failed),
-    ));
-```
-
-Keep the action and visible label together in the button so touch, keyboard and assistive-technology users get the same control:
-
-```rust
-fission_component!
-{
-    pub FindNearbyStoresButton<GeolocationState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<GeolocationState>();
-                let run = with_reducer!(ctx, FindNearbyStores, on_find_nearby_stores);
-
-                Button::new("Find nearby stores")
-                    .disabled(view.state().locating)
-                    .on_press(run)
-                    .into()
-    }
-}
-```
-
-The [Geolocation guide](/docs/capabilities/geolocation/) covers configuration and target behaviour. Use the memory provider to test successful and failed requests, then check the permission flow and returned position on a supported iPhone. The web preview does not request location.
-
-Keep iOS location calls in the host or typed provider. The shared component requests a position through Fission.
-
-
+The preview's MemoryGeolocationHost returns a deterministic granted permission. It does not request a browser or device permission. On iOS, show the native prompt only after this explicit user action.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -227,35 +219,106 @@ Keep iOS location calls in the host or typed provider. The shared component requ
 ```rust
 use fission::prelude::*;
 
+#[derive(Debug, Default)]
+pub struct LocationCheckInState {
+    pub pending: bool,
+    pub permission: Option<GeolocationPermission>,
+    pub failed: bool,
+}
+
+impl GlobalState for LocationCheckInState {}
+
+#[fission_reducer(RunCapability)]
+pub fn run_capability(state: &mut LocationCheckInState, ctx: &mut ReducerContext<LocationCheckInState>) {
+    state.pending = true;
+    state.permission = None;
+    state.failed = false;
+
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
+
+    ctx.effects
+        .geolocation().request_permission(GeolocationPermissionRequest {
+            precise: false,
+            background: false,
+        })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(CapabilitySucceeded)]
+pub fn capability_succeeded(
+    state: &mut LocationCheckInState,
+    ctx: &mut ReducerContext<LocationCheckInState>,
+) {
+    state.pending = false;
+    state.permission = ctx
+        .input
+        .capability_ok(REQUEST_GEOLOCATION_PERMISSION);
+    state.failed = state.permission.is_none();
+}
+
+#[fission_reducer(CapabilityFailed)]
+pub fn capability_failed(
+    state: &mut LocationCheckInState,
+) {
+    state.pending = false;
+    state.permission = None;
+    state.failed = true;
+}
+
+pub fn callback_registry() -> ActionRegistry<LocationCheckInState> {
+    let mut registry = ActionRegistry::new();
+    registry.register(reduce_with!(capability_succeeded));
+    registry.register(reduce_with!(capability_failed));
+    registry
+}
+
 fission_component! {
-    pub IosLocationAccessResult<()> {
-        props { title: String, step: String, goal: String, }
-    }
-    view(preview, _state, cx) {
+    pub LocationCheckInScreen<LocationCheckInState> {}
+    view(_screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let action = with_reducer!(cx.build, RunCapability, run_capability);
+        let status = if state.pending {
+            cx.tr("location.waiting")
+        } else if state.failed {
+            cx.tr("location.error")
+        } else {
+            match state.permission {
+                Some(GeolocationPermission::Granted) => cx.tr("location.granted"),
+                Some(GeolocationPermission::Denied) => cx.tr("location.denied"),
+                Some(GeolocationPermission::Prompt) => cx.tr("location.prompt"),
+                Some(GeolocationPermission::Unknown) => cx.tr("location.unknown"),
+                None => cx.tr("location.ready"),
+                Some(GeolocationPermission::Unsupported) => cx.tr("location.unsupported"),
+            }
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("dock-three-check-in".to_string()),
+        label: Some(cx.tr("location.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
+                Text(cx.tr("location.site"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+                Text(cx.tr("location.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("location.scope"))
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text("Where the request result comes from".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("In the target app, Fission’s native host completes the request and reports its real outcome to shared Rust state. The browser cannot manufacture that outcome, so this preview stays read-only.".to_string()),
-                        Text("Handle success and errors as separate state transitions. Keep the surrounding screen usable if the user declines, cancels, or the device does not support the capability.".to_string()),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
+                Text(cx.tr("location.context")),
+                Button(
+                    child: Text(cx.tr("location.action")),
+                    key: "run-capability",
+                    variant: ButtonVariant::Primary,
+                    disabled: state.pending,
+                    loading: state.pending,
+                    on_press: action,
+                ),
+                Container(Text(status))
+                    .padding_all(tokens.spacing.m)
+                    .bg(tokens.colors.background)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -274,30 +337,86 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid location tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("../i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("../i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosLocationAccessResult::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
-        .mount("#fission-web-mount")
+    let mut app = WebApp::<app::LocationCheckInState, _>::new(app::LocationCheckInScreen)
+        .with_env(preview_env())
+        .with_geolocation_host(MemoryGeolocationHost::default())
+        .with_title("iOS Dock 3 check-in preview");
+    app.absorb_registry(app::callback_registry());
+    app.mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+location.site: "Northbank Receiving"
+location.title: "Arrival check-in · Dock 3"
+location.scope: "Location access · while using the app only"
+location.context: "Location can suggest the receiving site for this check-in. The clerk can still continue if access is denied."
+location.details_open: "The app requests access only while it is open. It does not track location in the background."
+location.details_closed: "Location is not requested until the clerk chooses the check-in action."
+location.show_details: "Why this app needs location"
+location.hide_details: "Hide location details"
+location.pending: "Permission has not been requested."
+location.waiting: "Requesting location permission…"
+location.granted: "Location permission granted while using the app."
+location.denied: "Access was denied. The check-in remains available without location."
+location.prompt: "The system can ask the user for permission."
+location.unknown: "Permission status is not known."
+location.unsupported: "Location permission is not supported on this host."
+location.error: "The permission request could not be completed. The check-in remains available."
+location.ready: "Location permission has not been requested."
+location.action: "Request while using the app"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+location.site: "Recepción Northbank"
+location.title: "Registro de llegada · Muelle 3"
+location.scope: "Acceso a ubicación · solo mientras se usa la aplicación"
+location.context: "La ubicación puede sugerir el centro de recepción para este registro. El personal puede continuar si deniega el acceso."
+location.details_open: "La aplicación solicita acceso solo cuando está abierta. No rastrea la ubicación en segundo plano."
+location.details_closed: "La ubicación no se solicita hasta que el usuario elige registrar la llegada."
+location.show_details: "Por qué la aplicación necesita la ubicación"
+location.hide_details: "Ocultar detalles de ubicación"
+location.pending: "No se ha solicitado permiso."
+location.waiting: "Solicitando permiso de ubicación…"
+location.granted: "Permiso de ubicación concedido mientras se usa la aplicación."
+location.denied: "Se denegó el acceso. El registro sigue disponible sin ubicación."
+location.prompt: "El sistema puede pedir permiso al usuario."
+location.unknown: "No se conoce el estado del permiso."
+location.unsupported: "Este host no admite el permiso de ubicación."
+location.error: "No se pudo completar la solicitud. El registro sigue disponible."
+location.ready: "Aún no se ha solicitado permiso de ubicación."
+location.action: "Solicitar mientras se usa la aplicación"
 ```
 </TabItem>
 </Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-This preview is read-only: the actual result comes from the native host when you run the app on a supported target. Continue below to build and check that real request on a device or emulator.
+The preview exercises the Geolocation operation with an in-memory host. On iOS, keep the native permission and unsupported/error outcomes visible, then verify the same user action on the supported simulator or a physical device.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 

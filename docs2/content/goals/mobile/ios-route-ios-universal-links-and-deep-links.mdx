@@ -52,44 +52,110 @@ Keep app behaviour in shared Rust. Add a feature module only when it creates a u
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
-
 fission_component! {
-    pub IosUniversalLinks<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub DeepLinkDocumentLibrary<()> {
+        state {
+            document_open: bool = false,
+            missing_document: bool = false,
         }
     }
-    view(screen, _state, cx) {
+    view(library, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let route_title = if library.missing_document {
+            cx.tr("links.state.missing")
+        } else if library.document_open {
+            cx.tr("links.state.open")
+        } else {
+            cx.tr("links.state.library")
+        };
+        let route_path = if library.missing_document {
+            cx.tr("links.path.unknown")
+        } else if library.document_open {
+            cx.tr("links.path.guide")
+        } else {
+            cx.tr("links.path.library")
+        };
+        let detail = if library.missing_document {
+            cx.tr("links.detail.missing")
+        } else if library.document_open {
+            cx.tr("links.detail.open")
+        } else {
+            cx.tr("links.detail.library")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("ios-universal-links-document-library".to_string()),
+        label: Some(cx.tr("links.screen.label")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("links.app.name"))
+                        .weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("links.route"))
                         .color(tokens.colors.text_secondary),
                 ]),
+                Badge(text: cx.tr("links.preview.badge")),
+                Divider(),
+                Text(cx.tr("links.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("links.summary"))
+                    .color(tokens.colors.text_secondary),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(route_title)
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(route_path),
+                        Text(detail)
+                            .color(tokens.colors.text_secondary),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Button(
+                    child: Text(cx.tr("links.action.open")),
+                    key: "open-guide-link",
+                    variant: ButtonVariant::Primary,
+                    on_press: reduce {
+                        library.document_open = true;
+                        library.missing_document = false;
+                    },
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(cx.tr("links.action.open")),
+                        identifier: Some("links.open-guide".to_string()),
+                        ..Default::default()
+                    }),
+                ),
+                Button(
+                    child: Text(cx.tr("links.action.unknown")),
+                    key: "open-unknown-link",
+                    on_press: reduce {
+                        library.document_open = false;
+                        library.missing_document = true;
+                    },
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(cx.tr("links.action.unknown")),
+                        identifier: Some("links.open-unknown".to_string()),
+                        ..Default::default()
+                    }),
+                ),
+                Button(
+                    child: Text(cx.tr("links.action.back")),
+                    key: "return-to-library",
+                    on_press: reduce {
+                        library.document_open = false;
+                        library.missing_document = false;
+                    },
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(cx.tr("links.action.back")),
+                        identifier: Some("links.return-to-library".to_string()),
+                        ..Default::default()
+                    }),
+                ),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -98,6 +164,7 @@ fission_component! {
         .border_radius(tokens.radii.large),
     )
 }
+
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
@@ -108,23 +175,80 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosUniversalLinks::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::DeepLinkDocumentLibrary)
+        .with_env(preview_env())
+        .with_title("Northstar Reader")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+links.screen.label: "Document library and deep-link preview"
+links.app.name: "Northstar Reader"
+links.route: "Library · iOS links"
+links.preview.badge: "Route preview"
+links.title: "Open a guide from its link"
+links.summary: "Choose a known destination or try an unknown document to see the app's route state."
+links.state.library: "Your guides"
+links.state.open: "Guide opened in the app"
+links.state.missing: "Guide not found"
+links.path.library: "northstar.example/guides"
+links.path.guide: "northstar.example/guides/offline-reading"
+links.path.unknown: "northstar.example/guides/unknown-document"
+links.detail.library: "Select a sample route below."
+links.detail.open: "Offline reading · 6 minute guide"
+links.detail.missing: "Show a useful recovery state instead of a blank screen."
+links.action.open: "Open offline reading guide"
+links.action.unknown: "Try an unknown document link"
+links.action.back: "Return to library"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+links.screen.label: "Biblioteca y vista previa de enlaces profundos"
+links.app.name: "Lector Northstar"
+links.route: "Biblioteca · Enlaces de iOS"
+links.preview.badge: "Vista previa de rutas"
+links.title: "Abre una guía desde su enlace"
+links.summary: "Elige un destino conocido o prueba un documento desconocido para ver el estado de la ruta."
+links.state.library: "Tus guías"
+links.state.open: "Guía abierta en la app"
+links.state.missing: "No se encontró la guía"
+links.path.library: "northstar.example/guides"
+links.path.guide: "northstar.example/guides/offline-reading"
+links.path.unknown: "northstar.example/guides/unknown-document"
+links.detail.library: "Selecciona una ruta de ejemplo."
+links.detail.open: "Lectura sin conexión · guía de 6 minutos"
+links.detail.missing: "Muestra una recuperación útil en vez de una pantalla vacía."
+links.action.open: "Abrir la guía de lectura sin conexión"
+links.action.unknown: "Probar un enlace a un documento desconocido"
+links.action.back: "Volver a la biblioteca"
 ```
 </TabItem>
 </Tabs>

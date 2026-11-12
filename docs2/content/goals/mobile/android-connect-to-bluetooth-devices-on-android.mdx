@@ -1,8 +1,8 @@
 ---
 layout: goal
-title: Connect to Bluetooth devices on Android
-description: "Connect to Bluetooth devices on Android using Fission."
-goal: Configure Bluetooth permissions and handle discovery, pairing, disconnect and unavailable hardware.
+title: Scan for Bluetooth LE sensors on Android
+description: Find a nearby temperature probe in a Rust Android app, request permission before scanning, and show real typed results with Fission.
+goal: Help a receiving technician confirm that a cold-room temperature probe is nearby before starting an inspection.
 path: /blog/connect-to-bluetooth-devices-on-android/
 order: 52
 difficulty: Beginner
@@ -10,45 +10,53 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-connect-to-bluetooth-devices-on-android
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - Request Android Bluetooth permission before starting a scan
+  - Filter for the standard Environmental Sensing service and display returned devices
+  - Keep denial, unsupported operations, and an empty scan distinct
+  - Verify hardware and permission behaviour on an Android phone
 ---
 
-## Create the project and add the target
+Before a technician opens a cold-room inspection, they need to know whether the temperature probe is nearby. This tutorial builds that discovery screen: it requests Bluetooth permission, scans for devices advertising the standard Environmental Sensing service, and displays the names and signal strengths the host actually returns.
 
-Create the project and add the target used by this guide. Fission generates the native host; the app and its behaviour stay in shared Rust code.
+This is a scan, not a pairing tutorial. The current Android provider can request permission and discover devices; its connection and characteristic operations return `unsupported`. The example does not invent a temperature reading or claim a probe is connected. Keep that boundary visible in the UI until the target has a provider that supports the next operation.
+
+## Create the Android project
+
+Add the Android target and Bluetooth capability. Fission records the capability and generates the permission declarations for the Android host.
 
 ```sh
 cargo install cargo-fission
-fission init android-connect-to-bluetooth-devices-on-android
-cd android-connect-to-bluetooth-devices-on-android
+fission init northbank-probe-finder
+cd northbank-probe-finder
+cargo add serde_yaml
 fission add-target android --project-dir .
 fission add-capability bluetooth --project-dir .
 ```
 
-## Files created by Fission
-
-This is the starter tree Fission generates. Keep shared app code in `src/`; the generated platform files handle native launch and packaging.
+The screen, state, and reducers stay in shared Rust. The generated Android host handles platform startup and permission requests.
 
 ```text
-android-connect-to-bluetooth-devices-on-android/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
+northbank-probe-finder/
+├── Cargo.toml
+├── fission.toml
+├── i18n/
+│   ├── en-US.yaml
+│   └── es-ES.yaml
 ├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
+│   ├── app.rs
+│   ├── lib.rs
+│   ├── main.rs
+│   └── translations.rs
 └── platforms/
-    └── android/              # generated Android host
+    └── android/
 ```
 
-Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
+<!-- fission:step id="sensor-results" -->
+## Give the technician a useful scan-results screen
 
-<!-- fission:step id="start-screen" -->
-## Preview the Bluetooth fallback
+Show the site and the service being searched for, then list the device name and signal strength returned by Bluetooth. Do not display the device address: the user does not need it to recognise a probe, and it is a persistent identifier.
 
-The browser preview does not scan for or connect to an Android Bluetooth device. Use it to inspect the unavailable-device path; the Android section below sends the request through Fission’s Bluetooth provider and handles its result.
+The browser checkpoint starts with two clearly labelled sample devices so you can review the layout. They are not hardware results. The Android app itself starts empty until the host returns a scan result.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -56,212 +64,73 @@ The browser preview does not scan for or connect to an Android Bluetooth device.
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub AndroidBluetoothConnection<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-    }
-    view(preview, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
-                    .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text("The browser and device boundary".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("This website cannot call the Android host provider or reach device hardware. The preview shows the app context without pretending that the capability has run.".to_string()),
-                        Text("In the native app, the visible action starts the request. The platform host then returns the outcome that the app should explain to the user.".to_string()),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
-}
-```
-</TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    let preview = app::AndroidBluetoothConnection::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-</Tabs>
-<!-- fission:preview -->
-
-<!-- fission:checkpoint -->
-Check what the screen shows when a device request cannot run. No Android scan has happened yet; the next step connects the user action to the provider.
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
-
-<!-- fission:step id="main-flow" -->
-## Connect the Bluetooth provider to the user action
-
-This is the real Fission request path for this feature. Keep permission and hardware work outside the component view: the component dispatches one intent, the reducer queues the request, and success or error reducers store the returned result.
-
-Start with task data and status in the app state. Keep a text-field draft, open flag or selected tab in the owning component instead of duplicating that temporary state here:
-
-```rust
 #[derive(Debug, Default)]
-struct BluetoothState {
-    // Add these fields to your existing app state.
-    devices: Vec<BluetoothDevice>,
-    bluetooth_error: Option<String>,
-    scanning_bluetooth: bool,
+pub struct ProbeFinderState {
+    pub devices: Vec<BluetoothDevice>,
 }
 
-impl GlobalState for BluetoothState {}
-```
-
-Handle successful and failed results separately so the screen can explain denied permission, cancellation, unsupported hardware and provider errors:
-
-```rust
-#[fission_reducer(BluetoothDevicesFound)]
-fn on_bluetooth_devices_found(state: &mut BluetoothState, result: BluetoothScanResult) {
-    state.scanning_bluetooth = false;
-    state.devices = result.devices;
-    state.bluetooth_error = None;
-}
-
-#[fission_reducer(BluetoothScanFailed)]
-fn on_bluetooth_scan_failed(state: &mut BluetoothState, error: BluetoothError) {
-    state.scanning_bluetooth = false;
-    state.bluetooth_error = Some(error.message);
-}
-```
-
-Queue the operation after the user presses the named control. The host completes asynchronously and dispatches the matching reducer:
-
-```rust
-state.scanning_bluetooth = true;
-ctx.effects
-    .bluetooth()
-    .scan_devices(BluetoothScanRequest {
-        service_uuids: vec!["0000180d-0000-1000-8000-00805f9b34fb".into()],
-        timeout_ms: Some(10_000),
-        include_paired: true,
-        allow_duplicates: false,
-    })
-    .on_ok(ctx.effects.bind(
-        BluetoothDevicesFound(BluetoothScanResult::default()),
-        reduce_with!(on_bluetooth_devices_found),
-    ))
-    .on_err(ctx.effects.bind(
-        BluetoothScanFailed(BluetoothError::default()),
-        reduce_with!(on_bluetooth_scan_failed),
-    ));
-```
-
-Bind the user action from a reusable Fission component. Keep the visible label in the same control so it works with touch, keyboard and assistive technology:
-
-```rust
-fission_component!
-{
-    pub ScanBluetoothDevicesButton<BluetoothState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<BluetoothState>();
-                let run = with_reducer!(ctx, ScanBluetoothDevices, on_scan_bluetooth_devices);
-
-                Button::new("Scan devices")
-                    .disabled(view.state().scanning_bluetooth)
-                    .on_press(run)
-                    .into()
-    }
-}
-```
-
-The [complete Bluetooth guide](/docs/capabilities/bluetooth/) explains configuration and expected platform behaviour. Test a successful memory-provider response and an unavailable or denied response before relying on the physical-device check below. The preview is read-only. The native target uses Fission’s provider to perform the request and report the result.
-
-Keep platform-only code behind the generated target boundary or a typed provider; the shared component should describe the user task rather than call an operating-system API directly.
-
-
-
-<Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
-```rust
-use fission::prelude::*;
+impl GlobalState for ProbeFinderState {}
 
 fission_component! {
-    pub AndroidBluetoothConnectionResult<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-    }
-    view(preview, _state, cx) {
+    pub ProbeDeviceRow<()> { device: BluetoothDevice }
+    view(row, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let name = row.device.name.clone().unwrap_or_else(|| cx.tr("probe.unnamed").into());
+        let signal = match row.device.rssi {
+            Some(dbm) => format!("{} {dbm} dBm", cx.tr("probe.signal")),
+            None => cx.tr("probe.signal_unavailable").into(),
+        };
+    } =>
+    Container(Column(gap: tokens.spacing.xs, children: [
+        Text(name).weight(tokens.typography.font_weight_semibold),
+        Text(signal).color(tokens.colors.text_secondary),
+        Text(cx.tr("probe.low_energy")).color(tokens.colors.text_secondary),
+    ]))
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub ProbeFinderScreen<ProbeFinderState> {}
+    view(_screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
-                    .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Container(
+        identifier: Some("northbank-probe-finder".into()),
+        label: Some(cx.tr("probe.title")),
+        child: Container(Column(gap: tokens.spacing.l, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text(cx.tr("probe.site")).weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("probe.title")).size(tokens.typography.heading2_size),
+                Text(cx.tr("probe.description")).color(tokens.colors.text_secondary),
+            ]),
+            Container(Column(gap: tokens.spacing.m, children: [
+                Text(cx.tr("probe.service")).weight(tokens.typography.font_weight_semibold),
+                Text(cx.tr("probe.sample_notice")).color(tokens.colors.text_secondary),
+                if state.devices.is_empty() {
+                    Text(cx.tr("probe.sample_empty"))
+                } else {
                     Column(gap: tokens.spacing.s, children: [
-                        Text("Where the request result comes from".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("In the target app, Fission’s native host completes the request and reports its real outcome to shared Rust state. The browser cannot manufacture that outcome, so this preview stays read-only.".to_string()),
-                        Text("Handle success and errors as separate state transitions. Keep the surrounding screen usable if the user declines, cancels, or the device does not support the capability.".to_string()),
+                        for device in state.devices.iter() {
+                            ProbeDeviceRow(device.clone(), key: device.id.clone())
+                        },
                     ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-            ])
-        )
+                },
+            ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large),
+        ]))
         .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        .bg(tokens.colors.background)
+        .width_length(Length::clamp(
+            Length::points(0.0),
+            Length::percent(100.0),
+            Length::points(720.0),
+        )),
     )
 }
 ```
@@ -270,26 +139,98 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+#[path = "../preview/fixtures.rs"]
+mod fixtures;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidBluetoothConnectionResult::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<app::ProbeFinderState, _>::new(app::ProbeFinderScreen)
+        .with_env(translations::create_env())
+        .with_state_init(|state| state.devices = fixtures::sample_devices())
+        .with_title("Northbank temperature probe finder")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs and i18n/*.yaml">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::prelude::*;
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid probe-finder translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+probe.site: "Northbank Receiving · cold room"
+probe.title: "Nearby temperature probes"
+probe.description: "Check that the probe is in range before starting the inspection."
+probe.service: "Environmental Sensing · Bluetooth LE service 0x181A"
+probe.sample_notice: "Sample results for this browser preview; no device has been scanned."
+probe.sample_empty: "No sample devices are shown."
+probe.unnamed: "Unnamed Bluetooth device"
+probe.signal: "Signal"
+probe.signal_unavailable: "Signal strength was not reported"
+probe.low_energy: "Bluetooth Low Energy"
+```
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+probe.site: "Recepción Northbank · cámara fría"
+probe.title: "Sondas de temperatura cercanas"
+probe.description: "Comprueba que la sonda esté dentro del alcance antes de iniciar la inspección."
+probe.service: "Detección ambiental · servicio Bluetooth LE 0x181A"
+probe.sample_notice: "Resultados de muestra para esta vista previa; no se ha buscado ningún dispositivo."
+probe.sample_empty: "No se muestran dispositivos de muestra."
+probe.unnamed: "Dispositivo Bluetooth sin nombre"
+probe.signal: "Señal"
+probe.signal_unavailable: "No se informó de la intensidad de señal"
+probe.low_energy: "Bluetooth de bajo consumo"
+```
+</TabItem>
+<TabItem label="preview/fixtures.rs">
+<!-- fission:file path="preview/fixtures.rs" -->
+```rust
+use fission::prelude::*;
+
+pub fn sample_devices() -> Vec<BluetoothDevice> {
+    vec![
+        BluetoothDevice {
+            id: "preview-tp-204".into(),
+            name: Some("TP-204 · Cold room 2".into()),
+            rssi: Some(-53),
+            modes: vec![BluetoothMode::LowEnergy],
+            ..Default::default()
+        },
+        BluetoothDevice {
+            id: "preview-tp-208".into(),
+            name: Some("TP-208 · Cold room 4".into()),
+            rssi: Some(-67),
+            modes: vec![BluetoothMode::LowEnergy],
+            ..Default::default()
+        },
+    ]
 }
 ```
 </TabItem>
@@ -297,58 +238,420 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Use the Android steps below to test the provider on an emulator or device, including denied, cancelled, and unsupported outcomes.
+Check that each result has a recognisable name and optional signal strength. The sample notice is deliberately visible so preview data cannot be mistaken for a nearby device.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Verify the native request on Android
+<!-- fission:step id="request-and-scan" -->
+## Request permission, then scan for the service
 
-The website preview cannot exercise the native provider. Build and launch this target on a supported emulator or device, then use the feature action from the component above. Check the result the host actually returns, including denial, cancellation or unsupported hardware where those outcomes apply.
+Start host work from a reducer, not while converting the screen. The flow is ordered: ask the Android host for Bluetooth permission, scan only after it returns `Granted`, then put the typed `BluetoothScanResult` into state. A denial is different from a scan error and from a successful scan with no matching devices.
 
-Repeat with the feature unavailable, denied or cancelled, as applicable. Confirm the screen preserves the user’s existing data and offers the right recovery step. Use a physical device when the behavior depends on real hardware or an operating-system prompt.
+The scan asks for the Bluetooth SIG Environmental Sensing service UUID. A device appears only if it advertises a matching service and the host reports it. The example never treats a sample name as a sensor reading.
 
-### Run, test and build
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
 
-```sh
-cargo test
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
-fission build --target android --project-dir . --release
+const ENVIRONMENTAL_SENSING_SERVICE: &str = "0000181a-0000-1000-8000-00805f9b34fb";
+
+#[derive(Debug, Default)]
+pub struct ProbeFinderState {
+    pub permission: BluetoothPermission,
+    pub scan_pending: bool,
+    pub scan_complete: bool,
+    pub devices: Vec<BluetoothDevice>,
+    pub error_code: Option<String>,
+}
+
+impl GlobalState for ProbeFinderState {}
+
+#[fission_reducer(ScanNearbyProbes)]
+pub fn scan_nearby_probes(
+    state: &mut ProbeFinderState,
+    ctx: &mut ReducerContext<ProbeFinderState>,
+) {
+    state.scan_pending = true;
+    state.scan_complete = false;
+    state.devices.clear();
+    state.error_code = None;
+
+    let ok = ctx.effects.bind(
+        ProbePermissionReceived,
+        reduce_with!(probe_permission_received),
+    );
+    let err = ctx.effects.bind(
+        ProbePermissionFailed,
+        reduce_with!(probe_permission_failed),
+    );
+    ctx.effects
+        .bluetooth()
+        .request_permission(BluetoothPermissionRequest {
+            reason: Some("Find the temperature probe for this inspection".into()),
+        })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(ProbePermissionReceived)]
+pub fn probe_permission_received(
+    state: &mut ProbeFinderState,
+    ctx: &mut ReducerContext<ProbeFinderState>,
+) {
+    let Some(permission) = ctx.input.capability_ok(REQUEST_BLUETOOTH_PERMISSION) else {
+        state.scan_pending = false;
+        state.error_code = Some("missing_permission_result".into());
+        return;
+    };
+    state.permission = permission;
+    if permission != BluetoothPermission::Granted {
+        state.scan_pending = false;
+        if permission == BluetoothPermission::Unknown {
+            state.error_code = Some("permission_unknown".into());
+        }
+        return;
+    }
+
+    let ok = ctx.effects.bind(
+        ProbeScanReceived,
+        reduce_with!(probe_scan_received),
+    );
+    let err = ctx.effects.bind(
+        ProbeScanFailed,
+        reduce_with!(probe_scan_failed),
+    );
+    ctx.effects
+        .bluetooth()
+        .scan_devices(BluetoothScanRequest {
+            service_uuids: vec![ENVIRONMENTAL_SENSING_SERVICE.into()],
+            timeout_ms: Some(5_000),
+            include_paired: true,
+            allow_duplicates: false,
+        })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(ProbePermissionFailed)]
+pub fn probe_permission_failed(
+    state: &mut ProbeFinderState,
+    ctx: &mut ReducerContext<ProbeFinderState>,
+) {
+    state.scan_pending = false;
+    state.error_code = Some(
+        ctx.input
+            .capability_error(REQUEST_BLUETOOTH_PERMISSION)
+            .map(|error| error.code)
+            .unwrap_or_else(|| "permission_request_failed".into()),
+    );
+}
+
+#[fission_reducer(ProbeScanReceived)]
+pub fn probe_scan_received(
+    state: &mut ProbeFinderState,
+    ctx: &mut ReducerContext<ProbeFinderState>,
+) {
+    state.scan_pending = false;
+    if let Some(result) = ctx.input.capability_ok(SCAN_BLUETOOTH_DEVICES) {
+        state.scan_complete = true;
+        state.devices = result.devices;
+    } else {
+        state.scan_complete = false;
+        state.error_code = Some("missing_scan_result".into());
+    }
+}
+
+#[fission_reducer(ProbeScanFailed)]
+pub fn probe_scan_failed(
+    state: &mut ProbeFinderState,
+    ctx: &mut ReducerContext<ProbeFinderState>,
+) {
+    state.scan_pending = false;
+    state.error_code = Some(
+        ctx.input
+            .capability_error(SCAN_BLUETOOTH_DEVICES)
+            .map(|error| error.code)
+            .unwrap_or_else(|| "scan_failed".into()),
+    );
+}
+
+pub fn callback_registry() -> ActionRegistry<ProbeFinderState> {
+    let mut registry = ActionRegistry::new();
+    registry.register(reduce_with!(probe_permission_received));
+    registry.register(reduce_with!(probe_permission_failed));
+    registry.register(reduce_with!(probe_scan_received));
+    registry.register(reduce_with!(probe_scan_failed));
+    registry
+}
+
+fission_component! {
+    pub ProbeDeviceRow<()> { device: BluetoothDevice }
+    view(row, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let name = row.device.name.clone().unwrap_or_else(|| cx.tr("probe.unnamed").into());
+        let signal = match row.device.rssi {
+            Some(dbm) => format!("{} {dbm} dBm", cx.tr("probe.signal")),
+            None => cx.tr("probe.signal_unavailable").into(),
+        };
+    } =>
+    Container(Column(gap: tokens.spacing.xs, children: [
+        Text(name).weight(tokens.typography.font_weight_semibold),
+        Text(signal).color(tokens.colors.text_secondary),
+        Text(cx.tr("probe.low_energy")).color(tokens.colors.text_secondary),
+    ]))
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub ProbeFinderScreen<ProbeFinderState> {}
+    view(_screen, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let scan = with_reducer!(cx.build, ScanNearbyProbes, scan_nearby_probes);
+        let status = if state.scan_pending {
+            cx.tr("probe.scanning")
+        } else if state.error_code.as_deref() == Some("unsupported") {
+            cx.tr("probe.unsupported")
+        } else if state.error_code.as_deref() == Some("permission_unknown") {
+            cx.tr("probe.permission_unknown")
+        } else if state.error_code.is_some() {
+            cx.tr("probe.failed")
+        } else if matches!(state.permission, BluetoothPermission::Denied | BluetoothPermission::Restricted) {
+            cx.tr("probe.permission_denied")
+        } else if state.scan_complete && state.devices.is_empty() {
+            cx.tr("probe.scan_complete")
+        } else if state.devices.is_empty() {
+            cx.tr("probe.ready")
+        } else {
+            format!("{} {}", cx.tr("probe.results"), state.devices.len())
+        };
+        let results_message = if state.scan_pending {
+                cx.tr("probe.results_waiting")
+            } else if state.scan_complete {
+                cx.tr("probe.no_results")
+            } else if state.error_code.is_some()
+                || matches!(state.permission, BluetoothPermission::Denied | BluetoothPermission::Restricted)
+            {
+                cx.tr("probe.results_unavailable")
+            } else {
+                cx.tr("probe.results_empty")
+        };
+    } =>
+    SemanticsRegion(
+        identifier: Some("northbank-probe-finder".into()),
+        label: Some(cx.tr("probe.title")),
+        child: Container(Column(gap: tokens.spacing.l, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text(cx.tr("probe.site")).weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("probe.title")).size(tokens.typography.heading2_size),
+                Text(cx.tr("probe.description")).color(tokens.colors.text_secondary),
+            ]),
+            Container(Column(gap: tokens.spacing.m, children: [
+                Text(cx.tr("probe.service")).weight(tokens.typography.font_weight_semibold),
+                Button(
+                    child: Text(if state.scan_pending { cx.tr("probe.scanning") } else { cx.tr("probe.action") }),
+                    key: "scan-nearby-probes",
+                    variant: ButtonVariant::Primary,
+                    disabled: state.scan_pending,
+                    loading: state.scan_pending,
+                    on_press: scan,
+                ),
+                SemanticsRegion(
+                    identifier: Some("probe-scan-status".into()),
+                    label: Some(cx.tr("probe.status_label")),
+                    child: Text(status),
+                ),
+                if state.devices.is_empty() {
+                    Text(results_message)
+                } else {
+                    Column(gap: tokens.spacing.s, children: [
+                        for device in state.devices.iter() {
+                            ProbeDeviceRow(device.clone(), key: device.id.clone())
+                        },
+                    ])
+                },
+            ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large),
+        ]))
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.background)
+        .width_length(Length::clamp(
+            Length::points(0.0),
+            Length::percent(100.0),
+            Length::points(720.0),
+        )),
+    )
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+#[path = "../preview/fixtures.rs"]
+mod fixtures;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let mut app = WebApp::<app::ProbeFinderState, _>::new(app::ProbeFinderScreen)
+        .with_env(translations::create_env())
+        .with_bluetooth_host(MemoryBluetoothHost::new(
+            BluetoothAvailability {
+                permission: BluetoothPermission::Granted,
+                enabled: true,
+                supports_classic: false,
+                supports_low_energy: true,
+            },
+            fixtures::sample_devices(),
+            BluetoothReadResult::default(),
+        ))
+        .with_title("Northbank temperature probe finder");
+    app.absorb_registry(app::callback_registry());
+    app.mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+probe.action: "Find nearby probes"
+probe.ready: "Ready to scan when Bluetooth is available."
+probe.scanning: "Requesting permission and scanning…"
+probe.status_label: "Bluetooth scan status"
+probe.permission_denied: "Bluetooth access was not granted. Enable it in Android Settings, then try the scan again."
+probe.permission_unknown: "Android did not return a Bluetooth permission state."
+probe.unsupported: "This Android host does not support Bluetooth scanning."
+probe.failed: "The scan could not finish. Check Bluetooth is on, then try again."
+probe.scan_complete: "Scan completed. Check the result below."
+probe.no_results: "No matching probes were reported."
+probe.results_waiting: "Waiting for the scan to finish."
+probe.results_unavailable: "Probe results are unavailable until the scan can run."
+probe.results_empty: "Run a scan to see matching probes here."
+probe.results: "Matching probes found:"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+probe.action: "Buscar sondas cercanas"
+probe.ready: "Listo para buscar cuando Bluetooth esté disponible."
+probe.scanning: "Solicitando permiso y buscando…"
+probe.status_label: "Estado de la búsqueda Bluetooth"
+probe.permission_denied: "No se concedió acceso a Bluetooth. Actívalo en Ajustes de Android y vuelve a buscar."
+probe.permission_unknown: "Android no devolvió un estado del permiso de Bluetooth."
+probe.unsupported: "Este host de Android no admite la búsqueda Bluetooth."
+probe.failed: "No se pudo completar la búsqueda. Comprueba que Bluetooth esté activado e inténtalo de nuevo."
+probe.scan_complete: "Búsqueda completada. Comprueba el resultado de abajo."
+probe.no_results: "No se encontraron sondas coincidentes."
+probe.results_waiting: "Esperando a que termine la búsqueda."
+probe.results_unavailable: "Los resultados no están disponibles hasta que se pueda realizar la búsqueda."
+probe.results_empty: "Inicia una búsqueda para ver aquí las sondas coincidentes."
+probe.results: "Sondas coincidentes encontradas:"
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+
+`MemoryBluetoothHost` makes the browser preview deterministic. It exercises the same typed permission and scan reducers, but it does not open a browser or Android permission prompt and it does not see hardware.
+
+<!-- fission:checkpoint -->
+Press **Find nearby probes**. The screen should show the two devices returned by the memory provider. Then use a native target to check the permission and real scan paths; do not describe this preview as a successful hardware scan.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="android-device-check" -->
+## Verify scanning on an Android phone
+
+`fission init` generated a starter counter in `src/lib.rs`. Replace that root configuration as well as `src/app.rs`; otherwise the native command still launches the counter rather than this probe screen. Keep one shell setup and install the completion reducers before the first frame.
+
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+pub mod translations;
+
+use fission::prelude::*;
+
+#[cfg(target_os = "android")]
+const ANDROID_TEST_CONTROL_PORT: u16 = 48_761;
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<app::ProbeFinderState, app::ProbeFinderScreen> {
+    let mut app = MobileApp::<app::ProbeFinderState, _>::new(app::ProbeFinderScreen)
+        .with_env(translations::create_env())
+        .with_title("Northbank temperature probe finder");
+    app.absorb_registry(app::callback_registry());
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
+    app
+}
+
+#[cfg(target_arch = "wasm32")]
+fn web_app() -> WebApp<app::ProbeFinderState, app::ProbeFinderScreen> {
+    let mut app = WebApp::<app::ProbeFinderState, _>::new(app::ProbeFinderScreen)
+        .with_env(translations::create_env())
+        .with_title("Northbank temperature probe finder");
+    app.absorb_registry(app::callback_registry());
+    app
+}
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    let mut app = DesktopApp::<app::ProbeFinderState, _>::new(app::ProbeFinderScreen)
+        .with_env(translations::create_env())
+        .with_title("Northbank temperature probe finder");
+    app.absorb_registry(app::callback_registry());
+    app.run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    web_app()
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
 ```
 
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
-
-
-### Emulator and connected-device commands
-
-Run these emulator checks from the generated project root:
+Run the app on a phone with Bluetooth Low Energy enabled and a sensor advertising the Environmental Sensing service. An emulator can check layout and app startup, but it cannot prove that a physical sensor advertises the requested UUID or that Android's permission prompt behaves as expected.
 
 ```sh
 fission doctor android --project-dir .
 fission run --target android --project-dir .
-fission test --target android --project-dir .
-```
-
-
-For a real capability check, use an Android phone that has the required hardware and permission. Connect it with USB or Wi-Fi debugging, confirm its serial, then run the app on that device:
-
-```sh
 adb devices -l
 fission run --target android --device <adb-serial> --project-dir .
 ```
 
-An emulator can exercise the UI and memory-provider outcomes; it is not evidence that physical hardware or an OS permission flow works.
+Test these cases separately: permission granted with a matching sensor nearby; permission denied; Bluetooth disabled; and a successful scan with no matching devices. The screen should never show stale results as the latest scan. If permission was denied, explain how to enable it in Android settings instead of retrying the prompt in a loop.
 
+The Android host currently implements permission requests and scanning. Bluetooth connection, characteristic read/write, and pairing are separate operations and are not implemented by this host yet. Do not add a “connected” state until you supply and test a provider that supports it.
 
-### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
-- [Bluetooth capability guide](/docs/capabilities/bluetooth/)
-- [Bluetooth capability reference](/reference/capabilities/bluetooth/)
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
+For the full request contract, see the [Bluetooth capability reference](/reference/capabilities/bluetooth/). For Android SDK, NDK, emulator, and phone setup, start with [Set up Rust Android GUI development with Fission](/blog/set-up-rust-android-gui-development-with-fission/).
+<!-- fission:checkpoint -->
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->

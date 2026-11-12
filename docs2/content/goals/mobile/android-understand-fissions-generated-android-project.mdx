@@ -10,9 +10,9 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-understand-fissions-generated-android-project
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - Trace `fission.toml`, shared Rust source and the generated Android host
+  - Identify which files define app behavior and which are generated platform inputs
+  - Build the target and inspect the resulting Android package
 ---
 
 ## Create the project and add the target
@@ -45,9 +45,9 @@ android-understand-fissions-generated-android-project/
 Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
 
 <!-- fission:step id="start-screen" -->
-## Create the app screen
+## Use the generated starter counter
 
-Start with a screen from the shared Rust app. Then trace how `main.rs`, `fission.toml`, and the generated Android host take it to a packaged app.
+Fission creates a small counter app that is enough to verify install, launch and input without adding unrelated product logic. The browser preview changes only its own counter state; it cannot inspect or change the SDK, emulator, device, linker, signing or package described below.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -55,49 +55,42 @@ Start with a screen from the shared Rust app. Then trace how `main.rs`, `fission
 ```rust
 use fission::prelude::*;
 
+#[derive(Default, Debug, Clone, PartialEq)]
+pub struct CounterState {
+    pub count: i32,
+}
+
+impl GlobalState for CounterState {}
+
 fission_component! {
-    pub AndroidProjectStructure<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-    }
-    view(screen, _state, cx) {
+    pub CounterApp<CounterState> {}
+    view(_app, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("starter-counter".to_string()),
+        label: Some("Fission starter counter".to_string()),
         child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
-                        .color(tokens.colors.text_secondary),
-                ]),
-            ])
+            Column(
+                gap: tokens.spacing.l,
+                children: [
+                    Text("Fission starter counter")
+                        .size(tokens.typography.heading1_size),
+                    Text(format!("Count: {}", state.count))
+                        .size(tokens.typography.display_md_size),
+                    Button(
+                        child: Text("Increment"),
+                        key: "increment",
+                        on_press: reduce { state.count += 1; },
+                    )
+                    .semantics_identifier("counter.increment"),
+                ],
+            ),
         )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        .padding_all(tokens.spacing.xl)
+        .width_length(Length::percent(100.0))
+        .height_length(Length::percent(100.0))
+        .bg(tokens.colors.background),
     )
 }
 ```
@@ -110,19 +103,11 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidProjectStructure::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<app::CounterState, _>::new(app::CounterApp)
+        .with_title("Fission starter counter")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -136,7 +121,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:step id="main-flow" -->
 ## Understand Fission’s generated Android project
 
-Start at `fission.toml`: it selects targets and capabilities. Cargo then builds the shared Rust app, while `platforms/android/` contains the generated Gradle host and launch scripts. Read `platforms/android/README.md` before opening the host files. Change `fission.toml` or the documented source templates, not a generated Gradle file that the next Fission command can replace. After changing a target setting, run `fission build --target android --project-dir .` and inspect the APK or generated manifest to confirm the permission or resource reached the app.
+Start at `fission.toml`: it is where the project declares its app identity, targets and capabilities. The shared Rust application is under `src/`; `platforms/android/` contains the generated Gradle host, manifest, capability glue and launch/package scripts. Read `platforms/android/README.md` before changing host configuration. Fission syncs some settings into generated files when you build or change targets, so keep app behavior in Rust and make target/capability changes in the documented configuration rather than patching generated files without checking their source.
 
 
 
@@ -148,35 +133,19 @@ The compiled preview changes browser-local state only; it does not perform this 
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Verify the Android development setup
+## Trace the source into the Android host
 
-The browser preview cannot inspect your computer. Run the target-specific `fission doctor` command below from the generated project root, then fix the first missing SDK, runtime, compiler target or device prerequisite it reports before trying the build again.
-
-When the checks pass, run the generated app and keep the complete command output if it fails. A host smoke test confirms the scaffold can start; it does not prove release signing, device permissions or hardware behavior.
-
-### Run, test and build
-
-```sh
-cargo test
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
-fission build --target android --project-dir . --release
-```
-
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
-
-
-### Emulator and connected-device commands
-
-Run these emulator checks from the generated project root:
+Build the target after inspecting the project and host README. The build syncs target configuration and packages the shared Rust library into the Android host. Then inspect the generated manifest and Gradle configuration to see what the host will package.
 
 ```sh
 fission doctor android --project-dir .
+fission build --target android --project-dir .
+git diff -- fission.toml platforms/android
+fission devices --project-dir .
 fission run --target android --project-dir .
-fission test --target android --project-dir .
 ```
 
+`git diff` may show no platform changes if the current configuration is already synced. `fission run` launches an emulator or connected device; it does not prove Play signing or physical hardware behavior.
 
 ### Current references
 

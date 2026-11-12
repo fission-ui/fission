@@ -91,44 +91,101 @@ The example screen gives the project something to install and launch. It does no
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
-
 fission_component! {
-    pub IosDevelopmentSetup<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub IosToolchainChecklist<()> {
+        state {
+            xcode_checked: bool = false,
+            simulator_checked: bool = false,
+            rust_targets_checked: bool = false,
         }
     }
-    view(screen, _state, cx) {
+    view(setup, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let reviewed = [setup.xcode_checked, setup.simulator_checked, setup.rust_targets_checked]
+            .iter()
+            .filter(|checked| **checked)
+            .count();
+        let status = if reviewed == 3 {
+            cx.tr("setup.status.complete")
+        } else {
+            cx.tr("setup.status.incomplete")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("ios-toolchain-checklist".to_string()),
+        label: Some(cx.tr("setup.screen.label")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("setup.app.name"))
+                        .weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("setup.route"))
                         .color(tokens.colors.text_secondary),
                 ]),
+                Badge(text: cx.tr("setup.preview.badge")),
+                Divider(),
+                Text(cx.tr("setup.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("setup.summary"))
+                    .color(tokens.colors.text_secondary),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("setup.xcode.title"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("setup.xcode.detail")),
+                        Checkbox(
+                            checked: setup.xcode_checked,
+                            label: Some(cx.tr("setup.xcode.check")),
+                            semantics_identifier: Some("ios-setup.xcode".to_string()),
+                            on_toggle: reduce { setup.xcode_checked = !setup.xcode_checked; },
+                        ),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("setup.simulator.title"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("setup.simulator.detail")),
+                        Checkbox(
+                            checked: setup.simulator_checked,
+                            label: Some(cx.tr("setup.simulator.check")),
+                            semantics_identifier: Some("ios-setup.simulator-sdk".to_string()),
+                            on_toggle: reduce { setup.simulator_checked = !setup.simulator_checked; },
+                        ),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("setup.targets.title"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("setup.targets.detail")),
+                        Checkbox(
+                            checked: setup.rust_targets_checked,
+                            label: Some(cx.tr("setup.targets.check")),
+                            semantics_identifier: Some("ios-setup.rust-targets".to_string()),
+                            on_toggle: reduce { setup.rust_targets_checked = !setup.rust_targets_checked; },
+                        ),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                    Badge(text: status),
+                    Text(format!("{reviewed} / 3"))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Text(cx.tr("setup.preview.note"))
+                    .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -137,6 +194,7 @@ fission_component! {
         .border_radius(tokens.radii.large),
     )
 }
+
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
@@ -147,23 +205,80 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosDevelopmentSetup::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::IosToolchainChecklist)
+        .with_env(preview_env())
+        .with_title("iOS Toolchain Setup")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+setup.screen.label: "Rust iOS development setup checklist"
+setup.app.name: "Rust iOS Setup"
+setup.route: "Toolchain · iOS"
+setup.preview.badge: "Manual readiness checklist"
+setup.title: "Get the Simulator build ready"
+setup.summary: "Check Xcode, its Simulator SDK and the Rust targets before running the app."
+setup.xcode.title: "Select Xcode"
+setup.xcode.detail: "Run xcode-select -p and xcodebuild -version in your terminal."
+setup.xcode.check: "I checked the selected Xcode installation"
+setup.simulator.title: "Install the Simulator runtime"
+setup.simulator.detail: "Check iphonesimulator with xcrun and confirm an available Simulator device."
+setup.simulator.check: "I checked the Simulator SDK and runtime"
+setup.targets.title: "Install Rust targets"
+setup.targets.detail: "Add aarch64-apple-ios and aarch64-apple-ios-sim with rustup."
+setup.targets.check: "I checked both Rust targets"
+setup.status.complete: "All setup checks marked complete"
+setup.status.incomplete: "Setup checks still need attention"
+setup.preview.note: "These checkboxes are your notes; the browser preview cannot inspect Xcode or your Rust toolchain."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+setup.screen.label: "Lista de preparación para desarrollar Rust en iOS"
+setup.app.name: "Configuración de iOS con Rust"
+setup.route: "Herramientas · iOS"
+setup.preview.badge: "Lista manual de preparación"
+setup.title: "Prepara la compilación para el simulador"
+setup.summary: "Comprueba Xcode, su SDK de simulador y los destinos de Rust antes de ejecutar la app."
+setup.xcode.title: "Selecciona Xcode"
+setup.xcode.detail: "Ejecuta xcode-select -p y xcodebuild -version en el terminal."
+setup.xcode.check: "He comprobado la instalación de Xcode seleccionada"
+setup.simulator.title: "Instala el entorno del simulador"
+setup.simulator.detail: "Comprueba iphonesimulator con xcrun y confirma que haya un dispositivo disponible."
+setup.simulator.check: "He comprobado el SDK y el entorno del simulador"
+setup.targets.title: "Instala los destinos de Rust"
+setup.targets.detail: "Añade aarch64-apple-ios y aarch64-apple-ios-sim con rustup."
+setup.targets.check: "He comprobado ambos destinos de Rust"
+setup.status.complete: "Todas las comprobaciones están marcadas"
+setup.status.incomplete: "Quedan comprobaciones de configuración"
+setup.preview.note: "Estas casillas son tus notas; la vista web no puede inspeccionar Xcode ni las herramientas de Rust."
 ```
 </TabItem>
 </Tabs>

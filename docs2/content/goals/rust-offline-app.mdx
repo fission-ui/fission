@@ -1,8 +1,8 @@
 ---
 layout: goal
-title: Build an offline-first app in Rust
-description: Persist Rust app state locally across native and Web targets, hydrate it once, reconcile concurrent writes and keep an offline workflow understandable.
-goal: Let people keep working when a network connection is missing
+title: Model offline edits and sync conflicts in a Rust app
+description: Use Fission state and reducers to model pending field-note edits and conflict choices before connecting Store and sync effects.
+goal: Keep a field note visible while modelling queued edits and a newer server copy
 path: /blog/build-an-offline-app-in-rust/
 order: 15
 difficulty: Beginner
@@ -10,23 +10,24 @@ duration: 50 minutes
 run_command: "fission run --target web --project-dir ."
 app: rust-offline-app
 outcomes:
-  - Show connection and local queue state
-  - Accept edits while offline
-  - Retry sync and explain conflicts
+  - Show a work order and its pending changes
+  - Edit the shared inspection note and queue a local revision
+  - Review local and newer server copies and choose what to keep
+  - Know what this in-memory model does and where to continue for durable storage and real sync
 ---
 
-What should happen when someone edits a task on a train, then reconnects after another device has changed the same task? We will build an offline-first task list that opens from local data, accepts edits without a connection and makes queued work and conflicts visible. The browser preview demonstrates those states; the real app persists through Fission Store and sends sync work through an asynchronous effect.
+Say a technician updates a compressor inspection on a train and later finds a newer version from another device. This tutorial models the local edit, pending queue and conflict choice in a small field-work screen. It is an in-memory state model: it does not write to Fission Store or contact a server. If you want the complete Store-backed notes app and sync flow, continue with the [mobile field-notes tutorial](/blog/build-an-offline-first-notes-app-for-android-and-ios/).
 
 Keep the local edit usable while sync is pending. When a reply arrives, compare it with the current task state before applying it so an older request cannot overwrite newer work.
 
-Install the Fission CLI and scaffold the Web, Android and iOS project:
+Install the Fission CLI and scaffold a Web project for the interactive preview:
 
 ```sh
 cargo install cargo-fission
 fission init harbour-offline
 cd harbour-offline
-fission add-target web android ios --project-dir .
-fission add-capability storage --project-dir .
+cargo add serde_yaml
+fission add-target web --project-dir .
 ```
 
 ## Project layout
@@ -36,58 +37,91 @@ harbour-offline/
 ├── Cargo.toml                 # generated dependencies
 ├── fission.toml               # app identity, targets and capabilities
 ├── src/
-│   ├── main.rs                 # generated desktop entrypoint
+│   ├── main.rs                 # generated app entrypoint
 │   ├── lib.rs                  # shared app setup
-│   ├── app.rs                  # the Fission component shown in this tutorial
-│   ├── state.rs
-│   ├── storage.rs
-│   ├── effects/sync.rs
-│   └── components/sync_status.rs
-├── platforms/                  # generated host files after add-target
-└── tests/                      # project-specific flow checks
+│   ├── app.rs                  # state and components shown below
+│   └── i18n.rs                 # preview translation bundles
+├── i18n/
+│   ├── en-US.yaml
+│   └── es-ES.yaml
+└── platforms/
+    └── web/                    # generated Web host after add-target
 ```
 
-`fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs` and `src/app.rs`. Add the task modules in the tree as you build the feature. Keep data shared across routes in `GlobalState`, and keep retained interaction such as a disclosure or draft field in the owning `fission_component!`. Request database, filesystem, network and session work through a reducer effect, job or service; never run host work while a component view is being built.
+`fission init` creates the Rust app and `fission add-target` adds the Web host. The tutorial adds the two translation files and `src/i18n.rs`. The inspection note, revision counters and sync status are app data, so they live in `GlobalState`; a retained disclosure or input-only UI state would belong to its component. Real database and network operations belong in effects requested by reducers, not in component conversion.
 
-`preview/lib.rs` compiles the complete `src/app.rs` into WebAssembly so you can try the shared screen here. Its host responses are predictable; use the target-specific steps below to test real host work.
+The page preview compiles the screen into WebAssembly and seeds an example work order. It lets you try the state transitions, but reloading resets the preview. There is no storage provider or sync service in this model.
 
 <!-- fission:step id="start-screen" -->
 ## Show connection and local queue state
 
-This first preview is a task card, not an offline task list. Its copy comes through props and it uses theme tokens. The next step adds saved tasks, connection status, and the local sync queue.
+Start with a real work order and its next action. The inspection result and pending-change count are app data, so keep them in `GlobalState`; component-local state is for retained UI memory such as an open panel. This one-screen transition stays inline. If another screen needs it, move it into a named reducer.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+
+#[derive(Debug, Default, PartialEq)]
+pub struct OfflineState {
+    pub pump_check_complete: bool,
+    pub queued_changes: u32,
+}
+
+impl GlobalState for OfflineState {}
+
 fission_component! {
-    pub OfflineNotes<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
-    }
-    view(preview, _state, cx) {
+    pub OfflineNotes<OfflineState> {}
+    view(_notes, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let queue = format!("{} {}", state.queued_changes, cx.tr("sync.waiting"));
     } =>
     Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Text("Sync status: Offline"),
-                Text("1 change waiting to sync"),
-                Text("The local note is still available."),
-                Text(format!("Next action: {}",
-                        preview.action)),
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+        Column(gap: tokens.spacing.m, children: [
+            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, align_items: ir_op::AlignItems::Center, children: [
+                Column(gap: tokens.spacing.xs, flex_grow: 1.0, children: [
+                    Text(cx.tr("app.name")).weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("work.today"))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Badge(text: cx.tr("sync.offline")),
+            ]),
+            Divider(),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Badge(text: queue),
+                Text(cx.tr("sync.preview_queue"))
+                    .color(tokens.colors.text_secondary),
+            ]),
+            Container(Column(gap: tokens.spacing.xs, children: [
+                Text(cx.tr("work.order"))
+                    .weight(tokens.typography.font_weight_semibold),
+                Text(cx.tr("work.due"))
+                    .color(tokens.colors.text_secondary),
+                Text(if state.pump_check_complete {
+                    cx.tr("work.pressure_complete")
+                } else {
+                    cx.tr("work.pressure_next")
+                }),
+            ]))
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(
+                    child: Text(if state.pump_check_complete { cx.tr("work.check_complete") } else { cx.tr("work.complete_check") }),
+                    key: "pump-pressure-check",
+                    disabled: state.pump_check_complete,
+                    on_press: reduce {
+                        if !state.pump_check_complete {
+                            state.pump_check_complete = true;
+                            state.queued_changes = state.queued_changes.saturating_add(1);
+                        }
+                    },
+                ),
+            ]),
+        ])
     )
     .padding_all(tokens.spacing.l)
     .bg(tokens.colors.surface)
@@ -96,10 +130,119 @@ fission_component! {
 }
 ```
 </TabItem>
+<TabItem label="src/i18n.rs">
+<!-- fission:file path="src/i18n.rs" -->
+```rust
+use std::collections::HashMap;
+
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::Env;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../i18n/es-ES.yaml")),
+];
+
+pub fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in SOURCES {
+        let messages: HashMap<String, String> = serde_yaml::from_str(yaml)
+            .unwrap_or_else(|error| panic!("invalid {locale} translations: {error}"));
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+app.name: "Harbour Fieldwork"
+work.today: "Northbank Food Hub · Today’s inspections"
+work.order: "WO-1048 · Cold-room compressor"
+work.due: "Compressor bank A7 · Due 14:30"
+work.pressure_complete: "Pressure check complete · waiting to sync"
+work.pressure_next: "Next: verify the compressor pressure"
+work.check_complete: "Pressure check complete"
+work.complete_check: "Complete pressure check"
+sync.waiting: "changes waiting to sync"
+sync.preview_data: "Revision 3 is loaded in the preview"
+sync.offline: "Offline"
+sync.preview_queue: "Queued in preview memory · not persisted"
+note.label: "Inspection note"
+note.device_label: "Inspection note on this device"
+note.queue: "Queue note for sync"
+note.empty: "Add an inspection note before queueing it."
+note.queued: "The note is queued in preview memory; save it to the Store in the app."
+note.preview: "Preview only · state resets when you reload"
+note.pressure_todo: "Pressure check still to do"
+note.pressure_done: "Pressure check complete"
+sync.connected: "No conflict"
+sync.conflict: "Conflict needs review"
+sync.revision: "Local revision"
+sync.server_revision: "Server revision"
+sync.local_waiting: "Local revision is waiting to sync"
+sync.server_review: "A newer server revision needs your review"
+sync.local_selected: "Your version is queued as a new revision"
+sync.server_selected: "Server revision selected"
+sync.local_preserved: "Your local note is still here. Choose which copy should become current."
+sync.note_required: "Add an inspection note before queueing a revision."
+sync.keep_local: "Keep my note"
+sync.use_server: "Use server note"
+sync.queue_revision: "Queue this revision"
+sync.preview_server: "Preview a newer server revision"
+sync.preview_only: "Preview only · the example server revision is in memory"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+app.name: "Harbour Fieldwork"
+work.today: "Centro de alimentos Northbank · Inspecciones de hoy"
+work.order: "OT-1048 · Compresor de cámara fría"
+work.due: "Banco de compresores A7 · Límite: 14:30"
+work.pressure_complete: "Comprobación de presión completada · pendiente de sincronización"
+work.pressure_next: "Siguiente: comprobar la presión del compresor"
+work.check_complete: "Comprobación de presión completada"
+work.complete_check: "Completar comprobación de presión"
+sync.waiting: "cambios pendientes de sincronización"
+sync.preview_data: "La revisión 3 se ha cargado en la vista previa"
+sync.offline: "Sin conexión"
+sync.preview_queue: "En cola en la memoria de la vista previa · no guardado"
+note.label: "Nota de inspección"
+note.device_label: "Nota de inspección en este dispositivo"
+note.queue: "Poner nota en cola para sincronizar"
+note.empty: "Añade una nota de inspección antes de ponerla en cola."
+note.queued: "La nota está en la memoria de la vista previa; guárdala en Store en la aplicación."
+note.preview: "Solo vista previa · el estado se reinicia al recargar"
+note.pressure_todo: "La comprobación de presión está pendiente"
+note.pressure_done: "Comprobación de presión completada"
+sync.connected: "Sin conflictos"
+sync.conflict: "Conflicto pendiente de revisión"
+sync.revision: "Revisión local"
+sync.server_revision: "Revisión del servidor"
+sync.local_waiting: "La revisión local está pendiente de sincronización"
+sync.server_review: "Hay una revisión del servidor más reciente que debes revisar"
+sync.local_selected: "Tu versión está en cola como una nueva revisión"
+sync.server_selected: "Revisión del servidor seleccionada"
+sync.local_preserved: "Tu nota local sigue aquí. Elige qué versión debe quedar actual."
+sync.note_required: "Añade una nota de inspección antes de poner la revisión en cola."
+sync.keep_local: "Conservar mi nota"
+sync.use_server: "Usar la nota del servidor"
+sync.queue_revision: "Poner esta revisión en cola"
+sync.preview_server: "Vista previa de una revisión más reciente del servidor"
+sync.preview_only: "Solo vista previa · la revisión del servidor está en memoria"
+```
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod i18n;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -107,14 +250,10 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::OfflineNotes::new(
-        "Offline tasks".to_string(),
-        "Save changes locally and sync when online.".to_string(),
-        "Save an offline change".to_string(),
-        "The change is saved locally and queued for synchronisation.".to_string(),
-        "No tasks are stored yet. Add one while online or offline.".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
+    let preview = app::OfflineNotes::new();
+    WebApp::<app::OfflineState, _>::new(preview)
+        .with_state_init(|state| state.queued_changes = 2)
+        .with_env(i18n::preview_env())
         .with_title("Build an offline-first app in Rust")
         .mount("#fission-web-mount")
         .run()
@@ -126,73 +265,109 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Show connection and local queue state: Confirm the initial screen names the task and its next action.
+Show connection and local queue state: Complete the pressure check and confirm the pending-change count increases once. The reducer changes app state; this preview still keeps the seeded work only in memory.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Accept edits while offline
+## Edit a note and model the pending revision
 
-Load persisted state once during startup and show an explicit loading state until hydration finishes. Do not start file or database work while a component is being converted. Keep local edits available when the network request fails.
+The reducer below checks the note, advances its revision and updates the in-memory pending count. That is the whole scope of this step: it does not save to disk or enqueue a network request. To turn this model into an offline app, hydrate Store once during startup and only begin sync after the local write succeeds. The linked mobile field-notes tutorial shows that full flow.
 
-This preview keeps the online toggle, queue count, and error locally. In the app, task data, revisions, and pending sync status belong in `GlobalState` because results may arrive after this screen changes.
-### Save locally first and reject stale sync results
+### Production flow: persist before syncing
 
-Treat the local record as the source the screen renders. When a user edits a note, increment its revision, persist that revision locally, and show the edit immediately. Queue a sync effect only after the local write succeeds. Include the revision in the request and apply a network response only when it still matches the latest local revision; a slow response must not overwrite a newer edit.
+For the real app, render from the local record, persist an edit first, then queue a sync effect. Include the revision in the request and ignore a response that no longer matches the latest revision. That prevents a slow response from replacing newer work.
 
-Render four distinct states: **Saved on this device**, **Syncing**, **Synced**, and **Could not sync**. Keep the offline edit after a failed request and offer **Retry sync** without requiring the user to re-enter it. On restart, hydrate the local queue before starting network work, then retry only records that remain pending.
+After you connect a real service, show distinct **Saved on this device**, **Syncing**, **Synced**, and **Could not sync** states. Keep the edit after a failed request and offer **Retry sync** without making the user re-enter it. On restart, hydrate the local queue before starting network work.
 
-For deterministic tests, use a fake service that completes requests out of order: make revision 1 finish after revision 2, and assert that revision 2 stays visible. Also test no network, a successful retry and an app restart with an unsent edit.
+The linked mobile field-notes tutorial shows the SQLite write path and the reducer that rejects a stale sync completion. It deliberately leaves out the HTTP service; until you add one, test local persistence and dispatch out-of-order completion actions directly rather than claiming a sync or retry works end to end.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
-fission_component! {
-    pub OfflineNotes<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
-        state {
-            online: bool = false,
-            queued: usize = 1,
-            has_error: bool = false,
-        }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NoteNotice {
+    Empty,
+    Queued,
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct OfflineState {
+    pub pressure_checked: bool,
+    pub note: String,
+    pub note_revision: u64,
+    pub queued_changes: u32,
+    note_notice: Option<NoteNotice>,
+}
+
+impl GlobalState for OfflineState {}
+
+#[fission_reducer(CompletePressureCheck)]
+fn complete_pressure_check(state: &mut OfflineState) {
+    state.pressure_checked = true;
+    state.queued_changes = state.queued_changes.saturating_add(1);
+}
+
+#[fission_reducer(QueueInspectionNote)]
+fn queue_inspection_note(state: &mut OfflineState) {
+    if state.note.trim().is_empty() {
+        state.note_notice = Some(NoteNotice::Empty);
+        return;
     }
-    view(preview, _state, cx) {
+
+    state.note_revision = state.note_revision.saturating_add(1);
+    state.queued_changes = state.queued_changes.saturating_add(1);
+    state.note_notice = Some(NoteNotice::Queued);
+}
+
+fission_component! {
+    pub OfflineNotes<OfflineState> {}
+    view(_notes, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let complete = with_reducer!(cx.build, CompletePressureCheck, complete_pressure_check);
+        let queue_note = with_reducer!(cx.build, QueueInspectionNote, queue_inspection_note);
+        let queued = format!("{} {}", state.queued_changes, cx.tr("sync.waiting"));
+        let note_notice = state.note_notice.map(|notice| match notice {
+            NoteNotice::Empty => cx.tr("note.empty"),
+            NoteNotice::Queued => cx.tr("note.queued"),
+        });
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Text(if preview.online { "Connection: Online" } else { "Connection: Offline" }),
-                Button(child: Text(preview.action.clone()),
-                    key: "queue-change",
-                    on_press: reduce { preview.queued += 1; }),
-                Button(child: Text(if preview.online { "Go offline".to_string() } else { "Go online".to_string() }),
-                    key: "connection",
-                    on_press: reduce { preview.online = !preview.online; }),
-                if preview.online && preview.queued > 0 { Button(child: Text("Sync changes"),
-                        key: "sync-queue",
-                        on_press: reduce { preview.queued = 0; }) },
-                Text(format!("{} change(s) waiting",
-                        preview.queued)),
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a sync conflict".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("The server has a newer version. Keep the local draft and review both versions.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
-    )
+    Container(Column(gap: tokens.spacing.m, children: [
+        Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, align_items: ir_op::AlignItems::Center, children: [
+            Column(gap: tokens.spacing.xs, flex_grow: 1.0, children: [
+                Text(cx.tr("app.name")).weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("work.today")).color(tokens.colors.text_secondary),
+            ]),
+            Badge(text: cx.tr("sync.offline")),
+        ]),
+        Divider(),
+        Text(cx.tr("work.order")).weight(tokens.typography.font_weight_semibold),
+        TextInput(label: Some(cx.tr("note.label").into()), bind: state.note, required: true),
+        Row(gap: tokens.spacing.s, children: [
+            Badge(text: queued),
+            Text(format!("{} {}", cx.tr("sync.revision"), state.note_revision))
+                .color(tokens.colors.text_secondary),
+        ]),
+        if let Some(notice) = note_notice {
+            Text(notice).color(tokens.colors.text_secondary)
+        },
+        Text(if state.pressure_checked { cx.tr("note.pressure_done") } else { cx.tr("note.pressure_todo") }),
+        Button(
+            child: Text(cx.tr("note.queue")),
+            key: "queue-inspection-note",
+            on_press: queue_note,
+        ),
+        Button(
+            child: Text(cx.tr("work.complete_check")),
+            key: "pressure-check",
+            disabled: state.pressure_checked,
+            on_press: complete,
+        ),
+        Text(cx.tr("note.preview")).color(tokens.colors.text_secondary),
+    ]))
     .padding_all(tokens.spacing.l)
     .bg(tokens.colors.surface)
     .border(tokens.colors.border, 1.0)
@@ -204,6 +379,7 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod i18n;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -211,14 +387,14 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::OfflineNotes::new(
-        "Offline tasks".to_string(),
-        "Save changes locally and sync when online.".to_string(),
-        "Save an offline change".to_string(),
-        "The change is saved locally and queued for synchronisation.".to_string(),
-        "No tasks are stored yet. Add one while online or offline.".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
+    let preview = app::OfflineNotes::new();
+    WebApp::<app::OfflineState, _>::new(preview)
+        .with_state_init(|state| {
+            state.note = "Pressure is stable at 2.4 bar.".into();
+            state.note_revision = 3;
+            state.queued_changes = 2;
+        })
+        .with_env(i18n::preview_env())
         .with_title("Build an offline-first app in Rust")
         .mount("#fission-web-mount")
         .run()
@@ -230,66 +406,173 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Accept edits while offline: Use the preview control and check that the result matches the action.
+Edit the note and complete the pressure check. The preview updates shared app state only; the queued count resets on reload because this example has no persistent Store write.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Retry sync and explain conflicts
+## Resolve a conflict without losing local work
 
-Give every local change a stable id and version. When local and remote writes finish in a different order, compare versions before accepting a completion so an old response cannot overwrite a newer edit. Show pending, synced and failed states in words.
+Give every local change a stable id and revision. When local and remote writes finish in a different order, compare revisions before accepting a completion so an old response cannot overwrite a newer edit. If the server has a newer version, show both copies and let the technician choose which one to keep.
 
-Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
-The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive. This in-memory preview seeds a newer server revision so you can exercise the conflict choices; it does not pretend to contact a server.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
-fission_component! {
-    pub OfflineNotes<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
-        state {
-            online: bool = false,
-            queued: usize = 1,
-            has_error: bool = false,
-        }
+
+#[derive(Debug, Default, PartialEq)]
+pub struct OfflineState {
+    pub note: String,
+    pub local_revision: u64,
+    pub server_note: Option<String>,
+    pub server_revision: u64,
+    pub queued_changes: u32,
+    sync_status: SyncStatus,
+}
+
+impl GlobalState for OfflineState {}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum SyncStatus {
+    #[default]
+    PreviewData,
+    NoteRequired,
+    LocalQueued,
+    ServerReview,
+    LocalKept,
+    ServerSelected,
+}
+
+#[fission_reducer(SaveLocalRevision)]
+fn save_local_revision(state: &mut OfflineState) {
+    if state.note.trim().is_empty() {
+        state.sync_status = SyncStatus::NoteRequired;
+        return;
     }
-    view(preview, _state, cx) {
+
+    state.local_revision = state.local_revision.saturating_add(1);
+    state.queued_changes = 1;
+    state.sync_status = SyncStatus::LocalQueued;
+}
+
+#[fission_reducer(PreviewServerRevision)]
+fn preview_server_revision(state: &mut OfflineState) {
+    state.server_revision = state
+        .local_revision
+        .max(state.server_revision)
+        .saturating_add(1);
+    state.server_note = Some("Pressure rose to 2.8 bar after the second inspection.".into());
+    state.sync_status = SyncStatus::ServerReview;
+}
+
+#[fission_reducer(KeepLocalRevision)]
+fn keep_local_revision(state: &mut OfflineState) {
+    state.server_note = None;
+    state.local_revision = state
+        .local_revision
+        .max(state.server_revision)
+        .saturating_add(1);
+    state.queued_changes = 1;
+    state.sync_status = SyncStatus::LocalKept;
+}
+
+#[fission_reducer(UseServerRevision)]
+fn use_server_revision(state: &mut OfflineState) {
+    if let Some(server_note) = state.server_note.take() {
+        state.note = server_note;
+        state.local_revision = state.server_revision;
+        state.queued_changes = 0;
+        state.sync_status = SyncStatus::ServerSelected;
+    }
+}
+
+fission_component! {
+    pub OfflineNotes<OfflineState> {}
+    view(_notes, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let save_local = with_reducer!(cx.build, SaveLocalRevision, save_local_revision);
+        let preview_server = with_reducer!(cx.build, PreviewServerRevision, preview_server_revision);
+        let keep_local = with_reducer!(cx.build, KeepLocalRevision, keep_local_revision);
+        let use_server = with_reducer!(cx.build, UseServerRevision, use_server_revision);
+        let sync_message = match state.sync_status {
+            SyncStatus::PreviewData => cx.tr("sync.preview_data"),
+            SyncStatus::NoteRequired => cx.tr("sync.note_required"),
+            SyncStatus::LocalQueued => cx.tr("sync.local_waiting"),
+            SyncStatus::ServerReview => cx.tr("sync.server_review"),
+            SyncStatus::LocalKept => cx.tr("sync.local_selected"),
+            SyncStatus::ServerSelected => cx.tr("sync.server_selected"),
+        };
+        let status = if state.server_note.is_some() {
+            cx.tr("sync.conflict")
+        } else {
+            cx.tr("sync.connected")
+        };
+        let local_revision = format!("{} {}", cx.tr("sync.revision"), state.local_revision);
+        let server_revision = format!("{} {}", cx.tr("sync.server_revision"), state.server_revision);
+        let queued = format!("{} {}", state.queued_changes, cx.tr("sync.waiting"));
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Text(if preview.online { "Connection: Online" } else { "Connection: Offline" }),
-                Button(child: Text(preview.action.clone()),
-                    key: "queue-change",
-                    on_press: reduce { preview.queued += 1; }),
-                Button(child: Text(if preview.online { "Go offline".to_string() } else { "Go online".to_string() }),
-                    key: "connection",
-                    on_press: reduce { preview.online = !preview.online; }),
-                if preview.online && preview.queued > 0 { Button(child: Text("Sync changes"),
-                        key: "sync-queue",
-                        on_press: reduce { preview.queued = 0; }) },
-                Text(format!("{} change(s) waiting",
-                        preview.queued)),
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a sync conflict".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("The server has a newer version. Keep the local draft and review both versions.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
-    )
+    Container(Column(gap: tokens.spacing.m, children: [
+        Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, align_items: ir_op::AlignItems::Center, children: [
+            Column(gap: tokens.spacing.xs, flex_grow: 1.0, children: [
+                Text(cx.tr("app.name")).weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("work.today")).color(tokens.colors.text_secondary),
+            ]),
+            Badge(text: status),
+        ]),
+        Divider(),
+        Text(cx.tr("work.order")).weight(tokens.typography.font_weight_semibold),
+        TextInput(
+            label: Some(cx.tr("note.device_label").into()),
+            bind: state.note,
+            enabled: state.server_note.is_none(),
+            required: true,
+        ),
+        Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+            Badge(text: local_revision),
+            Badge(text: queued),
+        ]),
+        if let Some(server_note) = &state.server_note {
+            Container(Column(gap: tokens.spacing.s, children: [
+                Text(server_revision)
+                    .weight(tokens.typography.font_weight_semibold),
+                Text(server_note.clone()).color(tokens.colors.text_secondary),
+                Text(cx.tr("sync.local_preserved")),
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Button(child: Text(cx.tr("sync.keep_local")), key: "keep-local", on_press: keep_local),
+                    Button(
+                        child: Text(cx.tr("sync.use_server")),
+                        key: "use-server",
+                        variant: ButtonVariant::Outline,
+                        on_press: use_server,
+                    ),
+                ]),
+            ]))
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium)
+        } else {
+            Column(gap: tokens.spacing.s, children: [
+                Text(sync_message).color(tokens.colors.text_secondary),
+                Button(
+                    child: Text(cx.tr("sync.queue_revision")),
+                    key: "save-local-revision",
+                    disabled: state.note.trim().is_empty(),
+                    on_press: save_local,
+                ),
+                Button(
+                    child: Text(cx.tr("sync.preview_server")),
+                    key: "server-revision",
+                    variant: ButtonVariant::Outline,
+                    on_press: preview_server,
+                ),
+            ])
+        },
+        Text(cx.tr("sync.preview_only"))
+            .color(tokens.colors.text_secondary),
+    ]))
     .padding_all(tokens.spacing.l)
     .bg(tokens.colors.surface)
     .border(tokens.colors.border, 1.0)
@@ -301,6 +584,7 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod i18n;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -308,14 +592,15 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::OfflineNotes::new(
-        "Offline tasks".to_string(),
-        "Save changes locally and sync when online.".to_string(),
-        "Save an offline change".to_string(),
-        "The change is saved locally and queued for synchronisation.".to_string(),
-        "No tasks are stored yet. Add one while online or offline.".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
+    let preview = app::OfflineNotes::new();
+    WebApp::<app::OfflineState, _>::new(preview)
+        .with_state_init(|state| {
+            state.note = "Pressure is stable at 2.4 bar.".into();
+            state.local_revision = 3;
+            state.server_revision = 4;
+            state.queued_changes = 1;
+        })
+        .with_env(i18n::preview_env())
         .with_title("Build an offline-first app in Rust")
         .mount("#fission-web-mount")
         .run()
@@ -327,11 +612,11 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Retry sync and explain conflicts: Trigger the error preview and confirm a recovery action remains available.
+Resolve a conflict: Save a local revision, load the example server revision, then choose which inspection note to keep. The local copy remains available until you choose; the preview does not claim to persist or sync either version.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-## Run, test and build the finished project
+## Run and test the state model
 
 From the project root, run the checks in order:
 
@@ -339,12 +624,10 @@ From the project root, run the checks in order:
 fission doctor --project-dir .
 cargo test
 fission build --target web --project-dir .
-fission build --target android --project-dir .
-fission build --target ios --project-dir .
 fission test --target web --project-dir .
 ```
 
-Expected result: Users can edit offline, see queued work, retry after reconnecting, and resolve conflicts without losing a draft.
+Expected result: the preview lets you model a local edit, pending sync state and conflict choice. It does not persist changes or contact a server. Follow the [mobile field-notes tutorial](/blog/build-an-offline-first-notes-app-for-android-and-ios/) for the SQLite-backed workflow.
 
 ## Related Fission reference
 

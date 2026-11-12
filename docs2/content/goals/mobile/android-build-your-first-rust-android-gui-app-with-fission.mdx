@@ -18,7 +18,7 @@ outcomes:
 
 The last check before a weekend hike is easy to get wrong. The water filter is packed—but are the spare batteries? In this tutorial, we will build Harbour Trail, a checklist that shows each item's category and quantity, marks gear as packed, and hides completed rows while you finish the rest.
 
-The checklist is small, but it behaves like a real task. Its summary updates as you pack, the button tells you what will happen next, and you can put an item back on the list if it comes out of the bag. The data stays in memory for now; we can add persistence later without changing these interactions.
+The checklist is small, but it behaves like a real task. Its summary updates as you pack, the button tells you what will happen next, and you can put an item back on the list if it comes out of the bag. The data stays in memory for now; we can add persistence later without changing these interactions. The browser preview gets sample gear from its preview shell. The shared component never invents production data, so a native app with no loaded checklist shows an honest empty state.
 
 ## Create an Android project
 
@@ -30,6 +30,8 @@ Fission generates the Android host; the checklist stays in shared Rust code. If 
 cargo install cargo-fission
 fission init harbour-trail
 cd harbour-trail
+cargo add serde --features derive
+cargo add serde_yaml
 fission add-target android --project-dir .
 ```
 </TabItem>
@@ -55,31 +57,41 @@ Keep the checklist model in shared Rust. The generated host handles Android star
 
 Each row needs enough detail to make “done” mean something. The name tells you what to find, the category groups related gear, and the quantity makes clear whether one or both bottles are packed. A text status keeps the information clear without relying on colour.
 
-Start with an item record and five essentials to check before setting out. Two items are already packed, so the summary is useful on first launch. The remaining bottle, first-aid kit, and headlamp give us clear actions to add in the next step.
+Start with an item record and five essentials to check before setting out. The preview shell supplies these sample items as component props; the component itself only renders the data it receives. In the next step, the shared app state owns checklist changes and the preview shell seeds that state for the browser. A native app can instead load its own checklist and show the empty state until one is available.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
-use fission::prelude::*;
+use std::collections::HashMap;
 
-#[derive(Clone, Debug, PartialEq)]
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(yaml).expect("valid Harbour Trail translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PackItem {
     pub id: u32,
-    pub name: &'static str,
-    pub category: &'static str,
+    pub name_key: String,
+    pub category_key: String,
     pub quantity: u32,
     pub packed: bool,
-}
-
-fn starter_items() -> Vec<PackItem> {
-    vec![
-        PackItem { id: 11, name: "Water filter", category: "Water", quantity: 1, packed: true },
-        PackItem { id: 12, name: "Insulated bottles", category: "Water", quantity: 2, packed: false },
-        PackItem { id: 13, name: "First-aid kit", category: "Safety", quantity: 1, packed: false },
-        PackItem { id: 14, name: "Rain shell", category: "Clothing", quantity: 1, packed: true },
-        PackItem { id: 15, name: "Headlamp and spare batteries", category: "Lighting", quantity: 1, packed: false },
-    ]
 }
 
 fission_component! {
@@ -89,14 +101,14 @@ fission_component! {
     } =>
     Container(
         Column(gap: tokens.spacing.xs, children: [
-            Text(row.item.name).weight(tokens.typography.font_weight_semibold),
+            Text(cx.tr(&row.item.name_key)).weight(tokens.typography.font_weight_semibold),
             Text(format!(
                 "{} · {} {}",
-                row.item.category,
+                cx.tr(&row.item.category_key),
                 row.item.quantity,
-                if row.item.quantity == 1 { "item" } else { "items" }
+                cx.tr(if row.item.quantity == 1 { "pack.unit.one" } else { "pack.unit.many" })
             )).color(tokens.colors.text_secondary),
-            Text(if row.item.packed { "Packed" } else { "Still to pack" }),
+            Text(cx.tr(if row.item.packed { "pack.status.packed" } else { "pack.status.remaining" })),
         ]),
     )
     .padding_all(tokens.spacing.m)
@@ -107,53 +119,64 @@ fission_component! {
 }
 
 fission_component! {
-    pub PackingChecklist<()> {}
-    view(_checklist, _state, cx) {
+    pub PackingChecklist<()> { items: Vec<PackItem> }
+    view(checklist, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let items = starter_items();
+        let items = &checklist.items;
         let packed = items.iter().filter(|item| item.packed).count();
         let remaining = items.len() - packed;
     } =>
     SemanticsRegion(
         identifier: Some("packing-checklist".to_string()),
-        label: Some("Harbour trail packing checklist".to_string()),
-        child: Container(
-            Column(
-                align_items: ir_op::AlignItems::Center,
-                children: [
-                    Container(
-                        Column(gap: tokens.spacing.l, children: [
-                            Column(gap: tokens.spacing.xs, children: [
-                                Text("Harbour Trail · Weekend pack")
-                                    .weight(tokens.typography.font_weight_bold),
-                                Text("A five-item essentials check before leaving the trailhead.")
-                                    .color(tokens.colors.text_secondary),
-                            ]),
-                            Column(gap: tokens.spacing.xs, children: [
-                                Text(format!("{} of {} packed", packed, items.len()))
-                                    .weight(tokens.typography.font_weight_semibold),
-                                Text(format!("{} still to pack", remaining))
-                                    .color(tokens.colors.text_secondary),
-                            ]),
-                            Column(gap: tokens.spacing.s, children: [
-                                for item in items.iter() {
-                                    PackItemRow(item.clone(), key: item.id)
-                                },
-                            ]),
-                        ]),
-                    )
-                    .padding_all(tokens.spacing.l)
-                    .bg(tokens.colors.background)
-                    .width_length(Length::clamp(
-                        Length::points(0.0),
-                        Length::percent(100.0),
-                        Length::points(900.0),
-                    )),
-                ],
+        label: Some(cx.tr("pack.accessibility.label")),
+        child: SafeArea(
+            child: Scroll(
+                flex_grow: 1.0,
+                semantic_label: Some(cx.tr("pack.accessibility.label")),
+                child: Container(
+                    Column(
+                        align_items: ir_op::AlignItems::Center,
+                        children: [
+                            Container(
+                                Column(gap: tokens.spacing.l, children: [
+                                    Column(gap: tokens.spacing.xs, children: [
+                                        Text(cx.tr("pack.title"))
+                                            .weight(tokens.typography.font_weight_bold),
+                                        Text(cx.tr("pack.subtitle"))
+                                            .color(tokens.colors.text_secondary),
+                                    ]),
+                                    Column(gap: tokens.spacing.xs, children: [
+                                        Text(format!("{} {}/{}", cx.tr("pack.summary.packed"), packed, items.len()))
+                                            .weight(tokens.typography.font_weight_semibold),
+                                        Text(format!("{} {}", remaining, cx.tr("pack.summary.remaining")))
+                                            .color(tokens.colors.text_secondary),
+                                    ]),
+                                    if items.is_empty() {
+                                        Text(cx.tr("pack.empty"))
+                                            .color(tokens.colors.text_secondary)
+                                    } else {
+                                        Column(gap: tokens.spacing.s, children: [
+                                            for item in items.iter() {
+                                                PackItemRow(item.clone(), key: item.id)
+                                            },
+                                        ])
+                                    },
+                                ]),
+                            )
+                            .padding_all(tokens.spacing.l)
+                            .bg(tokens.colors.background)
+                            .width_length(Length::clamp(
+                                Length::points(0.0),
+                                Length::percent(100.0),
+                                Length::points(900.0),
+                            )),
+                        ],
+                    ),
+                )
+                .width_length(Length::percent(100.0))
+                .bg(tokens.colors.background),
             ),
-        )
-        .width_length(Length::percent(100.0))
-        .bg(tokens.colors.background),
+        ),
     )
 }
 ```
@@ -162,6 +185,8 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+#[path = "../preview/fixtures.rs"]
+mod fixtures;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -169,12 +194,77 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::PackingChecklist::new())
+    WebApp::<(), _>::new(app::PackingChecklist::new(fixtures::starter_items()))
+        .with_env(app::create_env())
         .with_title("Harbour Trail packing checklist")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="preview/fixtures.rs">
+<!-- fission:file path="preview/fixtures.rs" -->
+```rust
+use crate::app::PackItem;
+
+pub fn starter_items() -> Vec<PackItem> {
+    vec![
+        PackItem { id: 11, name_key: "pack.item.water_filter".into(), category_key: "pack.category.water".into(), quantity: 1, packed: true },
+        PackItem { id: 12, name_key: "pack.item.bottles".into(), category_key: "pack.category.water".into(), quantity: 2, packed: false },
+        PackItem { id: 13, name_key: "pack.item.first_aid".into(), category_key: "pack.category.safety".into(), quantity: 1, packed: false },
+        PackItem { id: 14, name_key: "pack.item.rain_shell".into(), category_key: "pack.category.clothing".into(), quantity: 1, packed: true },
+        PackItem { id: 15, name_key: "pack.item.headlamp".into(), category_key: "pack.category.lighting".into(), quantity: 1, packed: false },
+    ]
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+pack.accessibility.label: "Harbour Trail packing checklist"
+pack.title: "Harbour Trail · Weekend pack"
+pack.subtitle: "Five essentials to check before leaving the trailhead."
+pack.empty: "No gear has been added to this checklist yet."
+pack.summary.packed: "Packed"
+pack.summary.remaining: "still to pack"
+pack.unit.one: "item"
+pack.unit.many: "items"
+pack.category.water: "Water"
+pack.category.safety: "Safety"
+pack.category.clothing: "Clothing"
+pack.category.lighting: "Lighting"
+pack.item.water_filter: "Water filter"
+pack.item.bottles: "Insulated bottles"
+pack.item.first_aid: "First-aid kit"
+pack.item.rain_shell: "Rain shell"
+pack.item.headlamp: "Headlamp and spare batteries"
+pack.status.packed: "Packed"
+pack.status.remaining: "Still to pack"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+pack.accessibility.label: "Lista de equipaje de Harbour Trail"
+pack.title: "Harbour Trail · Equipaje para el fin de semana"
+pack.subtitle: "Cinco cosas esenciales antes de salir al sendero."
+pack.empty: "Todavía no se ha añadido equipo a esta lista."
+pack.summary.packed: "Preparados"
+pack.summary.remaining: "por preparar"
+pack.unit.one: "artículo"
+pack.unit.many: "artículos"
+pack.category.water: "Agua"
+pack.category.safety: "Seguridad"
+pack.category.clothing: "Ropa"
+pack.category.lighting: "Iluminación"
+pack.item.water_filter: "Filtro de agua"
+pack.item.bottles: "Botellas térmicas"
+pack.item.first_aid: "Botiquín"
+pack.item.rain_shell: "Chaqueta impermeable"
+pack.item.headlamp: "Linterna frontal y pilas de repuesto"
+pack.status.packed: "Preparado"
+pack.status.remaining: "Por preparar"
 ```
 </TabItem>
 </Tabs>
@@ -188,96 +278,85 @@ Find the headlamp row and note its category and quantity. The summary should rep
 <!-- fission:step id="pack-and-filter" -->
 ## Mark gear packed and focus on what remains
 
-The summary and each row need the same packed status, so the item list belongs in shared application state. A typed reducer changes one item by its stable ID and updates the confirmation. The “show only what is left” switch affects this screen alone, so keep it in the checklist component's retained local state.
+The summary and each row need the same packed status, so the item list belongs in shared application state. An inline `reduce` block changes one item by its stable ID and updates the confirmation. The “show only what is left” switch affects this screen alone, so keep it in the checklist component's retained local state.
 
-Each row uses the reusable `PackItemRow` component. Its item ID keeps the row's identity stable when filtering removes completed gear. After the reducer runs, the action changes from “Mark packed” to “Unpack item”, so the next step is always clear.
+Each row uses the reusable `PackItemRow` component. Its item ID keeps the row's identity stable when filtering removes completed gear. After the generated reducer runs, the action changes from “Mark packed” to “Unpack item”, so the next step is always clear.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
-use fission::prelude::*;
+use std::collections::HashMap;
 
-#[derive(Clone, Debug, PartialEq)]
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(yaml).expect("valid Harbour Trail translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PackItem {
     pub id: u32,
-    pub name: &'static str,
-    pub category: &'static str,
+    pub name_key: String,
+    pub category_key: String,
     pub quantity: u32,
     pub packed: bool,
 }
 
-fn starter_items() -> Vec<PackItem> {
-    vec![
-        PackItem { id: 11, name: "Water filter", category: "Water", quantity: 1, packed: true },
-        PackItem { id: 12, name: "Insulated bottles", category: "Water", quantity: 2, packed: false },
-        PackItem { id: 13, name: "First-aid kit", category: "Safety", quantity: 1, packed: false },
-        PackItem { id: 14, name: "Rain shell", category: "Clothing", quantity: 1, packed: true },
-        PackItem { id: 15, name: "Headlamp and spare batteries", category: "Lighting", quantity: 1, packed: false },
-    ]
-}
-
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct PackListState {
     pub items: Vec<PackItem>,
-    pub feedback: String,
-}
-
-impl Default for PackListState {
-    fn default() -> Self {
-        Self {
-            items: starter_items(),
-            feedback: "Check each item as it goes into your pack.".to_string(),
-        }
-    }
+    pub last_change: Option<(u32, bool)>,
 }
 impl GlobalState for PackListState {}
 
-#[fission_reducer(TogglePacked)]
-pub fn on_toggle_packed(state: &mut PackListState, item_id: u32) {
-    let changed = state.items.iter_mut().find(|item| item.id == item_id).map(|item| {
-        item.packed = !item.packed;
-        (item.name, item.packed)
-    });
-    if let Some((name, packed)) = changed {
-        state.feedback = if packed {
-            format!("{} marked packed.", name)
-        } else {
-            format!("{} moved back to the packing list.", name)
-        };
-    }
-}
-
 fission_component! {
     pub PackItemRow<PackListState> { item: PackItem }
-    view(row, _state, cx) {
+    view(row, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
         Column(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Start, children: [
             Column(gap: tokens.spacing.xs, children: [
-                Text(row.item.name).weight(tokens.typography.font_weight_semibold),
+                Text(cx.tr(&row.item.name_key)).weight(tokens.typography.font_weight_semibold),
                 Text(format!(
                     "{} · {} {}",
-                    row.item.category,
+                    cx.tr(&row.item.category_key),
                     row.item.quantity,
-                    if row.item.quantity == 1 { "item" } else { "items" }
+                    cx.tr(if row.item.quantity == 1 { "pack.unit.one" } else { "pack.unit.many" })
                 )).color(tokens.colors.text_secondary),
-                Text(if row.item.packed { "Packed" } else { "Still to pack" }),
+                Text(cx.tr(if row.item.packed { "pack.status.packed" } else { "pack.status.remaining" })),
             ]),
             Button(
-                child: Text(if row.item.packed { "Unpack item" } else { "Mark packed" }),
+                child: Text(cx.tr(if row.item.packed { "pack.action.unpack" } else { "pack.action.mark" })),
                 key: "toggle-packed",
                 variant: if row.item.packed {
                     ButtonVariant::Outline
                 } else {
                     ButtonVariant::Primary
                 },
-                on_press: with_reducer!(
-                    cx.build,
-                    TogglePacked(row.item.id),
-                    on_toggle_packed,
-                ),
+                on_press: reduce {
+                    if let Some(item) = state.items.iter_mut().find(|item| item.id == row.item.id) {
+                        item.packed = !item.packed;
+                        let packed = item.packed;
+                        state.last_change = Some((row.item.id, packed));
+                    }
+                },
             ),
         ]),
     )
@@ -302,64 +381,80 @@ fission_component! {
             .filter(|item| !checklist.only_unpacked || !item.packed)
             .cloned()
             .collect();
+        let feedback = app.last_change
+            .and_then(|(item_id, packed)| {
+                let item = app.items.iter().find(|item| item.id == item_id)?;
+                Some(format!(
+                    "{} {}",
+                    cx.tr(if packed { "pack.feedback.packed" } else { "pack.feedback.unpacked" }),
+                    cx.tr(&item.name_key),
+                ))
+            })
+            .unwrap_or_else(|| cx.tr("pack.feedback.ready"));
     } =>
     SemanticsRegion(
         identifier: Some("packing-checklist".to_string()),
-        label: Some("Harbour trail packing checklist".to_string()),
-        child: Container(
-            Column(
-                align_items: ir_op::AlignItems::Center,
-                children: [
-                    Container(
-                        Column(gap: tokens.spacing.l, children: [
-                            Column(gap: tokens.spacing.xs, children: [
-                                Text("Harbour Trail · Weekend pack")
-                                    .weight(tokens.typography.font_weight_bold),
-                                Text("Check the essentials before leaving the trailhead.")
-                                    .color(tokens.colors.text_secondary),
-                            ]),
-                            Column(gap: tokens.spacing.xs, children: [
-                                Text(format!("{} of {} packed", packed, app.items.len()))
-                                    .weight(tokens.typography.font_weight_semibold),
-                                Text(format!("{} still to pack", remaining))
-                                    .color(tokens.colors.text_secondary),
-                            ]),
-                            Button(
-                                child: Text(if checklist.only_unpacked {
-                                    "Show the full checklist"
-                                } else {
-                                    "Show only what is left"
-                                }),
-                                key: "toggle-remaining-filter",
-                                variant: ButtonVariant::Outline,
-                                on_press: reduce {
-                                    checklist.only_unpacked = !checklist.only_unpacked;
-                                },
-                            ),
-                            if visible_items.is_empty() {
-                                Text("Everything on this checklist is packed.")
-                            } else {
-                                Column(gap: tokens.spacing.s, children: [
-                                    for item in visible_items.iter() {
-                                        PackItemRow(item.clone(), key: item.id)
+        label: Some(cx.tr("pack.accessibility.label")),
+        child: SafeArea(
+            child: Scroll(
+                flex_grow: 1.0,
+                semantic_label: Some(cx.tr("pack.accessibility.label")),
+                child: Container(
+                    Column(
+                        align_items: ir_op::AlignItems::Center,
+                        children: [
+                            Container(
+                                Column(gap: tokens.spacing.l, children: [
+                                    Column(gap: tokens.spacing.xs, children: [
+                                        Text(cx.tr("pack.title"))
+                                            .weight(tokens.typography.font_weight_bold),
+                                        Text(cx.tr("pack.subtitle"))
+                                            .color(tokens.colors.text_secondary),
+                                    ]),
+                                    Column(gap: tokens.spacing.xs, children: [
+                                        Text(format!("{} {}/{}", cx.tr("pack.summary.packed"), packed, app.items.len()))
+                                            .weight(tokens.typography.font_weight_semibold),
+                                        Text(format!("{} {}", remaining, cx.tr("pack.summary.remaining")))
+                                            .color(tokens.colors.text_secondary),
+                                    ]),
+                                    Button(
+                                        child: Text(cx.tr(if checklist.only_unpacked {
+                                            "pack.filter.all"
+                                        } else {
+                                            "pack.filter.remaining"
+                                        })),
+                                        key: "toggle-remaining-filter",
+                                        variant: ButtonVariant::Outline,
+                                        on_press: reduce {
+                                            checklist.only_unpacked = !checklist.only_unpacked;
+                                        },
+                                    ),
+                                    if visible_items.is_empty() {
+                                        Text(cx.tr(if app.items.is_empty() { "pack.empty" } else { "pack.complete" }))
+                                    } else {
+                                        Column(gap: tokens.spacing.s, children: [
+                                            for item in visible_items.iter() {
+                                                PackItemRow(item.clone(), key: item.id)
+                                            },
+                                        ])
                                     },
-                                ])
-                            },
-                            Text(app.feedback.clone()).color(tokens.colors.text_secondary),
-                        ]),
-                    )
-                    .padding_all(tokens.spacing.l)
-                    .bg(tokens.colors.background)
-                    .width_length(Length::clamp(
-                        Length::points(0.0),
-                        Length::percent(100.0),
-                        Length::points(900.0),
-                    )),
-                ],
+                                    Text(feedback).color(tokens.colors.text_secondary),
+                                ]),
+                            )
+                            .padding_all(tokens.spacing.l)
+                            .bg(tokens.colors.background)
+                            .width_length(Length::clamp(
+                                Length::points(0.0),
+                                Length::percent(100.0),
+                                Length::points(900.0),
+                            )),
+                        ],
+                    ),
+                )
+                .width_length(Length::percent(100.0))
+                .bg(tokens.colors.background),
             ),
-        )
-        .width_length(Length::percent(100.0))
-        .bg(tokens.colors.background),
+        ),
     )
 }
 ```
@@ -369,7 +464,7 @@ fission_component! {
 ```rust
 mod app;
 
-use app::PackListState;
+use app::{PackItem, PackListState};
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
@@ -377,11 +472,85 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     WebApp::<PackListState, _>::new(app::PackingChecklist::new())
+        .with_env(app::create_env())
+        .with_state_init(|state| {
+            state.items = vec![
+                PackItem { id: 11, name_key: "pack.item.water_filter".into(), category_key: "pack.category.water".into(), quantity: 1, packed: true },
+                PackItem { id: 12, name_key: "pack.item.bottles".into(), category_key: "pack.category.water".into(), quantity: 2, packed: false },
+                PackItem { id: 13, name_key: "pack.item.first_aid".into(), category_key: "pack.category.safety".into(), quantity: 1, packed: false },
+                PackItem { id: 14, name_key: "pack.item.rain_shell".into(), category_key: "pack.category.clothing".into(), quantity: 1, packed: true },
+                PackItem { id: 15, name_key: "pack.item.headlamp".into(), category_key: "pack.category.lighting".into(), quantity: 1, packed: false },
+            ];
+        })
         .with_title("Harbour Trail packing checklist")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+pack.accessibility.label: "Harbour Trail packing checklist"
+pack.title: "Harbour Trail · Weekend pack"
+pack.subtitle: "Check the essentials before leaving the trailhead."
+pack.summary.packed: "Packed"
+pack.summary.remaining: "still to pack"
+pack.unit.one: "item"
+pack.unit.many: "items"
+pack.category.water: "Water"
+pack.category.safety: "Safety"
+pack.category.clothing: "Clothing"
+pack.category.lighting: "Lighting"
+pack.item.water_filter: "Water filter"
+pack.item.bottles: "Insulated bottles"
+pack.item.first_aid: "First-aid kit"
+pack.item.rain_shell: "Rain shell"
+pack.item.headlamp: "Headlamp and spare batteries"
+pack.status.packed: "Packed"
+pack.status.remaining: "Still to pack"
+pack.action.unpack: "Unpack item"
+pack.action.mark: "Mark packed"
+pack.filter.all: "Show the full checklist"
+pack.filter.remaining: "Show only what is left"
+pack.empty: "Your packing list has not loaded yet. Connect it to saved or service data before use."
+pack.complete: "Everything on this checklist is packed."
+pack.feedback.ready: "The list is ready to check."
+pack.feedback.packed: "Packed:"
+pack.feedback.unpacked: "Back on the list:"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+pack.accessibility.label: "Lista de equipaje de Harbour Trail"
+pack.title: "Harbour Trail · Equipaje para el fin de semana"
+pack.subtitle: "Comprueba lo esencial antes de salir al sendero."
+pack.summary.packed: "Preparados"
+pack.summary.remaining: "por preparar"
+pack.unit.one: "artículo"
+pack.unit.many: "artículos"
+pack.category.water: "Agua"
+pack.category.safety: "Seguridad"
+pack.category.clothing: "Ropa"
+pack.category.lighting: "Iluminación"
+pack.item.water_filter: "Filtro de agua"
+pack.item.bottles: "Botellas térmicas"
+pack.item.first_aid: "Botiquín"
+pack.item.rain_shell: "Chaqueta impermeable"
+pack.item.headlamp: "Linterna frontal y pilas de repuesto"
+pack.status.packed: "Preparado"
+pack.status.remaining: "Por preparar"
+pack.action.unpack: "Sacar del equipaje"
+pack.action.mark: "Marcar como preparado"
+pack.filter.all: "Mostrar toda la lista"
+pack.filter.remaining: "Mostrar solo lo que falta"
+pack.empty: "La lista aún no se ha cargado. Conéctala a datos guardados o a un servicio antes de usarla."
+pack.complete: "Todo lo de esta lista está preparado."
+pack.feedback.ready: "La lista está lista para revisar."
+pack.feedback.packed: "Preparado:"
+pack.feedback.unpacked: "Vuelve a la lista:"
 ```
 </TabItem>
 </Tabs>
@@ -395,7 +564,7 @@ Mark the first-aid kit and headlamp packed; the summary should move from two of 
 <!-- fission:step id="run-on-android" -->
 ## Run the checklist on Android
 
-The component and reducer stay in shared Rust. Fission's Android target supplies the native shell, so the emulator and browser preview use the same checklist rules. The sample list resets when the app restarts because we have not added storage. The Android build is still a native app, not a web page inside a browser.
+The component and reducer stay in shared Rust. Fission's Android target supplies the native shell, so the emulator and browser preview use the same checklist rules. The browser preview seeds sample rows for this tutorial; the native app starts empty until real checklist data is loaded. The Android build is still a native app, not a web page inside a browser.
 
 Run these commands from the project root. Start with the emulator, then repeat the pack and unpack flow on a connected phone when you need to check a device build.
 
@@ -423,6 +592,7 @@ const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn mobile_app() -> MobileApp<PackListState, PackingChecklist> {
     let app = MobileApp::<PackListState, _>::new(PackingChecklist::new())
+        .with_env(app::create_env())
         .with_title("Harbour Trail packing checklist");
     #[cfg(target_os = "android")]
     let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
@@ -432,12 +602,15 @@ fn mobile_app() -> MobileApp<PackListState, PackingChecklist> {
 #[cfg(target_arch = "wasm32")]
 fn web_app() -> WebApp<PackListState, PackingChecklist> {
     WebApp::<PackListState, _>::new(PackingChecklist::new())
+        .with_env(app::create_env())
         .with_title("Harbour Trail packing checklist")
 }
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> anyhow::Result<()> {
-    DesktopApp::<PackListState, _>::new(PackingChecklist::new()).run()
+    DesktopApp::<PackListState, _>::new(PackingChecklist::new())
+        .with_env(app::create_env())
+        .run()
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]

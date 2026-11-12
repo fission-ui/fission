@@ -23,6 +23,7 @@ Create the project and add the target used by this guide. Fission generates the 
 cargo install cargo-fission
 fission init android-pick-read-and-export-files-on-android
 cd android-pick-read-and-export-files-on-android
+cargo add serde_yaml
 fission add-target android --project-dir .
 fission add-capability filesystem --project-dir .
 ```
@@ -57,42 +58,46 @@ Start with the document screen. The next section opens a directory through Fissi
 use fission::prelude::*;
 
 fission_component! {
-    pub AndroidFileTransfer<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-    }
-    view(screen, _state, cx) {
+    pub AndroidPickReadAndExportFilesOnAndroid<()> {}
+    view(_screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("android-pick-read-and-export-files-on-android".to_string()),
+        label: Some(cx.tr("preview.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
                 Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
                     Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
+                        Text(cx.tr("preview.app.name"))
                             .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
+                        Text(cx.tr("preview.route"))
                             .color(tokens.colors.text_secondary),
                     ]),
                     Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
+                    Badge(text: cx.tr("preview.status.ready")),
                 ]),
                 Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
-                        .color(tokens.colors.text_secondary),
-                ]),
+                Text(cx.tr("preview.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("preview.summary"))
+                    .color(tokens.colors.text_secondary),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("preview.context.title"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("preview.context.one")),
+                        Text(cx.tr("preview.context.two")),
+                        Text(cx.tr("preview.result"))
+                            .color(tokens.colors.text_secondary),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Text(cx.tr("preview.footer"))
+                    .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -101,6 +106,7 @@ fission_component! {
         .border_radius(tokens.radii.large),
     )
 }
+
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
@@ -111,23 +117,63 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidFileTransfer::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::AndroidPickReadAndExportFilesOnAndroid)
+        .with_env(preview_env())
+        .with_title("Northbank Field Service")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+preview.app.name: "Northbank Field Service"
+preview.route: "Service visit · Android"
+preview.title: "Inspection evidence folder"
+preview.summary: "Choose a folder before reading a report or exporting a completed inspection."
+preview.context.title: "WO-1048 · Evidence"
+preview.context.one: "Expected file: reports/inspection.md"
+preview.context.two: "The app keeps a persisted access key, not a temporary picker handle."
+preview.result: "No folder handle exists in this preview. Android's system document-tree picker supplies the real access grant."
+preview.footer: "Use the Android document picker on a device to verify permission, cancellation and handle restoration."
+preview.status.ready: "System picker not opened"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+preview.app.name: "Northbank Field Service"
+preview.route: "Visita de servicio · Android"
+preview.title: "Carpeta de pruebas de inspección"
+preview.summary: "Elige una carpeta antes de leer un informe o exportar una inspección terminada."
+preview.context.title: "OT-1048 · Pruebas"
+preview.context.one: "Archivo esperado: reports/inspection.md"
+preview.context.two: "La app conserva una clave de acceso, no un identificador temporal del selector."
+preview.result: "Esta vista previa no tiene un identificador de carpeta. El selector de documentos del sistema Android concede el acceso real."
+preview.footer: "Usa el selector de documentos de Android para comprobar permisos, cancelación y restauración del identificador."
+preview.status.ready: "Selector del sistema sin abrir"
 ```
 </TabItem>
 </Tabs>

@@ -56,42 +56,79 @@ Give the tests one clear task to exercise. We’ll build that path first, then t
 use fission::prelude::*;
 
 fission_component! {
-    pub AndroidDeviceTesting<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub AndroidTestAndroidAppBehaviourOnTheEmulatorAndPhone<()> {
+        state {
+            selection: usize = 0,
         }
     }
-    view(screen, _state, cx) {
+    view(panel, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let (case_title, detail, command) = match panel.selection {
+            0 => (cx.tr("preview.case.one"), cx.tr("preview.detail.one"), cx.tr("preview.command.one")),
+            1 => (cx.tr("preview.case.two"), cx.tr("preview.detail.two"), cx.tr("preview.command.two")),
+            _ => (cx.tr("preview.case.three"), cx.tr("preview.detail.three"), cx.tr("preview.command.three")),
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("android-test-android-app-behaviour-on-the-emulator-and-phone".to_string()),
+        label: Some(cx.tr("preview.screen.label")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
                 Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
                     Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
+                        Text(cx.tr("preview.app.name"))
                             .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
+                        Text(cx.tr("preview.route"))
                             .color(tokens.colors.text_secondary),
                     ]),
                     Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
+                    Badge(text: cx.tr("preview.badge")),
                 ]),
                 Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
+                Text(cx.tr("preview.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("preview.summary"))
+                    .color(tokens.colors.text_secondary),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(case_title)
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(detail)
+                            .color(tokens.colors.text_secondary),
+                        Divider(),
+                        Text(cx.tr("preview.command.label"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(command),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
                 Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
+                    Button(
+                        child: Text(cx.tr("preview.action.previous")),
+                        key: "previous-case",
+                        variant: ButtonVariant::Outline,
+                        on_press: reduce {
+                            panel.selection = panel.selection.saturating_sub(1);
+                        },
+                    ),
+                    Spacer(flex_grow: 1.0),
+                    Text(format!("{} {}", cx.tr("preview.case.count"), panel.selection + 1))
                         .color(tokens.colors.text_secondary),
+                    Spacer(flex_grow: 1.0),
+                    Button(
+                        child: Text(cx.tr("preview.action.next")),
+                        key: "next-case",
+                        variant: ButtonVariant::Primary,
+                        on_press: reduce {
+                            panel.selection = (panel.selection + 1) % 3;
+                        },
+                    ),
                 ]),
+                Text(cx.tr("preview.footer"))
+                    .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -110,23 +147,83 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidDeviceTesting::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::AndroidTestAndroidAppBehaviourOnTheEmulatorAndPhone)
+        .with_env(preview_env())
+        .with_title("Northbank Field Service")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+preview.screen.label: "Test Android app behaviour"
+preview.app.name: "Fission Android project"
+preview.route: "Developer setup · Android"
+preview.badge: "Test layers"
+preview.title: "Test Android app behaviour"
+preview.summary: "Choose a stage to see a concrete next check. The browser preview does not run commands on your device."
+preview.case.count: "Scenario"
+preview.command.label: "Next command or file"
+preview.case.one: "Test app logic without a device"
+preview.detail.one: "Run Rust tests first to catch state and business-rule failures before involving the native host."
+preview.command.one: "cargo test"
+preview.case.two: "Smoke-test the generated host"
+preview.detail.two: "Run Fission tests for Android, then check the app on a booted emulator."
+preview.command.two: "fission test --target android --project-dir ."
+preview.case.three: "Verify device-only behaviour"
+preview.detail.three: "Use a physical phone for permission, lifecycle and hardware paths that a browser preview cannot exercise."
+preview.command.three: "adb devices -l"
+preview.action.previous: "Previous"
+preview.action.next: "Next scenario"
+preview.footer: "Use terminal output to confirm the real host state."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+preview.screen.label: "Prueba el comportamiento de Android"
+preview.app.name: "Proyecto Android Fission"
+preview.route: "Configuración del proyecto · Android"
+preview.badge: "Capas de prueba"
+preview.title: "Prueba el comportamiento de Android"
+preview.summary: "Elige una etapa para ver una comprobación concreta. La vista web no ejecuta comandos en tu dispositivo."
+preview.case.count: "Caso"
+preview.command.label: "Siguiente comando o archivo"
+preview.case.one: "Prueba la lógica sin dispositivo"
+preview.detail.one: "Ejecuta primero las pruebas Rust para encontrar errores de estado y reglas antes de usar el host nativo."
+preview.command.one: "cargo test"
+preview.case.two: "Prueba el host generado"
+preview.detail.two: "Ejecuta las pruebas de Fission para Android y comprueba la app en un emulador iniciado."
+preview.command.two: "fission test --target android --project-dir ."
+preview.case.three: "Verifica el comportamiento del dispositivo"
+preview.detail.three: "Usa un teléfono real para permisos, ciclo de vida y hardware que la vista del navegador no puede probar."
+preview.command.three: "adb devices -l"
+preview.action.previous: "Anterior"
+preview.action.next: "Siguiente caso"
+preview.footer: "Usa la salida del terminal para confirmar el estado real del host."
 ```
 </TabItem>
 </Tabs>

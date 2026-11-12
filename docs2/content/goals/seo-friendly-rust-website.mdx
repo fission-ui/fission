@@ -25,6 +25,7 @@ Install the Fission CLI and scaffold the Static site project:
 cargo install cargo-fission
 fission init northstar-site --template website
 cd northstar-site
+cargo add serde_yaml
 ```
 
 ## Project layout
@@ -107,7 +108,7 @@ The custom `SitePage` remains a named `fission_component!`; site metadata and ro
 <!-- fission:step id="start-screen" -->
 ## Write for one search intent
 
-This first preview is a task card, not Northstar's product site. Its copy comes through props and it uses theme tokens. Next, choose one search intent and make the visible page content answer it before adding route metadata.
+The preview is Northstar's public product page. Switch between the home and inventory pages to compare what visitors see with the title and description each route should publish.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -116,36 +117,75 @@ This first preview is a task card, not Northstar's product site. Its copy comes 
 use fission::prelude::*;
 fission_component! {
     pub LocalStorefront<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
+        state {
+            product_page: bool = false,
         }
     }
-    view(preview, _state, cx) {
+    view(site, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Text("Build a Rust website that search engines can understand"),
-                Text("A page title matched to the content"),
-                Text("A useful search description"),
-                Text(format!("Next action: {}",
-                        preview.action)),
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
+    SemanticsRegion(
+        identifier: Some("northstar.site".to_string()),
+        label: Some(cx.tr("site.a11y")),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Text(cx.tr("brand")).size(tokens.typography.heading2_size),
+                    Spacer(flex_grow: 1.0),
+                    Button(
+                        child: Text(cx.tr(if site.product_page { "nav.home" } else { "nav.inventory" })),
+                        key: "switch-page",
+                        on_press: reduce { site.product_page = !site.product_page; },
+                    ).semantics_identifier("northstar.nav.product"),
+                ]),
+                Divider(),
+                Column(gap: tokens.spacing.s, children: [
+                    Text(if site.product_page {
+                        cx.tr("page.inventory.title")
+                    } else {
+                        cx.tr("page.home.title")
+                    })
+                    .size(tokens.typography.heading1_size),
+                    Text(if site.product_page {
+                        cx.tr("page.inventory.description")
+                    } else {
+                        cx.tr("page.home.description")
+                    })
+                    .color(tokens.colors.text_secondary),
+                    Button(
+                        child: Text(cx.tr(if site.product_page { "action.back" } else { "action.explore" })),
+                        key: "primary-action",
+                        on_press: reduce { site.product_page = !site.product_page; },
+                    ).semantics_identifier("northstar.primary-action"),
+                ]),
+                Container(
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(cx.tr("search.preview"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(if site.product_page {
+                            cx.tr("search.inventory.title")
+                        } else {
+                            cx.tr("search.home.title")
+                        }),
+                        Text(if site.product_page {
+                            cx.tr("search.inventory.description")
+                        } else {
+                            cx.tr("search.home.description")
+                        })
+                        .color(tokens.colors.text_secondary),
+                        Text(if site.product_page { "/products/inventory/" } else { "/" })
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.surface_raised)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+            ])
         )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
 }
 ```
 </TabItem>
@@ -153,6 +193,7 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -160,19 +201,81 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::LocalStorefront::new(
-        "Northstar pages".to_string(),
-        "Review a page title and search description.".to_string(),
-        "Inspect search metadata".to_string(),
-        "The page has a topic-specific title and description.".to_string(),
-        "Metadata is missing. Add a title and description before publishing.".to_string(),
-    );
+    let preview = app::LocalStorefront::new();
     WebApp::<(), _>::new(preview)
+        .with_env(translations::create_env())
         .with_title("Build an SEO-friendly website in Rust")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../i18n/es-ES.yaml")),
+];
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in SOURCES {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid tutorial translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+site.a11y: "Northstar product website"
+brand: "Northstar"
+nav.home: "Home"
+nav.inventory: "Product inventory"
+page.inventory.title: "A clearer view of every product"
+page.home.title: "Inventory software for independent retailers"
+page.inventory.description: "Find stock gaps early and keep every shop location in sync."
+page.home.description: "Keep stock counts, purchase orders and low-stock alerts together in one calm workspace."
+action.back: "Back to Northstar"
+action.explore: "Explore inventory features"
+search.preview: "Search result preview"
+search.inventory.title: "Product inventory for independent shops | Northstar"
+search.home.title: "Inventory software for independent retailers | Northstar"
+search.inventory.description: "Track stock across locations, spot low inventory and keep product records up to date."
+search.home.description: "A straightforward inventory workspace for independent retailers: stock, orders and low-stock alerts."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+site.a11y: "Sitio web de productos de Northstar"
+brand: "Northstar"
+nav.home: "Inicio"
+nav.inventory: "Inventario de productos"
+page.inventory.title: "Una visión más clara de cada producto"
+page.home.title: "Software de inventario para comercios independientes"
+page.inventory.description: "Detecta pronto las faltas de stock y mantén sincronizadas todas las tiendas."
+page.home.description: "Reúne recuentos, pedidos y avisos de poco stock en un espacio de trabajo claro."
+action.back: "Volver a Northstar"
+action.explore: "Ver las funciones de inventario"
+search.preview: "Vista previa del resultado de búsqueda"
+search.inventory.title: "Inventario de productos para tiendas independientes | Northstar"
+search.home.title: "Software de inventario para comercios independientes | Northstar"
+search.inventory.description: "Controla el stock entre tiendas, detecta niveles bajos y mantén los productos al día."
+search.home.description: "Un espacio sencillo de inventario para tiendas independientes: existencias, pedidos y avisos de poco stock."
 ```
 </TabItem>
 </Tabs>
@@ -188,7 +291,7 @@ Write for one search intent: Confirm the initial screen names the task and its n
 
 Set a site title, short site description, canonical base URL, sitemap and robots output in fission.toml. Add page-specific titles and descriptions in Markdown frontmatter. A page title should describe that page, not repeat the company name alone.
 
-The selected page and failed-metadata flag only drive this preview, so keep them local. Put the title, description, canonical URL, and structured data with the route that renders the matching content.
+Keep the selected page local to this preview. In the actual static site, put the title, description, canonical URL, and structured data with the route that renders the matching content.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
@@ -196,44 +299,68 @@ The selected page and failed-metadata flag only drive this preview, so keep them
 use fission::prelude::*;
 fission_component! {
     pub LocalStorefront<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
         state {
             product_page: bool = false,
-            has_error: bool = false,
         }
     }
-    view(preview, _state, cx) {
+    view(site, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Button(child: Text(if preview.product_page { "View home page".to_string() } else { "View product page".to_string() }),
-                    key: "change-page",
-                    on_press: reduce { preview.product_page = !preview.product_page; }),
-                Text(if preview.product_page { "Build a product inventory website in Rust" } else { "Build desktop, mobile and Web apps in Rust" }),
-                Text(if preview.product_page { "/product/inventory/" } else { "/" }),
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview missing metadata".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("This page has no search description. Add one that matches its content.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
+    SemanticsRegion(
+        identifier: Some("northstar.site".to_string()),
+        label: Some(cx.tr("site.a11y")),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Text(cx.tr("brand")).size(tokens.typography.heading2_size),
+                    Spacer(flex_grow: 1.0),
+                    Button(
+                        child: Text(cx.tr(if site.product_page { "nav.home" } else { "nav.inventory" })),
+                        key: "switch-page",
+                        on_press: reduce { site.product_page = !site.product_page; },
+                    ).semantics_identifier("northstar.nav.product"),
+                ]),
+                Divider(),
+                Text(cx.tr(if site.product_page { "page.inventory.title" } else { "page.home.title" }))
+                    .size(tokens.typography.heading1_size),
+                Text(if site.product_page {
+                    cx.tr("page.inventory.description")
+                } else {
+                    cx.tr("page.home.description")
+                })
+                .color(tokens.colors.text_secondary),
+                Button(
+                    child: Text(cx.tr(if site.product_page { "action.back" } else { "action.explore" })),
+                    key: "primary-action",
+                    on_press: reduce { site.product_page = !site.product_page; },
+                ).semantics_identifier("northstar.primary-action"),
+                Container(
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(cx.tr("search.preview")).weight(tokens.typography.font_weight_semibold),
+                        Text(if site.product_page {
+                            cx.tr("search.inventory.title")
+                        } else {
+                            cx.tr("search.home.title")
+                        }),
+                        Text(if site.product_page {
+                            cx.tr("search.inventory.description")
+                        } else {
+                            cx.tr("search.home.description")
+                        })
+                        .color(tokens.colors.text_secondary),
+                        Text(if site.product_page { "/products/inventory/" } else { "/" })
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.surface_raised)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+            ])
         )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface),
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
 }
 ```
 </TabItem>
@@ -241,6 +368,7 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -248,14 +376,9 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::LocalStorefront::new(
-        "Northstar pages".to_string(),
-        "Review a page title and search description.".to_string(),
-        "Inspect search metadata".to_string(),
-        "The page has a topic-specific title and description.".to_string(),
-        "Metadata is missing. Add a title and description before publishing.".to_string(),
-    );
+    let preview = app::LocalStorefront::new();
     WebApp::<(), _>::new(preview)
+        .with_env(translations::create_env())
         .with_title("Build an SEO-friendly website in Rust")
         .mount("#fission-web-mount")
         .run()
@@ -288,7 +411,7 @@ cat dist/site/robots.txt
 A correct result has a page-matched title and description in the HTML head, the canonical URL on the intended public domain, JSON-LD that matches visible page content, and the expected routes in `sitemap.xml`. `robots.txt` should name that sitemap when `base_url` is set.
 
 Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
-The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+The preview switches between two route examples and shows the visible content alongside its search-result metadata. It does not change the actual static site configuration; set each route's metadata in its frontmatter and site configuration.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
@@ -296,44 +419,68 @@ The preview control below simulates an unsuccessful host result. It demonstrates
 use fission::prelude::*;
 fission_component! {
     pub LocalStorefront<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
         state {
             product_page: bool = false,
-            has_error: bool = false,
         }
     }
-    view(preview, _state, cx) {
+    view(site, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Button(child: Text(if preview.product_page { "View home page".to_string() } else { "View product page".to_string() }),
-                    key: "change-page",
-                    on_press: reduce { preview.product_page = !preview.product_page; }),
-                Text(if preview.product_page { "Build a product inventory website in Rust" } else { "Build desktop, mobile and Web apps in Rust" }),
-                Text(if preview.product_page { "/product/inventory/" } else { "/" }),
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview missing metadata".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("This page has no search description. Add one that matches its content.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
+    SemanticsRegion(
+        identifier: Some("northstar.site".to_string()),
+        label: Some(cx.tr("site.a11y")),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Text(cx.tr("brand")).size(tokens.typography.heading2_size),
+                    Spacer(flex_grow: 1.0),
+                    Button(
+                        child: Text(cx.tr(if site.product_page { "nav.home" } else { "nav.inventory" })),
+                        key: "switch-page",
+                        on_press: reduce { site.product_page = !site.product_page; },
+                    ).semantics_identifier("northstar.nav.product"),
+                ]),
+                Divider(),
+                Text(cx.tr(if site.product_page { "page.inventory.title" } else { "page.home.title" }))
+                    .size(tokens.typography.heading1_size),
+                Text(if site.product_page {
+                    cx.tr("page.inventory.description")
+                } else {
+                    cx.tr("page.home.description")
+                })
+                .color(tokens.colors.text_secondary),
+                Button(
+                    child: Text(cx.tr(if site.product_page { "action.back" } else { "action.explore" })),
+                    key: "primary-action",
+                    on_press: reduce { site.product_page = !site.product_page; },
+                ).semantics_identifier("northstar.primary-action"),
+                Container(
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(cx.tr("search.preview")).weight(tokens.typography.font_weight_semibold),
+                        Text(if site.product_page {
+                            cx.tr("search.inventory.title")
+                        } else {
+                            cx.tr("search.home.title")
+                        }),
+                        Text(if site.product_page {
+                            cx.tr("search.inventory.description")
+                        } else {
+                            cx.tr("search.home.description")
+                        })
+                        .color(tokens.colors.text_secondary),
+                        Text(if site.product_page { "/products/inventory/" } else { "/" })
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.surface_raised)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+            ])
         )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface),
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
 }
 ```
 </TabItem>
@@ -341,6 +488,7 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -348,14 +496,9 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::LocalStorefront::new(
-        "Northstar pages".to_string(),
-        "Review a page title and search description.".to_string(),
-        "Inspect search metadata".to_string(),
-        "The page has a topic-specific title and description.".to_string(),
-        "Metadata is missing. Add a title and description before publishing.".to_string(),
-    );
+    let preview = app::LocalStorefront::new();
     WebApp::<(), _>::new(preview)
+        .with_env(translations::create_env())
         .with_title("Build an SEO-friendly website in Rust")
         .mount("#fission-web-mount")
         .run()

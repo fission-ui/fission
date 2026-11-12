@@ -46,9 +46,9 @@ android-read-and-write-nfc-tags-on-android/
 Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
 
 <!-- fission:step id="start-screen" -->
-## Preview the tag workflow
+## Show the incoming inspection
 
-The browser preview cannot read or write an NFC tag. Use it to inspect the screen around a tag request; the Android steps below register `NfcHost` and send that request through the native provider.
+The incoming inspection screen identifies the compressor and its service tag. The first preview only expands the tag details; it does not pretend to read a tag before the capability is connected.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -56,39 +56,57 @@ The browser preview cannot read or write an NFC tag. Use it to inspect the scree
 ```rust
 use fission::prelude::*;
 
+#[derive(Debug, Default)]
+pub struct NfcTagState {
+    pub tag_details_open: bool,
+}
+
+impl GlobalState for NfcTagState {}
+
 fission_component! {
-    pub AndroidNfcReader<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-    }
-    view(preview, _state, cx) {
+    pub NfcTagInspectionScreen<NfcTagState> {}
+    view(_screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let details = if state.tag_details_open {
+            cx.tr("nfc.details_open")
+        } else {
+            cx.tr("nfc.details_closed")
+        };
+        let button_label = if state.tag_details_open {
+            cx.tr("nfc.hide_details")
+        } else {
+            cx.tr("nfc.show_details")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("incoming-inspection".to_string()),
+        label: Some(cx.tr("nfc.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
+                Text(cx.tr("nfc.site"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+                Text(cx.tr("nfc.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("nfc.tag"))
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
                 Container(
                     Column(gap: tokens.spacing.s, children: [
-                        Text("The browser and device boundary".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("This website cannot call the Android host provider or reach device hardware. The preview shows the app context without pretending that the capability has run.".to_string()),
-                        Text("In the native app, the visible action starts the request. The platform host then returns the outcome that the app should explain to the user.".to_string()),
+                        Text(cx.tr("nfc.context")),
+                        Text(details),
                     ])
                 )
                 .padding_all(tokens.spacing.m)
                 .bg(tokens.colors.background)
                 .border(tokens.colors.border, 1.0)
                 .border_radius(tokens.radii.medium),
+                Button(
+                    child: Text(button_label),
+                    key: "toggle-tag-details",
+                    variant: ButtonVariant::Primary,
+                    on_press: reduce {
+                        state.tag_details_open = !state.tag_details_open;
+                    },
+                ),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -107,115 +125,87 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid NFC tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("../i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("../i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidNfcReader::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<app::NfcTagState, _>::new(app::NfcTagInspectionScreen)
+        .with_env(preview_env())
+        .with_title("Incoming inspection")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+nfc.site: "Northbank Receiving"
+nfc.title: "Incoming compressor inspection"
+nfc.tag: "Compressor CMP-7A-2219 · NDEF service tag"
+nfc.context: "Open the tag details before scanning. A real read happens only after the Android capability is added."
+nfc.details_open: "Tag details are visible."
+nfc.details_closed: "Tag details are hidden."
+nfc.show_details: "Show tag details"
+nfc.hide_details: "Hide tag details"
+nfc.pending: "No scan has been requested."
+nfc.waiting: "Reading the service tag…"
+nfc.error: "The service tag could not be read. Check the device and try again."
+nfc.result: "NDEF records read:"
+nfc.ready: "Ready to scan. The browser preview uses a sample NDEF tag."
+nfc.action: "Read service tag"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+nfc.site: "Recepción Northbank"
+nfc.title: "Inspección de compresor entrante"
+nfc.tag: "Compresor CMP-7A-2219 · etiqueta de servicio NDEF"
+nfc.context: "Abre los detalles de la etiqueta antes de escanear. La lectura real solo se solicita al añadir la capacidad de Android."
+nfc.details_open: "Los detalles de la etiqueta están visibles."
+nfc.details_closed: "Los detalles de la etiqueta están ocultos."
+nfc.show_details: "Mostrar detalles de la etiqueta"
+nfc.hide_details: "Ocultar detalles de la etiqueta"
+nfc.pending: "No se ha solicitado ningún escaneo."
+nfc.waiting: "Leyendo la etiqueta de servicio…"
+nfc.error: "No se pudo leer la etiqueta. Comprueba el dispositivo e inténtalo de nuevo."
+nfc.result: "Registros NDEF leídos:"
+nfc.ready: "Listo para escanear. La vista previa web usa una etiqueta NDEF de ejemplo."
+nfc.action: "Leer etiqueta de servicio"
+```
+</TabItem>
 </Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Check the screen before testing with a real tag. The preview has not contacted an NFC reader; the next step shows how the Android host returns the read or write result.
+This stage is an app screen with a real state transition, not a device mock. The next stage connects a separate user action to the typed Nfc capability and shows its success or error result.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Connect the Nfc provider to the user action
+## Run the Nfc operation through Fission
 
-This is the real Fission request path for this feature. Keep permission and hardware work outside the component view: the component dispatches one intent, the reducer queues the request, and success or error reducers store the returned result. The native shell registers `NfcHost` with `.with_nfc_host(...)`; use the memory host in reducer and provider tests.
+Keep host work out of component conversion. The button dispatches a typed action, its reducer queues the capability request, and separate completion reducers update the screen. The Web preview installs `MemoryNfcHost` and sends the same operation through Fission’s typed capability path. Its deterministic response is not a claim about device hardware, OS permission or native platform support.
 
-Start with task data and status in the app state. Keep a text-field draft, open flag or selected tab in the owning component instead of duplicating that temporary state here:
-
-```rust
-#[derive(Debug, Default)]
-struct NfcState {
-    // Add these fields to your existing app state.
-    nfc_text: Option<String>,
-    nfc_error: Option<String>,
-    scanning_nfc: bool,
-}
-
-impl GlobalState for NfcState {}
-```
-
-Handle successful and failed results separately so the screen can explain denied permission, cancellation, unsupported hardware and provider errors:
-
-```rust
-#[fission_reducer(TagScanned)]
-fn on_tag_scanned(state: &mut NfcState, tag: NfcTag) {
-    state.scanning_nfc = false;
-    state.nfc_text = tag.records.first().map(|record| String::from_utf8_lossy(&record.payload).to_string());
-    state.nfc_error = None;
-}
-
-#[fission_reducer(TagScanFailed)]
-fn on_tag_scan_failed(state: &mut NfcState, error: NfcError) {
-    state.scanning_nfc = false;
-    state.nfc_error = Some(error.message);
-}
-```
-
-Queue the operation after the user presses the named control. The host completes asynchronously and dispatches the matching reducer:
-
-```rust
-state.scanning_nfc = true;
-ctx.effects
-    .nfc()
-    .scan_tag(NfcScanRequest {
-        technologies: vec![NfcTechnology::Ndef],
-        prompt: Some("Hold a tag near the device".into()),
-        timeout_ms: Some(15_000),
-        allow_multiple_records: true,
-    })
-    .on_ok(ctx.effects.bind(
-        TagScanned(NfcTag::default()),
-        reduce_with!(on_tag_scanned),
-    ))
-    .on_err(ctx.effects.bind(
-        TagScanFailed(NfcError::default()),
-        reduce_with!(on_tag_scan_failed),
-    ));
-```
-
-Bind the user action from a reusable Fission component. Keep the visible label in the same control so it works with touch, keyboard and assistive technology:
-
-```rust
-fission_component!
-{
-    pub ScanNfcTagButton<NfcState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<NfcState>();
-                let run = with_reducer!(ctx, ScanNfcTag, on_scan_nfc_tag);
-
-                Button::new("Scan tag")
-                    .disabled(view.state().scanning_nfc)
-                    .on_press(run)
-                    .into()
-    }
-}
-```
-
-The [complete Nfc guide](/docs/capabilities/nfc/) explains configuration and expected platform behaviour. Test a successful memory-provider response and an unavailable or denied response before relying on the physical-device check below. The preview is read-only. The native target uses Fission’s provider to perform the request and report the result.
-
-Keep platform-only code behind the generated target boundary or a typed provider; the shared component should describe the user task rather than call an operating-system API directly.
-
-
+The Web preview uses `MemoryNfcHost` to exercise the typed scan flow with a deterministic response. It does not access an NFC reader or Android hardware.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -223,39 +213,109 @@ Keep platform-only code behind the generated target boundary or a typed provider
 ```rust
 use fission::prelude::*;
 
+#[derive(Debug, Default)]
+pub struct NfcTagState {
+    pub pending: bool,
+    pub records_read: Option<usize>,
+    pub failed: bool,
+}
+
+impl GlobalState for NfcTagState {}
+
+#[fission_reducer(RunCapability)]
+pub fn run_capability(
+    state: &mut NfcTagState,
+    request: NfcScanRequest,
+    ctx: &mut ReducerContext<NfcTagState>,
+) {
+    state.pending = true;
+    state.records_read = None;
+    state.failed = false;
+
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
+
+    ctx.effects
+        .nfc().scan_tag(request)
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(CapabilitySucceeded)]
+pub fn capability_succeeded(
+    state: &mut NfcTagState,
+    ctx: &mut ReducerContext<NfcTagState>,
+) {
+    state.pending = false;
+    state.records_read = ctx
+        .input
+        .capability_ok(SCAN_NFC_TAG)
+        .map(|value| value.records.len());
+    state.failed = state.records_read.is_none();
+}
+
+#[fission_reducer(CapabilityFailed)]
+pub fn capability_failed(
+    state: &mut NfcTagState,
+) {
+    state.pending = false;
+    state.records_read = None;
+    state.failed = true;
+}
+
+pub fn callback_registry() -> ActionRegistry<NfcTagState> {
+    let mut registry = ActionRegistry::new();
+    registry.register(reduce_with!(capability_succeeded));
+    registry.register(reduce_with!(capability_failed));
+    registry
+}
+
 fission_component! {
-    pub AndroidNfcReaderResult<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-    }
-    view(preview, _state, cx) {
+    pub NfcTagInspectionScreen<NfcTagState> {}
+    view(_screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let request = NfcScanRequest {
+            technologies: vec![NfcTechnology::Ndef],
+            message: Some(cx.tr("nfc.scan_prompt")),
+            timeout_ms: Some(10_000),
+            read_multiple_records: false,
+        };
+        let action = with_reducer!(cx.build, RunCapability(request), run_capability);
+        let status = if state.pending {
+            cx.tr("nfc.waiting")
+        } else if state.failed {
+            cx.tr("nfc.error")
+        } else if let Some(records_read) = state.records_read {
+            format!("{} {records_read}", cx.tr("nfc.result"))
+        } else {
+            cx.tr("nfc.ready")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("incoming-inspection-nfc".to_string()),
+        label: Some(cx.tr("nfc.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
+                Text(cx.tr("nfc.site"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+                Text(cx.tr("nfc.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("nfc.tag"))
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text("Where the request result comes from".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("In the target app, Fission’s native host completes the request and reports its real outcome to shared Rust state. The browser cannot manufacture that outcome, so this preview stays read-only.".to_string()),
-                        Text("Handle success and errors as separate state transitions. Keep the surrounding screen usable if the user declines, cancels, or the device does not support the capability.".to_string()),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
+                Text(cx.tr("nfc.context")),
+                Button(
+                    child: Text(cx.tr("nfc.action")),
+                    key: "run-capability",
+                    variant: ButtonVariant::Primary,
+                    disabled: state.pending,
+                    loading: state.pending,
+                    on_press: action,
+                ),
+                Container(Text(status))
+                    .padding_all(tokens.spacing.m)
+                    .bg(tokens.colors.background)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -274,30 +334,80 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid NFC tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("../i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("../i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidNfcReaderResult::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
-        .mount("#fission-web-mount")
+    let mut app = WebApp::<app::NfcTagState, _>::new(app::NfcTagInspectionScreen)
+        .with_env(preview_env())
+        .with_nfc_host(MemoryNfcHost::default())
+        .with_title("Android NFC inspection preview");
+    app.absorb_registry(app::callback_registry());
+    app.mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+nfc.site: "Northbank Receiving"
+nfc.title: "Incoming compressor inspection"
+nfc.tag: "Compressor CMP-7A-2219 · NDEF service tag"
+nfc.context: "Read the NFC service tag attached to compressor CMP-7A-2219. The browser uses a deterministic in-memory host, not a reader."
+nfc.details_open: "Tag details are visible."
+nfc.details_closed: "Tag details are hidden."
+nfc.show_details: "Show tag details"
+nfc.hide_details: "Hide tag details"
+nfc.pending: "No scan has been requested."
+nfc.waiting: "Reading the service tag…"
+nfc.error: "The service tag could not be read. Check the device and try again."
+nfc.result: "NDEF records read:"
+nfc.ready: "Ready to scan. The browser preview uses a sample NDEF tag."
+nfc.action: "Read service tag"
+nfc.scan_prompt: "Tap the NDEF service tag attached to compressor CMP-7A-2219."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+nfc.site: "Recepción Northbank"
+nfc.title: "Inspección de compresor entrante"
+nfc.tag: "Compresor CMP-7A-2219 · etiqueta de servicio NDEF"
+nfc.context: "Lee la etiqueta NFC fijada al compresor CMP-7A-2219. El navegador usa un host en memoria determinista, no un lector."
+nfc.details_open: "Los detalles de la etiqueta están visibles."
+nfc.details_closed: "Los detalles de la etiqueta están ocultos."
+nfc.show_details: "Mostrar detalles de la etiqueta"
+nfc.hide_details: "Ocultar detalles de la etiqueta"
+nfc.pending: "No se ha solicitado ningún escaneo."
+nfc.waiting: "Leyendo la etiqueta de servicio…"
+nfc.error: "No se pudo leer la etiqueta. Comprueba el dispositivo e inténtalo de nuevo."
+nfc.result: "Registros NDEF leídos:"
+nfc.ready: "Listo para escanear. La vista previa web usa una etiqueta NDEF de ejemplo."
+nfc.action: "Leer etiqueta de servicio"
+nfc.scan_prompt: "Acerca la etiqueta NDEF fijada al compresor CMP-7A-2219."
 ```
 </TabItem>
 </Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Run the Android app on an emulator or device to test the NFC provider. Check the success path as well as cancellation and unsupported-device results.
+The preview exercises the Nfc operation with an in-memory host. On Android, keep the native permission and unsupported/error outcomes visible, then verify the same user action on the supported simulator or a physical device.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 

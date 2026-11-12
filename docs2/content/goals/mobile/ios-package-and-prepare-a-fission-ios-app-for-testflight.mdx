@@ -52,44 +52,101 @@ Keep app behaviour in shared Rust. Add a feature module only when it creates a u
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
-
 fission_component! {
-    pub IosTestFlight<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub TestFlightReleaseReadiness<()> {
+        state {
+            identity_checked: bool = false,
+            signing_checked: bool = false,
+            device_checked: bool = false,
         }
     }
-    view(screen, _state, cx) {
+    view(release, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let reviewed = [release.identity_checked, release.signing_checked, release.device_checked]
+            .iter()
+            .filter(|checked| **checked)
+            .count();
+        let status = if reviewed == 3 {
+            cx.tr("release.status.complete")
+        } else {
+            cx.tr("release.status.incomplete")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("ios-testflight-release-readiness".to_string()),
+        label: Some(cx.tr("release.screen.label")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("release.app.name"))
+                        .weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("release.app.version"))
                         .color(tokens.colors.text_secondary),
                 ]),
+                Badge(text: cx.tr("release.preview.badge")),
+                Divider(),
+                Text(cx.tr("release.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("release.summary"))
+                    .color(tokens.colors.text_secondary),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("release.identity.title"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("release.identity.detail")),
+                        Checkbox(
+                            checked: release.identity_checked,
+                            label: Some(cx.tr("release.identity.check")),
+                            semantics_identifier: Some("testflight.identity-check".to_string()),
+                            on_toggle: reduce { release.identity_checked = !release.identity_checked; },
+                        ),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("release.signing.title"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("release.signing.detail")),
+                        Checkbox(
+                            checked: release.signing_checked,
+                            label: Some(cx.tr("release.signing.check")),
+                            semantics_identifier: Some("testflight.signing-check".to_string()),
+                            on_toggle: reduce { release.signing_checked = !release.signing_checked; },
+                        ),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("release.device.title"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("release.device.detail")),
+                        Checkbox(
+                            checked: release.device_checked,
+                            label: Some(cx.tr("release.device.check")),
+                            semantics_identifier: Some("testflight.device-check".to_string()),
+                            on_toggle: reduce { release.device_checked = !release.device_checked; },
+                        ),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                    Badge(text: status),
+                    Text(format!("{reviewed} / 3"))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Text(cx.tr("release.preview.note"))
+                    .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -98,6 +155,7 @@ fission_component! {
         .border_radius(tokens.radii.large),
     )
 }
+
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
@@ -108,23 +166,80 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosTestFlight::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::TestFlightReleaseReadiness)
+        .with_env(preview_env())
+        .with_title("Northstar Journal")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+release.screen.label: "TestFlight release readiness checklist"
+release.app.name: "Northstar Journal"
+release.app.version: "iOS release · 1.4.0 (42)"
+release.preview.badge: "Readiness review"
+release.title: "Before you send a build to testers"
+release.summary: "Check the bundle identity, signing profile and a clean device launch before upload."
+release.identity.title: "Bundle identity"
+release.identity.detail: "com.northstar.journal · version 1.4.0 · build 42"
+release.identity.check: "I checked the bundle ID and version"
+release.signing.title: "Signing"
+release.signing.detail: "Distribution certificate and App Store provisioning profile"
+release.signing.check: "I checked the signing inputs"
+release.device.title: "TestFlight smoke test"
+release.device.detail: "Install the signed IPA on a registered iPhone before upload."
+release.device.check: "I checked the device launch"
+release.status.complete: "All release checks reviewed"
+release.status.incomplete: "Release checks still need review"
+release.preview.note: "Browser preview only: these checks are local and do not sign, package or upload an app."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+release.screen.label: "Lista de verificación para TestFlight"
+release.app.name: "Diario Northstar"
+release.app.version: "Versión de iOS · 1.4.0 (42)"
+release.preview.badge: "Revisión de preparación"
+release.title: "Antes de enviar una versión a los testers"
+release.summary: "Revisa el identificador del paquete, el perfil de firma y el inicio en un dispositivo antes de subir la app."
+release.identity.title: "Identidad del paquete"
+release.identity.detail: "com.northstar.journal · versión 1.4.0 · compilación 42"
+release.identity.check: "He revisado el ID del paquete y la versión"
+release.signing.title: "Firma"
+release.signing.detail: "Certificado de distribución y perfil de aprovisionamiento de App Store"
+release.signing.check: "He revisado los datos de firma"
+release.device.title: "Prueba rápida de TestFlight"
+release.device.detail: "Instala la IPA firmada en un iPhone registrado antes de subirla."
+release.device.check: "He revisado el inicio en el dispositivo"
+release.status.complete: "Todas las comprobaciones están revisadas"
+release.status.incomplete: "Quedan comprobaciones por revisar"
+release.preview.note: "Solo vista previa web: las comprobaciones son locales y no firman, empaquetan ni suben una app."
 ```
 </TabItem>
 </Tabs>

@@ -46,9 +46,9 @@ ios-use-fissions-limited-ios-volume-control-capability/
 Keep app state, reducers and components in shared Rust. Put direct iOS API calls in the generated host or a typed provider, and split a feature into modules when that boundary helps.
 
 <!-- fission:step id="start-screen" -->
-## See where the browser stops
+## Build the sound-level screen
 
-The browser preview cannot call the iOS volume provider or change device volume. It shows the screen only; the next step wires the Raise volume action to Fission’s provider and handles its result.
+Start with the technician checking a noisy work area. The screen explains that iOS exposes a limited view of system volume rather than a general-purpose volume control. A local note field lets the technician record what they observed; the next step reads the value through Fission's volume capability.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -57,34 +57,42 @@ The browser preview cannot call the iOS volume provider or change device volume.
 use fission::prelude::*;
 
 fission_component! {
-    pub IosVolumeControl<()> {
-        props { title: String, step: String, goal: String, }
+    pub WorkOrderScreen<()> {
+        state {
+            note_draft: String = String::new(),
+        }
     }
-    view(preview, _state, cx) {
+    view(screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("work-order-screen".to_string()),
+        label: Some(cx.tr("work.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
+                Text(cx.tr("work.site"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+                Text(cx.tr("work.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("work.asset"))
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
                 Container(
                     Column(gap: tokens.spacing.s, children: [
-                        Text("The browser and device boundary".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("This website cannot call the iOS host provider or reach device hardware. The preview shows the app context without pretending that the capability has run.".to_string()),
-                        Text("In the native app, the visible action starts the request. The platform host then returns the outcome that the app should explain to the user.".to_string()),
+                        Text(cx.tr("work.context")),
                     ])
                 )
                 .padding_all(tokens.spacing.m)
                 .bg(tokens.colors.background)
                 .border(tokens.colors.border, 1.0)
                 .border_radius(tokens.radii.medium),
+                TextInput(
+                    label: Some(cx.tr("work.note.label").into()),
+                    placeholder: Some(cx.tr("work.note.placeholder").into()),
+                    helper_text: Some(cx.tr("work.note.help").into()),
+                    bind: screen.note_draft,
+                    multiline: true,
+                    semantics_identifier: "work-order.note-draft".to_string(),
+                ),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -100,22 +108,65 @@ fission_component! {
 ```rust
 mod app;
 
+use std::collections::HashMap;
+
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("en-US"),
+        messages: HashMap::from([
+            ("work.site".into(), "Northbank Maintenance · compressor bay".into()),
+            ("work.title".into(), "Check current device volume".into()),
+            ("work.asset".into(), "Inspection audio · keep alerts audible".into()),
+            ("work.pending".into(), "Sound review not confirmed".into()),
+            ("work.complete".into(), "Sound review confirmed".into()),
+            ("work.mark".into(), "Confirm sound review".into()),
+            ("work.recorded".into(), "Review confirmed".into()),
+            ("work.waiting".into(), "Waiting for the Fission host…".into()),
+            ("work.error".into(), "The host could not complete this action".into()),
+            ("work.result".into(), "Host result".into()),
+            ("work.ready".into(), "Ready. This preview uses a deterministic in-memory provider.".into()),
+            ("work.note.label".into(), "Inspection note draft".into()),
+            ("work.note.placeholder".into(), "Describe what you found on site".into()),
+            ("work.note.help".into(), "Draft only; it stays in this screen and is not saved or attached.".into()),
+            ("work.context".into(), "Review the sound behavior before reading volume.".into()),
+            ("work.action".into(), "Record sound review".into())
+        ]),
+    });
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("es-ES"),
+        messages: HashMap::from([
+            ("work.site".into(), "Mantenimiento Northbank · sala de compresores".into()),
+            ("work.title".into(), "Consultar el volumen actual del dispositivo".into()),
+            ("work.asset".into(), "Audio de inspección · mantener las alertas audibles".into()),
+            ("work.pending".into(), "Revisión del sonido sin confirmar".into()),
+            ("work.complete".into(), "Revisión del sonido confirmada".into()),
+            ("work.mark".into(), "Confirmar la revisión del sonido".into()),
+            ("work.recorded".into(), "Revisión confirmada".into()),
+            ("work.waiting".into(), "Esperando al host de Fission…".into()),
+            ("work.error".into(), "El host no pudo completar esta acción".into()),
+            ("work.result".into(), "Resultado del host".into()),
+            ("work.ready".into(), "Listo. Esta vista previa usa un proveedor en memoria.".into()),
+            ("work.note.label".into(), "Borrador de nota de inspección".into()),
+            ("work.note.placeholder".into(), "Describe lo que observaste en el lugar".into()),
+            ("work.note.help".into(), "Solo borrador; permanece en esta pantalla y no se guarda ni se adjunta.".into()),
+            ("work.context".into(), "Revisa el comportamiento de sonido antes de leer el volumen.".into()),
+            ("work.action".into(), "Registrar revisión del sonido".into())
+        ]),
+    });
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosVolumeControl::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::WorkOrderScreen)
+        .with_env(preview_env())
+        .with_title("Work-order preview")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -126,87 +177,16 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-This preview has not changed the device volume. Continue to the reducer and provider wiring below.
+This stage is an app screen with a real state transition, not a device mock. The next stage connects a separate user action to the typed Volume capability and shows its success or error result.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Connect the Volume Control provider to the user action
+## Run the Volume operation through Fission
 
-Keep the volume request out of component conversion. The screen dispatches an action, a reducer queues the provider request, and separate reducers store success or failure.
+Keep host work out of component conversion. The button dispatches a typed action, its reducer queues the capability request, and separate completion reducers update the screen. The Web preview installs `MemoryVolumeHost` and sends the same operation through Fission’s typed capability path. Its deterministic response is not a claim about device hardware, OS permission or native platform support.
 
-Keep the requested volume result and any error in app state. Keep temporary UI choices, such as open flags or selected tabs, local to their component:
-
-```rust
-#[derive(Debug, Default)]
-struct VolumeControlState {
-    // Add these fields to your existing app state.
-    volume: Option<VolumeLevel>,
-    volume_error: Option<String>,
-}
-
-impl GlobalState for VolumeControlState {}
-```
-
-Use a separate error reducer so a provider failure does not look like a successful volume change:
-
-```rust
-#[fission_reducer(VolumeChanged)]
-fn on_volume_changed(state: &mut VolumeControlState, level: VolumeLevel) {
-    state.volume = Some(level);
-    state.volume_error = None;
-}
-
-#[fission_reducer(VolumeChangeFailed)]
-fn on_volume_change_failed(state: &mut VolumeControlState, error: VolumeError) {
-    state.volume_error = Some(error.message);
-}
-```
-
-The reducer asks Fission’s volume provider to adjust the media stream. The host responds asynchronously, and Fission dispatches the matching success or error action:
-
-```rust
-ctx.effects
-    .volume()
-    .adjust_level(VolumeAdjustRequest {
-        stream: VolumeStream::Media,
-        direction: VolumeAdjustDirection::Up,
-        step: 5,
-    })
-    .on_ok(ctx.effects.bind(
-        VolumeChanged(VolumeLevel::default()),
-        reduce_with!(on_volume_changed),
-    ))
-    .on_err(ctx.effects.bind(
-        VolumeChangeFailed(VolumeError::default()),
-        reduce_with!(on_volume_change_failed),
-    ));
-```
-
-Keep the action and visible label together in the button so touch, keyboard and assistive-technology users get the same control:
-
-```rust
-fission_component!
-{
-    pub RaiseVolumeButton<VolumeControlState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<VolumeControlState>();
-                let run = with_reducer!(ctx, RaiseVolume, on_raise_volume);
-
-                Button::new("Raise volume")
-                    .disabled(false)
-                    .on_press(run)
-                    .into()
-    }
-}
-```
-
-The [Volume Control guide](/docs/capabilities/volume-control/) covers configuration and target behaviour. Use the memory provider to test success and error handling, then verify the adjustment on a supported native target. The web preview does not change device volume.
-
-Keep iOS volume calls in the host or typed provider. The shared component requests an adjustment through Fission.
-
-
+The Web preview uses MemoryVolumeHost to exercise the typed result path. iOS volume support is constrained; do not promise an operation the active native host reports as unsupported.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -214,35 +194,124 @@ Keep iOS volume calls in the host or typed provider. The shared component reques
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub IosVolumeControlResult<()> {
-        props { title: String, step: String, goal: String, }
+#[derive(Debug, Default)]
+pub struct WorkOrderState {
+    pub pending: bool,
+    pub result: Option<String>,
+    pub error: Option<String>,
+}
+
+impl GlobalState for WorkOrderState {}
+
+#[fission_reducer(RunCapability)]
+pub fn run_capability(state: &mut WorkOrderState, ctx: &mut ReducerContext<WorkOrderState>) {
+    state.pending = true;
+    state.result = None;
+    state.error = None;
+
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
+
+    ctx.effects
+        .volume().get_level(VolumeStream::Media)
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(CapabilitySucceeded)]
+pub fn capability_succeeded(
+    state: &mut WorkOrderState,
+    ctx: &mut ReducerContext<WorkOrderState>,
+) {
+    state.pending = false;
+    state.error = None;
+    state.result = ctx
+        .input
+        .capability_ok(GET_VOLUME_LEVEL)
+        .map(|value| format!("Current media level: {}%.", value.level));
+    if state.result.is_none() {
+        state.error = Some("The host completed without the expected typed result.".into());
     }
-    view(preview, _state, cx) {
+}
+
+#[fission_reducer(CapabilityFailed)]
+pub fn capability_failed(
+    state: &mut WorkOrderState,
+    ctx: &mut ReducerContext<WorkOrderState>,
+) {
+    state.pending = false;
+    state.result = None;
+    state.error = Some(ctx
+        .input
+        .capability_error(GET_VOLUME_LEVEL)
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .or_else(|| {
+            ctx.input
+                .capability_error_message(GET_VOLUME_LEVEL)
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "The host returned an error without details.".into()));
+}
+
+pub fn callback_registry() -> ActionRegistry<WorkOrderState> {
+    let mut registry = ActionRegistry::new();
+    registry.register(reduce_with!(capability_succeeded));
+    registry.register(reduce_with!(capability_failed));
+    registry
+}
+
+fission_component! {
+    pub WorkOrderScreen<WorkOrderState> {
+        state {
+            note_draft: String = String::new(),
+        }
+    }
+    view(screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let action = with_reducer!(cx.build, RunCapability, run_capability);
+        let status = if state.pending {
+            cx.tr("work.waiting")
+        } else if let Some(error) = &state.error {
+            format!("{}: {error}", cx.tr("work.error"))
+        } else if let Some(result) = &state.result {
+            format!("{}: {result}", cx.tr("work.result"))
+        } else {
+            cx.tr("work.ready")
+        };
     } =>
     SemanticsRegion(
-        identifier: Some("native-capability-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some("work-order-volume".to_string()),
+        label: Some(cx.tr("work.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
+                Text(cx.tr("work.site"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+                Text(cx.tr("work.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("work.asset"))
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text("Where the request result comes from".to_string())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text("In the target app, Fission’s native host completes the request and reports its real outcome to shared Rust state. The browser cannot manufacture that outcome, so this preview stays read-only.".to_string()),
-                        Text("Handle success and errors as separate state transitions. Keep the surrounding screen usable if the user declines, cancels, or the device does not support the capability.".to_string()),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
+                Text(cx.tr("work.context")),
+                TextInput(
+                    label: Some(cx.tr("work.note.label").into()),
+                    placeholder: Some(cx.tr("work.note.placeholder").into()),
+                    helper_text: Some(cx.tr("work.note.help").into()),
+                    bind: screen.note_draft,
+                    multiline: true,
+                    semantics_identifier: "work-order.note-draft".to_string(),
+                ),
+                Button(
+                    child: Text(cx.tr("work.action")),
+                    key: "run-capability",
+                    variant: ButtonVariant::Primary,
+                    disabled: state.pending,
+                    loading: state.pending,
+                    on_press: action,
+                ),
+                Container(Text(status))
+                    .padding_all(tokens.spacing.m)
+                    .bg(tokens.colors.background)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -258,23 +327,68 @@ fission_component! {
 ```rust
 mod app;
 
+use std::collections::HashMap;
+
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("en-US"),
+        messages: HashMap::from([
+            ("work.site".into(), "Northbank Food Hub".into()),
+            ("work.title".into(), "WO-1048 · Cold-room compressor".into()),
+            ("work.asset".into(), "Asset CMP-7A-2219 · due today".into()),
+            ("work.pending".into(), "Volume has not been requested".into()),
+            ("work.complete".into(), "Volume-read request prepared".into()),
+            ("work.mark".into(), "Read current volume".into()),
+            ("work.recorded".into(), "Volume-read request prepared".into()),
+            ("work.waiting".into(), "Waiting for the Fission host…".into()),
+            ("work.error".into(), "The host could not complete this action".into()),
+            ("work.result".into(), "Host result".into()),
+            ("work.ready".into(), "Ready. This preview uses a deterministic in-memory provider.".into()),
+            ("work.note.label".into(), "Inspection note draft".into()),
+            ("work.note.placeholder".into(), "Describe what you found on site".into()),
+            ("work.note.help".into(), "Draft only; it stays in this screen and is not saved or attached.".into()),
+            ("work.context".into(), "Check the current media level before playing an inspection confirmation tone. Do not change the user's system setting as a side effect.".into()),
+            ("work.action".into(), "Read current media level".into())
+        ]),
+    });
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("es-ES"),
+        messages: HashMap::from([
+            ("work.site".into(), "Centro de alimentos Northbank".into()),
+            ("work.title".into(), "OT-1048 · Compresor de cámara fría".into()),
+            ("work.asset".into(), "Activo CMP-7A-2219 · vence hoy".into()),
+            ("work.pending".into(), "No se ha solicitado el volumen".into()),
+            ("work.complete".into(), "Solicitud de lectura de volumen preparada".into()),
+            ("work.mark".into(), "Leer el volumen actual".into()),
+            ("work.recorded".into(), "Solicitud de lectura de volumen preparada".into()),
+            ("work.waiting".into(), "Esperando al host de Fission…".into()),
+            ("work.error".into(), "El host no pudo completar esta acción".into()),
+            ("work.result".into(), "Resultado del host".into()),
+            ("work.ready".into(), "Listo. Esta vista previa usa un proveedor en memoria.".into()),
+            ("work.note.label".into(), "Borrador de nota de inspección".into()),
+            ("work.note.placeholder".into(), "Describe lo que observaste en el lugar".into()),
+            ("work.note.help".into(), "Solo borrador; permanece en esta pantalla y no se guarda ni se adjunta.".into()),
+            ("work.context".into(), "Comprueba el nivel multimedia antes de reproducir una confirmación. No cambies la preferencia del sistema como efecto secundario.".into()),
+            ("work.action".into(), "Leer el nivel multimedia actual".into())
+        ]),
+    });
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosVolumeControlResult::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
-        .mount("#fission-web-mount")
+    let mut app = WebApp::<app::WorkOrderState, _>::new(app::WorkOrderScreen)
+        .with_env(preview_env())
+        .with_volume_host(MemoryVolumeHost::default())
+        .with_title("iOS Volume capability preview");
+    app.absorb_registry(app::callback_registry());
+    app.mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
@@ -284,7 +398,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-This preview is read-only: the actual result comes from the native host when you run the app on a supported target. Continue below to build and check that real request on a device or emulator.
+The preview exercises the Volume operation with an in-memory host. On iOS, keep the native permission and unsupported/error outcomes visible, then verify the same user action on the supported simulator or a physical device.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 

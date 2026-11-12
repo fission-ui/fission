@@ -20,7 +20,7 @@ outcomes:
 
 Meadowline Native Plants receives requests from neighborhood restoration crews. A useful request needs a contact name, a reply address, the seedling species, and the number of plants to prepare. If a quantity is missing or too large for one tray, staff should see what to fix before they plan the pickup.
 
-In this tutorial, you will build that request form in shared Rust code. The browser example opens with a sample draft so the result is easy to inspect; edit the fields and submit to see the form’s validation. The preview does not hold nursery stock. The Android steps show how to check the real software keyboard, focus order, and window resizing.
+In this tutorial, you will build that request form in shared Rust code. The form starts blank; enter details and check the draft to see field validation. The preview does not send a request or hold nursery stock. The Android steps show how to check the real software keyboard, focus order, and window resizing.
 
 The draft belongs to this form while the person is editing. A real accepted request becomes durable nursery data and should be sent to a service through an asynchronous effect. Keeping that boundary clear lets us learn the form behavior without pretending a browser-only example placed an order.
 
@@ -35,6 +35,7 @@ cargo install cargo-fission
 fission init meadowline-pickups
 cd meadowline-pickups
 fission add-target android --project-dir .
+cargo add serde_yaml
 ```
 </TabItem>
 <TabItem label="Files used in this tutorial">
@@ -60,13 +61,32 @@ The Android host starts the shared Rust app. The form and its validation stay in
 
 Start with the information Meadowline uses to prepare a pickup. Name and email come first because staff need to know who is collecting the plants and how to reach them. Species and quantity follow because they determine which tray to prepare. The pickup note is optional and can hold a site name or an accessibility request.
 
-The preview begins with a sample draft from Maya Chen. Change any field, then choose **Review pickup request**. At this stage the form only reflects the values; validation comes next.
+The form opens blank, just as a new request should. Enter a few details and use **Clear form** if you want to discard the local draft. At this stage the form only reflects the values; validation comes next.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(yaml).expect("valid Meadowline translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
 
 #[cfg(test)]
 #[path = "app_tests.rs"]
@@ -75,12 +95,11 @@ mod app_tests;
 fission_component! {
     pub SeedlingReservationForm<()> {
     state {
-        customer_name: String = "Maya Chen".to_string(),
-        reply_email: String = "maya.chen@example.org".to_string(),
-        species: String = "Coast live oak".to_string(),
-        quantity: String = "12".to_string(),
-        pickup_note: String = "Cedar Point restoration site".to_string(),
-        reviewed: bool = false,
+        customer_name: String = String::new(),
+        reply_email: String = String::new(),
+        species: String = String::new(),
+        quantity: String = String::new(),
+        pickup_note: String = String::new(),
     }
     }
     view(form, _state, cx) {
@@ -88,7 +107,7 @@ fission_component! {
     } =>
     SemanticsRegion(
         identifier: Some("seedling-reservation-form".to_string()),
-        label: Some("Meadowline Native Plants pickup request".to_string()),
+        label: Some(cx.tr("reservation.form.label")),
         child: Scroll(
             flex_grow: 1.0,
             height: cx.view.viewport_size().height,
@@ -97,78 +116,59 @@ fission_component! {
                     Container(
                         Column(gap: tokens.spacing.m, children: [
                             Column(gap: tokens.spacing.xs, children: [
-                                Text("Meadowline Native Plants")
+                                Text(cx.tr("reservation.brand"))
                                     .weight(tokens.typography.font_weight_bold),
-                                Text("Community restoration pickup request")
+                                Text(cx.tr("reservation.subtitle"))
                                     .color(tokens.colors.text_secondary),
                             ]),
-                            Text("Pickup site · Cedar Point Nursery")
+                            Text(cx.tr("reservation.pickup_site"))
                                 .color(tokens.colors.text_secondary),
                             TextInput(
-                                label: Some("Customer name".into()),
+                                label: Some(cx.tr("reservation.customer_name").into()),
                                 bind: form.customer_name,
                                 required: true,
                                 semantics_identifier: "reservation.customer-name".to_string(),
                             ),
                             TextInput(
-                                label: Some("Reply email".into()),
+                                label: Some(cx.tr("reservation.reply_email").into()),
                                 bind: form.reply_email,
-                                placeholder: Some("name@example.org".into()),
+                                placeholder: Some(cx.tr("reservation.email_placeholder").into()),
                                 required: true,
                                 semantics_identifier: "reservation.reply-email".to_string(),
                             ),
                             TextInput(
-                                label: Some("Seedling species".into()),
+                                label: Some(cx.tr("reservation.species").into()),
                                 bind: form.species,
                                 required: true,
                                 semantics_identifier: "reservation.species".to_string(),
                             ),
                             TextInput(
-                                label: Some("Number of seedlings".into()),
+                                label: Some(cx.tr("reservation.quantity").into()),
                                 bind: form.quantity,
                                 required: true,
                                 semantics_identifier: "reservation.quantity".to_string(),
                             ),
                             TextInput(
-                                label: Some("Pickup note (optional)".into()),
+                                label: Some(cx.tr("reservation.pickup_note").into()),
                                 bind: form.pickup_note,
                                 multiline: true,
                                 semantics_identifier: "reservation.pickup-note".to_string(),
                             ),
-                            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                                Button(
-                                    child: Text("Review pickup request"),
-                                    key: "review-pickup-request",
-                                    variant: ButtonVariant::Primary,
-                                    on_press: reduce { form.reviewed = true; },
-                                )
-                                .semantics_identifier("reservation.review".to_string()),
-                                Button(
-                                    child: Text("Restore sample draft"),
-                                    key: "restore-sample-draft",
-                                    variant: ButtonVariant::Outline,
-                                    on_press: reduce {
-                                        form.customer_name = "Maya Chen".to_string();
-                                        form.reply_email = "maya.chen@example.org".to_string();
-                                        form.species = "Coast live oak".to_string();
-                                        form.quantity = "12".to_string();
-                                        form.pickup_note = "Cedar Point restoration site".to_string();
-                                        form.reviewed = false;
-                                    },
-                                ),
-                            ]),
-                            if form.reviewed {
-                                Text(format!(
-                                    "Draft reviewed: {} {} seedlings for {}.",
-                                    form.quantity,
-                                    form.species,
-                                    form.customer_name,
-                                ))
-                                .color(tokens.colors.success)
-                            } else {
-                                Text("This draft has not been sent to the nursery.")
-                                    .color(tokens.colors.text_secondary)
-                            },
+                            Button(
+                                child: Text(cx.tr("reservation.clear")),
+                                key: "clear-form",
+                                variant: ButtonVariant::Outline,
+                                on_press: reduce {
+                                    form.customer_name.clear();
+                                    form.reply_email.clear();
+                                    form.species.clear();
+                                    form.quantity.clear();
+                                    form.pickup_note.clear();
+                                },
+                            )
+                            .semantics_identifier("reservation.clear".to_string()),
+                            Text(cx.tr("reservation.not_sent"))
+                                .color(tokens.colors.text_secondary),
                         ])
                     )
                     .padding_all(tokens.spacing.l)
@@ -201,6 +201,7 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     WebApp::<(), _>::new(app::SeedlingReservationForm::new())
+        .with_env(app::create_env())
         .with_title("Meadowline seedling pickup request")
         .mount("#fission-web-mount")
         .run()
@@ -213,7 +214,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Change the species or quantity, then review the draft. The summary should use the values currently in the fields. Restore the sample draft when you want to begin again.
+Enter the species and quantity, then review the form. It should remain a local draft; no request has been sent to the nursery.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -230,11 +231,30 @@ Replace the earlier `src/app.rs` with this version. The error text is attached t
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
+use std::collections::HashMap;
 
 #[cfg(test)]
 #[path = "app_tests.rs"]
 mod app_tests;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(yaml).expect("valid Meadowline translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
 
 pub fn email_has_basic_shape(value: &str) -> bool {
     let value = value.trim();
@@ -251,28 +271,49 @@ pub fn email_has_basic_shape(value: &str) -> bool {
         && !domain.ends_with('.')
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReservationError {
+    CustomerNameRequired,
+    EmailInvalid,
+    SpeciesRequired,
+    QuantityInvalid,
+    QuantityOutOfRange,
+}
+
+impl ReservationError {
+    fn translation_key(self) -> &'static str {
+        match self {
+            Self::CustomerNameRequired => "reservation.error.customer_name",
+            Self::EmailInvalid => "reservation.error.email",
+            Self::SpeciesRequired => "reservation.error.species",
+            Self::QuantityInvalid => "reservation.error.quantity_invalid",
+            Self::QuantityOutOfRange => "reservation.error.quantity_range",
+        }
+    }
+}
+
 pub fn validate_reservation(
     customer_name: &str,
     reply_email: &str,
     species: &str,
     quantity: &str,
-) -> Result<u32, &'static str> {
+) -> Result<u32, ReservationError> {
     if customer_name.trim().is_empty() {
-        return Err("Enter the name staff should use for this pickup.");
+        return Err(ReservationError::CustomerNameRequired);
     }
     if !email_has_basic_shape(reply_email) {
-        return Err("Enter an email with a name and a complete domain.");
+        return Err(ReservationError::EmailInvalid);
     }
     if species.trim().is_empty() {
-        return Err("Enter the species the nursery should prepare.");
+        return Err(ReservationError::SpeciesRequired);
     }
 
     let quantity = quantity
         .trim()
         .parse::<u32>()
-        .map_err(|_| "Enter a whole number from 1 to 24.")?;
+        .map_err(|_| ReservationError::QuantityInvalid)?;
     if !(1..=24).contains(&quantity) {
-        return Err("A pickup tray holds between 1 and 24 seedlings.");
+        return Err(ReservationError::QuantityOutOfRange);
     }
 
     Ok(quantity)
@@ -281,12 +322,12 @@ pub fn validate_reservation(
 fission_component! {
     pub SeedlingReservationForm<()> {
     state {
-        customer_name: String = "Maya Chen".to_string(),
-        reply_email: String = "maya.chen@example.org".to_string(),
-        species: String = "Coast live oak".to_string(),
-        quantity: String = "12".to_string(),
-        pickup_note: String = "Cedar Point restoration site".to_string(),
-        reviewed: bool = false,
+        customer_name: String = String::new(),
+        reply_email: String = String::new(),
+        species: String = String::new(),
+        quantity: String = String::new(),
+        pickup_note: String = String::new(),
+        validation_requested: bool = false,
     }
     }
     view(form, _state, cx) {
@@ -297,15 +338,15 @@ fission_component! {
             &form.species,
             &form.quantity,
         );
-        let name_invalid = form.reviewed && form.customer_name.trim().is_empty();
-        let email_invalid = form.reviewed && !email_has_basic_shape(&form.reply_email);
-        let species_invalid = form.reviewed && form.species.trim().is_empty();
+        let name_invalid = form.validation_requested && form.customer_name.trim().is_empty();
+        let email_invalid = form.validation_requested && !email_has_basic_shape(&form.reply_email);
+        let species_invalid = form.validation_requested && form.species.trim().is_empty();
         let quantity_value = form.quantity.trim().parse::<u32>().ok();
-        let quantity_invalid = form.reviewed && !matches!(quantity_value, Some(1..=24));
+        let quantity_invalid = form.validation_requested && !matches!(quantity_value, Some(1..=24));
     } =>
     SemanticsRegion(
         identifier: Some("seedling-reservation-form".to_string()),
-        label: Some("Meadowline Native Plants pickup request".to_string()),
+        label: Some(cx.tr("reservation.form.label")),
         child: Scroll(
             flex_grow: 1.0,
             height: cx.view.viewport_size().height,
@@ -314,110 +355,110 @@ fission_component! {
                     Container(
                         Column(gap: tokens.spacing.m, children: [
                             Column(gap: tokens.spacing.xs, children: [
-                                Text("Meadowline Native Plants")
+                                Text(cx.tr("reservation.brand"))
                                     .weight(tokens.typography.font_weight_bold),
-                                Text("Community restoration pickup request")
+                                Text(cx.tr("reservation.subtitle"))
                                     .color(tokens.colors.text_secondary),
                             ]),
-                            Text("Pickup site · Cedar Point Nursery")
+                            Text(cx.tr("reservation.pickup_site"))
                                 .color(tokens.colors.text_secondary),
                             TextInput(
-                                label: Some("Customer name".into()),
+                                label: Some(cx.tr("reservation.customer_name").into()),
                                 bind: form.customer_name,
                                 required: true,
                                 keyboard_type: TextInputType::Name,
                                 text_input_action: TextInputAction::Next,
                                 error_text: if name_invalid {
-                                    Some("Enter the name staff should use for this pickup.".into())
+                                    Some(cx.tr("reservation.error.customer_name").into())
                                 } else {
                                     None
                                 },
                                 semantics_identifier: "reservation.customer-name".to_string(),
                             ),
                             TextInput(
-                                label: Some("Reply email".into()),
+                                label: Some(cx.tr("reservation.reply_email").into()),
                                 bind: form.reply_email,
-                                placeholder: Some("name@example.org".into()),
+                                placeholder: Some(cx.tr("reservation.email_placeholder").into()),
                                 required: true,
                                 keyboard_type: TextInputType::EmailAddress,
                                 text_input_action: TextInputAction::Next,
                                 error_text: if email_invalid {
-                                    Some("Enter an email with a name and a complete domain.".into())
+                                    Some(cx.tr("reservation.error.email").into())
                                 } else {
                                     None
                                 },
                                 semantics_identifier: "reservation.reply-email".to_string(),
                             ),
                             TextInput(
-                                label: Some("Seedling species".into()),
+                                label: Some(cx.tr("reservation.species").into()),
                                 bind: form.species,
                                 required: true,
                                 text_input_action: TextInputAction::Next,
                                 error_text: if species_invalid {
-                                    Some("Enter the species the nursery should prepare.".into())
+                                    Some(cx.tr("reservation.error.species").into())
                                 } else {
                                     None
                                 },
                                 semantics_identifier: "reservation.species".to_string(),
                             ),
                             TextInput(
-                                label: Some("Number of seedlings".into()),
+                                label: Some(cx.tr("reservation.quantity").into()),
                                 bind: form.quantity,
                                 required: true,
                                 keyboard_type: TextInputType::Number,
                                 text_input_action: TextInputAction::Done,
-                                helper_text: Some("One pickup tray holds 1 to 24 seedlings.".into()),
+                                helper_text: Some(cx.tr("reservation.quantity_help").into()),
                                 error_text: if quantity_invalid {
-                                    Some("Enter a whole number from 1 to 24.".into())
+                                    Some(cx.tr(if quantity_value.is_some() {
+                                        "reservation.error.quantity_range"
+                                    } else {
+                                        "reservation.error.quantity_invalid"
+                                    }).into())
                                 } else {
                                     None
                                 },
                                 semantics_identifier: "reservation.quantity".to_string(),
                             ),
                             TextInput(
-                                label: Some("Pickup note (optional)".into()),
+                                label: Some(cx.tr("reservation.pickup_note").into()),
                                 bind: form.pickup_note,
                                 multiline: true,
                                 text_input_action: TextInputAction::Newline,
-                                helper_text: Some("For example, the restoration site or an access note.".into()),
+                                helper_text: Some(cx.tr("reservation.pickup_note_help").into()),
                                 semantics_identifier: "reservation.pickup-note".to_string(),
                             ),
                             Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
                                 Button(
-                                    child: Text("Check pickup request"),
+                                    child: Text(cx.tr("reservation.check")),
                                     key: "check-pickup-request",
                                     variant: ButtonVariant::Primary,
-                                    on_press: reduce { form.reviewed = true; },
+                                    on_press: reduce { form.validation_requested = true; },
                                 )
                                 .semantics_identifier("reservation.check".to_string()),
                                 Button(
-                                    child: Text("Restore sample draft"),
-                                    key: "restore-sample-draft",
+                                    child: Text(cx.tr("reservation.clear")),
+                                    key: "clear-form",
                                     variant: ButtonVariant::Outline,
                                     on_press: reduce {
-                                        form.customer_name = "Maya Chen".to_string();
-                                        form.reply_email = "maya.chen@example.org".to_string();
-                                        form.species = "Coast live oak".to_string();
-                                        form.quantity = "12".to_string();
-                                        form.pickup_note = "Cedar Point restoration site".to_string();
-                                        form.reviewed = false;
+                                        form.customer_name.clear();
+                                        form.reply_email.clear();
+                                        form.species.clear();
+                                        form.quantity.clear();
+                                        form.pickup_note.clear();
+                                        form.validation_requested = false;
                                     },
-                                ),
+                                )
+                                .semantics_identifier("reservation.clear".to_string()),
                             ]),
-                            if form.reviewed {
+                            if form.validation_requested {
                                 match result {
-                                    Ok(quantity) => Text(format!(
-                                        "Pickup request looks complete: {} {} seedlings for {}.",
-                                        quantity,
-                                        form.species.trim(),
-                                        form.customer_name.trim(),
-                                    ))
+                                    Ok(_) => Text(cx.tr("reservation.ready"))
                                     .color(tokens.colors.success),
-                                    Err(message) => Text(message.to_string())
+                                    Err(error) => Text(cx.tr(error.translation_key()))
                                         .color(tokens.colors.error),
                                 }
                             } else {
-                                Text("The sample draft is local to this screen until you send it to a service.")
+                                Text(cx.tr("reservation.not_sent"))
                                     .color(tokens.colors.text_secondary)
                             },
                         ])
@@ -438,6 +479,58 @@ fission_component! {
         ),
     )
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+reservation.form.label: "Meadowline Native Plants pickup request"
+reservation.brand: "Meadowline Native Plants"
+reservation.subtitle: "Community restoration pickup request"
+reservation.pickup_site: "Pickup site · Cedar Point Nursery"
+reservation.customer_name: "Customer name"
+reservation.reply_email: "Reply email"
+reservation.email_placeholder: "name@example.org"
+reservation.species: "Seedling species"
+reservation.quantity: "Number of seedlings"
+reservation.quantity_help: "One pickup tray holds 1 to 24 seedlings."
+reservation.pickup_note: "Pickup note (optional)"
+reservation.pickup_note_help: "For example, the restoration site or an access note."
+reservation.check: "Check pickup request"
+reservation.clear: "Clear form"
+reservation.ready: "The required details are present in this local draft."
+reservation.not_sent: "This local draft has not been sent to the nursery."
+reservation.error.customer_name: "Enter the name staff should use for this pickup."
+reservation.error.email: "Enter an email with a name and a complete domain."
+reservation.error.species: "Enter the species the nursery should prepare."
+reservation.error.quantity_invalid: "Enter a whole number from 1 to 24."
+reservation.error.quantity_range: "A pickup tray holds between 1 and 24 seedlings."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+reservation.form.label: "Solicitud de recogida de Meadowline Native Plants"
+reservation.brand: "Meadowline Native Plants"
+reservation.subtitle: "Solicitud de plantas para restauración comunitaria"
+reservation.pickup_site: "Lugar de recogida · Vivero Cedar Point"
+reservation.customer_name: "Nombre de la persona solicitante"
+reservation.reply_email: "Correo electrónico de contacto"
+reservation.email_placeholder: "nombre@example.org"
+reservation.species: "Especie de planta"
+reservation.quantity: "Número de plantas"
+reservation.quantity_help: "Cada bandeja contiene de 1 a 24 plantas."
+reservation.pickup_note: "Nota para la recogida (opcional)"
+reservation.pickup_note_help: "Por ejemplo, el lugar de restauración o una necesidad de acceso."
+reservation.check: "Revisar solicitud"
+reservation.clear: "Borrar formulario"
+reservation.ready: "Este borrador local contiene los datos obligatorios."
+reservation.not_sent: "Este borrador local todavía no se ha enviado al vivero."
+reservation.error.customer_name: "Indica el nombre que usará el personal para esta recogida."
+reservation.error.email: "Introduce un correo con nombre y dominio completos."
+reservation.error.species: "Indica qué especie debe preparar el vivero."
+reservation.error.quantity_invalid: "Introduce un número entero del 1 al 24."
+reservation.error.quantity_range: "Cada bandeja admite de 1 a 24 plantas."
 ```
 </TabItem>
 <TabItem label="src/app_tests.rs">
@@ -462,19 +555,19 @@ fn accepts_a_complete_pickup_request() {
 fn rejects_missing_contact_details_and_invalid_quantities() {
     assert_eq!(
         validate_reservation("", "maya.chen@example.org", "Coast live oak", "12"),
-        Err("Enter the name staff should use for this pickup."),
+        Err(ReservationError::CustomerNameRequired),
     );
     assert_eq!(
         validate_reservation("Maya Chen", "maya@", "Coast live oak", "12"),
-        Err("Enter an email with a name and a complete domain."),
+        Err(ReservationError::EmailInvalid),
     );
     assert_eq!(
         validate_reservation("Maya Chen", "maya.chen@example.org", "Coast live oak", "0"),
-        Err("A pickup tray holds between 1 and 24 seedlings."),
+        Err(ReservationError::QuantityOutOfRange),
     );
     assert_eq!(
         validate_reservation("Maya Chen", "maya.chen@example.org", "Coast live oak", "25"),
-        Err("A pickup tray holds between 1 and 24 seedlings."),
+        Err(ReservationError::QuantityOutOfRange),
     );
 }
 ```
@@ -491,6 +584,7 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     WebApp::<(), _>::new(app::SeedlingReservationForm::new())
+        .with_env(app::create_env())
         .with_title("Meadowline seedling pickup request")
         .mount("#fission-web-mount")
         .run()
@@ -503,7 +597,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Clear the customer name, enter `maya@` as the reply email, or set the quantity to `25`; choose **Check pickup request** and read the specific field error. Then restore the sample draft, change the quantity to `18`, and check again. The result should reflect the edited fields rather than a stale confirmation.
+Clear the customer name, enter `maya@` as the reply email, or set the quantity to `25`; choose **Check pickup request** and read the specific field error. Then correct the fields and check again. The result should reflect the current draft rather than a stale confirmation.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -522,13 +616,14 @@ The sample has no inventory service, so **Check pickup request** validates a loc
 ```rust
 pub mod app;
 
-use app::SeedlingReservationForm;
+use app::{create_env, SeedlingReservationForm};
 use fission::prelude::*;
 
 #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
 pub fn run_desktop() -> anyhow::Result<()> {
     DesktopApp::<(), _>::new(SeedlingReservationForm::new())
         .with_title("Meadowline seedling pickup request")
+        .with_env(create_env())
         .run()
 }
 
@@ -536,6 +631,7 @@ pub fn run_desktop() -> anyhow::Result<()> {
 pub fn run_mobile() -> anyhow::Result<()> {
     MobileApp::<(), _>::new(SeedlingReservationForm::new())
         .with_title("Meadowline seedling pickup request")
+        .with_env(create_env())
         .run()
 }
 
@@ -543,7 +639,8 @@ pub fn run_mobile() -> anyhow::Result<()> {
 #[no_mangle]
 fn android_main(app_handle: AndroidApp) {
     let app = MobileApp::<(), _>::new(SeedlingReservationForm::new())
-        .with_title("Meadowline seedling pickup request");
+        .with_title("Meadowline seedling pickup request")
+        .with_env(create_env());
     let _ = app.run_with_android_app(app_handle);
 }
 
@@ -553,6 +650,7 @@ pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
     console_error_panic_hook::set_once();
     WebApp::<(), _>::new(SeedlingReservationForm::new())
         .with_title("Meadowline seedling pickup request")
+        .with_env(create_env())
         .run()
         .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }

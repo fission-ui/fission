@@ -32,6 +32,7 @@ Install the CLI, create the shared Rust project, add the iOS target, and declare
 cargo install cargo-fission
 fission init refund-review
 cd refund-review
+cargo add serde_yaml
 fission add-target ios --project-dir .
 fission add-capability biometric --project-dir .
 ```
@@ -69,6 +70,7 @@ The tabs show how app state, screen, and browser host fit together. A real app w
 <!-- fission:file path="src/app.rs" -->
 ```rust
 pub mod approval;
+pub mod translations;
 pub mod widgets;
 
 pub use approval::{RefundApprovalState, RefundDraft};
@@ -89,20 +91,88 @@ pub struct RefundDraft {
     pub reason: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BiometricMethod {
+    Face,
+    Fingerprint,
+    Iris,
+    DeviceCredential,
+    Other,
+}
+
+impl BiometricMethod {
+    pub fn translation_key(&self) -> &'static str {
+        match self {
+            Self::Face => "refund.method.face",
+            Self::Fingerprint => "refund.method.fingerprint",
+            Self::Iris => "refund.method.iris",
+            Self::DeviceCredential => "refund.method.device_credential",
+            Self::Other => "refund.method.other",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RefundNotice {
+    CheckingDevice,
+    DeviceAvailable,
+    DeviceUnavailable,
+    AvailabilityFailed,
+    CheckDeviceFirst,
+    NoCredential,
+    RefundMissing,
+    WaitingForPrompt,
+    ResultMissing,
+    NotVerified,
+    Verified(BiometricMethod),
+    PromptCancelled,
+    TemporarilyLocked,
+    AuthenticationUnavailable,
+    AuthenticationFailed,
+}
+
+impl RefundNotice {
+    pub fn translation_key(&self) -> &'static str {
+        match self {
+            Self::CheckingDevice => "refund.status.checking_device",
+            Self::DeviceAvailable => "refund.status.device_available",
+            Self::DeviceUnavailable => "refund.status.device_unavailable",
+            Self::AvailabilityFailed => "refund.status.availability_failed",
+            Self::CheckDeviceFirst => "refund.status.check_device_first",
+            Self::NoCredential => "refund.status.no_credential",
+            Self::RefundMissing => "refund.status.refund_missing",
+            Self::WaitingForPrompt => "refund.status.waiting_for_prompt",
+            Self::ResultMissing => "refund.status.result_missing",
+            Self::NotVerified => "refund.status.not_verified",
+            Self::Verified(_) => "refund.status.verified",
+            Self::PromptCancelled => "refund.status.prompt_cancelled",
+            Self::TemporarilyLocked => "refund.status.temporarily_locked",
+            Self::AuthenticationUnavailable => "refund.status.authentication_unavailable",
+            Self::AuthenticationFailed => "refund.status.authentication_failed",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RefundApprovalState {
+    pub locale: Locale,
     pub refund: Option<RefundDraft>,
     pub availability: Option<BiometricAvailability>,
     pub checking_device: bool,
     pub authenticating: bool,
-    pub verified_with: Option<String>,
-    pub message: Option<String>,
-    pub error: Option<String>,
+    pub verified_with: Option<BiometricMethod>,
+    pub message: Option<RefundNotice>,
+    pub error: Option<RefundNotice>,
 }
 
 impl GlobalState for RefundApprovalState {}
 
-fn format_refund_amount(amount_cents: u32) -> String {
+#[fission_reducer(SetRefundLocale)]
+pub fn on_set_refund_locale(state: &mut RefundApprovalState, locale: Locale) {
+    state.locale = locale;
+}
+
+pub fn format_refund_amount(amount_cents: u32) -> String {
     format!("${}.{:02}", amount_cents / 100, amount_cents % 100)
 }
 
@@ -121,7 +191,7 @@ pub fn on_check_device_biometrics(
 
     state.checking_device = true;
     state.error = None;
-    state.message = Some("Checking this device’s authentication options…".to_string());
+    state.message = Some(RefundNotice::CheckingDevice);
 
     let on_ok = ctx.effects.bind(
         BiometricAvailabilityReceived,
@@ -148,23 +218,17 @@ pub fn on_biometric_availability_received(
     let Some(availability) = ctx.input.capability_ok(GET_BIOMETRIC_AVAILABILITY) else {
         state.availability = None;
         state.message = None;
-        state.error = Some(
-            "The device did not return its authentication options. Check your account another way before continuing."
-                .to_string(),
-        );
+        state.error = Some(RefundNotice::AvailabilityFailed);
         return;
     };
 
     let ready = host_can_verify(&availability);
-    let reason = availability.reason.clone();
     state.availability = Some(availability);
     state.error = None;
     state.message = Some(if ready {
-        "This device can verify its current user. You can continue with the local check.".to_string()
-    } else if let Some(reason) = reason {
-        format!("This device cannot verify a local user right now: {reason}. Use manager account sign-in instead.")
+        RefundNotice::DeviceAvailable
     } else {
-        "No enrolled biometric or device credential is available. Use manager account sign-in instead.".to_string()
+        RefundNotice::DeviceUnavailable
     });
 }
 
@@ -177,24 +241,24 @@ pub fn on_biometric_availability_failed(
     state.availability = None;
     state.message = None;
     let Some(error) = ctx.input.capability_error(GET_BIOMETRIC_AVAILABILITY) else {
-        state.error = Some(
-            "The device could not check its authentication options. Use manager account sign-in instead."
-                .to_string(),
-        );
+        state.error = Some(RefundNotice::AvailabilityFailed);
         return;
     };
 
     state.error = Some(match error.code.as_str() {
-        "unsupported" | "unavailable" => {
-            "This device does not offer a supported local authentication method. Use manager account sign-in instead.".to_string()
-        }
-        _ => "The device could not check its authentication options. Use manager account sign-in instead.".to_string(),
+        "unsupported" | "unavailable" => RefundNotice::DeviceUnavailable,
+        _ => RefundNotice::AvailabilityFailed,
     });
 }
 
 #[fission_reducer(VerifyRefundManager)]
 pub fn on_verify_refund_manager(
     state: &mut RefundApprovalState,
+    reason: String,
+    title: String,
+    subtitle: String,
+    fallback_title: String,
+    cancel_title: String,
     ctx: &mut ReducerContext<RefundApprovalState>,
 ) {
     if state.authenticating || state.verified_with.is_some() {
@@ -202,32 +266,24 @@ pub fn on_verify_refund_manager(
     }
 
     let Some(availability) = state.availability.as_ref() else {
-        state.error = Some("Check this device before asking it to verify the manager.".to_string());
+        state.error = Some(RefundNotice::CheckDeviceFirst);
         state.message = None;
         return;
     };
     if !host_can_verify(availability) {
-        state.error = Some("This device has no usable local credential. Continue with manager account sign-in.".to_string());
+        state.error = Some(RefundNotice::NoCredential);
         state.message = None;
         return;
     }
     let Some(refund) = state.refund.as_ref() else {
-        state.error = Some("Open a refund review before asking the manager to verify.".to_string());
+        state.error = Some(RefundNotice::RefundMissing);
         state.message = None;
         return;
     };
 
-    let amount = format_refund_amount(refund.amount_cents);
-    let refund_id = refund.refund_id.clone();
-    let order_reference = refund.order_reference.clone();
-    let customer_name = refund.customer_name.clone();
-    let reason = format!(
-        "Review refund {} for {} ({amount})",
-        refund_id, customer_name
-    );
     state.authenticating = true;
     state.error = None;
-    state.message = Some("Waiting for the device’s authentication prompt…".to_string());
+    state.message = Some(RefundNotice::WaitingForPrompt);
 
     let on_ok = ctx.effects.bind(
         RefundManagerVerified,
@@ -242,10 +298,10 @@ pub fn on_verify_refund_manager(
         .biometrics()
         .authenticate(BiometricAuthenticateRequest {
             reason,
-            title: Some("Review refund".into()),
-            subtitle: Some(format!("{order_reference} · {amount}")),
-            fallback_title: Some("Use manager account".into()),
-            cancel_title: Some("Cancel".into()),
+            title: Some(title),
+            subtitle: Some(subtitle),
+            fallback_title: Some(fallback_title),
+            cancel_title: Some(cancel_title),
             allow_device_credential: true,
             required_strength: BiometricStrength::Any,
         })
@@ -262,32 +318,30 @@ pub fn on_refund_manager_verified(
     let Some(result) = ctx.input.capability_ok(AUTHENTICATE_BIOMETRIC) else {
         state.verified_with = None;
         state.message = None;
-        state.error = Some("The device returned no verification result. The refund remains unchanged.".to_string());
+        state.error = Some(RefundNotice::ResultMissing);
         return;
     };
     if !result.verified {
         state.verified_with = None;
         state.message = None;
-        state.error = Some("The device did not verify the manager. The refund remains unchanged.".to_string());
+        state.error = Some(RefundNotice::NotVerified);
         return;
     }
 
     let method = if result.used_device_credential {
-        "device passcode"
+        BiometricMethod::DeviceCredential
     } else {
         match result.kind {
-            Some(BiometricKind::Face) => "face recognition",
-            Some(BiometricKind::Fingerprint) => "fingerprint",
-            Some(BiometricKind::Iris) => "iris recognition",
-            Some(BiometricKind::DeviceCredential) => "device credential",
-            Some(BiometricKind::Unknown) | None => "local authentication",
+            Some(BiometricKind::Face) => BiometricMethod::Face,
+            Some(BiometricKind::Fingerprint) => BiometricMethod::Fingerprint,
+            Some(BiometricKind::Iris) => BiometricMethod::Iris,
+            Some(BiometricKind::DeviceCredential) => BiometricMethod::DeviceCredential,
+            Some(BiometricKind::Unknown) | None => BiometricMethod::Other,
         }
     };
-    state.verified_with = Some(method.to_string());
+    state.verified_with = Some(method.clone());
     state.error = None;
-    state.message = Some(format!(
-        "Local verification passed with {method}. The refund is ready for server review; it has not been submitted."
-    ));
+    state.message = Some(RefundNotice::Verified(method));
 }
 
 #[fission_reducer(RefundManagerVerificationFailed)]
@@ -299,21 +353,17 @@ pub fn on_refund_manager_verification_failed(
     state.verified_with = None;
     state.message = None;
     let Some(error) = ctx.input.capability_error(AUTHENTICATE_BIOMETRIC) else {
-        state.error = Some("The device did not return a verification result. The refund remains unchanged; try again or use manager account sign-in.".to_string());
+        state.error = Some(RefundNotice::AuthenticationFailed);
         return;
     };
 
     state.error = Some(match error.code.as_str() {
-        "cancelled" | "canceled" | "user_cancel" | "system_cancelled" => {
-            "Authentication was cancelled. The refund remains unchanged; try again or use manager account sign-in.".to_string()
-        }
-        "locked_out" | "lockout" => {
-            "Local authentication is temporarily locked. Wait for the device to unlock it, or use manager account sign-in.".to_string()
-        }
+        "cancelled" | "canceled" | "user_cancel" | "system_cancelled" => RefundNotice::PromptCancelled,
+        "locked_out" | "lockout" => RefundNotice::TemporarilyLocked,
         "not_enrolled" | "unavailable" | "unsupported" | "permission_denied" => {
-            "This device cannot complete local authentication right now. Use manager account sign-in instead.".to_string()
+            RefundNotice::AuthenticationUnavailable
         }
-        _ => "The device did not verify the manager. The refund remains unchanged; try again or use manager account sign-in.".to_string(),
+        _ => RefundNotice::AuthenticationFailed,
     });
 }
 ```
@@ -324,22 +374,54 @@ pub fn on_refund_manager_verification_failed(
 use fission::prelude::*;
 
 use super::approval::{
-    on_check_device_biometrics, on_verify_refund_manager, CheckDeviceBiometrics,
-    RefundApprovalState, VerifyRefundManager,
+    format_refund_amount, on_check_device_biometrics, on_set_refund_locale, on_verify_refund_manager,
+    CheckDeviceBiometrics, RefundApprovalState, RefundNotice, SetRefundLocale,
+    VerifyRefundManager,
 };
 
 fission_component! {
     pub RefundApprovalScreen<RefundApprovalState> {}
     view(screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let (prompt_reason, prompt_subtitle) = state.refund.as_ref().map(|refund| {
+            let amount = format_refund_amount(refund.amount_cents);
+            (
+                cx.tr("refund.prompt.reason")
+                    .replace("{refund}", &refund.refund_id)
+                    .replace("{customer}", &refund.customer_name)
+                    .replace("{amount}", &amount),
+                cx.tr("refund.prompt.subtitle")
+                    .replace("{order}", &refund.order_reference)
+                    .replace("{amount}", &amount),
+            )
+        }).unwrap_or_else(|| (
+            cx.tr("refund.prompt.reason_fallback"),
+            cx.tr("refund.prompt.subtitle_fallback"),
+        ));
         let check_device = with_reducer!(
             cx.build,
             CheckDeviceBiometrics,
             on_check_device_biometrics,
         );
+        let use_english = with_reducer!(
+            cx.build,
+            SetRefundLocale(Locale::from("en-US")),
+            on_set_refund_locale,
+        );
+        let use_spanish = with_reducer!(
+            cx.build,
+            SetRefundLocale(Locale::from("es-ES")),
+            on_set_refund_locale,
+        );
         let verify_manager = with_reducer!(
             cx.build,
-            VerifyRefundManager,
+            VerifyRefundManager(
+                prompt_reason,
+                cx.tr("refund.prompt.title"),
+                prompt_subtitle,
+                cx.tr("refund.prompt.fallback"),
+                cx.tr("refund.prompt.cancel"),
+            ),
             on_verify_refund_manager,
         );
         let device_ready = state.availability.as_ref().map(|availability| {
@@ -348,40 +430,54 @@ fission_component! {
     } =>
     SemanticsRegion(
         identifier: Some("refund-approval-screen".to_string()),
-        label: Some("Refund review and local manager verification".to_string()),
+        label: Some(cx.tr("refund.screen.label")),
         child: Container(
             Row(children: [
                 Spacer(flex_grow: 1.0),
                 Container(
                     Column(gap: tokens.spacing.l, children: [
                         Column(gap: tokens.spacing.xs, children: [
-                            Text("Manager refund review")
+                            Text(cx.tr("refund.title"))
                                 .weight(tokens.typography.font_weight_bold),
-                            Text("Verify the person holding this device before preparing the refund for server review.")
+                            Text(cx.tr("refund.description"))
                                 .color(tokens.colors.text_secondary),
+                        ]),
+                        Row(gap: tokens.spacing.s, children: [
+                            Button(
+                                child: Text(cx.tr("refund.locale.english")),
+                                key: "locale-en-US",
+                                variant: if state.locale == Locale::from("en-US") { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                                on_press: use_english,
+                            ).semantics_identifier("refund.locale.en-US"),
+                            Button(
+                                child: Text(cx.tr("refund.locale.spanish")),
+                                key: "locale-es-ES",
+                                variant: if state.locale == Locale::from("es-ES") { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                                on_press: use_spanish,
+                            ).semantics_identifier("refund.locale.es-ES"),
                         ]),
                         if let Some(refund) = &state.refund {
                             Column(gap: tokens.spacing.s, children: [
                                 Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
                                     Text(refund.refund_id.clone())
                                         .weight(tokens.typography.font_weight_semibold),
-                                    Text(format!("Order {}", refund.order_reference)),
+                                    Text(cx.tr("refund.order").replace("{order}", &refund.order_reference)),
                                 ]),
                                 Text(refund.customer_name.clone()),
-                                Text(format!("Refund request: ${}.{:02}", refund.amount_cents / 100, refund.amount_cents % 100))
+                                Text(cx.tr("refund.amount").replace("{amount}", &format_refund_amount(refund.amount_cents)))
                                     .weight(tokens.typography.font_weight_bold),
-                                Text(format!("Reason: {}", refund.reason))
+                                Text(cx.tr("refund.reason").replace("{reason}", &refund.reason))
                                     .color(tokens.colors.text_secondary),
                             ])
                         } else {
-                            Text("Open a refund from the signed-in manager’s review queue to continue.")
+                            Text(cx.tr("refund.empty"))
                                 .color(tokens.colors.text_secondary)
                         },
                         Button(
                             child: Text(if state.checking_device {
-                                "Checking device…"
+                                cx.tr("refund.action.checking")
                             } else {
-                                "Check this device"
+                                cx.tr("refund.action.check_device")
                             }),
                             key: "check-device-biometrics",
                             variant: ButtonVariant::Outline,
@@ -392,11 +488,11 @@ fission_component! {
                         if device_ready {
                             Button(
                                 child: Text(if state.authenticating {
-                                    "Waiting for verification…"
+                                    cx.tr("refund.action.authenticating")
                                 } else if state.verified_with.is_some() {
-                                    "Manager verified on this device"
+                                    cx.tr("refund.action.verified")
                                 } else {
-                                    "Verify manager"
+                                    cx.tr("refund.action.verify_manager")
                                 }),
                                 key: "verify-refund-manager",
                                 variant: ButtonVariant::Primary,
@@ -405,16 +501,21 @@ fission_component! {
                             )
                             .semantics_identifier("refund.verify-manager".to_string())
                         } else {
-                            Text("After the device check, this action is enabled only when the host reports an enrolled biometric or an allowed device credential.")
+                            Text(cx.tr("refund.hint.no_credential"))
                                 .color(tokens.colors.text_secondary)
                         },
                         if let Some(message) = &state.message {
-                            Text(message.clone()).color(tokens.colors.text_secondary)
+                            if let RefundNotice::Verified(method) = message {
+                                Text(cx.tr(message.translation_key()).replace("{method}", &cx.tr(method.translation_key())))
+                                    .color(tokens.colors.text_secondary)
+                            } else {
+                                Text(cx.tr(message.translation_key())).color(tokens.colors.text_secondary)
+                            }
                         },
                         if let Some(error) = &state.error {
-                            Text(error.clone()).color(tokens.colors.error)
+                            Text(cx.tr(error.translation_key())).color(tokens.colors.error)
                         },
-                        Text("If local verification is unavailable, use the manager’s account sign-in. The server must still check the account, role, and refund before submitting it.")
+                        Text(cx.tr("refund.security.note"))
                             .color(tokens.colors.text_secondary),
                     ])
                 )
@@ -433,6 +534,130 @@ fission_component! {
         .width_length(Length::percent(100.0)),
     )
 }
+```
+</TabItem>
+<TabItem label="src/app/translations.rs">
+<!-- fission:file path="src/app/translations.rs" -->
+```rust
+use std::collections::HashMap;
+
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../../i18n/es-ES.yaml")),
+];
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in SOURCES {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid refund tutorial translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+refund.screen.label: "Refund review and local manager verification"
+refund.title: "Manager refund review"
+refund.description: "Verify the person holding this device before preparing the refund for server review."
+refund.order: "Order {order}"
+refund.amount: "Refund request: {amount}"
+refund.reason: "Reason: {reason}"
+refund.empty: "Open a refund from the signed-in manager’s review queue to continue."
+refund.action.checking: "Checking device…"
+refund.action.check_device: "Check this device"
+refund.action.authenticating: "Waiting for verification…"
+refund.action.verified: "Manager verified on this device"
+refund.action.verify_manager: "Verify manager"
+refund.hint.no_credential: "After the device check, this action is enabled only when the host reports an enrolled biometric or an allowed device credential."
+refund.security.note: "If local verification is unavailable, use the manager’s account sign-in. The server must still check the account, role, and refund before submitting it."
+refund.locale.english: "English"
+refund.locale.spanish: "Español"
+refund.prompt.reason: "Review refund {refund} for {customer} ({amount})."
+refund.prompt.reason_fallback: "Review this refund."
+refund.prompt.title: "Review refund"
+refund.prompt.subtitle: "{order} · {amount}"
+refund.prompt.subtitle_fallback: "Manager refund review"
+refund.prompt.fallback: "Use manager account"
+refund.prompt.cancel: "Cancel"
+refund.status.checking_device: "Checking this device’s authentication options…"
+refund.status.device_available: "This device can verify its current user. You can continue with the local check."
+refund.status.device_unavailable: "No enrolled biometric or device credential is available. Use manager account sign-in instead."
+refund.status.availability_failed: "The device could not check its authentication options. Use manager account sign-in instead."
+refund.status.check_device_first: "Check this device before asking it to verify the manager."
+refund.status.no_credential: "This device has no usable local credential. Continue with manager account sign-in."
+refund.status.refund_missing: "Open a refund review before asking the manager to verify."
+refund.status.waiting_for_prompt: "Waiting for the device’s authentication prompt…"
+refund.status.result_missing: "The device returned no verification result. The refund remains unchanged."
+refund.status.not_verified: "The device did not verify the manager. The refund remains unchanged."
+refund.status.verified: "Local verification passed with {method}. The refund is ready for server review; it has not been submitted."
+refund.status.prompt_cancelled: "Authentication was cancelled. The refund remains unchanged; try again or use manager account sign-in."
+refund.status.temporarily_locked: "Local authentication is temporarily locked. Wait for the device to unlock it, or use manager account sign-in."
+refund.status.authentication_unavailable: "This device cannot complete local authentication right now. Use manager account sign-in instead."
+refund.status.authentication_failed: "The device did not verify the manager. The refund remains unchanged; try again or use manager account sign-in."
+refund.method.face: "Face ID"
+refund.method.fingerprint: "Touch ID"
+refund.method.iris: "iris recognition"
+refund.method.device_credential: "device credential"
+refund.method.other: "local authentication"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+refund.screen.label: "Revisión de reembolso y verificación local del responsable"
+refund.title: "Revisión de reembolso del responsable"
+refund.description: "Verifica a la persona que sostiene el dispositivo antes de preparar el reembolso para que lo revise el servidor."
+refund.order: "Pedido {order}"
+refund.amount: "Solicitud de reembolso: {amount}"
+refund.reason: "Motivo: {reason}"
+refund.empty: "Abre un reembolso de la cola del responsable con sesión iniciada para continuar."
+refund.action.checking: "Comprobando dispositivo…"
+refund.action.check_device: "Comprobar este dispositivo"
+refund.action.authenticating: "Esperando verificación…"
+refund.action.verified: "Responsable verificado en este dispositivo"
+refund.action.verify_manager: "Verificar responsable"
+refund.hint.no_credential: "Después de comprobar el dispositivo, esta acción solo se activa si el sistema informa de una biometría configurada o una credencial de dispositivo permitida."
+refund.security.note: "Si la verificación local no está disponible, usa el inicio de sesión del responsable. El servidor debe comprobar la cuenta, el rol y el reembolso antes de enviarlo."
+refund.locale.english: "Inglés"
+refund.locale.spanish: "Español"
+refund.prompt.reason: "Revisar el reembolso {refund} para {customer} ({amount})."
+refund.prompt.reason_fallback: "Revisar este reembolso."
+refund.prompt.title: "Revisar reembolso"
+refund.prompt.subtitle: "{order} · {amount}"
+refund.prompt.subtitle_fallback: "Revisión de reembolso del responsable"
+refund.prompt.fallback: "Usar cuenta del responsable"
+refund.prompt.cancel: "Cancelar"
+refund.status.checking_device: "Comprobando las opciones de autenticación de este dispositivo…"
+refund.status.device_available: "Este dispositivo puede verificar a su usuario actual. Puedes continuar con la comprobación local."
+refund.status.device_unavailable: "No hay una biometría configurada ni una credencial de dispositivo disponible. Usa el inicio de sesión del responsable."
+refund.status.availability_failed: "El dispositivo no pudo comprobar las opciones de autenticación. Usa el inicio de sesión del responsable."
+refund.status.check_device_first: "Comprueba este dispositivo antes de pedirle que verifique al responsable."
+refund.status.no_credential: "Este dispositivo no tiene una credencial local utilizable. Continúa con el inicio de sesión del responsable."
+refund.status.refund_missing: "Abre un reembolso antes de pedir la verificación del responsable."
+refund.status.waiting_for_prompt: "Esperando la solicitud de autenticación del dispositivo…"
+refund.status.result_missing: "El dispositivo no devolvió un resultado de verificación. El reembolso no cambia."
+refund.status.not_verified: "El dispositivo no verificó al responsable. El reembolso no cambia."
+refund.status.verified: "Verificación local correcta con {method}. El reembolso está listo para la revisión del servidor; no se ha enviado."
+refund.status.prompt_cancelled: "Se canceló la autenticación. El reembolso no cambia; vuelve a intentarlo o inicia sesión en la cuenta del responsable."
+refund.status.temporarily_locked: "La autenticación local está bloqueada temporalmente. Espera a que se desbloquee el dispositivo o inicia sesión en la cuenta del responsable."
+refund.status.authentication_unavailable: "Este dispositivo no puede completar la autenticación local ahora. Usa el inicio de sesión del responsable."
+refund.status.authentication_failed: "El dispositivo no verificó al responsable. El reembolso no cambia; vuelve a intentarlo o inicia sesión en la cuenta del responsable."
+refund.method.face: "Face ID"
+refund.method.fingerprint: "Touch ID"
+refund.method.iris: "reconocimiento del iris"
+refund.method.device_credential: "credencial del dispositivo"
+refund.method.other: "autenticación local"
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
@@ -460,8 +685,12 @@ pub fn run() -> Result<(), JsValue> {
     };
 
     WebApp::<RefundApprovalState, _>::new(RefundApprovalScreen)
+        .with_env(app::translations::create_env())
         .with_state_init(move |state: &mut RefundApprovalState| {
             *state = preview_state.clone();
+        })
+        .with_sync_env(|state, env| {
+            env.locale = state.locale.clone();
         })
         .with_title("Refund review")
         .mount("#fission-web-mount")
@@ -491,6 +720,16 @@ That is why the capability matrix marks iOS biometrics as **Provider**. To run r
 You can still build and inspect the generated iOS configuration now:
 
 <Tabs>
+<TabItem label="Native MobileApp environment">
+```rust
+MobileApp::<RefundApprovalState, _>::new(RefundApprovalScreen)
+    .with_env(app::translations::create_env())
+    .with_sync_env(|state, env| {
+        env.locale = state.locale.clone();
+    })
+    .with_title("Refund review")
+```
+</TabItem>
 <TabItem label="Check the target">
 ```sh
 fission doctor ios --project-dir .

@@ -54,42 +54,67 @@ Keep app behaviour in shared Rust. Add a feature module only when it creates a u
 use fission::prelude::*;
 
 fission_component! {
-    pub IosUnsavedFormNavigation<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+    pub ItemList<()> {
+    }
+    view(_screen, _state, cx) =>
+        Column(children: [
+            Text(cx.tr("navigation.list.title")),
+            Text(cx.tr("navigation.list.summary")),
+        ])
+}
+
+fission_component! {
+    pub ItemDetail<()> {
+    }
+    view(_screen, _state, cx) =>
+        Column(children: [
+            Text(cx.tr("navigation.detail.title")),
+            Text(cx.tr("navigation.detail.summary")),
+        ])
+}
+
+fission_component! {
+    pub IosNavigationPreserveUnsavedWork<()> {
+        state {
+            detail_open: bool = false,
+            inspection_note: String = String::new(),
         }
     }
     view(screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let path = if screen.detail_open { "/items/42" } else { "/items" };
+        let router: Widget = Router::<()>::new()
+            .with_path(path.to_string())
+            .route_component("/items", ItemList)
+            .route_component("/items/:id", ItemDetail)
+            .into();
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("route-preview".to_string()),
+        label: Some(cx.tr("navigation.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
-                        .color(tokens.colors.text_secondary),
-                ]),
+                Text(cx.tr("navigation.title"))
+                    .weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("navigation.description")),
+                TextInput(
+                    label: Some(cx.tr("navigation.note.label").into()),
+                    bind: screen.inspection_note,
+                    placeholder: Some(cx.tr("navigation.note.placeholder").into()),
+                    semantics_identifier: "work-order.inspection-note".to_string(),
+                ),
+                Button(
+                    child: Text(if screen.detail_open {
+                        cx.tr("navigation.back")
+                    } else {
+                        cx.tr("navigation.open")
+                    }),
+                    key: "toggle-route",
+                    on_press: reduce { screen.detail_open = !screen.detail_open; },
+                ),
+                router,
+                Text(cx.tr("navigation.note.hint"))
+                    .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -108,23 +133,62 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosUnsavedFormNavigation::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::IosNavigationPreserveUnsavedWork)
+        .with_env(preview_env())
+        .with_title("ios add ios navigation and preserve unsaved work")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+navigation.title: "WO-1048 work order"
+navigation.description: "Open the record details without losing the inspection note in progress."
+navigation.list.title: "Assigned work orders"
+navigation.list.summary: "WO-1048  /  Cold-room compressor"
+navigation.detail.title: "Inspection details"
+navigation.detail.summary: "Northbank Food Hub  /  Service bay 2"
+navigation.note.label: "Inspection note"
+navigation.note.placeholder: "Add a note before opening the details"
+navigation.open: "Open inspection details"
+navigation.back: "Back to work orders"
+navigation.note.hint: "Type a note, change route, then return. The parent component owns the unsaved draft."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+navigation.title: "Orden de trabajo OT-1048"
+navigation.description: "Abre los detalles del registro sin perder la nota de inspección que estás escribiendo."
+navigation.list.title: "Órdenes de trabajo asignadas"
+navigation.list.summary: "OT-1048  /  Compresor de cámara fría"
+navigation.detail.title: "Detalles de inspección"
+navigation.detail.summary: "Centro de alimentos Northbank  /  Área de servicio 2"
+navigation.note.label: "Nota de inspección"
+navigation.note.placeholder: "Añade una nota antes de abrir los detalles"
+navigation.open: "Abrir detalles de inspección"
+navigation.back: "Volver a las órdenes de trabajo"
+navigation.note.hint: "Escribe una nota, cambia de ruta y vuelve. El componente padre conserva el borrador sin guardar."
 ```
 </TabItem>
 </Tabs>
@@ -145,32 +209,28 @@ use fission::prelude::*;
 fission_component! {
     pub ItemList<()> {
     }
-    view(_screen, _state, _cx) =>
+    view(_screen, _state, cx) =>
         Column(children: [
-            Text("Items"),
-            Text("Draft record · tap Back to return"),
+            Text(cx.tr("navigation.list.title")),
+            Text(cx.tr("navigation.list.summary")),
         ])
 }
 
 fission_component! {
     pub ItemDetail<()> {
     }
-    view(_screen, _state, _cx) =>
+    view(_screen, _state, cx) =>
         Column(children: [
-            Text("Item details"),
-            Text("Record 42"),
+            Text(cx.tr("navigation.detail.title")),
+            Text(cx.tr("navigation.detail.summary")),
         ])
 }
 
 fission_component! {
     pub IosNavigationPreserveUnsavedWork<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
         state {
             detail_open: bool = false,
+            inspection_note: String = String::new(),
         }
     }
     view(screen, _state, cx) {
@@ -184,19 +244,30 @@ fission_component! {
     } =>
     SemanticsRegion(
         identifier: Some("route-preview".to_string()),
-        label: Some(screen.title.clone()),
+        label: Some(cx.tr("navigation.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(screen.title.clone())
-
+                Text(cx.tr("navigation.title"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(screen.goal.clone()),
+                Text(cx.tr("navigation.description")),
+                TextInput(
+                    label: Some(cx.tr("navigation.note.label").into()),
+                    bind: screen.inspection_note,
+                    placeholder: Some(cx.tr("navigation.note.placeholder").into()),
+                    semantics_identifier: "work-order.inspection-note".to_string(),
+                ),
                 Button(
-                    child: Text(if screen.detail_open { "Back to items" } else { "Open record 42" }),
+                    child: Text(if screen.detail_open {
+                        cx.tr("navigation.back")
+                    } else {
+                        cx.tr("navigation.open")
+                    }),
                     key: "toggle-route",
                     on_press: reduce { screen.detail_open = !screen.detail_open; },
                 ),
                 router,
+                Text(cx.tr("navigation.note.hint"))
+                    .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -219,23 +290,62 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosNavigationPreserveUnsavedWork::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::IosNavigationPreserveUnsavedWork)
+        .with_env(preview_env())
+        .with_title("Northbank Field Service · iOS")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="src/i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+navigation.title: "WO-1048 work order"
+navigation.description: "Open the record details without losing the inspection note in progress."
+navigation.list.title: "Assigned work orders"
+navigation.list.summary: "WO-1048  /  Cold-room compressor"
+navigation.detail.title: "Inspection details"
+navigation.detail.summary: "Northbank Food Hub  /  Service bay 2"
+navigation.note.label: "Inspection note"
+navigation.note.placeholder: "Add a note before opening the details"
+navigation.open: "Open inspection details"
+navigation.back: "Back to work orders"
+navigation.note.hint: "Type a note, change route, then return. The parent component owns the unsaved draft."
+```
+</TabItem>
+<TabItem label="src/i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+navigation.title: "Orden de trabajo OT-1048"
+navigation.description: "Abre los detalles del registro sin perder la nota de inspección que estás escribiendo."
+navigation.list.title: "Órdenes de trabajo asignadas"
+navigation.list.summary: "OT-1048  /  Compresor de cámara fría"
+navigation.detail.title: "Detalles de inspección"
+navigation.detail.summary: "Centro de alimentos Northbank  /  Área de servicio 2"
+navigation.note.label: "Nota de inspección"
+navigation.note.placeholder: "Añade una nota antes de abrir los detalles"
+navigation.open: "Abrir detalles de inspección"
+navigation.back: "Volver a las órdenes de trabajo"
+navigation.note.hint: "Escribe una nota, cambia de ruta y vuelve. El componente padre conserva el borrador sin guardar."
 ```
 </TabItem>
 </Tabs>

@@ -1,31 +1,32 @@
 ---
 layout: goal
 title: Build protected routes in Rust
-description: Protect a Rust account area by hydrating the session, rendering pending and denied states, delaying private content and authorising every server action.
-goal: Show private account data only after the server confirms the current user is authorised
+description: Gate account screens from an already-resolved session state, keep private UI out of pending and denied routes, and preserve a safe return path.
+goal: Route signed-out, pending and authenticated users to the right account screen
 path: /blog/build-protected-routes-in-rust/
 order: 7
 difficulty: Beginner
 duration: 50 minutes
-run_command: "fission run --target ssr --project-dir ."
+run_command: "fission run --target web --project-dir ."
 app: protected-routes-rust
 outcomes:
   - Separate public pages from private content
   - Preserve a safe return path through sign-in
-  - Reject expired sessions on the server
+  - Keep account data out of pending and denied route trees
 ---
 
-Check access on the server before rendering a protected page. Hiding an account link or redirecting in the browser does not protect account data. This tutorial adds pending, denied, and allowed states to an account route, then applies the same policy to server actions.
+This tutorial focuses on one job: routing from a session state your application has already resolved. It shows a public page, a sign-in placeholder, and an account route with pending, signed-out, allowed, and unavailable branches. It does not implement sign-in, session validation, or server authorization.
 
-The preview changes session status locally so you can inspect each screen. It is not authentication. In the SSR app, load and verify the session on the server, and do not construct private content until access is confirmed.
+The preview buttons set sample state so you can inspect each route branch; they do not authenticate anyone. In a real app, connect `SessionState` to your own authentication flow. A protected UI route is not a security boundary: the server or service that reads private data must authenticate and authorize every request. See [Server security](/docs/guides/server-site-security/) for the server-side contract.
 
-Install the Fission CLI and scaffold the SSR project:
+Install the Fission CLI and scaffold a Web project for the interactive preview:
 
 ```sh
 cargo install cargo-fission
 fission init harbour-account
 cd harbour-account
-fission add-target ssr --project-dir .
+cargo add serde_yaml
+fission add-target web --project-dir .
 ```
 
 ## Project layout
@@ -35,64 +36,134 @@ harbour-account/
 ├── Cargo.toml                 # generated dependencies
 ├── fission.toml               # app identity, targets and capabilities
 ├── src/
-│   ├── main.rs                 # generated desktop entrypoint
-│   ├── lib.rs                  # shared app setup
-│   ├── app.rs                  # the Fission component shown in this tutorial
-│   ├── state.rs
-│   ├── auth/session.rs
-│   ├── routes/account.rs
-│   └── effects/session.rs
+│   ├── main.rs                # generated Web entrypoint
+│   ├── lib.rs                 # shared app setup
+│   └── app.rs                 # the Fission components shown in this tutorial
+├── i18n/
+│   ├── en-US.yaml
+│   └── es-ES.yaml
 ├── platforms/                  # generated host files after add-target
 └── tests/                      # project-specific flow checks
 ```
 
-`fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs`, and `src/app.rs`. Add the feature modules as you build it. Keep data shared across routes in `GlobalState`; keep a view-only choice or draft in the component that owns it. Database, filesystem, network, and session work starts through a reducer effect, job, or service—not while the component view is being built.
+`fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs`, and `src/app.rs`. Add the feature modules as you build it. Keep data shared across routes in `GlobalState`; keep a view-only choice or draft in the component that owns it. If your app resolves access asynchronously, start that work through a reducer effect, job, or service—not while the component view is being built.
 
-`preview/lib.rs` is the documentation harness. It compiles the same component into WebAssembly so you can try the UI while reading. Its host results are deterministic preview states; they do not load a real session or run the server-side work described here.
+`preview/lib.rs` is the documentation harness. It compiles the same component into WebAssembly so you can try the UI while reading. Its buttons set synthetic session states so you can inspect each route branch; they do not authenticate a visitor or load a real session.
+
+Keep UI copy in English and Spanish bundles. The Web app chooses its locale when it creates the environment; the browser preview uses English. If you later add an in-app language switch, store that choice in `GlobalState` and mirror it into `Env` with `with_sync_env(...)`.
 
 <!-- fission:step id="start-screen" -->
 ## Separate public pages from private content
 
-Start with the public account entry point and sign-in screen. The public shell can explain what is protected, but it must not construct the account panel while the session is still being checked. Keep page copy in props and use the active theme through the component context.
+Start with a public entry screen. It can explain what the account area contains, but it must not render account data while access is unresolved. The sign-in route in this tutorial is a placeholder; credential verification and session creation belong to your app's authentication flow.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use std::collections::HashMap;
+
+use fission::core::RouteLocation;
+use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
-fission_component! {
-    pub ProtectedWorkspace<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
+
+pub fn create_env(locale: &str) -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from(locale);
+    for (bundle_locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid account-route translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(bundle_locale),
+            messages,
+        });
     }
-    view(preview, _state, cx) {
+    env
+}
+
+
+fission_component! {
+    pub PublicAccountEntry<()>
+    view(_entry, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Text("Public: Harbour home"),
-                Text("Private: Reports"),
-                Text("Sign in before opening reports."),
-                Text(format!("Next action: {}",
-                        preview.action)),
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+    SemanticsRegion(
+        identifier: Some("harbour-public-account-entry".to_string()),
+        label: Some(cx.tr("public.semantics")),
+        child: Container(Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("public.title"))
+                .size(tokens.typography.heading1_size)
+                .weight(tokens.typography.font_weight_bold),
+            Text(cx.tr("public.body"))
+                .color(tokens.colors.text_secondary),
+            Text(cx.tr("public.note"))
+                .color(tokens.colors.text_secondary),
+            Text(cx.tr("public.signin_hint"))
+                .color(tokens.colors.text_secondary),
+        ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large),
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+public.title: "Harbour Supply"
+public.body: "Your shift, service requests and account details are available after sign-in."
+public.note: "This page is public. Account information belongs inside the protected route."
+public.signin_hint: "The sign-in route is added in the next step."
+public.semantics: "Harbour Supply account entry"
+signin.title: "Sign in to Harbour Supply"
+signin.body: "This tutorial shows the route only. Connect sign-in to your application's authentication service."
+signin.return: "Return to the public account page"
+account.loading.label: "Account access is pending"
+account.loading.body: "Your account details stay hidden until the application resolves access."
+account.denied.label: "Account details are unavailable"
+account.denied.title: "Account details aren't available."
+account.denied.body: "No account details were loaded. Try again or contact your administrator."
+account.private.label: "Private Harbour Supply account"
+account.private.title: "Harbour Supply account"
+account.welcome: "Welcome"
+account.private.body: "Your open service requests and shift details are available here."
+preview.title: "Route branches · sample state only"
+preview.note: "These controls change local preview state. They do not authenticate a visitor."
+preview.allow: "Preview authenticated state"
+preview.signed_out: "Preview signed-out session"
+preview.unavailable: "Preview unavailable session"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+public.title: "Suministros Harbour"
+public.body: "Tu turno, las solicitudes de servicio y los datos de la cuenta están disponibles al iniciar sesión."
+public.note: "Esta página es pública. La información de la cuenta solo aparece en la ruta protegida."
+public.signin_hint: "La ruta de acceso se añade en el siguiente paso."
+public.semantics: "Acceso a la cuenta de Suministros Harbour"
+signin.title: "Inicia sesión en Suministros Harbour"
+signin.body: "Este tutorial solo muestra la ruta. Conecta el inicio de sesión al servicio de autenticación de tu aplicación."
+signin.return: "Volver a la página pública de la cuenta"
+account.loading.label: "El acceso a la cuenta está pendiente"
+account.loading.body: "Los datos de la cuenta permanecen ocultos hasta que la aplicación resuelva el acceso."
+account.denied.label: "Los datos de la cuenta no están disponibles"
+account.denied.title: "Los datos de la cuenta no están disponibles."
+account.denied.body: "No se cargaron datos de la cuenta. Inténtalo de nuevo o contacta con tu administrador."
+account.private.label: "Cuenta privada de Suministros Harbour"
+account.private.title: "Cuenta de Suministros Harbour"
+account.welcome: "Hola"
+account.private.body: "Aquí están tus solicitudes de servicio abiertas y los detalles de tu turno."
+preview.title: "Ramas de rutas · solo estado de ejemplo"
+preview.note: "Estos controles cambian el estado de vista previa. No autentican a nadie."
+preview.allow: "Vista previa: estado autenticado"
+preview.signed_out: "Vista previa: sesión cerrada"
+preview.unavailable: "Vista previa: sesión no disponible"
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
@@ -106,14 +177,8 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::ProtectedWorkspace::new(
-        "Private account".to_string(),
-        "A signed-in session is required to view account details.".to_string(),
-        "Check account access".to_string(),
-        "A verified session can see the private account panel.".to_string(),
-        "No session is active. Sign in before account data is loaded.".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
+    WebApp::<(), _>::new(app::PublicAccountEntry)
+        .with_env(app::create_env("en-US"))
         .with_title("Build protected routes in Rust")
         .mount("#fission-web-mount")
         .run()
@@ -125,61 +190,187 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Check that the first screen is public and that it does not reveal account details before a session is verified.
+Check that the first screen is public and that it does not reveal account details while access is unresolved.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
 ## Preserve a safe return path through sign-in
 
-While session state is loading, render a pending screen. If the visitor is signed out, offer sign-in and keep a safe return path. Build the account panel only after the server confirms access. Hiding a link in the browser is not authorisation.
-
-The next version wires the route decision to the shared session state. Durable session and account data belong in `GlobalState`; only a temporary choice that belongs to this screen should live in retained component state.
+Keep the session status in `GlobalState` and derive one route decision from it. `ProtectedRoute` builds only the branch that matches the state supplied by your application: a pending screen while access is unresolved, a redirect for a signed-out visitor, or the account component when the application has marked the user as authenticated.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use std::collections::HashMap;
+
+use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
-fission_component! {
-    pub ProtectedWorkspace<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
-        state {
-            signed_in: bool = false,
-            has_error: bool = false,
+
+pub fn create_env(locale: &str) -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from(locale);
+    for (bundle_locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid account-route translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(bundle_locale),
+            messages,
+        });
+    }
+    env
+}
+
+
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SessionState {
+    Loading,
+    SignedOut,
+    Authenticated { display_name: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AppState {
+    pub current_path: String,
+    pub session: SessionState,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            current_path: "/".to_string(),
+            session: SessionState::Loading,
         }
     }
-    view(preview, _state, cx) {
+}
+
+impl GlobalState for AppState {}
+
+pub fn account_route_decision(
+    state: &AppState,
+    current_route: &RouteLocation,
+) -> RouteDecision {
+    match &state.session {
+        SessionState::Loading => RouteDecision::Pending,
+        SessionState::SignedOut => RouteRedirect::replace("/sign-in")
+            .return_to(current_route)
+            .into(),
+        SessionState::Authenticated { .. } => RouteDecision::Allow,
+    }
+}
+
+pub fn route_changed(
+    state: &mut AppState,
+    action: fission::core::action::ShellRouteChanged,
+    _cx: &mut ReducerContext<AppState>,
+) {
+    state.current_path = action.location.pathname;
+}
+
+fission_component! {
+    pub PublicAccountEntry<AppState>
+    view(_entry, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Button(child: Text(if preview.signed_in { "Sign out".to_string() } else { preview.action.clone() }),
-                    key: "sign-in",
-                    on_press: reduce { preview.signed_in = !preview.signed_in; }),
-                if preview.signed_in { Column(children: [Text("Private reports"),
-                            Text("Revenue this month: $24,800")]) } else { Text(preview.empty.clone()) },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview an expired session".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("Your session expired. Sign in again before viewing private reports.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+    SemanticsRegion(
+        identifier: Some("harbour-public-account-entry".to_string()),
+        label: Some(cx.tr("public.semantics")),
+        child: Container(Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("public.title"))
+                .size(tokens.typography.heading1_size)
+                .weight(tokens.typography.font_weight_bold),
+            Text(cx.tr("public.body"))
+                .color(tokens.colors.text_secondary),
+            Link::to(cx.tr("signin.title"), "/sign-in"),
+        ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large),
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
+}
+
+fission_component! {
+    pub SignInRoute<AppState>
+    view(_page, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.m, children: [
+        Text(cx.tr("signin.title"))
+            .size(tokens.typography.heading1_size)
+            .weight(tokens.typography.font_weight_bold),
+        Text(cx.tr("signin.body"))
+            .color(tokens.colors.text_secondary),
+        Link::to(cx.tr("signin.return"), "/"),
+    ]))
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.large)
+}
+
+fission_component! {
+    pub SessionLoadingRoute<AppState>
+    view(_page, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(
+        identifier: Some("account-session-loading".to_string()),
+        label: Some(cx.tr("account.loading.label")),
+        child: Column(gap: tokens.spacing.m, children: [
+            Spinner(),
+            Text(cx.tr("account.loading.body")),
+        ]),
+    )
+}
+
+fission_component! {
+    pub AccountRoute<AppState>
+    view(_page, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let display_name = match &state.session {
+            SessionState::Authenticated { display_name } => display_name.clone(),
+            _ => String::new(),
+        };
+    } =>
+    SemanticsRegion(
+        identifier: Some("harbour-private-account".to_string()),
+        label: Some(cx.tr("account.private.label")),
+        child: Container(Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("account.private.title"))
+                .size(tokens.typography.heading1_size)
+                .weight(tokens.typography.font_weight_bold),
+            Text(format!("{} {display_name}.", cx.tr("account.welcome"))),
+            Text(cx.tr("account.private.body")),
+        ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large),
+    )
+}
+
+fission_component! {
+    pub App<AppState>
+    view(_app, state, cx) {
+        let account_access = account_route_decision(state, &cx.view.env().current_route);
+    } =>
+    Router::<AppState>::new()
+        .with_path(state.current_path.clone())
+        .route_component(
+            "/",
+            PublicAccountEntry,
+        )
+        .route_component(
+            "/account",
+            ProtectedRoute::new(account_access, AccountRoute)
+                .pending(SessionLoadingRoute),
+        )
+        .route_component("/sign-in", SignInRoute)
 }
 ```
 </TabItem>
@@ -191,17 +382,48 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
+fission_component! {
+    pub ProtectedRoutesPreview<app::AppState>
+    view(_preview, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(children: [
+        Container(Column(gap: tokens.spacing.s, children: [
+            Text(cx.tr("preview.title")),
+            Text(cx.tr("preview.note")),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(
+                    child: Text(cx.tr("preview.allow")),
+                    key: "preview-allow",
+                    on_press: reduce {
+                        state.session = app::SessionState::Authenticated {
+                            display_name: "Morgan Lee".to_string(),
+                        };
+                        cx.effects.navigate("/account");
+                    },
+                ).semantics_identifier("protected-routes.preview-authenticated".to_string()),
+                Button(
+                    child: Text(cx.tr("preview.signed_out")),
+                    key: "preview-signed-out",
+                    on_press: reduce {
+                        state.session = app::SessionState::SignedOut;
+                        cx.effects.navigate("/account");
+                    },
+                ).semantics_identifier("protected-routes.preview-signed-out".to_string()),
+            ]),
+        ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.background),
+        app::App,
+    ])
+}
+
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::ProtectedWorkspace::new(
-        "Private account".to_string(),
-        "A signed-in session is required to view account details.".to_string(),
-        "Check account access".to_string(),
-        "A verified session can see the private account panel.".to_string(),
-        "No session is active. Sign in before account data is loaded.".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
+    WebApp::<app::AppState, _>::new(ProtectedRoutesPreview)
+        .with_env(app::create_env("en-US"))
+        .with_route_handler(app::route_changed)
         .with_title("Build protected routes in Rust")
         .mount("#fission-web-mount")
         .run()
@@ -213,61 +435,210 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Try the signed-out state. The sign-in path should preserve only the safe, origin-free destination needed to return to the requested page; it must not turn an arbitrary URL into a redirect.
+Select **Preview signed-out session**. The browser should leave the protected branch, show the public sign-in route, and preserve `/account` as a safe return path. The preview buttons are isolated in `preview/lib.rs`; they only set sample route state and do not implement sign-in.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Reject expired sessions on the server
+## Keep unavailable access out of the account route
 
-The route is not the authorization boundary. Every server action that reads or changes private data must enforce the same policy. Test a fresh browser, a valid session, a revoked session, and a direct action request that never opens the account page.
+When your application cannot resolve access, map that result to a denied route instead of falling back to the account screen. `ProtectedRoute` builds the denied branch and does not construct the protected component. This example models that route decision; it does not determine whether a session is expired or valid.
 
-Keep I/O out of component conversion. Reducers make the state transition and queue asynchronous work; an effect, capability, job, or service performs it without blocking the UI. The preview below simulates a failed host result so you can inspect the message and recovery path. It does not authenticate a user or access a database, network, or filesystem.
+The preview adds an unavailable state so you can inspect that branch. It still does not authenticate anyone. Route protection only controls the UI tree. Every server request that reads or changes account data must authenticate and authorize its caller independently. See [Server security](/docs/guides/server-site-security/) for the server-side requirements.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use std::collections::HashMap;
+
+use fission::core::RouteLocation;
+use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
-fission_component! {
-    pub ProtectedWorkspace<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
-        state {
-            signed_in: bool = false,
-            has_error: bool = false,
+
+pub fn create_env(locale: &str) -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from(locale);
+    for (bundle_locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid account-route translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(bundle_locale),
+            messages,
+        });
+    }
+    env
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SessionState {
+    Loading,
+    SignedOut,
+    Authenticated { display_name: String },
+    Unavailable,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AppState {
+    pub current_path: String,
+    pub session: SessionState,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            current_path: "/".to_string(),
+            session: SessionState::Loading,
         }
     }
-    view(preview, _state, cx) {
+}
+
+impl GlobalState for AppState {}
+
+pub fn account_route_decision(
+    state: &AppState,
+    current_route: &RouteLocation,
+) -> RouteDecision {
+    match &state.session {
+        SessionState::Loading => RouteDecision::Pending,
+        SessionState::SignedOut => RouteRedirect::replace("/sign-in")
+            .return_to(current_route)
+            .into(),
+        SessionState::Authenticated { .. } => RouteDecision::Allow,
+        SessionState::Unavailable => RouteDecision::Deny,
+    }
+}
+
+pub fn route_changed(
+    state: &mut AppState,
+    action: fission::core::action::ShellRouteChanged,
+    _cx: &mut ReducerContext<AppState>,
+) {
+    state.current_path = action.location.pathname;
+}
+
+fission_component! {
+    pub PublicAccountEntry<AppState>
+    view(_entry, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Button(child: Text(if preview.signed_in { "Sign out".to_string() } else { preview.action.clone() }),
-                    key: "sign-in",
-                    on_press: reduce { preview.signed_in = !preview.signed_in; }),
-                if preview.signed_in { Column(children: [Text("Private reports"),
-                            Text("Revenue this month: $24,800")]) } else { Text(preview.empty.clone()) },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview an expired session".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("Your session expired. Sign in again before viewing private reports.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+    SemanticsRegion(
+        identifier: Some("harbour-public-account-entry".to_string()),
+        label: Some(cx.tr("public.semantics")),
+        child: Container(Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("public.title"))
+                .size(tokens.typography.heading1_size)
+                .weight(tokens.typography.font_weight_bold),
+            Text(cx.tr("public.body"))
+                .color(tokens.colors.text_secondary),
+            Link::to(cx.tr("signin.title"), "/sign-in"),
+        ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large),
     )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
+}
+
+fission_component! {
+    pub SignInRoute<AppState>
+    view(_page, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.m, children: [
+        Text(cx.tr("signin.title"))
+            .size(tokens.typography.heading1_size)
+            .weight(tokens.typography.font_weight_bold),
+        Text(cx.tr("signin.body"))
+            .color(tokens.colors.text_secondary),
+        Link::to(cx.tr("signin.return"), "/"),
+    ]))
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.large)
+}
+
+fission_component! {
+    pub SessionLoadingRoute<AppState>
+    view(_page, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(
+        identifier: Some("account-session-loading".to_string()),
+        label: Some(cx.tr("account.loading.label")),
+        child: Column(gap: tokens.spacing.m, children: [
+            Spinner(),
+            Text(cx.tr("account.loading.body")),
+        ]),
+    )
+}
+
+fission_component! {
+    pub SessionUnavailableRoute<AppState>
+    view(_page, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(
+        identifier: Some("account-session-unavailable".to_string()),
+        label: Some(cx.tr("account.denied.label")),
+        child: Container(Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("account.denied.title"))
+                .weight(tokens.typography.font_weight_semibold),
+            Text(cx.tr("account.denied.body"))
+                .color(tokens.colors.text_secondary),
+            Link::to(cx.tr("signin.return"), "/"),
+        ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large),
+    )
+}
+
+fission_component! {
+    pub AccountRoute<AppState>
+    view(_page, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let display_name = match &state.session {
+            SessionState::Authenticated { display_name } => display_name.clone(),
+            _ => String::new(),
+        };
+    } =>
+    SemanticsRegion(
+        identifier: Some("harbour-private-account".to_string()),
+        label: Some(cx.tr("account.private.label")),
+        child: Container(Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("account.private.title"))
+                .size(tokens.typography.heading1_size)
+                .weight(tokens.typography.font_weight_bold),
+            Text(format!("{} {display_name}.", cx.tr("account.welcome"))),
+            Text(cx.tr("account.private.body")),
+        ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large),
+    )
+}
+
+fission_component! {
+    pub App<AppState>
+    view(_app, state, cx) {
+        let account_access = account_route_decision(state, &cx.view.env().current_route);
+    } =>
+    Router::<AppState>::new()
+        .with_path(state.current_path.clone())
+        .route_component("/", PublicAccountEntry)
+        .route_component(
+            "/account",
+            ProtectedRoute::new(account_access, AccountRoute)
+                .pending(SessionLoadingRoute)
+                .denied(SessionUnavailableRoute),
+        )
+        .route_component("/sign-in", SignInRoute)
 }
 ```
 </TabItem>
@@ -279,17 +650,56 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
+fission_component! {
+    pub ProtectedRoutesPreview<app::AppState>
+    view(_preview, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(children: [
+        Container(Column(gap: tokens.spacing.s, children: [
+            Text(cx.tr("preview.title")),
+            Text(cx.tr("preview.note")),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(
+                    child: Text(cx.tr("preview.allow")),
+                    key: "preview-allow",
+                    on_press: reduce {
+                        state.session = app::SessionState::Authenticated {
+                            display_name: "Morgan Lee".to_string(),
+                        };
+                        cx.effects.navigate("/account");
+                    },
+                ).semantics_identifier("protected-routes.preview-authenticated".to_string()),
+                Button(
+                    child: Text(cx.tr("preview.signed_out")),
+                    key: "preview-signed-out",
+                    on_press: reduce {
+                        state.session = app::SessionState::SignedOut;
+                        cx.effects.navigate("/account");
+                    },
+                ).semantics_identifier("protected-routes.preview-signed-out".to_string()),
+                Button(
+                    child: Text(cx.tr("preview.unavailable")),
+                    key: "preview-unavailable",
+                    on_press: reduce {
+                        state.session = app::SessionState::Unavailable;
+                        cx.effects.navigate("/account");
+                    },
+                ).semantics_identifier("protected-routes.preview-unavailable".to_string()),
+            ]),
+        ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.background),
+        app::App,
+    ])
+}
+
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::ProtectedWorkspace::new(
-        "Private account".to_string(),
-        "A signed-in session is required to view account details.".to_string(),
-        "Check account access".to_string(),
-        "A verified session can see the private account panel.".to_string(),
-        "No session is active. Sign in before account data is loaded.".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
+    WebApp::<app::AppState, _>::new(ProtectedRoutesPreview)
+        .with_env(app::create_env("en-US"))
+        .with_route_handler(app::route_changed)
         .with_title("Build protected routes in Rust")
         .mount("#fission-web-mount")
         .run()
@@ -301,7 +711,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Trigger the expired-session preview. The server action must reject the request, private content must remain unavailable, and a recovery action should still be visible.
+Select **Preview unavailable session**. The denied branch should appear without constructing the account component. This is a sample route state, not a session-verification result produced by the tutorial.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -311,18 +721,18 @@ From the project root, run the checks in order:
 
 ```sh
 fission doctor --project-dir .
-fission run --target ssr --project-dir .
+fission run --target web --project-dir .
 cargo test
-fission build --target ssr --project-dir .
-fission test --target ssr --project-dir .
+fission build --target web --project-dir .
+fission test --target web --project-dir .
 ```
 
-The route should preserve a safe return path, keep private content out of pending and denied trees, and check authorization again on every protected server request.
+The route should preserve a safe return path and keep account content out of pending and denied trees. It does not replace authentication or authorization on the server.
 
 ## Related Fission reference
 
 Use these precise reference pages after the working path above is clear:
 
-- [Server Sites](/docs/guides/server-sites/)
-- [Server Site Security](/docs/guides/server-site-security/)
+- [Protected Route widget](/reference/widgets/protected-route/)
+- [Platform targets](/reference/platform/targets/)
 - [State System](/reference/core/state-system/)

@@ -24,6 +24,8 @@ cargo install cargo-fission
 fission init android-build-an-android-dashboard-with-fission-charts
 cd android-build-an-android-dashboard-with-fission-charts
 fission add-target android --project-dir .
+cargo add fission@0.15.1 --features charts
+cargo add serde_yaml
 ```
 
 ## Files created by Fission
@@ -55,6 +57,8 @@ Start with the decisions the screen supports. The metric cards summarise today's
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use crate::state::{OperationsDashboardState, OrderRecord, OrderStatus};
+use fission::i18n::Locale;
 use fission::prelude::*;
 
 fission_component! {
@@ -77,67 +81,129 @@ fission_component! {
 
 fission_component! {
     pub OrderReviewRow<()> {
-        props { reference: String, customer: String, detail: String, status: String }
+        props { order: OrderRecord }
     }
     view(order, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let status = match &order.order.status {
+            OrderStatus::Picking => cx.tr("orders.status.picking"),
+            OrderStatus::AtRisk => cx.tr("orders.status.at_risk"),
+        };
     } =>
-    Container(Column(gap: tokens.spacing.xs, children: [
-        Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-            Text(order.reference.clone()).weight(tokens.typography.font_weight_semibold),
-            Text(order.customer.clone()).color(tokens.colors.text_secondary),
-            Spacer(flex_grow: 1.0),
-            Badge(text: order.status.clone()),
-        ]),
-        Text(order.detail.clone()).color(tokens.colors.text_secondary),
-    ]))
-    .padding_all(tokens.spacing.m)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.medium)
-}
-
-fission_component! {
-    pub OperationsSummary<()> {}
-    view(_summary, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    Container(Column(gap: tokens.spacing.l, children: [
-        Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-            Column(gap: tokens.spacing.xs, children: [
-                Text("Harbour Supply").weight(tokens.typography.font_weight_bold),
-                Text("Fulfilment · Main warehouse").color(tokens.colors.text_secondary),
+    SemanticsRegion(
+        identifier: Some(order.order.id.clone()),
+        label: Some(format!("{} · {} · {} · {}", order.order.reference, order.order.customer, status, cx.tr(order.order.detail_key))),
+        child: Container(Column(gap: tokens.spacing.xs, children: [
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Text(order.order.reference.clone()).weight(tokens.typography.font_weight_semibold),
+                Text(order.order.customer.clone()).color(tokens.colors.text_secondary),
+                Spacer(flex_grow: 1.0),
+                Badge(text: status.clone()),
             ]),
-            Spacer(flex_grow: 1.0),
-            Badge(text: "Morning shift".to_string()),
-        ]),
-        Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-            OperationsMetric("Orders today".to_string(), "42".to_string(), "11 need picking".to_string()),
-            OperationsMetric("On-time dispatch".to_string(), "96%".to_string(), "Up 3 points this week".to_string()),
-            OperationsMetric("Stock alerts".to_string(), "6 items".to_string(), "2 orders depend on them".to_string()),
-        ]),
-    ]))
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.background)
+            Text(cx.tr(order.order.detail_key)).color(tokens.colors.text_secondary),
+        ]))
+            .padding_all(tokens.spacing.m)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.medium),
+    )
 }
 
 fission_component! {
-    pub OperationsDashboard<()> {}
-    view(_dashboard, _state, cx) {
+    pub OperationsLocalePicker<OperationsDashboardState> {}
+    view(_picker, state, cx) =>
+    Row(gap: cx.view.env().theme.tokens.spacing.xs, children: [
+        Button(
+            child: Text(cx.tr("language.english")),
+            key: "locale-en-US",
+            variant: if state.locale == Locale::from("en-US") { ButtonVariant::Primary } else { ButtonVariant::Outline },
+            on_press: reduce { state.locale = Locale::from("en-US"); },
+        ).semantics_identifier("harbour.locale.en-US"),
+        Button(
+            child: Text(cx.tr("language.spanish")),
+            key: "locale-es-ES",
+            variant: if state.locale == Locale::from("es-ES") { ButtonVariant::Primary } else { ButtonVariant::Outline },
+            on_press: reduce { state.locale = Locale::from("es-ES"); },
+        ).semantics_identifier("harbour.locale.es-ES"),
+    ])
+}
+
+fission_component! {
+    pub OperationsDashboard<OperationsDashboardState> {}
+    view(_dashboard, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(Column(gap: tokens.spacing.m, children: [
-        OperationsSummary(),
-        Column(gap: tokens.spacing.s, children: [
-            Text("Orders to review").weight(tokens.typography.font_weight_semibold),
-            OrderReviewRow("HS-2048".to_string(), "Maya Chen".to_string(), "Trail stove · 2 items · dispatch by 9:15".to_string(), "Picking".to_string()),
-            OrderReviewRow("HS-2051".to_string(), "Elliot Park".to_string(), "Water filter · 1 item · waiting for stock".to_string(), "At risk".to_string()),
-        ]),
-    ]))
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
+    if let Some(data) = state.data.as_ref() {
+        SemanticsRegion(
+            identifier: Some("harbour-operations-dashboard".to_string()),
+            label: Some(cx.tr("dashboard.a11y")),
+            child: Container(Column(gap: tokens.spacing.l, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(cx.tr("dashboard.brand")).weight(tokens.typography.font_weight_bold),
+                        Text(cx.tr("dashboard.subtitle")).color(tokens.colors.text_secondary),
+                    ]),
+                    Spacer(flex_grow: 1.0),
+                    OperationsLocalePicker(),
+                ]),
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    OperationsMetric(
+                        cx.tr("metric.orders"),
+                        data.orders_today.to_string(),
+                        cx.tr("metric.orders.detail").replace("{count}", &data.need_picking.to_string()),
+                        key: "metric-orders-today",
+                    ),
+                    OperationsMetric(
+                        cx.tr("metric.dispatch"),
+                        format!("{}%", data.on_time_dispatch_percent),
+                        cx.tr("metric.dispatch.detail").replace("{points}", &data.weekly_change_points.to_string()),
+                        key: "metric-on-time-dispatch",
+                    ),
+                    OperationsMetric(
+                        cx.tr("metric.stock"),
+                        cx.tr("metric.stock.count").replace("{count}", &data.stock_alerts.to_string()),
+                        cx.tr("metric.stock.detail").replace("{count}", &data.orders_at_risk.to_string()),
+                        key: "metric-stock-alerts",
+                    ),
+                ]),
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("orders.review.title")).weight(tokens.typography.font_weight_semibold),
+                    for order in &data.review_queue {
+                        OrderReviewRow(
+                            order.clone(),
+                            key: order.id.clone(),
+                        ).id(WidgetId::explicit(&order.id))
+                    },
+                ]),
+            ]))
+                .padding_all(tokens.spacing.l)
+                .bg(tokens.colors.background),
+        ).into()
+    } else {
+        EmptyState {
+            title: cx.tr("dashboard.empty.title"),
+            description: Some(cx.tr("dashboard.empty.description")),
+            ..Default::default()
+        }.into()
+    }
+}
+
+fission_component! {
+    pub OperationsDashboardPage<OperationsDashboardState> {}
+    view(_page, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            semantic_label: Some(cx.tr("dashboard.a11y")),
+            child: Some(Widget::from(OperationsDashboard)),
+        ),
+    )
+    .width_length(Length::percent(100.0))
+    .height_length(Length::vh(100.0))
+    .bg(tokens.colors.background)
 }
 ```
 </TabItem>
@@ -145,35 +211,274 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod state;
 
 use fission::prelude::*;
+use fission::i18n::{Locale, TranslationBundle};
+use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
-fission_component! {
-    pub OperationsDashboardPage<()> {}
-    view(_page, _state, cx) =>
-    SemanticsRegion(
-        identifier: Some("harbour-operations-dashboard".to_string()),
-        label: Some("Harbour Supply operations dashboard".to_string()),
-        child: Scroll(
-            flex_grow: 1.0,
-            height: cx.view.viewport_size().height,
-            semantic_label: Some("Harbour Supply dashboard content".to_string()),
-            child: Some(Widget::from(app::OperationsDashboard)),
-        ),
-    )
+const EN_US: &str = include_str!("../i18n/en-US.yaml");
+const ES_ES: &str = include_str!("../i18n/es-ES.yaml");
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    for (locale, source) in [("en-US", EN_US), ("es-ES", ES_ES)] {
+        let messages: HashMap<String, String> = serde_yaml::from_str(source)
+            .expect("valid warehouse dashboard translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+
+fn preview_data() -> state::OperationsData {
+    use state::{OperationsData, OrderRecord, OrderStatus};
+    OperationsData {
+        orders_today: 42,
+        need_picking: 11,
+        on_time_dispatch_percent: 96,
+        weekly_change_points: 3,
+        stock_alerts: 6,
+        orders_at_risk: 2,
+        picks_7_days: vec![18.0, 24.0, 21.0, 31.0, 28.0, 16.0, 12.0],
+        picks_30_days: vec![118.0, 132.0, 126.0, 147.0],
+        review_queue: vec![
+            OrderRecord { id: "harbour.order.hs-2048".into(), reference: "HS-2048".into(), customer: "Maya Chen".into(), detail_key: "orders.detail.stove", status: OrderStatus::Picking },
+            OrderRecord { id: "harbour.order.hs-2051".into(), reference: "HS-2051".into(), customer: "Elliot Park".into(), detail_key: "orders.detail.filter", status: OrderStatus::AtRisk },
+        ],
+    }
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = OperationsDashboardPage::new();
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<state::OperationsDashboardState, _>::new(app::OperationsDashboardPage)
+        .with_state_init(|state| state.data = Some(preview_data()))
+        .with_env(preview_env())
+        .with_sync_env(|state, env| env.locale = state.locale.clone())
+        .with_title("Harbour Supply warehouse dashboard")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::i18n::Locale;
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum OrderStatus { Picking, AtRisk }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OrderRecord {
+    pub id: String,
+    pub reference: String,
+    pub customer: String,
+    pub detail_key: &'static str,
+    pub status: OrderStatus,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OperationsData {
+    pub orders_today: u32,
+    pub need_picking: u32,
+    pub on_time_dispatch_percent: u32,
+    pub weekly_change_points: i32,
+    pub stock_alerts: u32,
+    pub orders_at_risk: u32,
+    pub picks_7_days: Vec<f32>,
+    pub picks_30_days: Vec<f32>,
+    pub review_queue: Vec<OrderRecord>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OperationsDashboardState {
+    pub locale: Locale,
+    pub data: Option<OperationsData>,
+}
+
+impl Default for OperationsDashboardState {
+    fn default() -> Self {
+        Self { locale: Locale::from("en-US"), data: None }
+    }
+}
+
+impl GlobalState for OperationsDashboardState {}
+```
+</TabItem>
+<TabItem label="src/environment.rs">
+<!-- fission:file path="src/environment.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+const EN_US: &str = include_str!("../i18n/en-US.yaml");
+const ES_ES: &str = include_str!("../i18n/es-ES.yaml");
+
+fn load_bundle(locale: &str, source: &str) -> anyhow::Result<TranslationBundle> {
+    let messages: HashMap<String, String> = serde_yaml::from_str(source)?;
+    Ok(TranslationBundle {
+        locale: Locale::from(locale),
+        messages,
+    })
+}
+
+pub fn create_env() -> anyhow::Result<Env> {
+    let mut env = Env::default();
+    env.i18n.add_bundle(load_bundle("en-US", EN_US)?);
+    env.i18n.add_bundle(load_bundle("es-ES", ES_ES)?);
+    Ok(env)
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+pub mod environment;
+pub mod state;
+
+use crate::app::OperationsDashboardPage;
+use crate::environment::create_env;
+use crate::state::OperationsDashboardState;
+use fission::prelude::*;
+
+#[cfg(target_os = "android")]
+const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> anyhow::Result<MobileApp<OperationsDashboardState, OperationsDashboardPage>> {
+    let app = MobileApp::<OperationsDashboardState, _>::new(OperationsDashboardPage)
+        .with_title("Harbour Supply warehouse dashboard")
+        .with_env(create_env()?)
+        .with_sync_env(|state: &OperationsDashboardState, env: &mut Env| {
+            env.locale = state.locale.clone();
+        });
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
+    Ok(app)
+}
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<OperationsDashboardState, _>::new(OperationsDashboardPage)
+        .with_title("Harbour Supply warehouse dashboard")
+        .with_env(create_env()?)
+        .with_sync_env(|state: &OperationsDashboardState, env: &mut Env| {
+            env.locale = state.locale.clone();
+        })
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app()?.run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    match mobile_app() {
+        Ok(app) => {
+            if let Err(error) = app.run_with_android_app(app_handle) {
+                eprintln!("Android app failed: {error}");
+            }
+        }
+        Err(error) => eprintln!("Android app setup failed: {error}"),
+    }
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+language.english: "English"
+language.spanish: "Spanish"
+dashboard.a11y: "Harbour Supply warehouse fulfilment dashboard"
+dashboard.brand: "Harbour Supply"
+dashboard.subtitle: "Fulfilment · Main warehouse · Morning shift"
+dashboard.empty.title: "Warehouse data is not available yet"
+dashboard.empty.description: "Connect the order service to review today's picks and dispatch risks."
+metric.orders: "Orders today"
+metric.orders.detail: "{count} still need picking"
+metric.dispatch: "On-time dispatch"
+metric.dispatch.detail: "Up {points} points this week"
+metric.stock: "Stock alerts"
+metric.stock.count: "{count} items"
+metric.stock.detail: "{count} orders depend on them"
+orders.review.title: "Orders to review"
+orders.status.picking: "Picking"
+orders.status.at_risk: "At risk"
+orders.detail.stove: "Trail stove · 2 items · dispatch by 9:15"
+orders.detail.filter: "Water filter · 1 item · waiting for stock"
+chart.title: "Completed picks"
+chart.a11y: "Harbour Supply completed picks by day or week"
+chart.heading: "Completed picks"
+chart.subtitle: "Warehouse orders picked over {period}"
+chart.series.picks: "Orders picked"
+chart.period.week1: "Week 1"
+chart.period.week2: "Week 2"
+chart.period.week3: "Week 3"
+chart.period.week4: "Week 4"
+chart.day.mon: "Mon"
+chart.day.tue: "Tue"
+chart.day.wed: "Wed"
+chart.day.thu: "Thu"
+chart.day.fri: "Fri"
+chart.day.sat: "Sat"
+chart.day.sun: "Sun"
+chart.range.7: "7 days"
+chart.range.30: "30 days"
+chart.total: "{count} orders"
+chart.summary: "The team picked {count} orders during this period."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+language.english: "Inglés"
+language.spanish: "Español"
+dashboard.a11y: "Panel de preparación de pedidos de Harbour Supply"
+dashboard.brand: "Harbour Supply"
+dashboard.subtitle: "Preparación · Almacén principal · Turno de mañana"
+dashboard.empty.title: "Los datos del almacén aún no están disponibles"
+dashboard.empty.description: "Conecta el servicio de pedidos para revisar la preparación y los riesgos de envío de hoy."
+metric.orders: "Pedidos de hoy"
+metric.orders.detail: "Aún falta preparar {count}"
+metric.dispatch: "Envíos a tiempo"
+metric.dispatch.detail: "Subió {points} puntos esta semana"
+metric.stock: "Alertas de inventario"
+metric.stock.count: "{count} artículos"
+metric.stock.detail: "Dependen de ellos {count} pedidos"
+orders.review.title: "Pedidos por revisar"
+orders.status.picking: "En preparación"
+orders.status.at_risk: "En riesgo"
+orders.detail.stove: "Hornillo de montaña · 2 artículos · envío antes de las 9:15"
+orders.detail.filter: "Filtro de agua · 1 artículo · pendiente de existencias"
+chart.title: "Pedidos preparados"
+chart.a11y: "Pedidos preparados por Harbour Supply por día o semana"
+chart.heading: "Pedidos preparados"
+chart.subtitle: "Pedidos preparados durante {period}"
+chart.series.picks: "Pedidos preparados"
+chart.period.week1: "Semana 1"
+chart.period.week2: "Semana 2"
+chart.period.week3: "Semana 3"
+chart.period.week4: "Semana 4"
+chart.day.mon: "Lun"
+chart.day.tue: "Mar"
+chart.day.wed: "Mié"
+chart.day.thu: "Jue"
+chart.day.fri: "Vie"
+chart.day.sat: "Sáb"
+chart.day.sun: "Dom"
+chart.range.7: "7 días"
+chart.range.30: "30 días"
+chart.total: "{count} pedidos"
+chart.summary: "El equipo preparó {count} pedidos durante este periodo."
 ```
 </TabItem>
 </Tabs>
@@ -183,85 +488,187 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:step id="main-flow" -->
 ## Build an Android dashboard with Fission Charts
 
-Choose the chart from the decision it needs to support. The warehouse lead wants to compare completed picks over time, so a bar chart is a useful first view. The **7 days** and **30 days** controls change the selected window and update both the chart and its text summary using sample values held in the component.
+Choose the chart from the decision it needs to support. The warehouse lead wants to compare completed picks over time, so a bar chart is a useful first view. The **7 days** and **30 days** controls change the selected window and update both the chart and its text summary from the dashboard data in `GlobalState`. The preview seeds sample records; the production default has no sample data.
 
-Keeping the filter in this dashboard's local state is appropriate because no other screen reads it. When the app is connected to a service, the same button actions can dispatch a reducer effect to load the selected range; the component should still render the pending and no-data states described in the next section. Fission Charts supplies axis labels, a legend and tooltips, while the separate summary gives the total without asking someone to estimate bar heights. See the [Fission Charts reference](/reference/charts/overview/) for other chart types and interactions.
+Keeping the filter in this chart component's retained local state is appropriate because no other screen reads it. When the app is connected to a service, load the selected range through an effect and model loading and failure separately from the empty state. This example renders the empty state when dashboard data is absent. Fission Charts supplies axis labels, a legend and tooltips, while the separate summary gives the total without asking someone to estimate bar heights. See the [Fission Charts reference](/reference/charts/overview/) for other chart types and interactions.
 
 <Tabs>
 <TabItem label="src/analytics.rs">
 <!-- fission:file path="src/analytics.rs" -->
 ```rust
+use crate::state::OperationsDashboardState;
 use fission::prelude::*;
-use fission::charts::{Axis, BarSeries, Chart, Legend, Tooltip};
+use fission::charts::{Axis, AxisType, BarSeries, Chart, Legend, Tooltip};
 
 fission_component! {
-    pub FulfilmentTrend<()> {
+    pub FulfilmentTrend<OperationsDashboardState> {
+        props { width: f32 }
         state { thirty_days: bool = false }
     }
-    view(trend, _state, cx) {
+    view(trend, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let labels = if trend.thirty_days {
-            vec!["Week 1", "Week 2", "Week 3", "Week 4"]
-        } else {
-            vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        };
-        let picks = if trend.thirty_days {
-            vec![118.0, 132.0, 126.0, 147.0]
-        } else {
-            vec![18.0, 24.0, 21.0, 31.0, 28.0, 16.0, 12.0]
-        };
-        let total: u32 = picks.iter().map(|count| *count as u32).sum();
-        let chart_width = (cx.view.env().viewport_size.width - tokens.spacing.l * 2.0).max(260.0);
-        let chart: Widget = Chart::new()
-            .width(chart_width)
-            .height(360.0)
-            .x_axis(Axis::category(labels))
-            .y_axis(Axis::value())
-            .legend(Legend::top_right())
-            .tooltip(Tooltip::axis_trigger())
-            .series(vec![BarSeries::new("Orders picked")
-                .data(picks)
-                .into()])
-            .into();
+        let trend_data = state.data.as_ref().map(|data| {
+            let (labels, picks) = if trend.thirty_days {
+                (
+                    vec![cx.tr("chart.period.week1"), cx.tr("chart.period.week2"), cx.tr("chart.period.week3"), cx.tr("chart.period.week4")],
+                    data.picks_30_days.clone(),
+                )
+            } else {
+                (
+                    vec![cx.tr("chart.day.mon"), cx.tr("chart.day.tue"), cx.tr("chart.day.wed"), cx.tr("chart.day.thu"), cx.tr("chart.day.fri"), cx.tr("chart.day.sat"), cx.tr("chart.day.sun")],
+                    data.picks_7_days.clone(),
+                )
+            };
+            let total = picks.iter().sum::<f32>().round() as u32;
+            let period = cx.tr(if trend.thirty_days { "chart.range.30" } else { "chart.range.7" });
+            let chart: Widget = Chart::new()
+                .width(trend.width)
+                .height(320.0)
+                .title(cx.tr("chart.title"))
+                .x_axis(Axis {
+                    axis_type: AxisType::Category,
+                    data: labels,
+                    name: None,
+                    min: None,
+                    max: None,
+                    boundary_gap: true,
+                    inverse: false,
+                    split_line: true,
+                    label_rotate: None,
+                })
+                .y_axis(Axis::value())
+                .legend(Legend::top_right())
+                .tooltip(Tooltip::axis_trigger())
+                .series(vec![BarSeries::new(cx.tr("chart.series.picks")).data(picks).into()])
+                .into();
+            (total, period, chart)
+        });
     } =>
-    SemanticsRegion(
-        identifier: Some("fulfilment-trend".to_string()),
-        label: Some("Harbour Supply completed picks".to_string()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
+    if let Some((total, period, chart)) = trend_data {
+        SemanticsRegion(
+            identifier: Some("harbour-completed-picks-trend".to_string()),
+            label: Some(cx.tr("chart.a11y")),
+            child: Container(Column(gap: tokens.spacing.m, children: [
                 Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
                     Column(gap: tokens.spacing.xs, children: [
-                        Text("Completed picks").weight(tokens.typography.font_weight_semibold),
-                        Text("Compare warehouse orders across the selected period.")
+                        Text(cx.tr("chart.heading")).weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("chart.subtitle").replace("{period}", &period))
                             .color(tokens.colors.text_secondary),
                     ]),
                     Spacer(flex_grow: 1.0),
-                    Badge(text: format!("{total} orders")),
+                    Badge(text: cx.tr("chart.total").replace("{count}", &total.to_string())),
                 ]),
                 Row(gap: tokens.spacing.s, children: [
                     Button(
-                        child: Text("7 days"),
+                        child: Text(cx.tr("chart.range.7")),
                         key: "range-seven-days",
                         variant: if trend.thirty_days { ButtonVariant::Outline } else { ButtonVariant::Primary },
                         on_press: reduce { trend.thirty_days = false; },
-                    ),
+                    ).semantics_identifier("harbour.range.7-days"),
                     Button(
-                        child: Text("30 days"),
+                        child: Text(cx.tr("chart.range.30")),
                         key: "range-thirty-days",
                         variant: if trend.thirty_days { ButtonVariant::Primary } else { ButtonVariant::Outline },
                         on_press: reduce { trend.thirty_days = true; },
-                    ),
+                    ).semantics_identifier("harbour.range.30-days"),
                 ]),
-                Row(gap: tokens.spacing.s, children: [chart]),
-                Text(format!("{total} orders were picked in this period. The summary stays readable without comparing bar heights."))
+                chart,
+                Text(cx.tr("chart.summary").replace("{count}", &total.to_string()))
                     .color(tokens.colors.text_secondary),
-            ]),
-        )
-            .padding_all(tokens.spacing.l)
-            .bg(tokens.colors.surface)
-            .border(tokens.colors.border, 1.0)
-            .border_radius(tokens.radii.large),
+            ]))
+                .padding_all(tokens.spacing.l)
+                .bg(tokens.colors.surface)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.large),
+        ).into()
+    } else {
+        EmptyState {
+            title: cx.tr("dashboard.empty.title"),
+            description: Some(cx.tr("dashboard.empty.description")),
+            ..Default::default()
+        }.into()
+    }
+}
+
+fission_component! {
+    pub FulfilmentDashboard<OperationsDashboardState> {}
+    view(_dashboard, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let chart_width = (cx.view.viewport_size().width - tokens.spacing.l * 2.0).max(280.0);
+    } =>
+    Container(
+        Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            semantic_label: Some(cx.tr("dashboard.a11y")),
+            child: Some(Column(gap: tokens.spacing.m, children: [
+                crate::app::OperationsDashboard(),
+                FulfilmentTrend(chart_width),
+            ]).into()),
+        ),
     )
+    .width_length(Length::percent(100.0))
+    .height_length(Length::vh(100.0))
+    .bg(tokens.colors.background)
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod analytics;
+pub mod app;
+pub mod environment;
+pub mod state;
+
+use crate::analytics::FulfilmentDashboard;
+use crate::environment::create_env;
+use crate::state::OperationsDashboardState;
+use fission::prelude::*;
+
+#[cfg(target_os = "android")]
+const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> anyhow::Result<MobileApp<OperationsDashboardState, FulfilmentDashboard>> {
+    let app = MobileApp::<OperationsDashboardState, _>::new(FulfilmentDashboard)
+        .with_title("Harbour Supply fulfilment dashboard")
+        .with_env(create_env()?)
+        .with_sync_env(|state: &OperationsDashboardState, env: &mut Env| {
+            env.locale = state.locale.clone();
+        });
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
+    Ok(app)
+}
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<OperationsDashboardState, _>::new(FulfilmentDashboard)
+        .with_title("Harbour Supply fulfilment dashboard")
+        .with_env(create_env()?)
+        .with_sync_env(|state: &OperationsDashboardState, env: &mut Env| {
+            env.locale = state.locale.clone();
+        })
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app()?.run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    match mobile_app() {
+        Ok(app) => {
+            if let Err(error) = app.run_with_android_app(app_handle) {
+                eprintln!("Android app failed: {error}");
+            }
+        }
+        Err(error) => eprintln!("Android app setup failed: {error}"),
+    }
 }
 ```
 </TabItem>
@@ -270,36 +677,52 @@ fission_component! {
 ```rust
 mod app;
 mod analytics;
+mod state;
 
-use app::OperationsSummary;
-use analytics::FulfilmentTrend;
+use analytics::FulfilmentDashboard;
 use fission::prelude::*;
+use fission::i18n::{Locale, TranslationBundle};
+use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
-fission_component! {
-    pub FulfilmentDashboardPage<()> {}
-    view(_page, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some("harbour-fulfilment-dashboard".to_string()),
-        label: Some("Harbour Supply fulfilment dashboard".to_string()),
-        child: Scroll(
-            flex_grow: 1.0,
-            height: cx.view.viewport_size().height,
-            semantic_label: Some("Harbour Supply dashboard content".to_string()),
-            child: Column(gap: tokens.spacing.m, children: [
-                OperationsSummary(),
-                FulfilmentTrend(),
-            ]),
-        ),
-    )
+const EN_US: &str = include_str!("../i18n/en-US.yaml");
+const ES_ES: &str = include_str!("../i18n/es-ES.yaml");
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    for (locale, source) in [("en-US", EN_US), ("es-ES", ES_ES)] {
+        let messages: HashMap<String, String> = serde_yaml::from_str(source)
+            .expect("valid warehouse dashboard translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+
+fn preview_data() -> state::OperationsData {
+    use state::{OperationsData, OrderRecord, OrderStatus};
+    OperationsData {
+        orders_today: 42,
+        need_picking: 11,
+        on_time_dispatch_percent: 96,
+        weekly_change_points: 3,
+        stock_alerts: 6,
+        orders_at_risk: 2,
+        picks_7_days: vec![18.0, 24.0, 21.0, 31.0, 28.0, 16.0, 12.0],
+        picks_30_days: vec![118.0, 132.0, 126.0, 147.0],
+        review_queue: vec![
+            OrderRecord { id: "harbour.order.hs-2048".into(), reference: "HS-2048".into(), customer: "Maya Chen".into(), detail_key: "orders.detail.stove", status: OrderStatus::Picking },
+            OrderRecord { id: "harbour.order.hs-2051".into(), reference: "HS-2051".into(), customer: "Elliot Park".into(), detail_key: "orders.detail.filter", status: OrderStatus::AtRisk },
+        ],
+    }
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(FulfilmentDashboardPage::new())
+    WebApp::<state::OperationsDashboardState, _>::new(FulfilmentDashboard)
+        .with_state_init(|state| state.data = Some(preview_data()))
+        .with_env(preview_env())
+        .with_sync_env(|state, env| env.locale = state.locale.clone())
         .with_title("Harbour Supply fulfilment dashboard")
         .mount("#fission-web-mount")
         .run()
@@ -318,7 +741,7 @@ Switch between seven and thirty days. Check that the chart labels and total chan
 <!-- fission:step id="edge-state" -->
 ## Verify the dashboard on Android
 
-Run the finished screen in an emulator at a narrow phone size, then rotate or resize it and repeat the same check. The summary should match the selected chart range, order details should wrap without hiding their status, and the chart should remain readable when its labels get longer. In the real app, also test the pending, empty and service-error states before replacing the sample values with warehouse data.
+Run the finished screen in an emulator at a narrow phone size, then rotate or resize it and repeat the same check. The summary should match the selected chart range, order details should wrap without hiding their status, and the chart should remain readable when its labels get longer. This example renders an empty state when no dashboard data exists. Before connecting a service, add and test separate loading and service-error states so a slow or failed request is not presented as an empty warehouse.
 
 The chart filter is local presentation state. Keep shared date filters in `GlobalState` only if another route reads them; when the range needs a server query, dispatch an effect and preserve the last successful summary while the new range loads.
 

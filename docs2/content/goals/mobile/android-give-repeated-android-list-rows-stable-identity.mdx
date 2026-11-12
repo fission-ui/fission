@@ -56,42 +56,52 @@ Start with a short, stateful list. We’ll filter and reorder it next; each row�
 use fission::prelude::*;
 
 fission_component! {
-    pub AndroidListIdentity<()> {
+    #[derive(Default)]
+    pub TaskRow<()> {
         props {
-            title: String,
-            step: String,
-            goal: String,
+            task_id: String,
+            label: String,
+        }
+        state {
+            complete: bool = false,
         }
     }
-    view(screen, _state, cx) {
+    view(row, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Row(gap: tokens.spacing.m, children: [
+        Text(row.label.clone()),
+        Button(
+            child: Text(if row.complete {
+                cx.tr("rows.reopen")
+            } else {
+                cx.tr("rows.complete")
+            }),
+            key: format!("task-{}", row.task_id),
+            handler: "toggle",
+            on_press: reduce { row.complete = !row.complete; },
+        ),
+    ])
+}
+
+fission_component! {
+    pub AndroidRepeatedListRowsStable<()>
+    view(_preview, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("stable-list-example".to_string()),
+        label: Some(cx.tr("rows.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
-                        .color(tokens.colors.text_secondary),
-                ]),
+                Text(cx.tr("rows.title"))
+                    .weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("rows.description")),
+                for (task_id, label_key) in [("sensor", "rows.sensor"), ("photo", "rows.photo")] {
+                    TaskRow(key: task_id, task_id: task_id.to_string(), label: cx.tr(label_key))
+                },
+                Text(cx.tr("rows.hint"))
+                    .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -110,23 +120,54 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidListIdentity::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::AndroidRepeatedListRowsStable)
+        .with_env(preview_env())
+        .with_title("android give repeated android list rows stable identity")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+rows.title: "WO-1048 inspection checklist"
+rows.description: "Each control keeps its retained state with the work-order item it belongs to."
+rows.sensor: "Record the compressor temperature"
+rows.photo: "Attach a service photo"
+rows.complete: "Complete"
+rows.reopen: "Reopen"
+rows.hint: "Complete an item, then filter or reorder the list. Its state must stay with the same stable item ID."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+rows.title: "Lista de inspección OT-1048"
+rows.description: "Cada control conserva su estado con el elemento de la orden de trabajo al que pertenece."
+rows.sensor: "Registra la temperatura del compresor"
+rows.photo: "Adjunta una foto del servicio"
+rows.complete: "Completar"
+rows.reopen: "Volver a abrir"
+rows.hint: "Completa un elemento y luego filtra u ordena la lista. Su estado debe permanecer unido al mismo identificador estable."
 ```
 </TabItem>
 </Tabs>
@@ -136,7 +177,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:step id="main-flow" -->
 ## Give repeated Android list rows stable identity
 
-Give each retained row an ID derived from the record, for example .id(WidgetId::explicit(format!("record.{}", record.id))). Never derive identity from the row index: filtering or sorting changes indices and can move a retained disclosure, selection or draft into another record. Keep the row's short-lived control state in its component and the actual record in GlobalState. Test by changing one row, filtering it out, inserting a record, sorting, then restoring the original list; the same record should keep its state throughout.
+Give each retained row an ID derived from the record, for example `.id(WidgetId::explicit(&format!("record.{}", record.id)))`. `WidgetId::explicit` hashes the borrowed string immediately, so the temporary formatted value does not need to outlive the call. Never derive identity from the row index: filtering or sorting changes indices and can move a retained disclosure, selection or draft into another record. Keep the row's short-lived control state in its component and the actual record in `GlobalState`. Test by changing one row, filtering it out, inserting a record, sorting, then restoring the original list; the same record should keep its state throughout.
 
 The component below is a browser-safe version of this screen. It uses Fission's retained component state and widgets to make the task visible; it does not call a native provider or operating-system API.
 
@@ -161,7 +202,11 @@ fission_component! {
     Row(gap: tokens.spacing.m, children: [
         Text(row.label.clone()),
         Button(
-            child: Text(if row.complete { "Reopen" } else { "Complete" }),
+            child: Text(if row.complete {
+                cx.tr("rows.reopen")
+            } else {
+                cx.tr("rows.complete")
+            }),
             key: format!("task-{}", row.task_id),
             handler: "toggle",
             on_press: reduce { row.complete = !row.complete; },
@@ -170,29 +215,23 @@ fission_component! {
 }
 
 fission_component! {
-    pub AndroidRepeatedListRowsStable<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-    }
-    view(preview, _state, cx) {
+    pub AndroidRepeatedListRowsStable<()>
+    view(_preview, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
         identifier: Some("stable-list-example".to_string()),
-        label: Some(preview.title.clone()),
+        label: Some(cx.tr("rows.title")),
         child: Container(
             Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-
+                Text(cx.tr("rows.title"))
                     .weight(tokens.typography.font_weight_bold),
-                Text(preview.goal.clone()),
-                for (task_id, label) in [("draft-17", "Write release notes"), ("task-42", "Review the pull request")] {
-                    TaskRow(key: task_id, task_id: task_id.to_string(), label: label.to_string())
+                Text(cx.tr("rows.description")),
+                for (task_id, label_key) in [("sensor", "rows.sensor"), ("photo", "rows.photo")] {
+                    TaskRow(key: task_id, task_id: task_id.to_string(), label: cx.tr(label_key))
                 },
-                Text("Complete either row. If the parent later filters or reorders the records, each retained completion flag still belongs to its explicit task id."),
+                Text(cx.tr("rows.hint"))
+                    .color(tokens.colors.text_secondary),
             ])
         )
         .padding_all(tokens.spacing.l)
@@ -215,23 +254,54 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env
 }
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidRepeatedListRowsStable::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::AndroidRepeatedListRowsStable)
+        .with_env(preview_env())
+        .with_title("Northbank Field Service · Android")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
+<TabItem label="src/i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+rows.title: "WO-1048 inspection checklist"
+rows.description: "Each control keeps its retained state with the work-order item it belongs to."
+rows.sensor: "Record the compressor temperature"
+rows.photo: "Attach a service photo"
+rows.complete: "Complete"
+rows.reopen: "Reopen"
+rows.hint: "Complete an item, then filter or reorder the list. Its state must stay with the same stable item ID."
+```
+</TabItem>
+<TabItem label="src/i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+rows.title: "Lista de inspección OT-1048"
+rows.description: "Cada control conserva su estado con el elemento de la orden de trabajo al que pertenece."
+rows.sensor: "Registra la temperatura del compresor"
+rows.photo: "Adjunta una foto del servicio"
+rows.complete: "Completar"
+rows.reopen: "Volver a abrir"
+rows.hint: "Completa un elemento y luego filtra u ordena la lista. Su estado debe permanecer unido al mismo identificador estable."
 ```
 </TabItem>
 </Tabs>

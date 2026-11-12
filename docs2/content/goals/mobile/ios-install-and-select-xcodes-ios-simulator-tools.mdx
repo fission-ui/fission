@@ -10,9 +10,9 @@ duration: 35 minutes
 run_command: "fission run --target ios --project-dir ."
 app: ios-install-and-select-xcodes-ios-simulator-tools
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the iOS workflow and follow physical-device checks when the task requires them
+  - Select the full Xcode developer directory used by command-line tools
+  - Check that the iOS Simulator SDK and a simulator runtime are installed
+  - Run Fission's iOS doctor after installing the required Rust targets
 ---
 If Fission cannot find the iOS SDK, the problem is often that macOS is pointing at Command Line Tools instead of the full Xcode installation, or that no simulator runtime is installed. This guide checks both and fixes the selection before you try to build.
 
@@ -30,6 +30,7 @@ Create a project and add iOS as a target. That gives `fission doctor` and the ge
 cargo install cargo-fission
 fission init ios-install-and-select-xcodes-ios-simulator-tools
 cd ios-install-and-select-xcodes-ios-simulator-tools
+cargo add serde_yaml
 fission add-target ios --project-dir .
 ```
 
@@ -51,60 +52,176 @@ ios-install-and-select-xcodes-ios-simulator-tools/
 
 Keep app state, reducers and components in shared Rust. Put direct iOS API calls in the generated host or a typed provider, and split a feature into modules when that boundary helps.
 
-<!-- fission:step id="start-screen" -->
-## Create the app screen
+<!-- fission:step id="field-check-preview" -->
+## Preview a real field-work screen
 
-The example screen gives the generated app something to launch. It does not check Xcode or the simulator runtime; the commands below do that.
+Use the same kind of task a technician would open on a phone: a named work order, location, due time, one clear inspection step and a status the user can change. The preview keeps that status in memory and lets you switch languages. It does not read a device sensor, call the SDK or prove that a native build, signature or package is valid; the target-specific steps below do that.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use std::collections::HashMap;
+
+use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
 
-fission_component! {
-    pub IosSimulatorSetup<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid Northbank translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+
+    env
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FieldCheckState {
+    pub complete: bool,
+    pub locale: Locale,
+}
+
+impl Default for FieldCheckState {
+    fn default() -> Self {
+        Self {
+            complete: false,
+            locale: Locale::from("en-US"),
         }
     }
-    view(screen, _state, cx) {
+}
+
+impl GlobalState for FieldCheckState {}
+
+fission_component! {
+    pub FieldCheckApp<FieldCheckState> {}
+    view(_app, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let status = if state.complete {
+            cx.tr("inspection.status.complete")
+        } else {
+            cx.tr("inspection.status.due")
+        };
+        let action = if state.complete {
+            cx.tr("inspection.action.review")
+        } else {
+            cx.tr("inspection.action.complete")
+        };
+        let region_label = format!(
+            "{} · {}",
+            cx.tr("work_order.title"),
+            cx.tr("work_order.reference"),
+        );
     } =>
     SemanticsRegion(
-        identifier: Some("task-workspace".to_string()),
-        label: Some(screen.title.clone()),
+        identifier: Some("northbank.field-check".to_string()),
+        label: Some(region_label),
         child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(screen.title.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(screen.step.clone())
+            Column(gap: tokens.spacing.l, children: [
+                Row(
+                    gap: tokens.spacing.m,
+                    wrap: ir_op::FlexWrap::Wrap,
+                    align_items: ir_op::AlignItems::Center,
+                    children: [
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text(cx.tr("app.name"))
+                                .weight(tokens.typography.font_weight_bold),
+                            Text(cx.tr("app.shift"))
+                                .color(tokens.colors.text_secondary),
+                        ]),
+                        Spacer(flex_grow: 1.0),
+                        Row(gap: tokens.spacing.xs, children: [
+                            Button(
+                                child: Text(cx.tr("language.english")),
+                                key: "locale-en-US",
+                                variant: if state.locale == Locale::from("en-US") {
+                                    ButtonVariant::Primary
+                                } else {
+                                    ButtonVariant::Outline
+                                },
+                                on_press: reduce {
+                                    state.locale = Locale::from("en-US");
+                                },
+                            )
+                            .semantics_identifier("northbank.locale.en-US"),
+                            Button(
+                                child: Text(cx.tr("language.spanish")),
+                                key: "locale-es-ES",
+                                variant: if state.locale == Locale::from("es-ES") {
+                                    ButtonVariant::Primary
+                                } else {
+                                    ButtonVariant::Outline
+                                },
+                                on_press: reduce {
+                                    state.locale = Locale::from("es-ES");
+                                },
+                            )
+                            .semantics_identifier("northbank.locale.es-ES"),
+                        ]),
+                    ],
+                ),
+                Divider(),
+                Row(
+                    gap: tokens.spacing.m,
+                    wrap: ir_op::FlexWrap::Wrap,
+                    align_items: ir_op::AlignItems::Center,
+                    children: [
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text(cx.tr("work_order.reference"))
+                                .weight(tokens.typography.font_weight_semibold),
+                            Text(cx.tr("work_order.title"))
+                                .size(tokens.typography.heading2_size)
+                                .weight(tokens.typography.font_weight_bold),
+                            Text(cx.tr("work_order.location"))
+                                .color(tokens.colors.text_secondary),
+                        ]),
+                        Spacer(flex_grow: 1.0),
+                        Badge(text: status),
+                    ],
+                ),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("inspection.step"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("inspection.instruction"))
                             .color(tokens.colors.text_secondary),
                     ]),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: "In progress".to_string()),
-                ]),
-                Divider(),
-                Column(gap: tokens.spacing.s, children: [
-                    Text("Current task")
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(screen.goal.clone()),
-                ]),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: "Next".to_string()),
-                    Text("Connect this screen to the workflow in the next step.".to_string())
-                        .color(tokens.colors.text_secondary),
-                ]),
-            ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Button(
+                    child: Text(action),
+                    key: "toggle-pressure-check",
+                    variant: if state.complete {
+                        ButtonVariant::Outline
+                    } else {
+                        ButtonVariant::Primary
+                    },
+                    on_press: reduce {
+                        state.complete = !state.complete;
+                    },
+                )
+                .semantics_identifier("northbank.inspection.toggle"),
+                Text(cx.tr("preview.scope"))
+                    .color(tokens.colors.text_secondary),
+            ]),
         )
         .padding_all(tokens.spacing.l)
         .bg(tokens.colors.surface)
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        .border_radius(tokens.radii.large)
+        .width_length(Length::percent(100.0)),
     )
 }
 ```
@@ -117,33 +234,71 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosSimulatorSetup::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<app::FieldCheckState, _>::new(app::FieldCheckApp)
+        .with_env(app::create_env())
+        .with_sync_env(|state: &app::FieldCheckState, env: &mut Env| {
+            env.locale = state.locale.clone();
+        })
+        .with_title("Northbank Work Orders")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+app.name: "Northbank Maintenance"
+app.shift: "Today · Morning shift"
+language.english: "English"
+language.spanish: "Español"
+work_order.reference: "WO-1048 · Due 10:30"
+work_order.title: "Cold-room compressor"
+work_order.location: "Northbank Food Hub · Plant room"
+inspection.step: "Check operating pressure"
+inspection.instruction: "Confirm the reading is within the maintenance range before restarting the unit."
+inspection.status.due: "Check due"
+inspection.status.complete: "Check recorded"
+inspection.action.complete: "Record check"
+inspection.action.review: "Review check again"
+preview.scope: "Browser preview · sample work order · not saved to the device"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+app.name: "Mantenimiento Northbank"
+app.shift: "Hoy · Turno de mañana"
+language.english: "Inglés"
+language.spanish: "Español"
+work_order.reference: "OT-1048 · Vence a las 10:30"
+work_order.title: "Compresor de cámara fría"
+work_order.location: "Centro de alimentos Northbank · Sala de máquinas"
+inspection.step: "Comprueba la presión de funcionamiento"
+inspection.instruction: "Confirma que la lectura esté dentro del rango de mantenimiento antes de reiniciar la unidad."
+inspection.status.due: "Comprobación pendiente"
+inspection.status.complete: "Comprobación registrada"
+inspection.action.complete: "Registrar comprobación"
+inspection.action.review: "Revisar comprobación"
+preview.scope: "Vista previa web · orden de ejemplo · no se guarda en el dispositivo"
+```
+</TabItem>
 </Tabs>
+
 <!-- fission:preview -->
+<!-- fission:checkpoint -->
+Switch to Spanish and back to English, then record and review the pressure check. The layout keeps the work-order context visible beside its status. Reloading resets the sample state; that is expected because this browser preview is not the native work-order service or device integration.
+<!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
 ## Select the full Xcode installation and add a simulator runtime
 
-`xcode-select` chooses which developer directory command-line tools use. `xcrun` and `simctl` are included with the full Xcode installation, not with the standalone Command Line Tools package. Install Xcode, open it once to finish first-launch setup, then inspect the active selection:
+`xcode-select` chooses which developer directory command-line tools use. iOS builds need the full Xcode installation because it supplies the Simulator SDK and `simctl`; the standalone Command Line Tools package is not enough. Install Xcode, open it once to finish first-launch setup, then inspect the active selection:
 
 ```sh
 xcode-select -p
