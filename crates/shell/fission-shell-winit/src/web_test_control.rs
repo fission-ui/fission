@@ -63,6 +63,7 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
     // the markers visible through CDP's console event stream so the last
     // completed event stage remains observable in that case.
     if (300..353).contains(&stage)
+        || (360..370).contains(&stage)
         || (400..450).contains(&stage)
         || (matches!(stage, 90 | 91) && iteration == 42)
     {

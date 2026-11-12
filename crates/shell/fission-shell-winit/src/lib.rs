@@ -7473,13 +7473,15 @@ where
                         drain_pending_test_events();
                         return;
                     }
-                    handle_test_event(test_event)
+                    handle_test_event(test_event);
+                    record_web_test_diagnostic(437, 0);
                 }
 
                 // ═══════════════════════════════════════════════════════
                 // AboutToWait — idle / animation / blink / effects
                 // ═══════════════════════════════════════════════════════
                 Event::AboutToWait => {
+                    record_web_test_diagnostic(360, 0);
                     let Some(window) = platform_window.active_window() else {
                         elwt.set_control_flow(ControlFlow::Wait);
                         return;
@@ -7568,6 +7570,7 @@ where
                             }
                         }
                     }
+                    record_web_test_diagnostic(361, 0);
                     #[cfg(feature = "tray")]
                     if let (Some(rx), Some(active)) = (tray_event_rx.as_ref(), active_tray.as_ref())
                     {
@@ -7666,6 +7669,7 @@ where
                     let web_surfaces = pipeline.web_surfaces.clone();
                     web_backend.present_surfaces(&web_surfaces);
                     native_surface_handlers.present_surfaces(&pipeline.native_surfaces);
+                    record_web_test_diagnostic(362, surfaces.len() as u32);
 
                     // Video Logic - Process Player Events and Sync State
                     for (widget_id, active_player) in players.iter_mut() {
@@ -7797,6 +7801,7 @@ where
                         &runtime,
                         pipeline.prev_ir.as_ref(),
                     ));
+                    record_web_test_diagnostic(363, 0);
                     let focused_text_input =
                         focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
                     if focused_text_input != blink_focus_id {
@@ -8012,6 +8017,7 @@ where
                         || resize_unsettled
                         || pending_capture_settle;
                     let active_keys = active_animation_keys(&runtime);
+                    record_web_test_diagnostic(364, has_pending_work as u32);
 
                     if has_pending_work {
                         let pending_frame = pending_work_redraw_interval(
@@ -8194,6 +8200,7 @@ where
                         #[cfg(not(target_os = "android"))]
                         elwt.set_control_flow(ControlFlow::Wait);
                     }
+                    record_web_test_diagnostic(365, 0);
                 }
 
                 // ═══════════════════════════════════════════════════════
