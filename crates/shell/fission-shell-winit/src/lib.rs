@@ -7100,6 +7100,12 @@ where
                         // those drops explicit so a browser-side stall can be narrowed to a
                         // specific destructor instead of appearing as a missing event exit.
                         record_web_test_diagnostic(467, 0);
+                        #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                        // Diagnostic only: determine whether dropping the completed response
+                        // sender is what stalls this callback in the browser. This cfg exists
+                        // only in Web LiveTest builds; production Web builds still drop it.
+                        std::mem::forget(response_tx);
+                        #[cfg(not(all(target_arch = "wasm32", fission_web_test_control)))]
                         drop(response_tx);
                         record_web_test_diagnostic(468, 0);
                         drop(query);
