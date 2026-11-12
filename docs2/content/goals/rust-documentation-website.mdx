@@ -140,13 +140,6 @@ enum Guide {
     Routing,
 }
 
-fn matches_all_terms(query: &str, translated_terms: &str) -> bool {
-    let translated_terms = translated_terms.to_lowercase();
-    query
-        .split_whitespace()
-        .all(|term| translated_terms.contains(term))
-}
-
 fission_component! {
     pub DocumentationSite<()> {
         state {

@@ -133,12 +133,6 @@ pub struct WorkOrder {
 pub struct WorkOrderState {
     pub current_path: String,
     pub work_orders: Vec<WorkOrder>,
-    pub notice: Option<WorkOrderNotice>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WorkOrderNotice {
-    Resolved(u32),
 }
 
 impl Default for WorkOrderState {
@@ -146,7 +140,6 @@ impl Default for WorkOrderState {
         Self {
             current_path: "/".to_string(),
             work_orders: Vec::new(),
-            notice: None,
         }
     }
 }
@@ -197,10 +190,6 @@ fission_component! {
     pub WorkOrderList<WorkOrderState> {}
     view(_queue, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let notice = state.notice.map(|notice| match notice {
-            WorkOrderNotice::Resolved(id) => cx.tr("work_order.notice.resolved")
-                .replace("{id}", &id.to_string()),
-        });
         let open_count = state.work_orders.iter()
             .filter(|order| order.status != WorkOrderStatus::Resolved)
             .count();
@@ -230,11 +219,7 @@ fission_component! {
                                 Text(cx.tr("work_order.queue.urgent_count").replace("{count}", &urgent_count.to_string()))
                                     .color(tokens.colors.text_secondary),
                             ]),
-                            if let Some(notice) = notice {
-                                Text(notice).color(tokens.colors.text_secondary)
-                            } else {
-                                Text(cx.tr("work_order.queue.hint")).color(tokens.colors.text_secondary)
-                            },
+                            Text(cx.tr("work_order.queue.hint")).color(tokens.colors.text_secondary),
                             if state.work_orders.is_empty() {
                                 Widget::from(EmptyState {
                                     title: cx.tr("work_order.queue.empty.title"),

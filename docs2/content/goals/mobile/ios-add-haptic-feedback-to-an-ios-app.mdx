@@ -237,7 +237,7 @@ pub fn capability_succeeded(
     state.result = ctx
         .input
         .capability_ok(HAPTIC_NOTIFICATION)
-        .map(|value| "Success feedback request completed.".to_string());
+        .map(|_| "Success feedback request completed.".to_string());
     if state.result.is_none() {
         state.error = Some("The host completed without the expected typed result.".into());
     }

@@ -229,7 +229,7 @@ pub fn capability_succeeded(
     state.result = ctx
         .input
         .capability_ok(WRITE_CLIPBOARD_TEXT)
-        .map(|value| "Work-order summary copied to the host clipboard.".to_string());
+        .map(|_| "Work-order summary copied to the host clipboard.".to_string());
     if state.result.is_none() {
         state.error = Some("The host completed without the expected typed result.".into());
     }
