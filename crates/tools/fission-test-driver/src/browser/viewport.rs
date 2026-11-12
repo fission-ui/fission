@@ -82,15 +82,20 @@ impl BrowserController {
         last: &mut Value,
     ) -> Result<()> {
         *last = read(&mut self.client)?;
+        self.reset_viewport_baseline_after_navigation();
         let canvas = self.options.mode == BrowserSmokeMode::FissionCanvas;
         if canvas {
             let status = read_runtime_status(&mut self.client)?;
             anyhow::ensure!(status.test_bridge_ready && last["frame"]["phase"].as_str() == Some("submitted") && last["frame"]["frame"].as_u64().is_some(),
                 "unsupported_host: Web canvas resize needs the matching opt-in Web test-control frame contract; compile Web with FISSION_WEB_TEST_CONTROL=1, then use LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())");
+            self.reset_viewport_baseline_after_navigation();
+            self.bridge_ready_navigation_count = Some(self.client.main_frame_navigation_count);
         }
         let same = last["width"].as_u64() == Some(width as u64)
             && last["height"].as_u64() == Some(height as u64)
-            && acknowledged(last, &self.options, canvas, self.viewport_after)
+            // A no-op resize only needs a currently submitted layout at these
+            // dimensions. It does not need a frame newer than the last resize.
+            && acknowledged(last, &self.options, canvas, None)
             && self.options.viewport_width == width
             && self.options.viewport_height == height;
         let after = if same {

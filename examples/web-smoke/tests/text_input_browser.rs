@@ -241,6 +241,48 @@ fn browser_renderer_paints_cjk_and_emoji_glyph_fallbacks() -> Result<()> {
 }
 
 #[test]
+fn same_size_resize_after_navigation_ignores_stale_frame_baseline() -> Result<()> {
+    let Some(url) = browser_url() else {
+        eprintln!("set FISSION_WEB_SMOKE_URL to run the browser viewport navigation test");
+        return Ok(());
+    };
+    let mut options = BrowserTestOptions::new(url).fission_canvas();
+    options.timeout_ms = 15_000;
+    let client = LiveTestClient::launch_browser(options)?;
+    let increment = SelectorQuery::semantic_identifier("web-smoke.increment");
+    for _ in 0..24 {
+        client.tap_selector(increment.clone())?;
+    }
+    client.wait_for_text("Count: 24", 5_000)?;
+
+    client
+        .simulate_resize(800, 900)
+        .context("perform initial resize before reload")?;
+    client.browser_evaluate_json("window.location.reload(); true")?;
+    client.wait_for_text("Count: 0", 10_000)?;
+
+    // A reload restarts the Web frame counter. Repeating the current size must
+    // accept the submitted post-navigation frame instead of requiring it to be
+    // newer than a frame number from the previous page.
+    client
+        .simulate_resize(800, 900)
+        .context("perform same-size resize after page reload")?;
+    let viewport = client.browser_evaluate_json("({width:innerWidth,height:innerHeight})")?;
+    assert_eq!(viewport, serde_json::json!({"width":800,"height":900}));
+    let screenshot = client.capture_screenshot_png()?;
+    let image = image::load_from_memory(&screenshot)?.to_rgba8();
+    assert_eq!(image.dimensions(), (800, 900));
+    if let Ok(artifact_dir) = std::env::var("FISSION_WEB_SMOKE_ARTIFACT_DIR") {
+        std::fs::create_dir_all(&artifact_dir)?;
+        std::fs::write(
+            std::path::Path::new(&artifact_dir).join("browser-resize-after-navigation.png"),
+            screenshot,
+        )?;
+    }
+    Ok(())
+}
+
+#[test]
 fn ordinary_browser_scroll_uses_a_compositor_only_frame() -> Result<()> {
     let Some(url) = browser_url() else {
         eprintln!("set FISSION_WEB_SMOKE_URL to run the browser scroll conformance test");

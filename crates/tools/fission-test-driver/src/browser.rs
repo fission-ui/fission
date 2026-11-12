@@ -717,6 +717,7 @@ impl BrowserController {
         loop {
             if self.bridge_ready_navigation_count != Some(self.client.main_frame_navigation_count) {
                 self.wait_for_live_test_bridge(deadline)?;
+                self.viewport_after = None;
                 self.bridge_ready_navigation_count = Some(self.client.main_frame_navigation_count);
             }
             let navigation_count = self.client.main_frame_navigation_count;
@@ -727,6 +728,7 @@ impl BrowserController {
                 {
                     self.wait_for_main_frame_navigation(navigation_count, deadline)?;
                     self.wait_for_live_test_bridge(deadline)?;
+                    self.viewport_after = None;
                     self.bridge_ready_navigation_count =
                         Some(self.client.main_frame_navigation_count);
                 }
@@ -874,8 +876,9 @@ impl BrowserController {
     fn capture_verified_viewport(&mut self) -> Result<Vec<u8>> {
         self.paint_boundary()?;
         let measured = viewport::read(&mut self.client)?;
+        self.reset_viewport_baseline_after_navigation();
         anyhow::ensure!(viewport::acknowledged(&measured, &self.options, self.require_frame, self.viewport_after),
-            "capture_viewport: viewport/layout differs from requested dimensions; observed {measured}; retry LiveTestClient::simulate_resize before capturing");
+            "capture_viewport: viewport/layout differs from requested dimensions; observed {measured}, expected frame after {:?} on navigation {}; retry LiveTestClient::simulate_resize before capturing", self.viewport_after, self.client.main_frame_navigation_count);
         self.fail_on_browser_errors()?;
         let result = self.client.send(
             "Page.captureScreenshot",
@@ -904,6 +907,17 @@ impl BrowserController {
         } else {
             let errors = std::mem::take(&mut self.client.errors);
             Err(anyhow!("browser reported errors:\n{}", errors.join("\n")))
+        }
+    }
+
+    pub(super) fn reset_viewport_baseline_after_navigation(&mut self) {
+        if self.require_frame
+            && self.bridge_ready_navigation_count != Some(self.client.main_frame_navigation_count)
+        {
+            // The submitted frame counter belongs to one loaded Web runtime and
+            // can restart after a page reload. Never compare a new page's frame
+            // against a watermark captured from the old one.
+            self.viewport_after = None;
         }
     }
 }
