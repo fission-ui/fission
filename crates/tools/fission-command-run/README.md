@@ -11,6 +11,7 @@ Run, build, test, logs, devices, and doctor workflows for the `fission` command.
 - `fission run` builds, launches, and attaches to app output where the platform supports it.
 - `fission run --target web` prints the renderer selected by the browser runtime, for example `webgpu-vello` or the `canvas2d-software` fallback with its fallback reason.
 - Web builds enable WebAssembly `simd128` by default to improve Canvas2D/software rendering. Set `FISSION_WEB_WASM_SIMD=scalar` while building for browsers that do not support SIMD.
+- Web development builds optimize dependencies at level 1 by default, keeping app crates debuggable while avoiding the severe runtime cost of unoptimized software rendering. Set `FISSION_WEB_DEV_DEPENDENCY_OPT_LEVEL` to `0`, `1`, `2`, or `3` to choose the dependency optimization level; release builds are unchanged.
 - Local Web readiness checks allow 64 MiB per required asset by default. Set `FISSION_SERVING_MAX_ASSET_BYTES` to a positive byte count when a debug WebAssembly bundle exceeds that size.
 - Web `run`, `build`, and `test` commands forward explicit `--features` and `--no-default-features` selections to `wasm-pack`.
 - `fission build`, `fission test`, and `fission logs` shared execution helpers.

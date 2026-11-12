@@ -1187,6 +1187,11 @@ fn build_web_with_test_control(
     let project_dir = absolute_path(project_dir)?;
     let out_dir = project_dir.join("platforms/web/pkg");
     let wasm_simd = web_wasm_simd_from_env()?;
+    let dev_dependency_opt_level = if release {
+        None
+    } else {
+        Some(web_dev_dependency_opt_level_from_env()?)
+    };
     let mut command = web_build_command(
         &project_dir,
         &out_dir,
@@ -1194,6 +1199,7 @@ fn build_web_with_test_control(
         cargo_features,
         cargo_no_default_features,
         wasm_simd,
+        dev_dependency_opt_level,
     )?;
     if test_control {
         enable_web_test_control(&mut command);
@@ -1223,6 +1229,7 @@ fn web_build_command(
     cargo_features: &[String],
     cargo_no_default_features: bool,
     wasm_simd: bool,
+    dev_dependency_opt_level: Option<u8>,
 ) -> Result<Command> {
     let mut command = Command::new("wasm-pack");
     command
@@ -1239,11 +1246,19 @@ fn web_build_command(
     if !cargo_features.is_empty() {
         command.arg("--features").arg(cargo_features.join(","));
     }
+    if !release {
+        let opt_level = dev_dependency_opt_level
+            .ok_or_else(|| anyhow::anyhow!("missing Web dev dependency optimization setting"))?;
+        command
+            .arg("--config")
+            .arg(format!("profile.dev.package.\"*\".opt-level={opt_level}"));
+    }
     configure_web_wasm_simd(&mut command, wasm_simd)?;
     Ok(command)
 }
 
 const WEB_WASM_SIMD_ENV: &str = "FISSION_WEB_WASM_SIMD";
+const WEB_DEV_DEPENDENCY_OPT_LEVEL_ENV: &str = "FISSION_WEB_DEV_DEPENDENCY_OPT_LEVEL";
 const WEB_WASM_TARGET_RUSTFLAGS: &str = "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS";
 
 fn web_wasm_simd_from_env() -> Result<bool> {
@@ -1262,6 +1277,26 @@ fn parse_web_wasm_simd(value: Option<&str>) -> Result<bool> {
             _ => bail!("{WEB_WASM_SIMD_ENV} must be `simd` (the default) or `scalar`"),
         },
         None => Ok(true),
+    }
+}
+
+fn web_dev_dependency_opt_level_from_env() -> Result<u8> {
+    match env::var(WEB_DEV_DEPENDENCY_OPT_LEVEL_ENV) {
+        Ok(value) => parse_web_dev_dependency_opt_level(Some(&value)),
+        Err(env::VarError::NotPresent) => parse_web_dev_dependency_opt_level(None),
+        Err(error) => {
+            Err(error).context("failed to read Fission Web dev dependency optimization setting")
+        }
+    }
+}
+
+fn parse_web_dev_dependency_opt_level(value: Option<&str>) -> Result<u8> {
+    match value {
+        None => Ok(1),
+        Some(value) => match value.trim().parse::<u8>() {
+            Ok(level @ 0..=3) => Ok(level),
+            _ => bail!("{WEB_DEV_DEPENDENCY_OPT_LEVEL_ENV} must be an integer from 0 to 3"),
+        },
     }
 }
 
@@ -2664,6 +2699,7 @@ mod tests {
             &["fixtures".into(), "diagnostics".into()],
             true,
             true,
+            Some(1),
         )
         .unwrap();
         let args = command
@@ -2684,6 +2720,8 @@ mod tests {
                 "--no-default-features",
                 "--features",
                 "fixtures,diagnostics",
+                "--config",
+                "profile.dev.package.\"*\".opt-level=1",
             ]
         );
         let wasm_flags = command
@@ -2706,6 +2744,7 @@ mod tests {
             &[],
             false,
             true,
+            Some(1),
         )
         .unwrap();
         enable_web_test_control(&mut command);
@@ -2724,6 +2763,37 @@ mod tests {
         assert!(!parse_web_wasm_simd(Some("scalar")).unwrap());
         assert!(!parse_web_wasm_simd(Some("0")).unwrap());
         assert!(parse_web_wasm_simd(Some("mystery")).is_err());
+    }
+
+    #[test]
+    fn web_dev_dependency_optimization_defaults_to_one_and_accepts_overrides() {
+        assert_eq!(parse_web_dev_dependency_opt_level(None).unwrap(), 1);
+        assert_eq!(parse_web_dev_dependency_opt_level(Some("0")).unwrap(), 0);
+        assert_eq!(parse_web_dev_dependency_opt_level(Some(" 2 ")).unwrap(), 2);
+        assert_eq!(parse_web_dev_dependency_opt_level(Some("3")).unwrap(), 3);
+        assert!(parse_web_dev_dependency_opt_level(Some("4")).is_err());
+        assert!(parse_web_dev_dependency_opt_level(Some("fast")).is_err());
+    }
+
+    #[test]
+    fn web_release_build_does_not_add_dev_dependency_optimization() {
+        let command = web_build_command(
+            Path::new("/workspace/app"),
+            Path::new("/workspace/app/platforms/web/pkg"),
+            true,
+            &[],
+            false,
+            true,
+            None,
+        )
+        .unwrap();
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(args.last().map(String::as_str), Some("--release"));
+        assert!(!args.iter().any(|arg| arg == "--config"));
     }
 
     #[test]
