@@ -242,7 +242,7 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     let memory = wasm_bindgen::memory();
     let submit_adapter = Function::new_with_args(
         "submitJson,commandJsonPtr,commandJsonCapacity,memory",
-        "return function(commandJson) { if (typeof commandJson !== 'string') throw new TypeError('command JSON must be a string'); const bytes = new TextEncoder().encode(commandJson); const capacity = commandJsonCapacity() >>> 0; if (bytes.length > capacity) return submitJson(capacity + 1) >>> 0; const address = commandJsonPtr() >>> 0; new Uint8Array(memory.buffer, address, bytes.length).set(bytes); return submitJson(bytes.length) >>> 0; }",
+        "return function(commandJson) { if (typeof commandJson !== 'string') throw new TypeError('command JSON must be a string'); const bytes = new TextEncoder().encode(commandJson); const capacity = commandJsonCapacity() >>> 0; if (bytes.length > capacity) return submitJson(capacity + 1) >>> 0; const address = commandJsonPtr() >>> 0; new Uint8Array(memory.buffer, address, bytes.length).set(bytes); console.log('FISSION_WEB_TEST_TRACE 415 0'); const requestId = submitJson(bytes.length) >>> 0; console.log('FISSION_WEB_TEST_TRACE 416 ' + requestId); return requestId; }",
     );
     let Ok(submit) = submit_adapter.call4(
         &JsValue::NULL,
@@ -559,6 +559,7 @@ fn submit_command(command: Result<TestCommand, String>, proxy: &EventLoopProxy<T
         state.responses.insert(request_id, response);
     });
     record_diagnostic(413, request_id);
+    record_diagnostic(414, request_id);
     request_id
 }
 
