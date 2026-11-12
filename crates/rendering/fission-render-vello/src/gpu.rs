@@ -1,6 +1,10 @@
 //! Rendering scenes on the GPU.
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
 use std::{collections::HashSet, sync::Arc};
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
 
 use anyhow::{anyhow, Result};
 use fission_render::{Color as RenderColor, RenderScene, Renderer};
@@ -124,6 +128,7 @@ impl GpuSceneRenderer {
         background: Option<RenderColor>,
         external_textures: &ExternalTextureBindings,
     ) -> Result<()> {
+        let trace_web = crate::web_test_trace_enabled();
         let width = target_dimension(width, "width")?;
         let height = target_dimension(height, "height")?;
         if self.scene.width() != width || self.scene.height() != height {
@@ -162,7 +167,15 @@ impl GpuSceneRenderer {
                     &Rect::new(0.0, 0.0, f64::from(width), f64::from(height)),
                 );
             }
+            let recording_started = Instant::now();
+            if trace_web {
+                crate::trace_web_test_stage(380, 0);
+            }
             VelloRenderer::new(&mut painter, measurer, scale_factor).render_scene(scene)?;
+            if trace_web {
+                crate::trace_web_test_stage(381, recording_started.elapsed().as_millis() as u32);
+                crate::trace_web_test_stage(382, 0);
+            }
         }
         self.images
             .end_frame(&mut self.renderer, &mut self.resources, &mut encoder);
@@ -172,6 +185,7 @@ impl GpuSceneRenderer {
         } else {
             vello_gpu::TargetInit::SrcOver
         };
+        let renderer_started = Instant::now();
         self.renderer
             .render(
                 &self.scene,
@@ -186,7 +200,15 @@ impl GpuSceneRenderer {
                 target_init,
             )
             .map_err(|error| anyhow!("vello_gpu failed to render the scene: {error:?}"))?;
+        if trace_web {
+            crate::trace_web_test_stage(383, renderer_started.elapsed().as_millis() as u32);
+            crate::trace_web_test_stage(384, 0);
+        }
+        let submit_started = Instant::now();
         queue.submit([encoder.finish()]);
+        if trace_web {
+            crate::trace_web_test_stage(385, submit_started.elapsed().as_millis() as u32);
+        }
         Ok(())
     }
 }

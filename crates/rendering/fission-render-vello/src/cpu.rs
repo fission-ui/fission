@@ -100,6 +100,7 @@ impl CpuRenderer {
         let width = pixmap_dimension(width, "width")?;
         let height = pixmap_dimension(height, "height")?;
         let dimensions = (width, height);
+        let trace_web = crate::web_test_trace_enabled();
 
         match self.context.as_mut() {
             Some(context) if self.context_size == Some(dimensions) => context.reset(),
@@ -126,8 +127,14 @@ impl CpuRenderer {
                 && target_matches_scene_bounds(scene, width, height, scale_factor),
         )?;
         let copy_started = Instant::now();
+        if trace_web {
+            crate::trace_web_test_stage(376, 0);
+        }
         let rgba = pixmap.take_rgba8(ImageAlphaType::AlphaPremultiplied);
         timings.output_copy = copy_started.elapsed();
+        if trace_web {
+            crate::trace_web_test_stage(377, timings.output_copy.as_millis() as u32);
+        }
         Ok((rgba, timings))
     }
 }
@@ -179,7 +186,11 @@ fn render_scene_to_pixmap(
     backdrop_filters_enabled: bool,
     exact_root_clip_elision: bool,
 ) -> Result<(Pixmap, CpuRenderTimings)> {
+    let trace_web = crate::web_test_trace_enabled();
     let recording_started = Instant::now();
+    if trace_web {
+        crate::trace_web_test_stage(370, 0);
+    }
     let mut pixmap = Pixmap::new(width, height);
     let background = Color::from_rgba8(background.r, background.g, background.b, background.a);
     {
@@ -199,9 +210,17 @@ fn render_scene_to_pixmap(
             .render_scene(scene)?;
     }
     let scene_recording = recording_started.elapsed();
+    if trace_web {
+        crate::trace_web_test_stage(371, scene_recording.as_millis() as u32);
+        crate::trace_web_test_stage(372, 0);
+    }
 
     let raster_started = Instant::now();
     ctx.flush();
+    if trace_web {
+        crate::trace_web_test_stage(373, raster_started.elapsed().as_millis() as u32);
+        crate::trace_web_test_stage(374, 0);
+    }
     if backdrop_filters_enabled {
         ctx.render(&mut pixmap, resources);
     } else {
@@ -218,6 +237,9 @@ fn render_scene_to_pixmap(
         );
     }
     let rasterization = raster_started.elapsed();
+    if trace_web {
+        crate::trace_web_test_stage(375, rasterization.as_millis() as u32);
+    }
     Ok((
         pixmap,
         CpuRenderTimings {

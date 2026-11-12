@@ -15,6 +15,36 @@ pub use painter::{CpuPainter, GpuImageCache, GpuPainter, GpuUploader, Painter};
 pub use parley;
 pub use text::VelloTextMeasurer;
 
+#[cfg(target_arch = "wasm32")]
+#[inline]
+pub(crate) fn web_test_trace_enabled() -> bool {
+    use wasm_bindgen::JsValue;
+
+    js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("__FISSION_TEST__"))
+        .map(|bridge| !bridge.is_undefined() && !bridge.is_null())
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[inline]
+pub(crate) fn web_test_trace_enabled() -> bool {
+    false
+}
+
+#[cfg(target_arch = "wasm32")]
+#[inline]
+pub(crate) fn trace_web_test_stage(stage: u32, iteration: u32) {
+    use wasm_bindgen::JsValue;
+
+    web_sys::console::log_1(&JsValue::from_str(&format!(
+        "FISSION_WEB_TEST_TRACE {stage} {iteration}"
+    )));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[inline]
+pub(crate) fn trace_web_test_stage(_stage: u32, _iteration: u32) {}
+
 use anyhow::Result;
 use fission_ir::op::{
     decode_text_paragraph_style, HttpHeader, ImageAlignment, ImageRequest, ImageSource, TextAlign,
