@@ -440,6 +440,9 @@ pub enum TestEvent {
     /// commands that wait on a frame are still answered.
     #[doc(hidden)]
     HeadlessFrame,
+    /// Internal: the Web shell's requestAnimationFrame callback should render a frame.
+    #[doc(hidden)]
+    WebRedrawFrame,
     Quit,
     /// Internal: TapText resolves a text label to coordinates; the server
     /// injects this so the main loop can do the lookup with access to the IR.

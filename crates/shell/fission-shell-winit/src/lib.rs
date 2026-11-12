@@ -2169,7 +2169,26 @@ impl PlatformWindow for Arc<Window> {
 }
 
 fn request_redraw_once(window: &Window, frame_schedule: &mut FrameScheduleState) -> bool {
-    frame_schedule.request_redraw(|| window.request_redraw())
+    if !frame_schedule.mark_redraw_scheduled() {
+        return false;
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    if let Some(web_redraw) = frame_schedule.web_redraw.as_ref() {
+        if let Err(error) = web_redraw.request() {
+            eprintln!("failed to request Web animation frame: {error}");
+            frame_schedule.redraw_started();
+        } else {
+            return true;
+        }
+    }
+
+    // Native platforms use winit's redraw dispatch. Web uses its own
+    // requestAnimationFrame callback because winit can leave a requested frame
+    // pending without delivering RedrawRequested while user events keep arriving.
+    window.request_redraw();
+    frame_schedule.redraw_scheduled = true;
+    true
 }
 
 fn request_redraw_throttled(
@@ -2221,6 +2240,65 @@ struct FrameScheduleState {
     enabled: bool,
     redraw_reasons: Vec<String>,
     redraw_scheduled: bool,
+    #[cfg(target_arch = "wasm32")]
+    web_redraw: Option<WebRedrawScheduler>,
+}
+
+#[cfg(target_arch = "wasm32")]
+struct WebRedrawScheduler {
+    window: web_sys::Window,
+    callback: wasm_bindgen::closure::Closure<dyn FnMut(f64)>,
+    handle: Rc<Cell<Option<i32>>>,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl WebRedrawScheduler {
+    fn new(proxy: EventLoopProxy<TestEvent>) -> anyhow::Result<Self> {
+        use wasm_bindgen::JsCast;
+
+        let window =
+            web_sys::window().ok_or_else(|| anyhow::anyhow!("browser window is unavailable"))?;
+        let handle = Rc::new(Cell::new(None));
+        let callback_handle = handle.clone();
+        let callback = wasm_bindgen::closure::Closure::wrap(Box::new(move |_timestamp: f64| {
+            callback_handle.set(None);
+            record_web_test_diagnostic(438, 1);
+            let _ = proxy.send_event(TestEvent::WebRedrawFrame);
+        }) as Box<dyn FnMut(f64)>);
+
+        Ok(Self {
+            window,
+            callback,
+            handle,
+        })
+    }
+
+    fn request(&self) -> Result<(), String> {
+        use wasm_bindgen::JsCast;
+
+        if self.handle.get().is_some() {
+            return Ok(());
+        }
+        let handle = self
+            .window
+            .request_animation_frame(self.callback.as_ref().unchecked_ref())
+            .map_err(js_error_to_string)?;
+        self.handle.set(Some(handle));
+        Ok(())
+    }
+
+    fn cancel(&self) {
+        if let Some(handle) = self.handle.take() {
+            let _ = self.window.cancel_animation_frame(handle);
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for WebRedrawScheduler {
+    fn drop(&mut self) {
+        self.cancel();
+    }
 }
 
 impl FrameScheduleState {
@@ -2229,11 +2307,21 @@ impl FrameScheduleState {
             enabled,
             redraw_reasons: Vec::new(),
             redraw_scheduled: false,
+            #[cfg(target_arch = "wasm32")]
+            web_redraw: None,
         }
     }
 
-    fn request_redraw(&mut self, request: impl FnOnce()) -> bool {
+    fn mark_redraw_scheduled(&mut self) -> bool {
         if self.redraw_scheduled {
+            return false;
+        }
+        self.redraw_scheduled = true;
+        true
+    }
+
+    fn request_redraw(&mut self, request: impl FnOnce()) -> bool {
+        if !self.mark_redraw_scheduled() {
             return false;
         }
 
@@ -2241,12 +2329,24 @@ impl FrameScheduleState {
         // on every request. Keep one outstanding until RedrawRequested so
         // frequent input and LiveTest pump events cannot continually postpone it.
         request();
-        self.redraw_scheduled = true;
         true
     }
 
     fn redraw_started(&mut self) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(web_redraw) = self.web_redraw.as_ref() {
+            web_redraw.cancel();
+        }
         self.redraw_scheduled = false;
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn install_web_redraw_scheduler(
+        &mut self,
+        proxy: EventLoopProxy<TestEvent>,
+    ) -> anyhow::Result<()> {
+        self.web_redraw = Some(WebRedrawScheduler::new(proxy)?);
+        Ok(())
     }
 
     fn redraw_timing(
@@ -5832,6 +5932,10 @@ where
             .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
             .unwrap_or(false);
         let mut frame_trace = FrameScheduleState::new(frame_trace_enabled());
+        #[cfg(target_arch = "wasm32")]
+        if let Err(error) = frame_trace.install_web_redraw_scheduler(event_proxy.clone()) {
+            eprintln!("failed to install Web animation-frame scheduler: {error}");
+        }
         let mut presented_frames: u64 = 0;
         #[cfg(not(target_arch = "wasm32"))]
         let mut software_frame_valid = false;
@@ -5919,6 +6023,16 @@ where
                         event: WindowEvent::RedrawRequested,
                     }
                 }
+                Event::UserEvent(TestEvent::WebRedrawFrame) => {
+                    record_web_test_diagnostic(439, 1);
+                    let Some(window_id) = platform_window.active_window_id() else {
+                        return;
+                    };
+                    Event::WindowEvent {
+                        window_id,
+                        event: WindowEvent::RedrawRequested,
+                    }
+                }
                 other => other,
             };
             let debug_android_events = cfg!(target_os = "android")
@@ -5975,6 +6089,7 @@ where
                     TestEvent::Toggle { .. } => 44,
                     TestEvent::SelectOption { .. } => 45,
                     TestEvent::Wait { .. } => 46,
+                    TestEvent::WebRedrawFrame => 47,
                 };
                 record_web_test_diagnostic(90, diagnostic_kind);
                 match test_event {
@@ -7237,6 +7352,8 @@ where
                     }
                     // Mapped to a redraw before dispatch.
                     TestEvent::HeadlessFrame => {}
+                    // Mapped to a redraw before dispatch.
+                    TestEvent::WebRedrawFrame => {}
                     TestEvent::Wake => {
                         #[cfg(target_arch = "wasm32")]
                         {
