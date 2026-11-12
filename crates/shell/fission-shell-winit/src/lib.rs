@@ -2367,6 +2367,7 @@ impl FrameScheduleState {
     }
 
     fn wait_for_redraw_or_deadline(&self, deadline: Instant) -> ControlFlow {
+        record_web_test_diagnostic(473, u32::from(self.redraw_scheduled));
         if self.redraw_scheduled {
             ControlFlow::Wait
         } else {

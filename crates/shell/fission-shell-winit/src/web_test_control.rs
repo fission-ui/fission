@@ -21,6 +21,7 @@ const POLL_STAGE_JSON_READY: u32 = 3;
 
 static LAST_POLL_STAGE: AtomicU32 = AtomicU32::new(0);
 static WEB_WAKE_TRACE_COUNT: AtomicU32 = AtomicU32::new(0);
+static WEB_REDRAW_WAIT_TRACE_COUNT: AtomicU32 = AtomicU32::new(0);
 
 #[repr(C)]
 struct WebTestDiagnostics {
@@ -67,9 +68,12 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
         300..=353 => true,
         360 | 364 | 365 | 366 => true,
         400 | 402 | 410 | 411 | 414 | 416 | 420 | 424 | 430 | 432 | 435 => true,
+        473 if iteration == 1 => {
+            WEB_REDRAW_WAIT_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 64 == 0
+        }
         437 if iteration == 42 => true,
         437 if iteration == 31 => WEB_WAKE_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 32 == 0,
-        450..=465 | 467..=470 => true,
+        450..=466 | 468..=470 => true,
         90 | 91 if iteration == 42 => true,
         _ => false,
     };
