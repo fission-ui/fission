@@ -109,6 +109,44 @@ fn web_bridge_json_round_trips_remain_bounded_after_repeated_queries() -> anyhow
 }
 
 #[test]
+#[ignore = "requires FISSION_BRIDGE_WEB_URL, the opt-in Web test bridge, and Chromium"]
+fn web_bridge_readiness_recovers_after_document_reload() -> anyhow::Result<()> {
+    let url = std::env::var("FISSION_BRIDGE_WEB_URL")?;
+    let client = LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())?;
+    let mut previous_time_origin = client
+        .browser_evaluate_json("performance.timeOrigin")?
+        .as_f64()
+        .expect("browser time origin is numeric");
+
+    for _ in 0..3 {
+        client.browser_evaluate_json(
+            "globalThis.__FISSION_RELOAD_SENTINEL__ = 'old document'; window.location.reload(); true",
+        )?;
+        client.wait_for_visible(SelectorQuery::label("Increment"), 30_000)?;
+
+        let reloaded_page = client.browser_evaluate_json(
+            "({timeOrigin: performance.timeOrigin, sentinel: globalThis.__FISSION_RELOAD_SENTINEL__ ?? null, bridgeReady: typeof globalThis.__FISSION_TEST__?.poll === 'function'})",
+        )?;
+        let time_origin = reloaded_page["timeOrigin"]
+            .as_f64()
+            .expect("browser time origin is numeric");
+        assert_ne!(
+            time_origin, previous_time_origin,
+            "wait_for_visible must not succeed against the document being replaced"
+        );
+        assert!(reloaded_page["sentinel"].is_null());
+        assert_eq!(reloaded_page["bridgeReady"], true);
+        previous_time_origin = time_origin;
+    }
+
+    assert!(client
+        .get_text()?
+        .iter()
+        .any(|item| item.text == "Fission web smoke"));
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires FISSION_RESIZE_WEB_URL, installed Chromium, and loopback sockets"]
 fn canvas_same_session_state_route_frames_raw_bridge_timeout_and_recovery() -> anyhow::Result<()> {
     let url = std::env::var("FISSION_RESIZE_WEB_URL")?;

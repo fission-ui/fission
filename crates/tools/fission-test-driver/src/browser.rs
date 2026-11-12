@@ -180,6 +180,7 @@ pub(crate) struct BrowserController {
     options: BrowserTestOptions,
     require_frame: bool,
     viewport_after: Option<u64>,
+    bridge_ready_navigation_count: Option<u64>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -276,6 +277,8 @@ impl BrowserController {
                     body_text_len: status.body_text_len,
                     screenshot_path: options.screenshot_path.clone(),
                 };
+                let bridge_ready_navigation_count =
+                    require_live_control.then_some(client.main_frame_navigation_count);
                 return Ok(Self {
                     _session: session,
                     client,
@@ -283,6 +286,7 @@ impl BrowserController {
                     options,
                     require_frame: require_live_control,
                     viewport_after: None,
+                    bridge_ready_navigation_count,
                 });
             }
             last_viewport = measured;
@@ -708,6 +712,34 @@ impl BrowserController {
             self.options.mode == BrowserSmokeMode::FissionCanvas,
             "unsupported_page_mode: this command requires a Web build compiled with FISSION_WEB_TEST_CONTROL=1; DOM sessions support host resize and screenshots"
         );
+        let retry_after_navigation = bridge_command_is_safe_to_retry(&command);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            if self.bridge_ready_navigation_count != Some(self.client.main_frame_navigation_count) {
+                self.wait_for_live_test_bridge(deadline)?;
+                self.bridge_ready_navigation_count = Some(self.client.main_frame_navigation_count);
+            }
+            let navigation_count = self.client.main_frame_navigation_count;
+            match self.send_bridge_command_once(command.clone(), deadline) {
+                Ok(response) => return Ok(response),
+                Err(error)
+                    if retry_after_navigation && is_transient_bridge_context_error(&error) =>
+                {
+                    self.wait_for_main_frame_navigation(navigation_count, deadline)?;
+                    self.wait_for_live_test_bridge(deadline)?;
+                    self.bridge_ready_navigation_count =
+                        Some(self.client.main_frame_navigation_count);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    fn send_bridge_command_once(
+        &mut self,
+        command: TestCommand,
+        deadline: Instant,
+    ) -> Result<TestResponse> {
         let command_json = serde_json::to_string(&command)?;
         let submit = format!(
             "globalThis.__FISSION_TEST__.submit({})",
@@ -726,7 +758,6 @@ impl BrowserController {
             .and_then(Value::as_u64)
             .context("Fission browser test bridge returned no request id")?;
 
-        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             self.client.drain_events(Duration::from_millis(5))?;
             self.fail_on_browser_errors()?;
@@ -754,6 +785,39 @@ impl BrowserController {
             }
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    fn wait_for_live_test_bridge(&mut self, deadline: Instant) -> Result<()> {
+        loop {
+            self.client.drain_events(Duration::from_millis(5))?;
+            self.fail_on_browser_errors()?;
+            match read_runtime_status(&mut self.client) {
+                Ok(status) if browser_is_ready(&status, self.options.mode, true) => return Ok(()),
+                Ok(_) => {}
+                Err(error) if is_transient_execution_context_error(&error) => {}
+                Err(error) => return Err(error),
+            }
+            if Instant::now() >= deadline {
+                return Err(anyhow!(
+                    "timed out waiting for the Fission Web test bridge to become ready"
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn wait_for_main_frame_navigation(&mut self, after: u64, deadline: Instant) -> Result<()> {
+        while self.client.main_frame_navigation_count <= after {
+            self.client.drain_events(Duration::from_millis(5))?;
+            self.fail_on_browser_errors()?;
+            if Instant::now() >= deadline {
+                return Err(anyhow!(
+                    "Fission browser test bridge was lost without a main-frame navigation"
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        Ok(())
     }
 
     fn send_runtime_command(&mut self, command: TestCommand) -> Result<TestResponse> {
@@ -1055,6 +1119,20 @@ fn is_transient_execution_context_error(error: &anyhow::Error) -> bool {
     .any(|phrase| message.contains(phrase))
 }
 
+fn is_transient_bridge_context_error(error: &anyhow::Error) -> bool {
+    let message = format!("{error:#}").to_ascii_lowercase();
+    is_transient_execution_context_error(error)
+        || message.contains("cannot read properties of undefined (reading 'submit')")
+        || message.contains("cannot read properties of undefined (reading 'poll')")
+}
+
+fn bridge_command_is_safe_to_retry(command: &TestCommand) -> bool {
+    matches!(
+        command,
+        TestCommand::ResolveSelector { .. } | TestCommand::GetText {} | TestCommand::GetTree {}
+    )
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn read_runtime_status(client: &mut CdpClient) -> Result<RuntimeStatus> {
     let expression = r#"(() => {
@@ -1235,6 +1313,7 @@ struct CdpClient {
     report_only: bool,
     network_requests: HashSet<String>,
     network_last_activity: Instant,
+    main_frame_navigation_count: u64,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1257,6 +1336,7 @@ impl CdpClient {
             report_only: false,
             network_requests: HashSet::new(),
             network_last_activity: Instant::now(),
+            main_frame_navigation_count: 0,
         })
     }
 
@@ -1371,6 +1451,11 @@ impl CdpClient {
     fn handle_event(&mut self, message: &Value) {
         let method = message.get("method").and_then(Value::as_str);
         let request_id = message.pointer("/params/requestId").and_then(Value::as_str);
+        if method == Some("Page.frameNavigated")
+            && message.pointer("/params/frame/parentId").is_none()
+        {
+            self.main_frame_navigation_count = self.main_frame_navigation_count.saturating_add(1);
+        }
         match (method, request_id) {
             (Some("Network.requestWillBeSent"), Some(request_id)) => {
                 self.network_requests.insert(request_id.to_owned());
@@ -1736,6 +1821,39 @@ mod tests {
                 "unexpectedly treated permanent error as transient: {message}"
             );
         }
+    }
+
+    #[test]
+    fn missing_bridge_accessors_are_navigation_transients() {
+        for accessor in ["submit", "poll"] {
+            let error = anyhow!(format!(
+                "browser runtime evaluation failed: TypeError: Cannot read properties of undefined (reading '{accessor}')"
+            ));
+            assert!(is_transient_bridge_context_error(&error));
+        }
+        assert!(!is_transient_bridge_context_error(&anyhow!(
+            "browser runtime evaluation failed: TypeError: application state is invalid"
+        )));
+    }
+
+    #[test]
+    fn only_read_only_bridge_commands_retry_after_navigation() {
+        assert!(bridge_command_is_safe_to_retry(
+            &TestCommand::ResolveSelector {
+                query: SelectorQuery::label("Increment"),
+            }
+        ));
+        assert!(bridge_command_is_safe_to_retry(&TestCommand::GetText {}));
+        assert!(bridge_command_is_safe_to_retry(&TestCommand::GetTree {}));
+        assert!(!bridge_command_is_safe_to_retry(
+            &TestCommand::TapSelector {
+                query: SelectorQuery::label("Increment"),
+            }
+        ));
+        assert!(!bridge_command_is_safe_to_retry(&TestCommand::FillText {
+            query: SelectorQuery::label("Input"),
+            text: "value".into(),
+        }));
     }
 
     #[test]

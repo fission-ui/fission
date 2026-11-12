@@ -95,6 +95,7 @@ pub fn review_case(options: BrowserTestOptions, mount_url: &str) -> Result<Brows
         options: options.clone(),
         require_frame: options.mode == BrowserSmokeMode::FissionCanvas,
         viewport_after: None,
+        bridge_ready_navigation_count: None,
         report: BrowserSmokeReport {
             url: options.url.clone(),
             title: String::new(),

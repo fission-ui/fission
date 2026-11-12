@@ -55,6 +55,13 @@ value does not modify the shell's state.
 Production builds expose neither the bridge nor this getter. No review-specific
 global is involved.
 
+The Chromium driver tracks full main-frame navigations. After a reload it waits
+for the new Fission Web document to render a frame and expose its test bridge
+before sending the next semantic command. If a navigation removes the bridge
+during a read-only selector, text, or tree query, the driver waits for the new
+document and repeats that query. It does not automatically repeat input or
+other state-changing commands, so a reload cannot duplicate a user action.
+
 LiveTest drivers use `submit(json)` and `poll(id)`. The bridge copies command
 JSON into a fixed 4 MiB scratch area in the module's linear memory, then calls a
 scalar Wasm export to parse and dispatch it. Larger commands receive a normal
