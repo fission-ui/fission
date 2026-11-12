@@ -103,7 +103,7 @@ fission_component! {
                 .border(tokens.colors.border, 1.0)
                 .border_radius(tokens.radii.medium),
                 Button(
-                    child: Text(scale_action),
+                    child: Text(scale_action.clone()),
                     key: "toggle-dynamic-type-sample",
                     on_press: reduce { reader.large_text = !reader.large_text; },
                     semantics: Some(Semantics {

@@ -106,34 +106,6 @@ impl ProductCategory {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum InventoryFilter {
-    All,
-    NeedsReorder,
-    OutOfStock,
-}
-
-pub fn matches_inventory_filter(
-    product: &InventoryProduct,
-    query: &str,
-    filter: InventoryFilter,
-    category_label: &str,
-) -> bool {
-    let query = query.trim().to_lowercase();
-    let matches_query = query.is_empty()
-        || product.name.to_lowercase().contains(&query)
-        || product.sku.to_lowercase().contains(&query)
-        || category_label.to_lowercase().contains(&query)
-        || product.supplier.to_lowercase().contains(&query)
-        || product.bin.to_lowercase().contains(&query);
-    let matches_stock = match filter {
-        InventoryFilter::NeedsReorder => product.stock <= product.reorder_point,
-        InventoryFilter::OutOfStock => product.stock == 0,
-        InventoryFilter::All => true,
-    };
-
-    matches_query && matches_stock
-}
 ```
 </TabItem>
 <TabItem label="preview/fixtures.rs">

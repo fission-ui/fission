@@ -63,7 +63,6 @@ Start with a public entry screen. It can explain what the account area contains,
 ```rust
 use std::collections::HashMap;
 
-use fission::core::RouteLocation;
 use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
 
@@ -252,7 +251,7 @@ impl GlobalState for AppState {}
 
 pub fn account_route_decision(
     state: &AppState,
-    current_route: &RouteLocation,
+    current_route: &fission::core::env::RouteLocation,
 ) -> RouteDecision {
     match &state.session {
         SessionState::Loading => RouteDecision::Pending,
@@ -451,7 +450,6 @@ The preview adds an unavailable state so you can inspect that branch. It still d
 ```rust
 use std::collections::HashMap;
 
-use fission::core::RouteLocation;
 use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
 
@@ -499,7 +497,7 @@ impl GlobalState for AppState {}
 
 pub fn account_route_decision(
     state: &AppState,
-    current_route: &RouteLocation,
+    current_route: &fission::core::env::RouteLocation,
 ) -> RouteDecision {
     match &state.session {
         SessionState::Loading => RouteDecision::Pending,

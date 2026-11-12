@@ -309,7 +309,7 @@ Find order #204 for Maya and read back both drinks. The summary should show two 
 
 An order's status affects its card and the counts above the list, so keep that data together in `CafeQueueState`. An inline `reduce` block advances an order by its stable ID. “Hide collected” only changes this screen, so it belongs in the board component's local state, not in the shared order data.
 
-The reusable `PickupOrderCard` shows the next useful action: mark a preparing order ready, or mark a ready order collected. After collection, the card shows a handoff confirmation instead of a button. The order ID keeps each card's identity stable when the filter changes the list. The inline block generates the reducer here; a separate named reducer would make sense if this transition were shared elsewhere or needed a richer policy.
+The reusable `PickupOrderCard` shows the next useful action: mark a preparing order ready, or mark a ready order collected. After collection, the card shows a handoff confirmation instead of a button. The order ID keeps each card's identity stable when the filter changes the list. The inline reducer sends only that ID and updates the current shared order; it does not send an old copy of the whole order back. A named reducer would make sense if this transition were shared elsewhere or needed a richer policy.
 
 The vertical scroll region contains the whole board, including its counts and filter. On a smaller phone, staff can reach every ticket without shrinking the text or losing the summary controls.
 
@@ -391,33 +391,39 @@ pub struct CafeQueueState {
 impl GlobalState for CafeQueueState {}
 
 fission_component! {
-    pub PickupOrderCard<CafeQueueState> { order: PickupOrder }
+    pub PickupOrderCard<CafeQueueState> {
+        order_id: u32,
+        number: &'static str,
+        customer: &'static str,
+        items_key: &'static str,
+        status: OrderStatus,
+    }
     view(card, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
         Column(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Start, children: [
             Column(gap: tokens.spacing.xs, children: [
-                Text(format!("{} {} · {}", cx.tr("pickup.order"), card.order.number, card.order.customer))
+                Text(format!("{} {} · {}", cx.tr("pickup.order"), card.number, card.customer))
                     .weight(tokens.typography.font_weight_semibold),
-                Text(cx.tr(card.order.items_key)).color(tokens.colors.text_secondary),
-                Text(format!("{}: {}", cx.tr("pickup.status"), cx.tr(card.order.status.label_key())))
+                Text(cx.tr(card.items_key)).color(tokens.colors.text_secondary),
+                Text(format!("{}: {}", cx.tr("pickup.status"), cx.tr(card.status.label_key())))
                     .color(tokens.colors.text_secondary),
             ]),
-            if card.order.status != OrderStatus::Collected {
+            if card.status != OrderStatus::Collected {
                 Button(
-                    child: Text(cx.tr(card.order.status.action_key())),
+                    child: Text(cx.tr(card.status.action_key())),
                     key: "advance-order",
                     variant: ButtonVariant::Primary,
                     on_press: reduce {
-                        if let Some(order) = state.orders.iter_mut().find(|order| order.id == card.order.id) {
+                        if let Some(order) = state.orders.iter_mut().find(|order| order.id == card.order_id) {
                             let next_status = order.status.next();
                             order.status = next_status;
-                            state.last_update = Some((card.order.id, next_status));
+                            state.last_update = Some((card.order_id, next_status));
                         }
                     },
                 )
-                .semantics_identifier(format!("pickup-order-{}-advance", card.order.id))
+                .semantics_identifier(format!("pickup-order-{}-advance", card.order_id))
             } else {
                 Text(cx.tr("pickup.handed_off"))
                     .color(tokens.colors.text_secondary)
@@ -506,7 +512,14 @@ fission_component! {
                         } else {
                             Column(gap: tokens.spacing.s, children: [
                                 for order in visible_orders.iter() {
-                                    PickupOrderCard(order.clone(), key: order.id)
+                                    PickupOrderCard(
+                                        order.id,
+                                        order.number,
+                                        order.customer,
+                                        order.items_key,
+                                        order.status,
+                                        key: order.id,
+                                    )
                                 },
                             ])
                         },

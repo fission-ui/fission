@@ -391,6 +391,65 @@ fn matches_all_terms(query: &str, translated_terms: &str) -> bool {
 }
 
 fission_component! {
+    GuideArticle<()> {
+        props {
+            title: String,
+            description: String,
+            requirements_title: String,
+            requirements_body: String,
+            build_title: String,
+            build_body: String,
+        }
+    }
+    view(article, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(gap: tokens.spacing.s, children: [
+            Text(article.title.clone()).size(tokens.typography.heading1_size),
+            Text(article.description.clone()),
+            Divider(),
+            Text(article.requirements_title.clone())
+                .weight(tokens.typography.font_weight_semibold),
+            Text(article.requirements_body.clone()),
+            Text(article.build_title.clone())
+                .weight(tokens.typography.font_weight_semibold),
+            Text(article.build_body.clone()),
+        ])
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface_raised)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    GuideOutline<()> {
+        props {
+            requirements_title: String,
+            build_title: String,
+            run_label: String,
+        }
+    }
+    view(outline, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(gap: tokens.spacing.s, children: [
+            Text(cx.tr("toc.title"))
+                .weight(tokens.typography.font_weight_semibold),
+            Text(outline.requirements_title.clone()),
+            Text(outline.build_title.clone()),
+            Text(outline.run_label.clone()),
+        ])
+    )
+    .width(160.0)
+    .padding_all(tokens.spacing.m)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
     pub DocumentationSite<()> {
         state {
             query: String = String::new(),
@@ -435,6 +494,35 @@ fission_component! {
                 cx.tr("article.routing.description"),
             ),
         };
+        let requirements_title = cx.tr("article.requirements.title");
+        let requirements_body = cx.tr("article.requirements.body");
+        let build_title = cx.tr("article.build.title");
+        let build_body = cx.tr("article.build.body");
+        let run_label = cx.tr("toc.run");
+        let guide_article = || GuideArticle::new(
+            active_guide_title.clone(),
+            active_guide_description.clone(),
+            requirements_title.clone(),
+            requirements_body.clone(),
+            build_title.clone(),
+            build_body.clone(),
+        );
+        let responsive_results = Responsive::new_with_id(
+            WidgetId::explicit("atlas-docs.results"),
+            || guide_article(),
+        )
+        .case_min_width_with(960.0, || Row {
+            children: widgets![
+                guide_article(),
+                GuideOutline::new(
+                    requirements_title.clone(),
+                    build_title.clone(),
+                    run_label.clone(),
+                ),
+            ],
+            gap: Some(tokens.spacing.m),
+            ..Default::default()
+        });
     } =>
     SemanticsRegion(
         identifier: Some("atlas-docs.site".to_string()),
@@ -453,99 +541,27 @@ fission_component! {
                     bind: docs.query,
                     semantics_identifier: "atlas-docs.search".to_string(),
                 ),
+                if quickstart_match || website_match || routing_match {
+                    Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                        if quickstart_match {
+                            Button(child: Text(cx.tr("guide.quickstart")), key: "guide-quickstart",
+                                on_press: reduce { docs.active_guide = Guide::Quickstart; })
+                                .semantics_identifier("atlas-docs.guide.quickstart")
+                        },
+                        if website_match {
+                            Button(child: Text(cx.tr("guide.website")), key: "guide-website",
+                                on_press: reduce { docs.active_guide = Guide::Website; })
+                                .semantics_identifier("atlas-docs.guide.website")
+                        },
+                        if routing_match {
+                            Button(child: Text(cx.tr("guide.routing")), key: "guide-routing",
+                                on_press: reduce { docs.active_guide = Guide::Routing; })
+                                .semantics_identifier("atlas-docs.guide.routing")
+                        },
+                    ])
+                },
                 if has_results {
-                    Responsive::new(
-                        Column(gap: tokens.spacing.m, children: [
-                            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                                if quickstart_match {
-                                    Button(child: Text(cx.tr("guide.quickstart")), key: "guide-quickstart-compact",
-                                        on_press: reduce { docs.active_guide = Guide::Quickstart; })
-                                        .semantics_identifier("atlas-docs.guide.quickstart.compact")
-                                },
-                                if website_match {
-                                    Button(child: Text(cx.tr("guide.website")), key: "guide-website-compact",
-                                        on_press: reduce { docs.active_guide = Guide::Website; })
-                                        .semantics_identifier("atlas-docs.guide.website.compact")
-                                },
-                                if routing_match {
-                                    Button(child: Text(cx.tr("guide.routing")), key: "guide-routing-compact",
-                                        on_press: reduce { docs.active_guide = Guide::Routing; })
-                                        .semantics_identifier("atlas-docs.guide.routing.compact")
-                                },
-                            ]),
-                            Container(Column(gap: tokens.spacing.s, children: [
-                                Text(active_guide_title.clone())
-                                    .size(tokens.typography.heading1_size),
-                                Text(active_guide_description.clone()),
-                                Divider(),
-                                Text(cx.tr("article.requirements.title")).weight(tokens.typography.font_weight_semibold),
-                                Text(cx.tr("article.requirements.body")),
-                                Text(cx.tr("article.build.title")).weight(tokens.typography.font_weight_semibold),
-                                Text(cx.tr("article.build.body")),
-                            ]))
-                            .padding_all(tokens.spacing.l)
-                            .bg(tokens.colors.surface_raised)
-                            .border(tokens.colors.border, 1.0)
-                            .border_radius(tokens.radii.medium),
-                        ]),
-                    )
-                    .case(ResponsiveCase::min_width(
-                        960.0,
-                        Row(gap: tokens.spacing.m, children: [
-                            Container(
-                                Column(gap: tokens.spacing.s, children: [
-                                    Text(cx.tr(if docs.query.is_empty() { "nav.learn" } else { "search.matching" }))
-                                        .weight(tokens.typography.font_weight_semibold),
-                                    if quickstart_match {
-                                        Button(child: Text(cx.tr("guide.quickstart")), key: "guide-quickstart-wide",
-                                            on_press: reduce { docs.active_guide = Guide::Quickstart; })
-                                            .semantics_identifier("atlas-docs.guide.quickstart.wide")
-                                    },
-                                    if website_match {
-                                        Button(child: Text(cx.tr("guide.website")), key: "guide-website-wide",
-                                            on_press: reduce { docs.active_guide = Guide::Website; })
-                                            .semantics_identifier("atlas-docs.guide.website.wide")
-                                    },
-                                    if routing_match {
-                                        Button(child: Text(cx.tr("guide.routing")), key: "guide-routing-wide",
-                                            on_press: reduce { docs.active_guide = Guide::Routing; })
-                                            .semantics_identifier("atlas-docs.guide.routing.wide")
-                                    },
-                                ]),
-                            )
-                            .width(220.0)
-                            .padding_all(tokens.spacing.m)
-                            .bg(tokens.colors.surface_raised)
-                            .border(tokens.colors.border, 1.0)
-                            .border_radius(tokens.radii.medium),
-                            Container(
-                                flex_grow: 1.0,
-                                child: Column(gap: tokens.spacing.s, children: [
-                                    Text(active_guide_title.clone())
-                                        .size(tokens.typography.heading1_size),
-                                    Text(active_guide_description.clone()),
-                                    Divider(),
-                                    Text(cx.tr("article.requirements.title")).weight(tokens.typography.font_weight_semibold),
-                                    Text(cx.tr("article.requirements.body")),
-                                    Text(cx.tr("article.build.title")).weight(tokens.typography.font_weight_semibold),
-                                    Text(cx.tr("article.build.body")),
-                                ]),
-                            )
-                            .padding_all(tokens.spacing.l),
-                            Container(
-                                Column(gap: tokens.spacing.s, children: [
-                                    Text(cx.tr("toc.title")).weight(tokens.typography.font_weight_semibold),
-                                    Text(cx.tr("article.requirements.title")),
-                                    Text(cx.tr("article.build.title")),
-                                    Text(cx.tr("toc.run")),
-                                ]),
-                            )
-                            .width(160.0)
-                            .padding_all(tokens.spacing.m)
-                            .border(tokens.colors.border, 1.0)
-                            .border_radius(tokens.radii.medium),
-                        ]),
-                    ))
+                    responsive_results
                 } else {
                     Column(gap: tokens.spacing.s, children: [
                         Text(cx.tr("empty.title"))
@@ -621,6 +637,65 @@ fn matches_all_terms(query: &str, translated_terms: &str) -> bool {
 }
 
 fission_component! {
+    GuideArticle<()> {
+        props {
+            title: String,
+            description: String,
+            requirements_title: String,
+            requirements_body: String,
+            build_title: String,
+            build_body: String,
+        }
+    }
+    view(article, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(gap: tokens.spacing.s, children: [
+            Text(article.title.clone()).size(tokens.typography.heading1_size),
+            Text(article.description.clone()),
+            Divider(),
+            Text(article.requirements_title.clone())
+                .weight(tokens.typography.font_weight_semibold),
+            Text(article.requirements_body.clone()),
+            Text(article.build_title.clone())
+                .weight(tokens.typography.font_weight_semibold),
+            Text(article.build_body.clone()),
+        ])
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface_raised)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    GuideOutline<()> {
+        props {
+            requirements_title: String,
+            build_title: String,
+            run_label: String,
+        }
+    }
+    view(outline, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(gap: tokens.spacing.s, children: [
+            Text(cx.tr("toc.title"))
+                .weight(tokens.typography.font_weight_semibold),
+            Text(outline.requirements_title.clone()),
+            Text(outline.build_title.clone()),
+            Text(outline.run_label.clone()),
+        ])
+    )
+    .width(160.0)
+    .padding_all(tokens.spacing.m)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
     pub DocumentationSite<()> {
         state {
             query: String = String::new(),
@@ -665,6 +740,35 @@ fission_component! {
                 cx.tr("article.routing.description"),
             ),
         };
+        let requirements_title = cx.tr("article.requirements.title");
+        let requirements_body = cx.tr("article.requirements.body");
+        let build_title = cx.tr("article.build.title");
+        let build_body = cx.tr("article.build.body");
+        let run_label = cx.tr("toc.run");
+        let guide_article = || GuideArticle::new(
+            active_guide_title.clone(),
+            active_guide_description.clone(),
+            requirements_title.clone(),
+            requirements_body.clone(),
+            build_title.clone(),
+            build_body.clone(),
+        );
+        let responsive_results = Responsive::new_with_id(
+            WidgetId::explicit("atlas-docs.results"),
+            || guide_article(),
+        )
+        .case_min_width_with(960.0, || Row {
+            children: widgets![
+                guide_article(),
+                GuideOutline::new(
+                    requirements_title.clone(),
+                    build_title.clone(),
+                    run_label.clone(),
+                ),
+            ],
+            gap: Some(tokens.spacing.m),
+            ..Default::default()
+        });
     } =>
     SemanticsRegion(
         identifier: Some("atlas-docs.site".to_string()),
@@ -683,99 +787,27 @@ fission_component! {
                     bind: docs.query,
                     semantics_identifier: "atlas-docs.search".to_string(),
                 ),
+                if quickstart_match || website_match || routing_match {
+                    Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                        if quickstart_match {
+                            Button(child: Text(cx.tr("guide.quickstart")), key: "guide-quickstart",
+                                on_press: reduce { docs.active_guide = Guide::Quickstart; })
+                                .semantics_identifier("atlas-docs.guide.quickstart")
+                        },
+                        if website_match {
+                            Button(child: Text(cx.tr("guide.website")), key: "guide-website",
+                                on_press: reduce { docs.active_guide = Guide::Website; })
+                                .semantics_identifier("atlas-docs.guide.website")
+                        },
+                        if routing_match {
+                            Button(child: Text(cx.tr("guide.routing")), key: "guide-routing",
+                                on_press: reduce { docs.active_guide = Guide::Routing; })
+                                .semantics_identifier("atlas-docs.guide.routing")
+                        },
+                    ])
+                },
                 if has_results {
-                    Responsive::new(
-                        Column(gap: tokens.spacing.m, children: [
-                            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                                if quickstart_match {
-                                    Button(child: Text(cx.tr("guide.quickstart")), key: "guide-quickstart-compact",
-                                        on_press: reduce { docs.active_guide = Guide::Quickstart; })
-                                        .semantics_identifier("atlas-docs.guide.quickstart.compact")
-                                },
-                                if website_match {
-                                    Button(child: Text(cx.tr("guide.website")), key: "guide-website-compact",
-                                        on_press: reduce { docs.active_guide = Guide::Website; })
-                                        .semantics_identifier("atlas-docs.guide.website.compact")
-                                },
-                                if routing_match {
-                                    Button(child: Text(cx.tr("guide.routing")), key: "guide-routing-compact",
-                                        on_press: reduce { docs.active_guide = Guide::Routing; })
-                                        .semantics_identifier("atlas-docs.guide.routing.compact")
-                                },
-                            ]),
-                            Container(Column(gap: tokens.spacing.s, children: [
-                                Text(active_guide_title.clone())
-                                    .size(tokens.typography.heading1_size),
-                                Text(active_guide_description.clone()),
-                                Divider(),
-                                Text(cx.tr("article.requirements.title")).weight(tokens.typography.font_weight_semibold),
-                                Text(cx.tr("article.requirements.body")),
-                                Text(cx.tr("article.build.title")).weight(tokens.typography.font_weight_semibold),
-                                Text(cx.tr("article.build.body")),
-                            ]))
-                            .padding_all(tokens.spacing.l)
-                            .bg(tokens.colors.surface_raised)
-                            .border(tokens.colors.border, 1.0)
-                            .border_radius(tokens.radii.medium),
-                        ]),
-                    )
-                    .case(ResponsiveCase::min_width(
-                        960.0,
-                        Row(gap: tokens.spacing.m, children: [
-                            Container(
-                                Column(gap: tokens.spacing.s, children: [
-                                    Text(cx.tr(if docs.query.is_empty() { "nav.learn" } else { "search.matching" }))
-                                        .weight(tokens.typography.font_weight_semibold),
-                                    if quickstart_match {
-                                        Button(child: Text(cx.tr("guide.quickstart")), key: "guide-quickstart-wide",
-                                            on_press: reduce { docs.active_guide = Guide::Quickstart; })
-                                            .semantics_identifier("atlas-docs.guide.quickstart.wide")
-                                    },
-                                    if website_match {
-                                        Button(child: Text(cx.tr("guide.website")), key: "guide-website-wide",
-                                            on_press: reduce { docs.active_guide = Guide::Website; })
-                                            .semantics_identifier("atlas-docs.guide.website.wide")
-                                    },
-                                    if routing_match {
-                                        Button(child: Text(cx.tr("guide.routing")), key: "guide-routing-wide",
-                                            on_press: reduce { docs.active_guide = Guide::Routing; })
-                                            .semantics_identifier("atlas-docs.guide.routing.wide")
-                                    },
-                                ]),
-                            )
-                            .width(220.0)
-                            .padding_all(tokens.spacing.m)
-                            .bg(tokens.colors.surface_raised)
-                            .border(tokens.colors.border, 1.0)
-                            .border_radius(tokens.radii.medium),
-                            Container(
-                                flex_grow: 1.0,
-                                child: Column(gap: tokens.spacing.s, children: [
-                                    Text(active_guide_title.clone())
-                                        .size(tokens.typography.heading1_size),
-                                    Text(active_guide_description.clone()),
-                                    Divider(),
-                                    Text(cx.tr("article.requirements.title")).weight(tokens.typography.font_weight_semibold),
-                                    Text(cx.tr("article.requirements.body")),
-                                    Text(cx.tr("article.build.title")).weight(tokens.typography.font_weight_semibold),
-                                    Text(cx.tr("article.build.body")),
-                                ]),
-                            )
-                            .padding_all(tokens.spacing.l),
-                            Container(
-                                Column(gap: tokens.spacing.s, children: [
-                                    Text(cx.tr("toc.title")).weight(tokens.typography.font_weight_semibold),
-                                    Text(cx.tr("article.requirements.title")),
-                                    Text(cx.tr("article.build.title")),
-                                    Text(cx.tr("toc.run")),
-                                ]),
-                            )
-                            .width(160.0)
-                            .padding_all(tokens.spacing.m)
-                            .border(tokens.colors.border, 1.0)
-                            .border_radius(tokens.radii.medium),
-                        ]),
-                    ))
+                    responsive_results
                 } else {
                     Column(gap: tokens.spacing.s, children: [
                         Text(cx.tr("empty.title"))

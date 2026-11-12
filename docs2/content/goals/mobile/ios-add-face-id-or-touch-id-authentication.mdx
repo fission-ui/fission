@@ -275,11 +275,11 @@ pub fn on_verify_refund_manager(
         state.message = None;
         return;
     }
-    let Some(refund) = state.refund.as_ref() else {
+    if state.refund.is_none() {
         state.error = Some(RefundNotice::RefundMissing);
         state.message = None;
         return;
-    };
+    }
 
     state.authenticating = true;
     state.error = None;

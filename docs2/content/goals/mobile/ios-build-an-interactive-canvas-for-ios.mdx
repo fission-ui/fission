@@ -165,7 +165,7 @@ fn preview_env() -> Env {
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::IosInteractiveCanvas)
+    WebApp::<(), _>::new(app::App)
         .with_env(preview_env())
         .with_title("ios build an interactive canvas for ios")
         .mount("#fission-web-mount")
@@ -309,7 +309,7 @@ fission_component! {
     view(_app, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let edit = with_reducer!(cx.build, EditInspectionCanvas, edit_inspection_canvas);
-        let selected_nodes = state.selected_step.into_iter().collect();
+        let selected_nodes = state.selected_step.into_iter().collect::<std::collections::BTreeSet<_>>();
         let nodes = state.steps.iter().map(|step| {
             let selected = state.selected_step == Some(step.id);
             let mut node = InfiniteCanvasNode::new(
@@ -385,7 +385,6 @@ fission_component! {
                             on_node_move: Some(edit),
                             ..Default::default()
                         },
-                        ..Default::default()
                     )
                 }
             ).height(320.0).bg(tokens.colors.background)

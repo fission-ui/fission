@@ -182,11 +182,10 @@ fission_component! {
                                     .color(tokens.colors.text_secondary),
                             ]),
                             if loans.is_empty() {
-                                EmptyState {
+                                EmptyState(
                                     title: cx.tr("library.empty.title"),
                                     description: Some(cx.tr("library.empty.help")),
-                                    ..Default::default()
-                                }.into()
+                                )
                             } else {
                                 Column(gap: tokens.spacing.s, children: [
                                     for loan in loans.iter() {
@@ -250,6 +249,49 @@ pub fn sample_loans() -> Vec<Loan> {
         Loan { id: 4105, title: "Programming Rust", borrower: "Noah", due: "Tomorrow", status: LoanStatus::CheckedOut },
     ]
 }
+```
+</TabItem>
+</Tabs>
+
+The screen already loads its labels from translation bundles, so add the initial English and Spanish strings before building the first preview. The next step extends both bundles with the return and filter messages.
+
+<Tabs>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+library.desk.a11y: "Riverside Community Library returns desk"
+library.empty.title: "No loans are loaded."
+library.empty.help: "Load the current loan list from the library service to see active returns here."
+library.loans.a11y: "Library loan list"
+library.summary.a11y: "Library loan totals"
+library.name: "Riverside Community Library"
+library.returns_desk: "Returns desk · Tuesday afternoon"
+library.summary.on_loan: "On loan · {count}"
+library.summary.returned: "Returned today · {count}"
+library.card.a11y: "{title} loan for {borrower}"
+library.borrowed_by: "Borrowed by {borrower}"
+library.due: "Due: {due}"
+library.status.on_loan: "On loan"
+library.status.returned: "Returned"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+library.desk.a11y: "Mostrador de devoluciones de la Biblioteca Comunitaria Riverside"
+library.empty.title: "No hay préstamos cargados."
+library.empty.help: "Carga la lista actual de préstamos del servicio de la biblioteca para ver las devoluciones activas."
+library.loans.a11y: "Lista de préstamos de la biblioteca"
+library.summary.a11y: "Resumen de préstamos de la biblioteca"
+library.name: "Biblioteca Comunitaria Riverside"
+library.returns_desk: "Mostrador de devoluciones · martes por la tarde"
+library.summary.on_loan: "Prestados · {count}"
+library.summary.returned: "Devueltos hoy · {count}"
+library.card.a11y: "Préstamo de {title} para {borrower}"
+library.borrowed_by: "Prestado a {borrower}"
+library.due: "Devolución: {due}"
+library.status.on_loan: "Prestado"
+library.status.returned: "Devuelto"
 ```
 </TabItem>
 </Tabs>

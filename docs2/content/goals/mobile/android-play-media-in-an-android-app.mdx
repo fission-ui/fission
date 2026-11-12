@@ -82,13 +82,13 @@ fission_component! {
                         child: Text(cx.tr("player.action.play")),
                         key: "play-growth-video",
                         variant: ButtonVariant::Primary,
-                        on_press: Some(controls.play()),
+                        on_press: controls.play(),
                     ),
                     Button(
                         child: Text(cx.tr("player.action.pause")),
                         key: "pause-growth-video",
                         variant: ButtonVariant::Outline,
-                        on_press: Some(controls.pause()),
+                        on_press: controls.pause(),
                     ),
                 ]),
                 Text(cx.tr("player.scope"))

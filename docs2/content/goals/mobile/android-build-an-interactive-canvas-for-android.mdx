@@ -317,7 +317,7 @@ fission_component! {
     view(_app, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let edit = with_reducer!(cx.build, EditInspectionCanvas, edit_inspection_canvas);
-        let selected_nodes = state.selected_step.into_iter().collect();
+        let selected_nodes = state.selected_step.into_iter().collect::<std::collections::BTreeSet<_>>();
         let nodes = state.steps.iter().map(|step| {
             let selected = state.selected_step == Some(step.id);
             let mut node = InfiniteCanvasNode::new(
@@ -352,7 +352,7 @@ fission_component! {
                 start_marker: None,
                 end_marker: None,
                 label: Some(CanvasEdgeLabel::new(
-                    Text(cx.tr("canvas.edge")).size(tokens.typography.font_size_sm),
+                    Text::new(cx.tr("canvas.edge")).size(tokens.typography.font_size_sm),
                 )),
             }
         }).collect::<Vec<_>>();
@@ -403,7 +403,6 @@ fission_component! {
                             on_node_move: Some(edit),
                             ..Default::default()
                         },
-                        ..Default::default()
                     )
                 }
             )

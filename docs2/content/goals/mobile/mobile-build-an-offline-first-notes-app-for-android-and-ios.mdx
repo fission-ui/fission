@@ -210,11 +210,10 @@ fission_component! {
                                 Text(cx.tr("notes.list.hint"))
                                     .color(tokens.colors.text_secondary),
                                 if notes.is_empty() {
-                                    EmptyState {
+                                    EmptyState(
                                         title: cx.tr("notes.empty.first_title"),
                                         description: Some(cx.tr("notes.empty.first_note")),
-                                        ..Default::default()
-                                    }.into()
+                                    )
                                 } else {
                                     Column(gap: tokens.spacing.s, children: [
                                         for note in notes.iter() {

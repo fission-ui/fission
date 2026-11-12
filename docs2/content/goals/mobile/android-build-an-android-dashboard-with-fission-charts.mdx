@@ -178,13 +178,12 @@ fission_component! {
             ]))
                 .padding_all(tokens.spacing.l)
                 .bg(tokens.colors.background),
-        ).into()
+        )
     } else {
-        EmptyState {
+        EmptyState(
             title: cx.tr("dashboard.empty.title"),
             description: Some(cx.tr("dashboard.empty.description")),
-            ..Default::default()
-        }.into()
+        )
     }
 }
 
@@ -580,13 +579,12 @@ fission_component! {
                 .bg(tokens.colors.surface)
                 .border(tokens.colors.border, 1.0)
                 .border_radius(tokens.radii.large),
-        ).into()
+        )
     } else {
-        EmptyState {
+        EmptyState(
             title: cx.tr("dashboard.empty.title"),
             description: Some(cx.tr("dashboard.empty.description")),
-            ..Default::default()
-        }.into()
+        )
     }
 }
 

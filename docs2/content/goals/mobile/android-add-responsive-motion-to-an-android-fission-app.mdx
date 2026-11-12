@@ -287,17 +287,7 @@ fission_component! {
                             to: scalar(1.0),
                             transition: MotionTransition::tween(220, MotionEasing::EaseOut),
                         }],
-                        child: Container(
-                            Column(gap: tokens.spacing.s, children: [
-                                Text(cx.tr("preview.context.one")),
-                                Text(cx.tr("preview.context.two")),
-                            ])
-                        )
-                        .padding_all(tokens.spacing.m)
-                        .bg(tokens.colors.background)
-                        .border(tokens.colors.border, 1.0)
-                        .border_radius(tokens.radii.medium)
-                        .into(),
+                        child: Text::new(cx.tr("preview.context.title")).into(),
                         ..Default::default()
                     }
                 } else {
