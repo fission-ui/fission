@@ -456,17 +456,23 @@ pub extern "C" fn fission_web_test_submit_json(length: u32) -> u32 {
 #[cfg(fission_web_test_control)]
 #[no_mangle]
 pub extern "C" fn fission_web_test_poll_json_len(request_id: u32) -> u32 {
+    record_diagnostic(430, request_id);
     record_poll_stage(request_id, POLL_STAGE_ENTERED);
+    record_diagnostic(431, request_id);
     let response = poll_response(request_id);
+    record_diagnostic(432, request_id);
     record_poll_stage(request_id, POLL_STAGE_RESPONSE_READY);
     let json = match response {
         Some(response) => response_json_string(&response),
         None => "null".to_owned(),
     };
+    record_diagnostic(433, json.len() as u32);
     with_bridge_state(|state| {
+        record_diagnostic(434, request_id);
         state.poll_json.clear();
         state.poll_json.extend_from_slice(json.as_bytes());
         record_poll_stage(request_id, POLL_STAGE_JSON_READY);
+        record_diagnostic(435, state.poll_json.len() as u32);
         state.poll_json.len() as u32
     })
 }
@@ -553,7 +559,8 @@ fn response_json_string(response: &TestResponse) -> String {
 }
 
 fn poll_response(request_id: u32) -> Option<TestResponse> {
-    with_bridge_state(|state| {
+    record_diagnostic(440, request_id);
+    let response = with_bridge_state(|state| {
         let Some(response) = state.responses.remove(&request_id) else {
             return Some(TestResponse::Error {
                 message: if request_id == 0 {
@@ -579,7 +586,9 @@ fn poll_response(request_id: u32) -> Option<TestResponse> {
                 }),
             },
         }
-    })
+    });
+    record_diagnostic(441, request_id);
+    response
 }
 
 fn dispatch(command: TestCommand, proxy: &EventLoopProxy<TestEvent>) -> PendingResponse {
