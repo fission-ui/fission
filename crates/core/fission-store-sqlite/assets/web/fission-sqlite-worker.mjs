@@ -297,6 +297,27 @@ function sqlTransaction(request) {
   return { steps };
 }
 
+function sqlTransactionJob(steps) {
+  if (!Array.isArray(steps)) {
+    const error = new Error("SQLite transaction job steps must be an array.");
+    error.code = "invalid_request";
+    throw error;
+  }
+  const results = [];
+  for (const [index, step] of steps.entries()) {
+    const hasExecute = step && Object.hasOwn(step, "Execute");
+    const hasQuery = step && Object.hasOwn(step, "Query");
+    if (hasExecute === hasQuery) {
+      const error = new Error(`SQLite transaction job step ${index} must be Execute or Query.`);
+      error.code = "invalid_request";
+      throw error;
+    }
+    if (hasExecute) results.push({ Execute: execute(step.Execute, true) });
+    else results.push({ Query: query(step.Query) });
+  }
+  return results;
+}
+
 function sqlMigrate(request) {
   const previousVersion = Number(db.selectValue("PRAGMA user_version"));
   let currentVersion = previousVersion;
@@ -603,6 +624,7 @@ function dispatchTransaction(operation, request, clientId) {
   switch (operation) {
     case "sql_tx_execute": return execute(request.statement, true);
     case "sql_tx_query": return query(request.statement);
+    case "sql_tx_job": return sqlTransactionJob(request.steps);
     case "sql_tx_session_create": return createSession(transaction, request);
     case "sql_tx_session_capture":
       return { changeset: captureChangeset(transaction, request) };

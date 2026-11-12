@@ -315,10 +315,10 @@ pub(crate) fn resolve_selector_record(
         })
         .collect();
 
-    let scoped = if matched.is_empty() {
+    let scoped = if matched.is_empty() && query.include_candidates {
         // Keep the existing diagnostic candidate list when a selector misses.
         // This slower path is only needed to explain a failed selector; valid
-        // selector actions no longer pay to materialize the whole tree.
+        // selector actions and quiet polling do not materialize the whole tree.
         let all = collect_semantic_records(ir, snap, scroll);
         match scope_id {
             Some(scope) => all

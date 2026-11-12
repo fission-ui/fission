@@ -39,18 +39,26 @@ pub(crate) fn write_web_sqlite_assets(root: &Path, write_policy: WritePolicy) ->
         ),
         ("NOTICE.txt", fission_store_sqlite::SQLITE_WEB_NOTICE),
     ] {
+        // The worker is an application customization point: projects may add worker messages,
+        // database namespaces, or authorization behavior. Scaffold it when missing, but never
+        // replace an existing worker during an ordinary run/build.
+        let asset_policy = if name == "fission-sqlite-worker.mjs" {
+            WritePolicy::PreserveExisting
+        } else {
+            write_policy
+        };
         write_binary_file_with_policy(
             &root.join("platforms/web/sqlite").join(name),
             contents,
-            write_policy,
+            asset_policy,
         )?;
     }
     Ok(())
 }
 
 pub(crate) fn enable_web_sqlite_scaffold(root: &Path, application_id: &str) -> Result<()> {
-    // These files are framework-owned generated assets. Refreshing them is
-    // necessary when Fission upgrades SQLite or fixes its host protocol.
+    // Refresh generated bridge assets on each run, while keeping an existing worker intact so
+    // application-specific worker behavior remains available across CLI upgrades.
     write_web_sqlite_assets(root, WritePolicy::Overwrite)?;
     let path = root.join("platforms/web/bootstrap.mjs");
     let mut bootstrap =
@@ -363,6 +371,12 @@ mod tests {
             "stale generated bridge",
         )
         .unwrap();
+        fs::write(
+            root.path()
+                .join("platforms/web/sqlite/fission-sqlite-worker.mjs"),
+            "custom application SQLite worker",
+        )
+        .unwrap();
 
         prepare_web_target_with_feature_state(root.path(), &project(true), true).unwrap();
 
@@ -378,6 +392,14 @@ mod tests {
         assert_eq!(
             fs::read(root.path().join("platforms/web/sqlite/fission-sqlite.mjs")).unwrap(),
             fission_store_sqlite::SQLITE_WEB_BRIDGE
+        );
+        assert_eq!(
+            fs::read(
+                root.path()
+                    .join("platforms/web/sqlite/fission-sqlite-worker.mjs")
+            )
+            .unwrap(),
+            b"custom application SQLite worker"
         );
         assert!(root
             .path()
@@ -405,6 +427,14 @@ mod tests {
             fs::read_to_string(root.path().join("platforms/web/bootstrap.mjs")).unwrap();
         assert_eq!(bootstrap.matches("./sqlite/fission-sqlite.mjs").count(), 1);
         assert!(bootstrap.contains("installFissionSqlite({ appId: \"dev.fission.fixture\" });"));
+        assert_eq!(
+            fs::read(
+                root.path()
+                    .join("platforms/web/sqlite/fission-sqlite-worker.mjs")
+            )
+            .unwrap(),
+            fission_store_sqlite::SQLITE_WEB_WORKER
+        );
     }
 
     #[test]

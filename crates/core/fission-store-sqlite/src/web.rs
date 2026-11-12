@@ -98,6 +98,24 @@ pub struct WebSqliteTransactionOptions {
     pub operation_context: Option<WebSqliteOperationContext>,
 }
 
+/// One ordered operation in a worker-side job on an open Web SQLite transaction.
+///
+/// A job executes all of its steps in one worker message. Query results from
+/// earlier steps are returned to Rust in order; SQL remains parameterized and
+/// subject to the transaction's active authorizer policy.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum WebSqliteJobStep {
+    Execute(SqlStatement),
+    Query(SqlStatement),
+}
+
+/// Result of one [`WebSqliteJobStep`] in the same position in the job result.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum WebSqliteJobResult {
+    Execute(SqlExecuteResult),
+    Query(SqlRows),
+}
+
 /// Rule-based SQLite authorizer policy installed for one transaction.
 /// Rules are evaluated in order; the first matching rule wins.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -227,7 +245,19 @@ impl WebSqliteTransaction {
         &self.id
     }
 
+    fn ensure_open(&self) -> Result<(), SqlError> {
+        if self.closed {
+            Err(SqlError::new(
+                SqlErrorKind::Transaction,
+                "Web SQLite transaction is closed",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
     pub async fn execute(&mut self, statement: SqlStatement) -> Result<SqlExecuteResult, SqlError> {
+        self.ensure_open()?;
         request(
             self.database_name.as_deref(),
             "sql_tx_execute",
@@ -238,6 +268,7 @@ impl WebSqliteTransaction {
     }
 
     pub async fn query(&mut self, statement: SqlStatement) -> Result<SqlRows, SqlError> {
+        self.ensure_open()?;
         request(
             self.database_name.as_deref(),
             "sql_tx_query",
@@ -247,10 +278,38 @@ impl WebSqliteTransaction {
         .map_err(sql_error)
     }
 
+    /// Execute an ordered group of SQL statements in the worker without
+    /// crossing the browser-to-worker boundary for each statement. The batch
+    /// runs inside this transaction, so its operation context and authorizer
+    /// remain active and no other transaction can interleave. On success the
+    /// transaction stays open; on a step error the worker rolls it back and
+    /// invalidates this handle. Dropping the in-flight Rust future also queues
+    /// a rollback after the synchronous worker job has completed.
+    pub async fn run_job(
+        &mut self,
+        steps: Vec<WebSqliteJobStep>,
+    ) -> Result<Vec<WebSqliteJobResult>, SqlError> {
+        self.ensure_open()?;
+        let database_name = self.database_name.clone();
+        let transaction_id = self.id.clone();
+        let request_value = TransactionJobRequest {
+            transaction_id: transaction_id.clone(),
+            steps,
+        };
+        let rollback =
+            TransactionJobRollback::new(&mut self.closed, database_name.clone(), transaction_id);
+        let results = request(database_name.as_deref(), "sql_tx_job", request_value)
+            .await
+            .map_err(sql_error)?;
+        rollback.disarm();
+        Ok(results)
+    }
+
     pub async fn create_session(
         &mut self,
         tables: impl IntoIterator<Item = impl Into<String>>,
     ) -> Result<WebSqliteSession, SqlError> {
+        self.ensure_open()?;
         let result: SessionIdResponse = request(
             self.database_name.as_deref(),
             "sql_tx_session_create",
@@ -270,6 +329,7 @@ impl WebSqliteTransaction {
         &mut self,
         session: &WebSqliteSession,
     ) -> Result<Vec<u8>, SqlError> {
+        self.ensure_open()?;
         let result: ChangesetResponse = request(
             self.database_name.as_deref(),
             "sql_tx_session_capture",
@@ -288,6 +348,7 @@ impl WebSqliteTransaction {
         changeset: &[u8],
         conflict_policy: WebSqliteChangesetConflictPolicy,
     ) -> Result<(), SqlError> {
+        self.ensure_open()?;
         request::<_, AppliedResponse>(
             self.database_name.as_deref(),
             "sql_tx_changeset_apply",
@@ -303,6 +364,7 @@ impl WebSqliteTransaction {
     }
 
     pub async fn commit(&mut self) -> Result<(), SqlError> {
+        self.ensure_open()?;
         request::<_, ()>(
             self.database_name.as_deref(),
             "sql_tx_commit",
@@ -315,6 +377,7 @@ impl WebSqliteTransaction {
     }
 
     pub async fn rollback(&mut self) -> Result<(), SqlError> {
+        self.ensure_open()?;
         request::<_, ()>(
             self.database_name.as_deref(),
             "sql_tx_rollback",
@@ -324,6 +387,50 @@ impl WebSqliteTransaction {
         .map_err(sql_error)?;
         self.closed = true;
         Ok(())
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+struct TransactionJobRollback<'a> {
+    closed: &'a mut bool,
+    database_name: Option<String>,
+    transaction_id: String,
+    armed: bool,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl<'a> TransactionJobRollback<'a> {
+    fn new(closed: &'a mut bool, database_name: Option<String>, transaction_id: String) -> Self {
+        Self {
+            closed,
+            database_name,
+            transaction_id,
+            armed: true,
+        }
+    }
+
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for TransactionJobRollback<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        *self.closed = true;
+        let database_name = self.database_name.clone();
+        let transaction_id = self.transaction_id.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = request::<_, ()>(
+                database_name.as_deref(),
+                "sql_tx_rollback",
+                TransactionIdRequest::new(&transaction_id),
+            )
+            .await;
+        });
     }
 }
 
@@ -367,6 +474,12 @@ struct TransactionIdResponse {
 struct TransactionStatementRequest {
     transaction_id: String,
     statement: SqlStatement,
+}
+
+#[derive(Serialize)]
+struct TransactionJobRequest {
+    transaction_id: String,
+    steps: Vec<WebSqliteJobStep>,
 }
 
 impl TransactionStatementRequest {

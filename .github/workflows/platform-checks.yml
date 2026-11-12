@@ -100,6 +100,9 @@ jobs:
       - name: Install Linux native build dependencies
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
 
+      - name: Test Web save-file handle reuse
+        run: node --test crates/shell/fission-shell-winit/tests/web_file_picker.test.mjs
+
       - name: Check wasm core crates
         run: |
           cargo check -p fission-core --target wasm32-unknown-unknown

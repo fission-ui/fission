@@ -1186,13 +1186,15 @@ fn build_web_with_test_control(
 ) -> Result<()> {
     let project_dir = absolute_path(project_dir)?;
     let out_dir = project_dir.join("platforms/web/pkg");
+    let wasm_simd = web_wasm_simd_from_env()?;
     let mut command = web_build_command(
         &project_dir,
         &out_dir,
         release,
         cargo_features,
         cargo_no_default_features,
-    );
+        wasm_simd,
+    )?;
     if test_control {
         enable_web_test_control(&mut command);
     }
@@ -1220,7 +1222,8 @@ fn web_build_command(
     release: bool,
     cargo_features: &[String],
     cargo_no_default_features: bool,
-) -> Command {
+    wasm_simd: bool,
+) -> Result<Command> {
     let mut command = Command::new("wasm-pack");
     command
         .arg("build")
@@ -1236,7 +1239,145 @@ fn web_build_command(
     if !cargo_features.is_empty() {
         command.arg("--features").arg(cargo_features.join(","));
     }
-    command
+    configure_web_wasm_simd(&mut command, wasm_simd)?;
+    Ok(command)
+}
+
+const WEB_WASM_SIMD_ENV: &str = "FISSION_WEB_WASM_SIMD";
+const WEB_WASM_TARGET_RUSTFLAGS: &str = "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS";
+
+fn web_wasm_simd_from_env() -> Result<bool> {
+    match env::var(WEB_WASM_SIMD_ENV) {
+        Ok(value) => parse_web_wasm_simd(Some(&value)),
+        Err(env::VarError::NotPresent) => parse_web_wasm_simd(None),
+        Err(error) => Err(error).context("failed to read Fission Web SIMD setting"),
+    }
+}
+
+fn parse_web_wasm_simd(value: Option<&str>) -> Result<bool> {
+    match value {
+        Some(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" | "simd" | "simd128" => Ok(true),
+            "0" | "false" | "no" | "off" | "scalar" => Ok(false),
+            _ => bail!("{WEB_WASM_SIMD_ENV} must be `simd` (the default) or `scalar`"),
+        },
+        None => Ok(true),
+    }
+}
+
+fn configure_web_wasm_simd(command: &mut Command, enabled: bool) -> Result<()> {
+    let global_rustflags = if let Some(value) = env::var_os("CARGO_ENCODED_RUSTFLAGS") {
+        Some(("CARGO_ENCODED_RUSTFLAGS", value))
+    } else {
+        env::var_os("RUSTFLAGS").map(|value| ("RUSTFLAGS", value))
+    };
+
+    if let Some((variable, value)) = global_rustflags {
+        let value = value
+            .into_string()
+            .map_err(|_| anyhow::anyhow!("{variable} must contain UTF-8 Rust compiler flags"))?;
+        let flags = if variable == "CARGO_ENCODED_RUSTFLAGS" {
+            value.split('\u{1f}').map(str::to_owned).collect::<Vec<_>>()
+        } else {
+            shell_words::split(&value).with_context(|| format!("failed to parse {variable}"))?
+        };
+        match target_feature_state(&flags, "simd128") {
+            Some(true) if enabled => return Ok(()),
+            Some(false) if !enabled => return Ok(()),
+            Some(_) => bail!(
+                "{WEB_WASM_SIMD_ENV} conflicts with {variable}; update its `target-feature` flags or remove it"
+            ),
+            None if enabled => bail!(
+                "{variable} overrides Cargo's target-specific Web flags; add `-C target-feature=+simd128` there or set {WEB_WASM_SIMD_ENV}=scalar"
+            ),
+            None => return Ok(()),
+        }
+    }
+
+    let existing = env::var(WEB_WASM_TARGET_RUSTFLAGS).ok();
+    let flags = update_simd_target_feature_flags(existing.as_deref().unwrap_or_default(), enabled)?;
+    if !flags.is_empty() || existing.is_some() {
+        command.env(WEB_WASM_TARGET_RUSTFLAGS, flags);
+    }
+    Ok(())
+}
+
+fn target_feature_state(flags: &[String], feature: &str) -> Option<bool> {
+    let mut last_features = None;
+    let mut index = 0;
+    while index < flags.len() {
+        let value = if flags[index] == "-C" {
+            index += 1;
+            flags
+                .get(index)
+                .and_then(|argument| argument.strip_prefix("target-feature="))
+        } else {
+            flags[index].strip_prefix("-Ctarget-feature=")
+        };
+        if let Some(value) = value {
+            last_features = Some(value.to_owned());
+        }
+        index += 1;
+    }
+    last_features.and_then(|features| {
+        features
+            .split(',')
+            .filter_map(|entry| {
+                let (enabled, name) = match entry.as_bytes().first().copied()? {
+                    b'+' => (true, &entry[1..]),
+                    b'-' => (false, &entry[1..]),
+                    _ => return None,
+                };
+                (name == feature).then_some(enabled)
+            })
+            .last()
+    })
+}
+
+fn update_simd_target_feature_flags(flags: &str, enabled: bool) -> Result<String> {
+    let arguments = shell_words::split(flags).context("failed to parse Web target Rust flags")?;
+    let mut retained = Vec::with_capacity(arguments.len() + 2);
+    let mut last_features = None;
+    let mut index = 0;
+    while index < arguments.len() {
+        if arguments[index] == "-C" {
+            if let Some(value) = arguments.get(index + 1) {
+                if let Some(features) = value.strip_prefix("target-feature=") {
+                    last_features = Some(features.to_owned());
+                    index += 2;
+                    continue;
+                }
+            }
+        } else if let Some(features) = arguments[index].strip_prefix("-Ctarget-feature=") {
+            last_features = Some(features.to_owned());
+            index += 1;
+            continue;
+        }
+        retained.push(arguments[index].clone());
+        index += 1;
+    }
+
+    let mut features = last_features
+        .as_deref()
+        .unwrap_or_default()
+        .split(',')
+        .filter(|entry| {
+            !matches!(
+                entry.strip_prefix('+').or_else(|| entry.strip_prefix('-')),
+                Some("simd128")
+            )
+        })
+        .filter(|entry| !entry.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if enabled {
+        features.push("+simd128".into());
+    }
+    if !features.is_empty() {
+        retained.push("-C".into());
+        retained.push(format!("target-feature={}", features.join(",")));
+    }
+    Ok(retained.join(" "))
 }
 
 fn ensure_web_cargo_feature_target(
@@ -2522,7 +2663,9 @@ mod tests {
             false,
             &["fixtures".into(), "diagnostics".into()],
             true,
-        );
+            true,
+        )
+        .unwrap();
         let args = command
             .get_args()
             .map(|arg| arg.to_string_lossy().into_owned())
@@ -2543,6 +2686,15 @@ mod tests {
                 "fixtures,diagnostics",
             ]
         );
+        let wasm_flags = command
+            .get_envs()
+            .find_map(|(name, value)| {
+                (name == WEB_WASM_TARGET_RUSTFLAGS)
+                    .then(|| value.and_then(|value| value.to_str()))
+                    .flatten()
+            })
+            .expect("Web builds must set target-specific compiler flags");
+        assert!(wasm_flags.contains("target-feature=+simd128"));
     }
 
     #[test]
@@ -2553,7 +2705,9 @@ mod tests {
             false,
             &[],
             false,
-        );
+            true,
+        )
+        .unwrap();
         enable_web_test_control(&mut command);
         let configured = command
             .get_envs()
@@ -2561,6 +2715,44 @@ mod tests {
             .any(|(name, value)| name == "FISSION_WEB_TEST_CONTROL" && value == "1");
 
         assert!(configured, "test builds must identify their shell artifact");
+    }
+
+    #[test]
+    fn web_simd_defaults_on_and_accepts_scalar_builds() {
+        assert!(parse_web_wasm_simd(None).unwrap());
+        assert!(parse_web_wasm_simd(Some("simd")).unwrap());
+        assert!(!parse_web_wasm_simd(Some("scalar")).unwrap());
+        assert!(!parse_web_wasm_simd(Some("0")).unwrap());
+        assert!(parse_web_wasm_simd(Some("mystery")).is_err());
+    }
+
+    #[test]
+    fn web_simd_preserves_other_target_features_and_supports_scalar_override() {
+        let configured = update_simd_target_feature_flags(
+            "-C opt-level=2 -C target-feature=+atomics,-simd128",
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            configured,
+            "-C opt-level=2 -C target-feature=+atomics,+simd128"
+        );
+        let configured_args = shell_words::split(&configured).unwrap();
+        assert!(configured_args
+            .windows(2)
+            .any(|pair| pair == ["-C", "opt-level=2"]));
+        assert!(configured_args
+            .windows(2)
+            .any(|pair| pair == ["-C", "target-feature=+atomics,+simd128"]));
+
+        let scalar =
+            update_simd_target_feature_flags("-C target-feature=+atomics,+simd128", false).unwrap();
+        assert_eq!(scalar, "-C target-feature=+atomics");
+        assert_eq!(
+            shell_words::split(&scalar).unwrap(),
+            ["-C", "target-feature=+atomics"]
+        );
+        assert_eq!(update_simd_target_feature_flags("", false).unwrap(), "");
     }
 
     #[test]

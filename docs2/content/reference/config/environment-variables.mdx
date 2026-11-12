@@ -36,6 +36,7 @@ Unless a row explicitly says otherwise, an invalid value is ignored and the docu
 | `FISSION_WEB_PORT` | Generated Web helper scripts | Port; first available from `8123` | Selects an exact local Web server port. When unset, the helper probes the next available port. |
 | `FISSION_WEB_CDP_PORT` | Generated browser test | Port; first available from `9222` | Selects an exact Chrome DevTools Protocol port. When unset, the helper probes the next available port. |
 | `FISSION_WEB_PROFILE` | Generated Web build | `dev` (default) or `release` | Selects the wasm-pack build profile. Values other than `release` use the development profile. |
+| `FISSION_WEB_WASM_SIMD` | Compile time, Web only | `simd` (default) or `scalar` | Fission Web builds use WebAssembly `simd128` for faster CPU rendering. Set `scalar` before building for browsers without `simd128`. If you set global `RUSTFLAGS` or `CARGO_ENCODED_RUSTFLAGS`, include `-C target-feature=+simd128` when using the default mode. |
 | `FISSION_WEB_OPEN` | Generated Web run helper | `1` or unset | Opens the served URL with the platform browser launcher. |
 | `FISSION_WEB_MAX_AVG_FRAME_MS` | Generated browser test | Milliseconds; `80` | Sets the average-frame-time failure threshold in generated smoke tests. |
 | `FISSION_WEB_MAX_INPUT_LATENCY_MS` | Generated browser test | Milliseconds; `180` | Sets the average-input-latency failure threshold in generated smoke tests. |

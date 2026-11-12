@@ -327,6 +327,8 @@ fission run [--target <target>] [--device <id>] [--project-dir <dir>] [--release
 
 Builds, launches, and attaches to the selected target. `--variant` selects matching and universal native modules for Linux, macOS, or Windows. Web also accepts `--host`, `--port`, and `--no-open`. Mobile targets also accept `--headless`.
 
+Before a Web or static-site server reports ready, Fission checks that each required local asset matches the build output. The check allows up to 64 MiB per asset by default. For a larger debug WebAssembly bundle, set `FISSION_SERVING_MAX_ASSET_BYTES` to a positive byte count, such as `134217728` for 128 MiB.
+
 ### `fission build`
 
 ```sh
@@ -382,6 +384,8 @@ fission site serve [--project-dir <dir>] [--host <host>] [--port <port>] [--rele
 ```
 
 Builds the static site and serves the generated output with a local static file server. By default it binds to `127.0.0.1:8123` and opens the browser. Use `--no-open` for scripts or remote development environments. The build and local asset readiness deadline defaults to 900 seconds. Set `FISSION_SERVING_STARTUP_TIMEOUT_SECONDS` or pass `--startup-timeout-seconds` to change it; accepted values are 1–3600 seconds.
+
+Readiness checks also limit each required asset to 64 MiB by default. Set `FISSION_SERVING_MAX_ASSET_BYTES` to a positive byte count when a required asset, such as a debug WebAssembly bundle, is larger.
 
 ### `fission server check`
 

@@ -148,6 +148,28 @@ fn explicit_vertical_scroll_into_view_aligns_target_to_start_padding() {
 }
 
 #[test]
+fn post_layout_clamps_scroll_offset_when_content_extent_shrinks() {
+    let (ir, mut layout, scroll, _) = vertical_scroll_tree();
+    let mut runtime = Runtime::default();
+    runtime.runtime_state.scroll.set_offset(scroll, 350.0);
+
+    // The scroll remains usable, but the old offset is beyond its new extent.
+    layout.nodes.get_mut(&scroll).unwrap().content_size.height = 260.0;
+    assert!(runtime.post_layout_hook_after_frame(&ir, &layout, false));
+    assert_eq!(runtime.runtime_state.scroll.get_offset(scroll), 160.0);
+    assert!(!runtime.post_layout_hook_after_frame(&ir, &layout, false));
+
+    // A TextInput can grow until its own content fits the viewport. Its
+    // previous caret-driven offset must then be reset without another input
+    // event; otherwise an outer document scroll can move the text out of view.
+    layout.nodes.get_mut(&scroll).unwrap().content_size.height = 100.0;
+    runtime.runtime_state.scroll.set_offset(scroll, 1732.4);
+    assert!(runtime.post_layout_hook_after_frame(&ir, &layout, false));
+    assert_eq!(runtime.runtime_state.scroll.get_offset(scroll), 0.0);
+    assert!(!runtime.post_layout_hook_after_frame(&ir, &layout, false));
+}
+
+#[test]
 fn runtime_effect_queue_is_drained_after_layout() {
     let (ir, layout, scroll, target) = vertical_scroll_tree();
     let mut runtime = Runtime::default();

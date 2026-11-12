@@ -75,10 +75,22 @@ let mut transaction = store
     .await?;
 
 let session = transaction.create_session(["documents", "document_pages"]).await?;
-transaction.execute(insert_document).await?;
+let results = transaction
+    .run_job(vec![
+        WebSqliteJobStep::Execute(insert_document),
+        WebSqliteJobStep::Query(load_document),
+    ])
+    .await?;
 let changeset = transaction.capture_changeset(&session).await?;
 transaction.commit().await?;
 ```
+
+`run_job` sends its ordered steps to the SQLite worker in one message and
+returns one `WebSqliteJobResult` per step. Query results can be used by Rust
+after the job completes; the transaction remains open for later session
+capture, changeset application, or commit. A SQL or authorizer error rolls
+back the transaction. If the Rust future is cancelled, Fission queues rollback
+after the synchronous worker job finishes.
 
 `pdb_current_operation_id()` and `pdb_next_op_seq()` are registered only while
 the operation context is active. The worker invalidates the handle and rolls

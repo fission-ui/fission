@@ -20,6 +20,13 @@ explicitly selected root may itself be reached through a link or mount. Keep
 build output under your control while serving; metadata checks are not a
 sandbox against concurrent filesystem replacement.
 
+Readiness checks validate each local startup asset before reporting the server
+ready. The default per-asset limit is 64 MiB. For larger WebAssembly bundles or
+other required assets, set `FISSION_SERVING_MAX_ASSET_BYTES` to a positive byte
+count, for example `134217728` for 128 MiB. The readiness check buffers each
+asset while comparing the served response with the build output, so raise this
+limit only when the app needs it.
+
 ## Documentation
 
 See [Static sites](https://fission.rs/docs/guides/static-sites/) and the CLI reference at [fission.rs](https://fission.rs/reference/cli/overview/).

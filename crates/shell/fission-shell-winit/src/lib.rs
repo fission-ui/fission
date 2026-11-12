@@ -111,6 +111,8 @@ use web_time::Instant;
 mod compositor;
 use compositor::TextureLayerCompositor;
 mod accessibility;
+#[cfg(not(target_arch = "wasm32"))]
+mod accessibility_adapter;
 use accessibility::AccessibilityBridge;
 mod pipeline;
 mod platform_motion_preference;
@@ -748,6 +750,7 @@ enum MainRenderer {
 struct WebCanvasPresenter {
     canvas: HtmlCanvasElement,
     context: CanvasRenderingContext2d,
+    cpu_renderer: fission_render_vello::cpu::CpuRenderer,
     report: RendererReport,
 }
 
@@ -766,6 +769,10 @@ impl WebCanvasPresenter {
         Ok(Self {
             canvas,
             context,
+            // Canvas2D is a software fallback. A full-window backdrop blur takes seconds in
+            // WebAssembly, so keep the modal's translucent scrim and omit that optional effect.
+            cpu_renderer: fission_render_vello::cpu::CpuRenderer::new()
+                .with_backdrop_filters(false),
             report: RendererReport::new(
                 "canvas2d-software",
                 web_renderer_request(),
@@ -786,8 +793,17 @@ impl WebCanvasPresenter {
         height: u32,
         scale_factor: f64,
     ) -> anyhow::Result<()> {
-        self.canvas.set_width(width.max(1));
-        self.canvas.set_height(height.max(1));
+        let width = width.max(1);
+        let height = height.max(1);
+        // Assigning either canvas dimension clears its backing store and resets the
+        // rendering context, even when the value did not change. Avoid reallocating
+        // the full software surface on every frame.
+        if self.canvas.width() != width {
+            self.canvas.set_width(width);
+        }
+        if self.canvas.height() != height {
+            self.canvas.set_height(height);
+        }
         self.report.width = width.max(1);
         self.report.height = height.max(1);
         self.report.scale_factor = scale_factor;
@@ -1756,6 +1772,11 @@ struct WebFrameStagePerf<'a> {
     post_layout_ms: f64,
     prepare_ms: f64,
     render_present_ms: f64,
+    software_render_ms: f64,
+    software_scene_recording_ms: f64,
+    software_rasterization_ms: f64,
+    software_output_copy_ms: f64,
+    canvas_upload_ms: f64,
     total_ms: f64,
     rebuilt: bool,
     nodes: u32,
@@ -8841,6 +8862,16 @@ where
                                         prepare_started.elapsed().as_secs_f64() * 1000.0;
                                     let render_started = Instant::now();
                                     #[cfg(target_arch = "wasm32")]
+                                    let mut software_render_ms = 0.0;
+                                    #[cfg(target_arch = "wasm32")]
+                                    let mut software_scene_recording_ms = 0.0;
+                                    #[cfg(target_arch = "wasm32")]
+                                    let mut software_rasterization_ms = 0.0;
+                                    #[cfg(target_arch = "wasm32")]
+                                    let mut software_output_copy_ms = 0.0;
+                                    #[cfg(target_arch = "wasm32")]
+                                    let mut canvas_upload_ms = 0.0;
+                                    #[cfg(target_arch = "wasm32")]
                                     {
                                         let Some(renderer) = web_renderer.as_mut() else {
                                             eprintln!("web renderer is unavailable");
@@ -8858,8 +8889,10 @@ where
                                                     .expect(
                                                     "retained render scene missing before render",
                                                 );
-                                                let Ok(rgba) =
-                                                    fission_render_vello::cpu::render_to_rgba8(
+                                                let software_render_started = Instant::now();
+                                                let Ok((rgba, timings)) = presenter
+                                                    .cpu_renderer
+                                                    .render_to_rgba8_with_timings(
                                                         retained_scene,
                                                         render_target_size.0,
                                                         render_target_size.1,
@@ -8882,7 +8915,17 @@ where
                                                     diag::end_frame(diag::FrameStats::default());
                                                     return;
                                                 };
+                                                software_render_ms =
+                                                    software_render_started.elapsed().as_secs_f64()
+                                                        * 1000.0;
+                                                software_scene_recording_ms =
+                                                    timings.scene_recording.as_secs_f64() * 1000.0;
+                                                software_rasterization_ms =
+                                                    timings.rasterization.as_secs_f64() * 1000.0;
+                                                software_output_copy_ms =
+                                                    timings.output_copy.as_secs_f64() * 1000.0;
 
+                                                let canvas_upload_started = Instant::now();
                                                 if let Err(err) = presenter.present(
                                                     &rgba,
                                                     render_target_size.0,
@@ -8895,6 +8938,9 @@ where
                                                     diag::end_frame(diag::FrameStats::default());
                                                     return;
                                                 }
+                                                canvas_upload_ms =
+                                                    canvas_upload_started.elapsed().as_secs_f64()
+                                                        * 1000.0;
                                             }
                                             WebRenderer::WebGpu(presenter) => {
                                                 if swapchain_size.width
@@ -9115,15 +9161,44 @@ where
                                                 if let Some(response_tx) =
                                                     pending_screenshot_response_tx.take()
                                                 {
-                                                    let response = if path == "__pump__" {
-                                                        fission_test_driver::TestResponse::Ok {}
+                                                    if path == "__pump__" {
+                                                        let _ = response_tx.send(
+                                                            fission_test_driver::TestResponse::Ok {},
+                                                        );
+                                                    } else if matches!(
+                                                        web_renderer.as_ref(),
+                                                        Some(WebRenderer::WebGpu(_))
+                                                    ) {
+                                                        let screenshot_dimensions =
+                                                            layout_size_to_image_dimensions(
+                                                                target_viewport,
+                                                            );
+                                                        let rendered = pipeline.retained_scene().map(
+                                                            |scene| {
+                                                                fission_render_vello::cpu::render_to_rgba8(
+                                                                    scene,
+                                                                    render_target_size.0,
+                                                                    render_target_size.1,
+                                                                    theme_background_render_color(&env),
+                                                                    scale_factor,
+                                                                    measurer.clone(),
+                                                                )
+                                                            },
+                                                        );
+                                                        let response = covered_window_screenshot(
+                                                            rendered,
+                                                            render_target_size,
+                                                            screenshot_dimensions,
+                                                            None,
+                                                        );
+                                                        let _ = response_tx.send(response);
                                                     } else {
-                                                        fission_test_driver::TestResponse::Error {
-                                                            message: "Web renderer screenshots are captured by the browser test host"
-                                                                .into(),
-                                                        }
-                                                    };
-                                                    let _ = response_tx.send(response);
+                                                        let _ = response_tx.send(
+                                                            fission_test_driver::TestResponse::Error {
+                                                                message: "renderer_screenshot_unavailable: use browser-host capture with the Canvas2D renderer".into(),
+                                                            },
+                                                        );
+                                                    }
                                                 }
                                             }
                                         }
@@ -9172,6 +9247,11 @@ where
                                                 .elapsed()
                                                 .as_secs_f64()
                                                 * 1000.0,
+                                            software_render_ms,
+                                            software_scene_recording_ms,
+                                            software_rasterization_ms,
+                                            software_output_copy_ms,
+                                            canvas_upload_ms,
                                             total_ms,
                                             rebuilt,
                                             nodes: pipeline
@@ -10693,8 +10773,8 @@ fn gpu_screenshot(
     )
 }
 
-/// Answers a screenshot of a covered window, which cannot present, from a software rendering of the
-/// retained scene.
+/// Answers a screenshot from a software rendering of the retained scene when the presented surface
+/// cannot be read back reliably.
 fn covered_window_screenshot<E: std::fmt::Display>(
     rendered: Option<Result<Vec<u8>, E>>,
     render_size: (u32, u32),
@@ -11838,6 +11918,31 @@ mod tests {
         )
         .expect("semantic parent should resolve");
         assert_eq!(app_record.node.children, vec![app_open.to_string()]);
+
+        let missing_query =
+            fission_test_driver::SelectorQuery::semantic_identifier("missing.control");
+        let detailed =
+            match resolve_selector_record(&pipeline, &ScrollStateMap::default(), &missing_query) {
+                Err(error) => error,
+                Ok(_) => panic!("missing selector should fail"),
+            };
+        let fission_test_driver::TestResponse::SelectorError { failure } = detailed else {
+            panic!("missing selector should return a selector error");
+        };
+        assert!(!failure.candidates.is_empty());
+
+        let quiet = match resolve_selector_record(
+            &pipeline,
+            &ScrollStateMap::default(),
+            &missing_query.without_candidates(),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("quiet missing selector should fail"),
+        };
+        let fission_test_driver::TestResponse::SelectorError { failure } = quiet else {
+            panic!("quiet missing selector should return a selector error");
+        };
+        assert!(failure.candidates.is_empty());
     }
 
     #[test]

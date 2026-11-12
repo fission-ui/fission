@@ -72,23 +72,23 @@ glam = "0.29"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ureq = "2"
+accesskit = "0.24.1"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))'.dependencies]
 arboard = "3.4"
 rfd = { version = "0.14.1", default-features = true }
 
-[target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))'.dependencies]
-accesskit = "0.24.1"
-accesskit_winit = { package = "fission-accesskit-winit", version = "0.33.1-fission.1" }
-
 [target.'cfg(target_os = "android")'.dependencies]
-accesskit = "0.24.1"
-accesskit_winit = { package = "fission-accesskit-winit", version = "0.33.1-fission.1", default-features = false, features = ["accesskit_android", "rwh_06"] }
+accesskit_android = { version = "0.7.4", features = ["embedded-dex"] }
 jni = "0.21"
 ndk-context = "0.1"
 winit = { package = "fission-winit", git = "https://github.com/worka-ai/winit", rev = "1e99d748234f11a0dd49a00a1ffc3cca1bb0b203", features = ["android-game-activity"] }
 
+[target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
+accesskit_unix = { version = "0.22.0", default-features = false, features = ["async-io"] }
+
 [target.'cfg(target_os = "windows")'.dependencies]
+accesskit_windows = "0.33.1"
 windows = { version = "0.58", features = [
     "Data_Xml_Dom",
     "UI_Notifications",
@@ -110,25 +110,27 @@ gtk = { version = "0.18", optional = true }
 [target.'cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))'.dependencies]
 rxing = { version = "0.9", default-features = false, features = ["image", "image_formats", "decoders", "encoding_rs", "full_barcode_format_support", "multi_barcode_readers"] }
 
+[target.'cfg(target_os = "ios")'.dependencies]
+accesskit_ios = "0.1.1"
+dispatch = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+accesskit_macos = "0.26.2"
+cocoa = "0.25"
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
+serde-wasm-bindgen = "0.6"
 web-time = "1.1"
 tracing-wasm = "0.2.1"
 web-sys = { version = "0.3", features = ["CanvasRenderingContext2d", "console", "CssStyleDeclaration", "Document", "DomRect", "Element", "Event", "EventTarget", "Headers", "History", "HtmlAnchorElement", "HtmlCanvasElement", "HtmlElement", "HtmlMediaElement", "HtmlVideoElement", "ImageData", "Location", "MediaQueryList", "MouseEvent", "Node", "Request", "RequestInit", "RequestMode", "Response", "Window"] }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-objc = "0.2"
-cocoa = "0.25"
 
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
 objc = "0.2"
 block = "0.1"
 core-graphics = "0.23"
-
-[target.'cfg(target_os = "ios")'.dependencies]
-dispatch = "0.2"
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }

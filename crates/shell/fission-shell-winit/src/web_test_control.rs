@@ -1,9 +1,10 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use fission_test_driver::{TestCommand, TestEvent, TestResponse, WebTestFrame, WebTestFramePhase};
-use js_sys::{Object, Reflect};
+use js_sys::{Function, Object, Reflect};
 use wasm_bindgen::prelude::*;
 use winit::event_loop::EventLoopProxy;
 
@@ -12,10 +13,18 @@ enum PendingResponse {
     Waiting(Receiver<TestResponse>),
 }
 
+const MAX_PENDING_RESPONSES: usize = 1024;
+const POLL_STAGE_ENTERED: u32 = 1;
+const POLL_STAGE_RESPONSE_READY: u32 = 2;
+const POLL_STAGE_JSON_READY: u32 = 3;
+
+static LAST_POLL_STAGE: AtomicU32 = AtomicU32::new(0);
+
 thread_local! {
     static NEXT_REQUEST_ID: Cell<u32> = const { Cell::new(1) };
     static RESPONSES: RefCell<HashMap<u32, PendingResponse>> = RefCell::new(HashMap::new());
     static FRAME: Cell<Option<WebTestFrame>> = const { Cell::new(None) };
+    static POLL_JSON: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Called only after a successful Web renderer submission. The bridge owns
@@ -40,70 +49,54 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
 
     let submit_proxy = proxy.clone();
     let submit = Closure::wrap(Box::new(move |command_json: String| -> u32 {
-        let request_id = NEXT_REQUEST_ID.with(|next| {
-            let request_id = next.get();
-            next.set(request_id.wrapping_add(1).max(1));
-            request_id
-        });
-        let response = match serde_json::from_str::<TestCommand>(&command_json) {
-            Ok(command) => dispatch(command, &submit_proxy),
-            Err(error) => PendingResponse::Ready(TestResponse::Error {
-                message: format!("parse error: {error}"),
-            }),
-        };
-        RESPONSES.with(|responses| {
-            responses.borrow_mut().insert(request_id, response);
-        });
-        request_id
+        let command = serde_json::from_str::<TestCommand>(&command_json)
+            .map_err(|error| format!("parse error: {error}"));
+        submit_command(command, &submit_proxy)
     }) as Box<dyn FnMut(String) -> u32>);
 
-    let poll = Closure::wrap(Box::new(move |request_id: u32| -> JsValue {
-        let response = RESPONSES.with(|responses| {
-            let mut responses = responses.borrow_mut();
-            let completed = match responses.get(&request_id) {
-                Some(PendingResponse::Ready(response)) => Some(response.clone()),
-                Some(PendingResponse::Waiting(receiver)) => match receiver.try_recv() {
-                    Ok(response) => Some(response),
-                    Err(TryRecvError::Empty) => None,
-                    Err(TryRecvError::Disconnected) => Some(TestResponse::Error {
-                        message: "browser test response channel closed".into(),
-                    }),
-                },
-                None => Some(TestResponse::Error {
-                    message: format!("unknown browser test request {request_id}"),
-                }),
-            };
-            if completed.is_some() {
-                responses.remove(&request_id);
-            }
-            completed
-        });
+    // Invoke exported scalar WebAssembly functions through a small JavaScript
+    // adapter. The app-level LiveTest bridge has many unrelated Wasm closures;
+    // keeping poll out of that closure trampoline avoids its long-session OOB
+    // failure while the request and response bytes remain JSON strings.
+    let exports = wasm_bindgen::exports();
+    let poll_json_len = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_poll_json_len"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
+    let poll_json_ptr = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_poll_json_ptr"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
+    if !poll_json_len.is_function() || !poll_json_ptr.is_function() {
+        return false;
+    }
+    let poll_adapter = Function::new_with_args(
+        "pollJsonLen,pollJsonPtr,memory",
+        "return function(requestId) { const length = pollJsonLen(requestId) >>> 0; const address = pollJsonPtr() >>> 0; return new TextDecoder().decode(new Uint8Array(memory.buffer, address, length)); }",
+    );
+    let Ok(poll) = poll_adapter.call3(
+        &JsValue::NULL,
+        &poll_json_len,
+        &poll_json_ptr,
+        &wasm_bindgen::memory(),
+    ) else {
+        return false;
+    };
 
-        match response {
-            Some(response) => serde_json::to_string(&response)
-                .map(|response| JsValue::from_str(&response))
-                .unwrap_or_else(|error| {
-                    JsValue::from_str(
-                        &serde_json::json!({
-                            "status": "Error",
-                            "message": format!("response serialization failed: {error}")
-                        })
-                        .to_string(),
-                    )
-                }),
-            None => JsValue::NULL,
-        }
-    }) as Box<dyn FnMut(u32) -> JsValue>);
+    let poll_diagnostics =
+        Closure::wrap(
+            Box::new(|| -> u32 { LAST_POLL_STAGE.load(Ordering::Relaxed) })
+                as Box<dyn FnMut() -> u32>,
+        );
 
-    let frame = Closure::wrap(Box::new(move || -> JsValue {
-        FRAME.with(|state| {
-            state
-                .get()
-                .and_then(|frame| serde_json::to_string(&frame).ok())
-                .and_then(|json| js_sys::JSON::parse(&json).ok())
-                .unwrap_or(JsValue::NULL)
-        })
-    }) as Box<dyn FnMut() -> JsValue>);
+    let frame = Closure::wrap(Box::new(move || -> String {
+        FRAME
+            .with(|state| state.get())
+            .and_then(|frame| serde_json::to_string(&frame).ok())
+            .unwrap_or_else(|| "null".to_owned())
+    }) as Box<dyn FnMut() -> String>);
     let descriptor = Object::new();
     if Reflect::set(&descriptor, &JsValue::from_str("get"), frame.as_ref()).is_err()
         || Reflect::set(
@@ -123,8 +116,27 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     }
     let bridge = Object::new();
     Object::define_property(&bridge, &JsValue::from_str("frame"), &descriptor);
+    let poll_stage_address = std::ptr::addr_of!(LAST_POLL_STAGE) as usize;
     if Reflect::set(&bridge, &JsValue::from_str("submit"), submit.as_ref()).is_err()
-        || Reflect::set(&bridge, &JsValue::from_str("poll"), poll.as_ref()).is_err()
+        || Reflect::set(&bridge, &JsValue::from_str("poll"), &poll).is_err()
+        || Reflect::set(
+            &bridge,
+            &JsValue::from_str("pollDiagnostics"),
+            poll_diagnostics.as_ref(),
+        )
+        .is_err()
+        || Reflect::set(
+            &bridge,
+            &JsValue::from_str("pollDiagnosticsAddress"),
+            &JsValue::from_f64(poll_stage_address as f64),
+        )
+        .is_err()
+        || Reflect::set(
+            &bridge,
+            &JsValue::from_str("memory"),
+            &wasm_bindgen::memory(),
+        )
+        .is_err()
         || Reflect::set(
             &js_sys::global(),
             &JsValue::from_str("__FISSION_TEST__"),
@@ -136,9 +148,104 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     }
 
     submit.forget();
-    poll.forget();
+    poll_diagnostics.forget();
     frame.forget();
     true
+}
+
+#[cfg(fission_web_test_control)]
+#[wasm_bindgen]
+pub fn fission_web_test_poll_json_len(request_id: u32) -> u32 {
+    record_poll_stage(request_id, POLL_STAGE_ENTERED);
+    let response = poll_response(request_id);
+    record_poll_stage(request_id, POLL_STAGE_RESPONSE_READY);
+    let json = match response {
+        Some(response) => response_json_string(&response),
+        None => "null".to_owned(),
+    };
+    POLL_JSON.with(|buffer| {
+        let mut buffer = buffer.borrow_mut();
+        buffer.clear();
+        buffer.extend_from_slice(json.as_bytes());
+        record_poll_stage(request_id, POLL_STAGE_JSON_READY);
+        buffer.len() as u32
+    })
+}
+
+#[cfg(fission_web_test_control)]
+#[wasm_bindgen]
+pub fn fission_web_test_poll_json_ptr() -> u32 {
+    POLL_JSON.with(|buffer| buffer.borrow().as_ptr() as usize as u32)
+}
+
+fn record_poll_stage(request_id: u32, stage: u32) {
+    LAST_POLL_STAGE.store(
+        request_id.wrapping_shl(2) | (stage & 0b11),
+        Ordering::Relaxed,
+    );
+}
+
+fn submit_command(command: Result<TestCommand, String>, proxy: &EventLoopProxy<TestEvent>) -> u32 {
+    let available = RESPONSES.with(|responses| responses.borrow().len() < MAX_PENDING_RESPONSES);
+    if !available {
+        // Zero is reserved; generated request ids start at one. The next poll
+        // turns this sentinel into a normal, actionable test response without
+        // allowing an abandoned caller to grow the map without a bound.
+        return 0;
+    }
+
+    let request_id = NEXT_REQUEST_ID.with(|next| {
+        let request_id = next.get();
+        next.set(request_id.wrapping_add(1).max(1));
+        request_id
+    });
+    let response = match command {
+        Ok(command) => dispatch(command, proxy),
+        Err(message) => PendingResponse::Ready(TestResponse::Error { message }),
+    };
+    RESPONSES.with(|responses| {
+        responses.borrow_mut().insert(request_id, response);
+    });
+    request_id
+}
+
+fn response_json_string(response: &TestResponse) -> String {
+    serde_json::to_string(response).unwrap_or_else(|error| {
+        serde_json::json!({
+            "status": "Error",
+            "message": format!("response serialization failed: {error}")
+        })
+        .to_string()
+    })
+}
+
+fn poll_response(request_id: u32) -> Option<TestResponse> {
+    RESPONSES.with(|responses| {
+        let mut responses = responses.borrow_mut();
+        let Some(response) = responses.remove(&request_id) else {
+            return Some(TestResponse::Error {
+                message: if request_id == 0 {
+                    "too many pending browser test requests".into()
+                } else {
+                    format!("unknown browser test request {request_id}")
+                },
+            });
+        };
+
+        match response {
+            PendingResponse::Ready(response) => Some(response),
+            PendingResponse::Waiting(receiver) => match receiver.try_recv() {
+                Ok(response) => Some(response),
+                Err(TryRecvError::Empty) => {
+                    responses.insert(request_id, PendingResponse::Waiting(receiver));
+                    None
+                }
+                Err(TryRecvError::Disconnected) => Some(TestResponse::Error {
+                    message: "browser test response channel closed".into(),
+                }),
+            },
+        }
+    })
 }
 
 fn dispatch(command: TestCommand, proxy: &EventLoopProxy<TestEvent>) -> PendingResponse {
@@ -400,6 +507,13 @@ fn dispatch(command: TestCommand, proxy: &EventLoopProxy<TestEvent>) -> PendingR
             ms,
             response_tx,
         }),
+        TestCommand::CaptureScreenshot {} => query(proxy, |response_tx| {
+            TestEvent::CaptureScreenshot { response_tx }
+        }),
+        TestCommand::CaptureAt { ms } => query(proxy, |response_tx| TestEvent::CaptureAt {
+            ms,
+            response_tx,
+        }),
         TestCommand::WaitForIdle { .. } => {
             query(proxy, |response_tx| TestEvent::MotionStatus { response_tx })
         }
@@ -429,9 +543,7 @@ fn dispatch(command: TestCommand, proxy: &EventLoopProxy<TestEvent>) -> PendingR
         | TestCommand::WaitForText { .. }
         | TestCommand::WaitForGone { .. }
         | TestCommand::Wait { .. }
-        | TestCommand::Screenshot { .. }
-        | TestCommand::CaptureScreenshot {}
-        | TestCommand::CaptureAt { .. } => PendingResponse::Ready(TestResponse::Error {
+        | TestCommand::Screenshot { .. } => PendingResponse::Ready(TestResponse::Error {
             message: "command is handled by the browser test host".into(),
         }),
     }

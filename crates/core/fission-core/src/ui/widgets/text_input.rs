@@ -64,6 +64,12 @@ pub(crate) fn text_input_toolbar_button_id(
     WidgetId::derived(input_id.as_u128(), &[901, suffix])
 }
 
+fn text_input_text_node_id(input_id: WidgetId) -> WidgetId {
+    // Keep paragraph identity independent of focus-dependent decoration nodes;
+    // the layout engine caches resolved text by this ID and its width.
+    WidgetId::derived(input_id.as_u128(), &[902])
+}
+
 /// An editable text field with support for single-line and multiline input,
 /// syntax highlighting, password masking, and IME composition.
 ///
@@ -1452,7 +1458,7 @@ impl Lower for TextInput {
         });
 
         let text_id = IrBuilder::new(
-            cx.next_node_id(),
+            text_input_text_node_id(input_id),
             Op::Paint(PaintOp::DrawRichText {
                 runs,
                 wrap: self.multiline && self.wrap_mode != TextWrapMode::NoWrap,

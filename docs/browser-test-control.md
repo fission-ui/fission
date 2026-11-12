@@ -38,9 +38,9 @@ dimensions: page JavaScript has no authority over Chromium's host viewport.
 
 ## Generic frame acknowledgement
 
-An opt-in Web build exposes a read-only snapshot getter alongside the existing
-`submit` and `poll` methods: `globalThis.__FISSION_TEST__.frame`. It returns
-`null` before successful renderer submission, then a value shaped as:
+An opt-in Web build exposes a read-only snapshot getter alongside the `submit`
+and `poll` methods: `globalThis.__FISSION_TEST__.frame`. It returns the JSON
+string `null` before successful renderer submission, then JSON text shaped as:
 
 ```json
 {"width":390.0,"height":900.0,"frame":42,"phase":"submitted"}
@@ -50,9 +50,39 @@ The shared Rust protocol is `WebTestFrame` / `WebTestFramePhase`. Width and
 height are the submitted frame's layout viewport in CSS pixels. The sequence
 advances after successful submission within this page. `submitted` identifies
 the shell's acknowledgement; it does not assert GPU readback or compositor
-presentation. Mutating a returned snapshot does not modify the shell's state.
+presentation. Parse the returned JSON string to get a snapshot; mutating that
+value does not modify the shell's state.
 Production builds expose neither the bridge nor this getter. No review-specific
 global is involved.
+
+LiveTest drivers use `submit(json)` and `poll(id)`. `submit` passes command JSON
+to Wasm as a string. `poll` decodes the response JSON from the module's linear
+memory and returns it as a string; it returns the JSON text `null` while the
+response is pending. The poll path calls scalar Wasm exports directly instead
+of going through a wasm-bindgen closure. This avoids allocating JavaScript
+handles for command fields or nested semantic nodes. Completed response entries
+are removed when collected, and at most 1,024 requests may be pending or
+uncollected at once.
+
+For a trapped poll in an opt-in test build, `pollDiagnostics()` returns a number
+whose high bits are the last request ID and whose low two bits identify the last
+completed poll stage: `1` entered response lookup, `2` received a response, and
+`3` serialized its JSON string. A value stuck at stage `1` points to response
+lookup; stage `2` points to serialization; stage `3` means the response JSON
+bytes are ready in linear memory. The same value is stored at the byte offset
+`pollDiagnosticsAddress` in the exposed `memory.buffer`, so a browser harness
+can inspect it directly even if another Wasm callback traps. These memory
+diagnostics are available only when the test bridge is enabled.
+
+Web renderer diagnostics also publish the most recent stage timings as
+`window.__FISSION_LAST_FRAME_STAGE_PERF`. On the Canvas2D software path,
+`softwareRenderMs` measures the whole CPU render, including scene recording,
+rasterization, and RGBA output copying. The new `softwareSceneRecordingMs`,
+`softwareRasterizationMs`, and `softwareOutputCopyMs` fields split those costs.
+`canvasUploadMs` measures canvas resizing, `ImageData` creation, and
+`putImageData`. These fields distinguish scene work, pixel rasterization, and
+transfer to the browser canvas; `renderPresentMs` remains the total for both
+software rendering and canvas upload.
 
 The driver verifies actual browser metrics, canvas CSS/backing dimensions and
 the matching submitted-frame acknowledgement, crosses two browser animation
@@ -89,3 +119,20 @@ and raw bridge resize, recover in the same session, and check owned resource
 cleanup. Set `FISSION_RESIZE_OUTPUT` to retain PNG evidence. Run the internal
 `production_canvas_has_no_test_control` test against a separately compiled
 non-opt-in fixture using `FISSION_RESIZE_PRODUCTION_URL`.
+
+The WebGPU resize regression uses the same opt-in fixture, served with
+`?fission_renderer=webgpu-vello`, and requires a browser with a working WebGPU
+adapter. It grows and shrinks the renderer in one Chromium session, exercising
+the intermediate-texture config upload that previously recreated a mapped
+buffer on every size change. Its screenshots use Fission's retained scene and
+software rasterizer, then assert that the captured pixels contain the rendered
+frame. This avoids relying on Chromium's headless WebGPU swapchain capture,
+which can be black. If `FISSION_RESIZE_OUTPUT` is set, each capture is retained
+for visual inspection:
+
+```sh
+FISSION_RESIZE_WEBGPU_URL=http://127.0.0.1:8123/?fission_renderer=webgpu-vello \
+  cargo test -p fission-test-driver --test browser_resize \
+  webgpu_renderer_resizes_without_recreating_mapped_config_buffer \
+  -- --ignored --nocapture
+```

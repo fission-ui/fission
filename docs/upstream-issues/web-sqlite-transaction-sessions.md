@@ -24,9 +24,11 @@ The Web-only typed API is:
 
 - `WebSqliteStore::begin_transaction(WebSqliteTransactionOptions)` returns a
   transaction handle owned by the originating browser tab.
-- `WebSqliteTransaction::{execute, query, create_session, capture_changeset,
-  apply_changeset, commit, rollback}` perform each operation on the worker-owned
-  SQLite connection.
+- `WebSqliteTransaction::{execute, query, run_job, create_session,
+  capture_changeset, apply_changeset, commit, rollback}` perform operations on
+  the worker-owned SQLite connection. `run_job` executes ordered `Execute` and
+  `Query` steps in one worker message while preserving the open transaction,
+  operation context, and authorizer.
 - `WebSqliteOperationContext` installs `pdb_current_operation_id()` and
   `pdb_next_op_seq()` only for the lifetime of that transaction.
 - `WebSqliteAuthorizerPolicy` evaluates ordered allow/deny rules. It supports
@@ -56,7 +58,10 @@ best-effort rollback. If the worker stops, the bridge reports
 `transaction_lost` for transaction requests, restarts the worker, and SQLite
 discards work that was not committed. Quota, unavailable storage, SQLite,
 authorization, and busy errors remain distinguishable through the Rust error
-types.
+types. A transaction job is synchronous on the worker and cannot interleave
+with another request. It stops on the first failed step and rolls back the
+transaction. Dropping its in-flight Rust future queues a rollback after the
+worker finishes the current job.
 
 ## Verification
 
@@ -71,6 +76,9 @@ The Chromium smoke test at
 - SQLite Session changes can be captured, applied, and committed;
 - terminating the owner worker makes the transaction handle unusable and keeps
   its uncommitted write out of the database.
+- a transaction job returns ordered execute/query results, retains its
+  operation context and authorizer, and rolls back earlier steps when a later
+  step is denied.
 
 The browser test is run by setting `FISSION_SQLITE_WEB_TEST_URL` to the fixture
 served with COOP/COEP headers and running:

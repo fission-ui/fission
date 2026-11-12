@@ -237,6 +237,7 @@ impl BrowserController {
         let deadline = Instant::now() + Duration::from_millis(options.timeout_ms);
         let mut last_status = None;
         let mut last_viewport = Value::Null;
+        let mut last_context_error = None;
         while Instant::now() < deadline {
             client.drain_events(Duration::from_millis(25))?;
             if !client.errors.is_empty() {
@@ -245,8 +246,24 @@ impl BrowserController {
                     client.errors.join("\n")
                 ));
             }
-            let status = read_runtime_status(&mut client)?;
-            let measured = viewport::read(&mut client)?;
+            let status = match read_runtime_status(&mut client) {
+                Ok(status) => status,
+                Err(error) if is_transient_execution_context_error(&error) => {
+                    last_context_error = Some(error.to_string());
+                    std::thread::sleep(Duration::from_millis(25));
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            let measured = match viewport::read(&mut client) {
+                Ok(measured) => measured,
+                Err(error) if is_transient_execution_context_error(&error) => {
+                    last_context_error = Some(error.to_string());
+                    std::thread::sleep(Duration::from_millis(25));
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             let ready = browser_is_ready(&status, options.mode, require_live_control)
                 && viewport::acknowledged(&measured, &options, require_live_control, None);
             if ready {
@@ -273,14 +290,15 @@ impl BrowserController {
             std::thread::sleep(Duration::from_millis(100));
         }
         Err(anyhow!(
-            "browser{} test timed out for {}; last viewport: {last_viewport}; last status: {:?}",
+            "browser{} test timed out for {}; last viewport: {last_viewport}; last status: {:?}; last transient context error: {:?}",
             if require_live_control {
                 " live-control"
             } else {
                 " smoke"
             },
             options.url,
-            last_status
+            last_status,
+            last_context_error
         ))
     }
 
@@ -434,16 +452,21 @@ impl BrowserController {
             TestCommand::SelectOption { query } => {
                 self.selector_action(query.clone(), TestCommand::SelectOption { query })
             }
-            TestCommand::Screenshot { path } => {
-                let bytes = self.capture_page_screenshot()?;
-                write_screenshot(&PathBuf::from(path), &bytes)?;
-                Ok(TestResponse::Ok {})
-            }
-            TestCommand::CaptureScreenshot {} => self.capture_page_response(),
+            TestCommand::Screenshot { path } => match self.capture_renderer_or_page_response()? {
+                TestResponse::Screenshot { png_base64, .. } => {
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(png_base64)
+                        .context("invalid screenshot payload from browser")?;
+                    write_screenshot(&PathBuf::from(path), &bytes)?;
+                    Ok(TestResponse::Ok {})
+                }
+                response => Ok(response),
+            },
+            TestCommand::CaptureScreenshot {} => self.capture_renderer_or_page_response(),
             TestCommand::CaptureAt { ms } => {
                 ensure_response_ok(self.send_bridge_command(TestCommand::AdvanceClock { ms })?)?;
                 ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
-                self.capture_page_response()
+                self.capture_renderer_or_page_response()
             }
             TestCommand::PressKey { key, modifiers } => self.press_dom_key(&key, modifiers),
             command => self.send_bridge_command(command),
@@ -578,14 +601,22 @@ impl BrowserController {
     ) -> Result<TestResponse> {
         let started = Instant::now();
         let timeout = Duration::from_millis(timeout_ms);
+        let diagnostic_query = query.clone().with_candidates();
+        let polling_query = query.without_candidates();
         loop {
             let response = self.send_bridge_command(TestCommand::ResolveSelector {
-                query: query.clone(),
+                query: polling_query.clone(),
             })?;
             if selector_wait_matches(&condition, &response) {
                 return Ok(TestResponse::Ok {});
             }
             if started.elapsed() >= timeout {
+                let response = self.send_bridge_command(TestCommand::ResolveSelector {
+                    query: diagnostic_query.clone(),
+                })?;
+                if selector_wait_matches(&condition, &response) {
+                    return Ok(TestResponse::Ok {});
+                }
                 let candidates = match response {
                     TestResponse::SelectorResolved { node } => vec![SelectorCandidate {
                         node,
@@ -597,7 +628,7 @@ impl BrowserController {
                 return Ok(TestResponse::SelectorError {
                     failure: SelectorFailure {
                         kind: SelectorFailureKind::Timeout,
-                        selector: query,
+                        selector: diagnostic_query,
                         candidates,
                         message: format!(
                             "timed out after {timeout_ms}ms waiting for browser selector"
@@ -678,8 +709,10 @@ impl BrowserController {
             "unsupported_page_mode: this command requires a Web build compiled with FISSION_WEB_TEST_CONTROL=1; DOM sessions support host resize and screenshots"
         );
         let command_json = serde_json::to_string(&command)?;
-        let argument = serde_json::to_string(&command_json)?;
-        let submit = format!("globalThis.__FISSION_TEST__.submit({argument})");
+        let submit = format!(
+            "globalThis.__FISSION_TEST__.submit({})",
+            serde_json::to_string(&command_json)?
+        );
         let result = self.client.send(
             "Runtime.evaluate",
             json!({ "expression": submit, "returnByValue": true }),
@@ -698,15 +731,17 @@ impl BrowserController {
                 "Runtime.evaluate",
                 json!({
                     "expression": format!(
-                        "globalThis.__FISSION_TEST__.poll({request_id})"
+                        "(() => {{ const raw=globalThis.__FISSION_TEST__.poll({request_id}); return JSON.parse(raw); }})()"
                     ),
                     "returnByValue": true
                 }),
             )?;
             runtime_exception(&poll)?;
-            if let Some(response_json) = poll.pointer("/result/value").and_then(Value::as_str) {
-                return serde_json::from_str(response_json)
-                    .context("failed to decode Fission browser test response");
+            if let Some(response) = poll
+                .pointer("/result/value")
+                .filter(|response| !response.is_null())
+            {
+                return decode_bridge_response(response.clone());
             }
             if Instant::now() >= deadline {
                 return Err(anyhow!(
@@ -735,6 +770,25 @@ impl BrowserController {
             width: decoded.width(),
             height: decoded.height(),
         })
+    }
+
+    /// Prefer Fission's WebGPU-frame capture for a Fission canvas. Headless Chromium can omit the
+    /// WebGPU swapchain from `Page.captureScreenshot`, so that host screenshot may be black even
+    /// when the app has rendered. The Web shell captures its retained scene for this path; Canvas2D
+    /// and ordinary web pages continue to use the browser's viewport capture.
+    fn capture_renderer_or_page_response(&mut self) -> Result<TestResponse> {
+        if self.options.mode != BrowserSmokeMode::FissionCanvas {
+            return self.capture_page_response();
+        }
+
+        match self.send_bridge_command(TestCommand::CaptureScreenshot {})? {
+            TestResponse::Error { message }
+                if message.starts_with("renderer_screenshot_unavailable:") =>
+            {
+                self.capture_page_response()
+            }
+            response => Ok(response),
+        }
     }
 
     fn capture_page_screenshot(&mut self) -> Result<Vec<u8>> {
@@ -783,6 +837,19 @@ impl BrowserController {
             let errors = std::mem::take(&mut self.client.errors);
             Err(anyhow!("browser reported errors:\n{}", errors.join("\n")))
         }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn decode_bridge_response(value: Value) -> Result<TestResponse> {
+    match value {
+        // Large semantic collections cross the Wasm boundary as one JSON string to avoid
+        // allocating a large graph of wasm-bindgen externref handles. Parse it in the native
+        // driver, where the response already needs to become a Rust TestResponse.
+        Value::String(json) => {
+            serde_json::from_str(&json).context("failed to decode string Fission browser response")
+        }
+        value => serde_json::from_value(value).context("failed to decode Fission browser response"),
     }
 }
 
@@ -969,6 +1036,19 @@ fn browser_is_ready(
             status.ready_canvas && status.renderer.is_some() && status.rendered_frames > 0
         }
     }) && (!require_live_control || status.test_bridge_ready)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn is_transient_execution_context_error(error: &anyhow::Error) -> bool {
+    let message = format!("{error:#}").to_ascii_lowercase();
+    [
+        "cannot find default execution context",
+        "no default execution context found",
+        "cannot find context with specified id",
+        "execution context was destroyed",
+    ]
+    .iter()
+    .any(|phrase| message.contains(phrase))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1384,6 +1464,24 @@ mod tests {
     }
 
     #[test]
+    fn browser_bridge_decodes_both_value_and_json_string_responses() {
+        assert!(matches!(
+            decode_bridge_response(json!({"status":"Ok"})).unwrap(),
+            TestResponse::Ok {}
+        ));
+
+        let encoded_tree = serde_json::to_string(&json!({
+            "status": "Tree",
+            "nodes": []
+        }))
+        .unwrap();
+        assert!(matches!(
+            decode_bridge_response(Value::String(encoded_tree)).unwrap(),
+            TestResponse::Tree { nodes } if nodes.is_empty()
+        ));
+    }
+
+    #[test]
     fn browser_logs_ignore_only_the_root_network_favicon() {
         assert!(ignorable_browser_log(
             "network",
@@ -1529,6 +1627,32 @@ mod tests {
 
         assert!(status.test_bridge_ready);
         assert_eq!(status.renderer.as_deref(), Some("webgpu-vello"));
+    }
+
+    #[test]
+    fn only_transient_missing_execution_context_errors_are_retried() {
+        for message in [
+            "Runtime.evaluate: {\"code\":-32000,\"message\":\"Cannot find default execution context\"}",
+            "Cannot find context with specified id",
+            "Execution context was destroyed, most likely because of a navigation.",
+            "No default execution context found",
+        ] {
+            assert!(
+                is_transient_execution_context_error(&anyhow!(message)),
+                "expected transient context error: {message}"
+            );
+        }
+
+        for message in [
+            "Runtime.evaluate: target closed",
+            "CDP command timed out: Runtime.evaluate",
+            "browser runtime evaluation failed: TypeError: app crashed",
+        ] {
+            assert!(
+                !is_transient_execution_context_error(&anyhow!(message)),
+                "unexpectedly treated permanent error as transient: {message}"
+            );
+        }
     }
 
     #[test]

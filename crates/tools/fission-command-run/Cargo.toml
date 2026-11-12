@@ -16,6 +16,7 @@ documentation = "https://fission.rs"
 readme = "README.md"
 [dependencies]
 anyhow = "1.0"
+shell-words = "1.1"
 fission-command-core = { path = "../fission-command-core", version = "0.15.1" }
 fission-command-process = { path = "../fission-command-process", version = "0.15.1" }
 fission-command-server = { path = "../fission-command-server", version = "0.15.1" }
