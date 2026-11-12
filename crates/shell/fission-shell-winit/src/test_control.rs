@@ -719,7 +719,7 @@ fn inject_event(injector: &EventInjector, event: TestEvent) {
                 if debug_android_events {
                     eprintln!("[android-debug] wake_send");
                 }
-                let _ = proxy.send_event(TestEvent::Wake);
+                crate::send_wake_event(proxy);
             }
         }
     }

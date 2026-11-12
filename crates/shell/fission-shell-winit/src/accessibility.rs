@@ -50,7 +50,7 @@ mod imp {
 
     impl AccessibilityShared {
         fn wake(&self) {
-            let _ = self.proxy.send_event(TestEvent::Wake);
+            crate::send_wake_event(&self.proxy);
         }
     }
 

@@ -24,6 +24,8 @@ use anyhow::Result;
 use base64::Engine;
 use fission_core::authoring::BuildCtx;
 use std::collections::{HashMap, HashSet, VecDeque};
+#[cfg(target_arch = "wasm32")]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -91,6 +93,21 @@ use raw_window_handle::HasWindowHandle;
 use read_fonts::types::Tag;
 
 use fission_test_driver::{TestEvent, TestPointerKind, TestPointerPhase, TestScrollDeltaMode};
+
+#[cfg(target_arch = "wasm32")]
+static WEB_WAKE_EVENT_PENDING: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn send_wake_event(proxy: &EventLoopProxy<TestEvent>) {
+    #[cfg(target_arch = "wasm32")]
+    if WEB_WAKE_EVENT_PENDING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+
+    if proxy.send_event(TestEvent::Wake).is_err() {
+        #[cfg(target_arch = "wasm32")]
+        WEB_WAKE_EVENT_PENDING.store(false, Ordering::Release);
+    }
+}
 
 // Vello / WGPU
 #[cfg(not(target_arch = "wasm32"))]
@@ -2655,7 +2672,7 @@ fn process_pending_effects(
         let proxy = Arc::new(Mutex::new(event_proxy.clone()));
         Arc::new(move || {
             if let Ok(proxy) = proxy.lock() {
-                let _ = proxy.send_event(TestEvent::Wake);
+                send_wake_event(&proxy);
             }
         })
     };
@@ -5714,7 +5731,7 @@ where
                             Ok((location, resolved)) => {
                                 strategy.set(resolved);
                                 queue.borrow_mut().push_back(location);
-                                let _ = proxy.send_event(TestEvent::Wake);
+                                send_wake_event(&proxy);
                             }
                             Err(error) => eprintln!(
                                 "fission-shell-winit: browser route change failed: {error}"
@@ -5741,7 +5758,7 @@ where
                 let proxy = event_proxy.clone();
                 let listener = Closure::wrap(Box::new(move |_event: web_sys::Event| {
                     changed.set(true);
-                    let _ = proxy.send_event(TestEvent::Wake);
+                    send_wake_event(&proxy);
                 }) as Box<dyn FnMut(_)>);
                 query
                     .add_event_listener_with_callback("change", listener.as_ref().unchecked_ref())
@@ -5761,7 +5778,7 @@ where
                 if let Ok(mut queue) = queue.lock() {
                     queue.push_back(response);
                 }
-                let _ = proxy.send_event(TestEvent::Wake);
+                send_wake_event(&proxy);
             })
         });
         let mut accessibility_bridge = AccessibilityBridge::new(event_proxy.clone());
@@ -7680,6 +7697,10 @@ where
                         TestEvent::FillText { .. } => 42,
                         _ => 0,
                     };
+                    #[cfg(target_arch = "wasm32")]
+                    if matches!(&test_event, TestEvent::Wake) {
+                        WEB_WAKE_EVENT_PENDING.store(false, Ordering::Release);
+                    }
                     #[cfg(target_os = "android")]
                     if matches!(test_event, TestEvent::Wake) {
                         if debug_android_events {
@@ -8782,7 +8803,7 @@ where
                                                     .map_err(|error| error.to_string());
                                                     if generation.get() == started_generation {
                                                         *pending.borrow_mut() = Some(result);
-                                                        let _ = proxy.send_event(TestEvent::Wake);
+                                                        send_wake_event(&proxy);
                                                     }
                                                 });
                                             }
