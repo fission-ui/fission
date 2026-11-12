@@ -5960,6 +5960,8 @@ where
             .unwrap_or(false);
         let mut frame_trace = FrameScheduleState::new(frame_trace_enabled());
         #[cfg(target_arch = "wasm32")]
+        let mut web_wake_dispatched_in_cycle = false;
+        #[cfg(target_arch = "wasm32")]
         if let Err(error) = frame_trace.install_web_redraw_scheduler(event_proxy.clone()) {
             eprintln!("failed to install Web animation-frame scheduler: {error}");
         }
@@ -7699,7 +7701,7 @@ where
                     };
                     #[cfg(target_arch = "wasm32")]
                     if matches!(&test_event, TestEvent::Wake) {
-                        WEB_WAKE_EVENT_PENDING.store(false, Ordering::Release);
+                        web_wake_dispatched_in_cycle = true;
                     }
                     #[cfg(target_os = "android")]
                     if matches!(test_event, TestEvent::Wake) {
@@ -7717,6 +7719,13 @@ where
                 // AboutToWait — idle / animation / blink / effects
                 // ═══════════════════════════════════════════════════════
                 Event::AboutToWait => {
+                    // Keep the wake gate closed while the user event and its synchronous
+                    // callbacks run. Clear it before draining effects so new async work can
+                    // schedule one follow-up wake for the next event-loop iteration.
+                    #[cfg(target_arch = "wasm32")]
+                    if std::mem::take(&mut web_wake_dispatched_in_cycle) {
+                        WEB_WAKE_EVENT_PENDING.store(false, Ordering::Release);
+                    }
                     record_web_test_diagnostic(360, 0);
                     let Some(window) = platform_window.active_window() else {
                         elwt.set_control_flow(ControlFlow::Wait);
