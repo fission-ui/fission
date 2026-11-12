@@ -1491,10 +1491,10 @@ impl CdpClient {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn is_web_text_input_trace_stage(stage: u32) -> bool {
-    // 410–435 cover bridge submit/query/poll stages; 450–466 cover the
-    // FillText event and handler. Keep the ranges separate because both are
-    // observed in the same CDP event stream.
-    (410..=435).contains(&stage) || (450..=466).contains(&stage)
+    // 410–435 cover bridge submit/query/poll stages; 450–470 and 473–476 cover
+    // FillText, redraw scheduling, callback exit, and sender cleanup. Keep the
+    // ranges separate because both are observed in the same CDP event stream.
+    (410..=435).contains(&stage) || (450..=470).contains(&stage) || (473..=476).contains(&stage)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1530,7 +1530,11 @@ mod tests {
         assert!(!is_web_text_input_trace_stage(449));
         assert!(is_web_text_input_trace_stage(450));
         assert!(is_web_text_input_trace_stage(466));
-        assert!(!is_web_text_input_trace_stage(467));
+        assert!(is_web_text_input_trace_stage(467));
+        assert!(is_web_text_input_trace_stage(470));
+        assert!(!is_web_text_input_trace_stage(471));
+        assert!(is_web_text_input_trace_stage(473));
+        assert!(is_web_text_input_trace_stage(476));
     }
 
     #[test]

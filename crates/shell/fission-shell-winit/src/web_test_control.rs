@@ -22,6 +22,10 @@ const POLL_STAGE_JSON_READY: u32 = 3;
 static LAST_POLL_STAGE: AtomicU32 = AtomicU32::new(0);
 static WEB_WAKE_TRACE_COUNT: AtomicU32 = AtomicU32::new(0);
 static WEB_REDRAW_WAIT_TRACE_COUNT: AtomicU32 = AtomicU32::new(0);
+static WEB_EVENT_LOOP_TRACE_COUNT: AtomicU32 = AtomicU32::new(0);
+static WEB_LAST_PENDING_WORK_TRACE: AtomicU32 = AtomicU32::new(u32::MAX);
+static WEB_LAST_REDRAW_PENDING_TRACE: AtomicU32 = AtomicU32::new(u32::MAX);
+static WEB_LAST_REDRAW_REQUEST_TRACE: AtomicU32 = AtomicU32::new(u32::MAX);
 
 #[repr(C)]
 struct WebTestDiagnostics {
@@ -66,13 +70,20 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
     // trace flood can itself delay browser tasks and obscure the original bug.
     let should_log = match stage {
         300..=353 => true,
-        360 | 364 | 365 | 366 => true,
+        // These markers can run for every browser event-loop iteration. Keep a
+        // sparse heartbeat for 360 and report state changes for the other
+        // markers so LiveTest does not flood its own CDP event stream while
+        // waiting for a command response.
+        360 => WEB_EVENT_LOOP_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 256 == 0,
+        364 => WEB_LAST_PENDING_WORK_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
+        365 => WEB_LAST_REDRAW_PENDING_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
+        366 => WEB_LAST_REDRAW_REQUEST_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
         400 | 402 | 410 | 411 | 414 | 416 | 420 | 424 | 430 | 432 | 435 => true,
         473 if iteration == 1 => {
-            WEB_REDRAW_WAIT_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 64 == 0
+            WEB_REDRAW_WAIT_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 256 == 0
         }
         437 if iteration == 42 => true,
-        437 if iteration == 31 => WEB_WAKE_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 32 == 0,
+        437 if iteration == 31 => WEB_WAKE_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 4096 == 0,
         450..=470 | 474 | 475 | 476 => true,
         90 | 91 if iteration == 42 => true,
         _ => false,
