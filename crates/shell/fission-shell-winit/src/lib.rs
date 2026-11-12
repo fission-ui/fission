@@ -2166,25 +2166,43 @@ impl PlatformWindow for Arc<Window> {
     }
 }
 
+fn request_redraw_once(window: &Window, frame_schedule: &mut FrameScheduleState) -> bool {
+    frame_schedule.request_redraw(|| window.request_redraw())
+}
+
 fn request_redraw_throttled(
     window: &Window,
     elwt: &EventLoopWindowTarget,
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
+    frame_schedule: &mut FrameScheduleState,
 ) {
     let now = Instant::now();
-    let next = *last_redraw_at + min_frame;
-    if now >= next {
-        *last_redraw_at = now;
-        *redraw_pending = false;
-        window.request_redraw();
-        record_web_test_diagnostic(366, 1);
-    } else {
-        *redraw_pending = true;
-        elwt.set_control_flow(ControlFlow::WaitUntil(next));
-        record_web_test_diagnostic(366, 0);
+    match frame_schedule.redraw_timing(now, *last_redraw_at, min_frame) {
+        RedrawRequestTiming::AlreadyScheduled => {
+            *redraw_pending = false;
+            record_web_test_diagnostic(366, 2);
+        }
+        RedrawRequestTiming::Ready => {
+            *last_redraw_at = now;
+            *redraw_pending = false;
+            request_redraw_once(window, frame_schedule);
+            record_web_test_diagnostic(366, 1);
+        }
+        RedrawRequestTiming::DeferredUntil(next) => {
+            *redraw_pending = true;
+            elwt.set_control_flow(ControlFlow::WaitUntil(next));
+            record_web_test_diagnostic(366, 0);
+        }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RedrawRequestTiming {
+    AlreadyScheduled,
+    Ready,
+    DeferredUntil(Instant),
 }
 
 fn frame_trace_enabled() -> bool {
@@ -2197,16 +2215,53 @@ fn frame_trace_enabled() -> bool {
 }
 
 #[derive(Default)]
-struct FrameTraceState {
+struct FrameScheduleState {
     enabled: bool,
     redraw_reasons: Vec<String>,
+    redraw_scheduled: bool,
 }
 
-impl FrameTraceState {
+impl FrameScheduleState {
     fn new(enabled: bool) -> Self {
         Self {
             enabled,
             redraw_reasons: Vec::new(),
+            redraw_scheduled: false,
+        }
+    }
+
+    fn request_redraw(&mut self, request: impl FnOnce()) -> bool {
+        if self.redraw_scheduled {
+            return false;
+        }
+
+        // The Web backend cancels and re-registers its animation-frame callback
+        // on every request. Keep one outstanding until RedrawRequested so
+        // frequent input and LiveTest pump events cannot continually postpone it.
+        request();
+        self.redraw_scheduled = true;
+        true
+    }
+
+    fn redraw_started(&mut self) {
+        self.redraw_scheduled = false;
+    }
+
+    fn redraw_timing(
+        &self,
+        now: Instant,
+        last_redraw_at: Instant,
+        min_frame: Duration,
+    ) -> RedrawRequestTiming {
+        if self.redraw_scheduled {
+            RedrawRequestTiming::AlreadyScheduled
+        } else {
+            let next = last_redraw_at + min_frame;
+            if now >= next {
+                RedrawRequestTiming::Ready
+            } else {
+                RedrawRequestTiming::DeferredUntil(next)
+            }
         }
     }
 
@@ -2271,11 +2326,18 @@ fn request_redraw_logged(
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     reason: &str,
 ) {
     frame_trace.note_redraw_reason(reason);
-    request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+    request_redraw_throttled(
+        window,
+        elwt,
+        last_redraw_at,
+        min_frame,
+        redraw_pending,
+        frame_trace,
+    );
 }
 
 fn apply_authoritative_resize(
@@ -2291,7 +2353,7 @@ fn apply_authoritative_resize(
     last_redraw_at: &mut Instant,
     resize_frame: Duration,
     redraw_pending: &mut bool,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     reason: &str,
 ) {
     *pending_resize = Some(next_viewport);
@@ -3345,7 +3407,7 @@ fn handle_cursor_moved(
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
@@ -3409,7 +3471,7 @@ fn handle_external_drag(
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
@@ -3477,7 +3539,7 @@ fn handle_mouse_button(
     next_text_trace_seq: &mut u64,
     presented_frames: u64,
     last_blink_toggle: &mut Instant,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
@@ -3593,7 +3655,7 @@ fn handle_scroll(
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
@@ -3679,7 +3741,7 @@ fn handle_pointer_signal(
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
@@ -3726,7 +3788,7 @@ fn handle_cursor_left(
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     invalidations: &mut InvalidationSet,
 ) {
     if let Some(ir) = &pipeline.prev_ir {
@@ -3887,7 +3949,7 @@ fn handle_key_down<S: GlobalState>(
     presented_frames: u64,
     last_blink_toggle: &mut Instant,
     key_handler: Option<&KeyHandler<S>>,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     invalidations: &mut InvalidationSet,
 ) -> bool {
     let ir_and_snap = match (&pipeline.prev_ir, &pipeline.last_snapshot) {
@@ -4001,7 +4063,7 @@ fn handle_key_up(
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     invalidations: &mut InvalidationSet,
 ) {
     let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) else {
@@ -5652,9 +5714,6 @@ where
         #[cfg(target_arch = "wasm32")]
         let mut web_rendered_frames: u64 = 0;
 
-        #[cfg(not(target_os = "android"))]
-        platform_window.request_redraw();
-
         let mut runtime = self.runtime;
         let mut env = self.env;
         #[cfg(target_arch = "wasm32")]
@@ -5770,7 +5829,7 @@ where
         let text_trace_enabled = std::env::var("FISSION_TEXT_TRACE")
             .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
             .unwrap_or(false);
-        let mut frame_trace = FrameTraceState::new(frame_trace_enabled());
+        let mut frame_trace = FrameScheduleState::new(frame_trace_enabled());
         let mut presented_frames: u64 = 0;
         #[cfg(not(target_arch = "wasm32"))]
         let mut software_frame_valid = false;
@@ -5779,6 +5838,9 @@ where
         #[cfg(target_arch = "wasm32")]
         let mut pending_web_input_at: Option<Instant> = None;
         let mut current_mods: u8 = 0;
+
+        #[cfg(not(target_os = "android"))]
+        request_redraw_once(&platform_window, &mut frame_trace);
 
         // Test control (enabled via FISSION_TEST_CONTROL_PORT env var).
         // The TCP server injects TestEvents via the EventLoopProxy. Query
@@ -6991,7 +7053,7 @@ where
                         // compositor layer to repaint so the image cannot contain only the
                         // regions damaged by the preceding interaction.
                         invalidations.mark_paint();
-                        window.request_redraw();
+                        request_redraw_once(window, &mut frame_trace);
                     }
                     TestEvent::CaptureScreenshot { response_tx } => {
                         let Some(window) = platform_window.active_window() else {
@@ -7008,7 +7070,7 @@ where
                             live_resize.is_live(Instant::now()),
                         );
                         invalidations.mark_paint();
-                        window.request_redraw();
+                        request_redraw_once(window, &mut frame_trace);
                     }
                     TestEvent::PauseAnimations { response_tx } => {
                         test_animations_paused = true;
@@ -7018,7 +7080,7 @@ where
                         test_animations_paused = false;
                         last_frame_time = Instant::now();
                         if let Some(window) = platform_window.active_window() {
-                            window.request_redraw();
+                            request_redraw_once(window, &mut frame_trace);
                         }
                         let _ = response_tx.send(fission_test_driver::TestResponse::Ok {});
                     }
@@ -7035,7 +7097,7 @@ where
                                 .saturating_add(ms),
                         );
                         let _ = response_tx.send(fission_test_driver::TestResponse::Ok {});
-                        window.request_redraw();
+                        request_redraw_once(window, &mut frame_trace);
                     }
                     TestEvent::CaptureAt { ms, response_tx } => {
                         let Some(window) = platform_window.active_window() else {
@@ -7057,7 +7119,7 @@ where
                             live_resize.is_live(Instant::now()),
                         );
                         invalidations.mark_paint();
-                        window.request_redraw();
+                        request_redraw_once(window, &mut frame_trace);
                     }
                     TestEvent::MotionStatus { response_tx } => {
                         let finite = runtime
@@ -7142,7 +7204,7 @@ where
                                 live_resize.is_live(Instant::now()),
                             ),
                             capture_settle_pending: pending_capture_settle,
-                            redraw_pending,
+                            redraw_pending: redraw_pending || frame_trace.redraw_scheduled,
                             active_animation: !runtime.runtime_state.motion.active.is_empty(),
                             playing_video: runtime
                                 .runtime_state
@@ -7168,7 +7230,7 @@ where
                                 resize_needs_settled_frame,
                                 live_resize.is_live(Instant::now()),
                             );
-                            window.request_redraw();
+                            request_redraw_once(window, &mut frame_trace);
                         }
                     }
                     // Mapped to a redraw before dispatch.
@@ -7467,6 +7529,12 @@ where
                 // UserEvent — injected by test control server via proxy
                 // ═══════════════════════════════════════════════════════
                 Event::UserEvent(test_event) => {
+                    let diagnostic_kind = match &test_event {
+                        TestEvent::Pump { .. } => 30,
+                        TestEvent::Wake => 31,
+                        TestEvent::FillText { .. } => 42,
+                        _ => 0,
+                    };
                     #[cfg(target_os = "android")]
                     if matches!(test_event, TestEvent::Wake) {
                         if debug_android_events {
@@ -7476,7 +7544,7 @@ where
                         return;
                     }
                     handle_test_event(test_event);
-                    record_web_test_diagnostic(437, 0);
+                    record_web_test_diagnostic(437, diagnostic_kind);
                 }
 
                 // ═══════════════════════════════════════════════════════
@@ -8291,7 +8359,7 @@ where
                             };
                             invalidations.mark_build();
                             frame_trace.note_redraw_reason("system_theme_changed");
-                            window.request_redraw();
+                            request_redraw_once(window, &mut frame_trace);
                             redraw_pending = true;
                         }
                         WindowEvent::Focused(false) => {
@@ -8307,20 +8375,23 @@ where
                             current_mods = 0;
                             invalidations.mark_build();
                             frame_trace.note_redraw_reason("window_focus_lost");
-                            window.request_redraw();
+                            request_redraw_once(window, &mut frame_trace);
                             redraw_pending = true;
                         }
                         WindowEvent::Focused(true) => {}
                         WindowEvent::Occluded(occluded) => {
                             surface_occluded = occluded;
-                            if !occluded {
+                            if occluded {
+                                frame_trace.redraw_started();
+                            } else {
                                 invalidations.mark_paint();
                                 frame_trace.note_redraw_reason("window_unoccluded");
-                                window.request_redraw();
+                                request_redraw_once(window, &mut frame_trace);
                                 redraw_pending = true;
                             }
                         }
                         WindowEvent::RedrawRequested => {
+                            frame_trace.redraw_started();
                             record_web_test_diagnostic(
                                 300,
                                 pipeline
@@ -10386,7 +10457,7 @@ where
                                         );
                                     }
                                     invalidations.mark_build();
-                                    window.request_redraw();
+                                    request_redraw_once(window, &mut frame_trace);
                                     redraw_pending = true;
                                     return;
                                 }
@@ -11212,8 +11283,9 @@ mod tests {
         surface_acquire_recovery, sync_tracked_target_texture_size_to_surface,
         test_pump_can_ack_current_frame, text_input_blink_enabled, texture_plans_fit_device_limits,
         visual_rect_for_node, web_effective_render_scale, window_insets_from_safe_area_frames,
-        windows_shell_execute_succeeded, windows_wide, BrowserDefaults, LiveResizeController,
-        SurfaceAcquireRecovery, TestPumpState, WindowViewportState,
+        windows_shell_execute_succeeded, windows_wide, BrowserDefaults, FrameScheduleState,
+        Instant, LiveResizeController, RedrawRequestTiming, SurfaceAcquireRecovery, TestPumpState,
+        WindowViewportState,
     };
     use crate::pipeline::{software_frame_needs_raster, CompositorTexturePlan};
     use crate::InvalidationSet;
@@ -11258,6 +11330,10 @@ mod tests {
 
         let mut pending = idle;
         pending.active_animation = true;
+        assert!(!test_pump_can_ack_current_frame(pending));
+
+        let mut pending = idle;
+        pending.redraw_pending = true;
         assert!(!test_pump_can_ack_current_frame(pending));
 
         let mut pending = idle;
@@ -12220,6 +12296,35 @@ mod tests {
             animation_redraw_interval(false, None, false, min_frame),
             None
         );
+    }
+
+    #[test]
+    fn redraw_requests_are_coalesced_until_the_frame_starts() {
+        let mut schedule = FrameScheduleState::new(false);
+        let mut redraw_requests = 0;
+        let now = Instant::now();
+        let min_frame = Duration::from_millis(16);
+
+        assert_eq!(
+            schedule.redraw_timing(now, now, min_frame),
+            RedrawRequestTiming::DeferredUntil(now + min_frame)
+        );
+
+        assert!(schedule.request_redraw(|| redraw_requests += 1));
+        assert!(!schedule.request_redraw(|| redraw_requests += 1));
+        assert_eq!(redraw_requests, 1);
+        assert_eq!(
+            schedule.redraw_timing(now + min_frame, now, min_frame),
+            RedrawRequestTiming::AlreadyScheduled
+        );
+
+        schedule.redraw_started();
+        assert_eq!(
+            schedule.redraw_timing(now + min_frame, now, min_frame),
+            RedrawRequestTiming::Ready
+        );
+        assert!(schedule.request_redraw(|| redraw_requests += 1));
+        assert_eq!(redraw_requests, 2);
     }
 
     #[test]
