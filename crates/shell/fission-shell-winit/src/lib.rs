@@ -225,6 +225,14 @@ mod web_capabilities;
 #[cfg(target_arch = "wasm32")]
 mod web_test_control;
 
+#[inline(always)]
+fn record_web_test_diagnostic(stage: u32, iteration: u32) {
+    #[cfg(target_arch = "wasm32")]
+    web_test_control::record_diagnostic(stage, iteration);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (stage, iteration);
+}
+
 type EffectResult = AsyncMessage;
 
 type ServiceKey = (String, String);
@@ -6603,12 +6611,21 @@ where
                         );
                     }
                     TestEvent::ResolveSelector { query, response_tx } => {
+                        record_web_test_diagnostic(
+                            100,
+                            pipeline
+                                .prev_ir
+                                .as_ref()
+                                .map_or(0, |ir| ir.nodes.len() as u32),
+                        );
                         let resp = resolve_selector_response(
                             &pipeline,
                             &runtime.runtime_state.scroll,
                             &query,
                         );
+                        record_web_test_diagnostic(101, 0);
                         let _ = response_tx.send(resp);
+                        record_web_test_diagnostic(102, 0);
                     }
                     TestEvent::ScrollIntoView { query, response_tx } => {
                         let Some(window) = platform_window.active_window() else {

@@ -21,6 +21,53 @@ const POLL_STAGE_JSON_READY: u32 = 3;
 
 static LAST_POLL_STAGE: AtomicU32 = AtomicU32::new(0);
 
+#[repr(C)]
+struct WebTestDiagnostics {
+    stage: u32,
+    stack_pointer: u32,
+    iteration: u32,
+}
+
+struct WebTestDiagnosticsCell(UnsafeCell<WebTestDiagnostics>);
+
+unsafe impl Sync for WebTestDiagnosticsCell {}
+
+static WEB_TEST_DIAGNOSTICS: WebTestDiagnosticsCell =
+    WebTestDiagnosticsCell(UnsafeCell::new(WebTestDiagnostics {
+        stage: 0,
+        stack_pointer: 0,
+        iteration: 0,
+    }));
+
+/// Record a coarse-grained call-site marker for browser LiveTest crash reports.
+/// The browser test shell is single-threaded, so the fields can be read directly
+/// from Wasm memory even after a trapped callback has left the stack unusable.
+#[cfg(fission_web_test_control)]
+#[inline(never)]
+pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
+    let marker = 0_u32;
+    let stack_pointer = std::ptr::addr_of!(marker) as usize as u32;
+    unsafe {
+        let diagnostics = WEB_TEST_DIAGNOSTICS.0.get();
+        std::ptr::write_volatile(
+            std::ptr::addr_of_mut!((*diagnostics).stack_pointer),
+            stack_pointer,
+        );
+        std::ptr::write_volatile(std::ptr::addr_of_mut!((*diagnostics).iteration), iteration);
+        std::ptr::write_volatile(std::ptr::addr_of_mut!((*diagnostics).stage), stage);
+        std::ptr::read_volatile(std::ptr::addr_of!(marker));
+    }
+}
+
+#[cfg(not(fission_web_test_control))]
+#[inline(always)]
+pub(crate) fn record_diagnostic(_stage: u32, _iteration: u32) {}
+
+#[cfg(fission_web_test_control)]
+fn diagnostics_address() -> u32 {
+    WEB_TEST_DIAGNOSTICS.0.get() as usize as u32
+}
+
 // Browser commands are copied from JavaScript into this fixed scratch area.
 // Keeping the bridge's command ingress out of wasm-bindgen's string allocator
 // is useful in long-running Web LiveTest sessions, where the app itself may
@@ -153,6 +200,11 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         &JsValue::from_str("fission_web_test_stack_pointer_probe"),
     )
     .unwrap_or(JsValue::UNDEFINED);
+    let diagnostics_ptr = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_diagnostics_ptr"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
     if [
         &submit_json,
         &command_json_ptr,
@@ -165,6 +217,7 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         &frame_number_low,
         &frame_number_high,
         &stack_pointer_probe,
+        &diagnostics_ptr,
     ]
     .iter()
     .any(|export| !export.is_function())
@@ -200,7 +253,7 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         return false;
     };
 
-    let diagnostics_address = std::ptr::addr_of!(LAST_POLL_STAGE) as usize;
+    let poll_diagnostics_address = std::ptr::addr_of!(LAST_POLL_STAGE) as usize;
     let diagnostics_adapter = Function::new_with_args(
         "memory,address",
         "return function() { return new DataView(memory.buffer).getUint32(address, true); }",
@@ -208,7 +261,7 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     let Ok(poll_diagnostics) = diagnostics_adapter.call2(
         &JsValue::NULL,
         &memory,
-        &JsValue::from_f64(diagnostics_address as f64),
+        &JsValue::from_f64(poll_diagnostics_address as f64),
     ) else {
         return false;
     };
@@ -225,6 +278,20 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         &frame_number_low,
         &frame_number_high,
     ) else {
+        return false;
+    };
+
+    let diagnostics_address = diagnostics_ptr
+        .dyn_ref::<Function>()
+        .and_then(|function| function.call0(&JsValue::NULL).ok())
+        .unwrap_or(JsValue::UNDEFINED);
+    let diagnostics_reader_adapter = Function::new_with_args(
+        "memory,address",
+        "return function() { const view = new DataView(memory.buffer); const pointer = address >>> 0; return { stage:view.getUint32(pointer,true), stackPointer:view.getUint32(pointer+4,true), iteration:view.getUint32(pointer+8,true) }; }",
+    );
+    let Ok(diagnostics_reader) =
+        diagnostics_reader_adapter.call2(&JsValue::NULL, &memory, &diagnostics_address)
+    else {
         return false;
     };
 
@@ -247,7 +314,6 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     }
     let bridge = Object::new();
     Object::define_property(&bridge, &JsValue::from_str("frame"), &descriptor);
-    let poll_stage_address = diagnostics_address;
     let state_address = bridge_state_address();
     let command_json_address = command_json_ptr
         .dyn_ref::<Function>()
@@ -263,6 +329,18 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         .is_err()
         || Reflect::set(
             &bridge,
+            &JsValue::from_str("diagnostics"),
+            &diagnostics_reader,
+        )
+        .is_err()
+        || Reflect::set(
+            &bridge,
+            &JsValue::from_str("diagnosticsAddress"),
+            &diagnostics_address,
+        )
+        .is_err()
+        || Reflect::set(
+            &bridge,
             &JsValue::from_str("pollDiagnostics"),
             &poll_diagnostics,
         )
@@ -270,7 +348,7 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         || Reflect::set(
             &bridge,
             &JsValue::from_str("pollDiagnosticsAddress"),
-            &JsValue::from_f64(poll_stage_address as f64),
+            &JsValue::from_f64(poll_diagnostics_address as f64),
         )
         .is_err()
         || Reflect::set(
@@ -335,6 +413,12 @@ pub extern "C" fn fission_web_test_stack_pointer_probe() -> u32 {
         std::ptr::read_volatile(std::ptr::addr_of!(marker));
     }
     address
+}
+
+#[cfg(fission_web_test_control)]
+#[no_mangle]
+pub extern "C" fn fission_web_test_diagnostics_ptr() -> u32 {
+    diagnostics_address()
 }
 
 #[cfg(fission_web_test_control)]
