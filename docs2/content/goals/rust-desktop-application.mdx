@@ -109,16 +109,6 @@ impl WorkOrderStatus {
         }
     }
 
-    pub fn search_term(self) -> &'static str {
-        match self {
-            Self::Open => "open",
-            Self::InProgress => "in progress",
-            Self::WaitingForParts => "waiting for parts",
-            Self::ReadyForPickup => "ready for pickup",
-            Self::Closed => "closed",
-        }
-    }
-
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -154,12 +144,6 @@ impl WorkOrderPriority {
         }
     }
 
-    fn search_term(self) -> &'static str {
-        match self {
-            Self::High => "high",
-            Self::Normal => "normal",
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -176,17 +160,6 @@ pub struct ShiftNote {
     pub author: Option<String>,
     pub time: Option<String>,
     pub message: String,
-}
-
-impl ShiftNote {
-    pub(crate) fn draft(id: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            id: id.into(),
-            author: None,
-            time: None,
-            message: message.into(),
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

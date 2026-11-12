@@ -20,7 +20,8 @@ We will build **Field Journal**, a small publication about Rust, product craft, 
 
 Article content lives in dated Markdown files. Fission generates the article, category, and tag routes. The journal interface uses named `fission_component!` components, so search, filters, pagination, and article navigation work in the lesson preview. Those sample stories stay in memory; the production content route renders the authored files into crawlable pages.
 
-## Create the site project
+<!-- fission:step id="journal-index" -->
+## Create the site project and show the journal
 
 Start with the website template and keep each part in a small module. The compiled app under `preview/` is only a browser harness for the lesson. Copy the `src/` files into the generated project, but keep its generated site entry point and `fission.toml` as the production shell.
 
@@ -216,8 +217,7 @@ template = "fission::site::blog"
 
 Fission's blog template handles static pagination and category and tag routes. The component below adds live search and category controls to the preview. The RSS feed is still yours to maintain: Fission copies it, but does not create or update its entries.
 
-<!-- fission:step id="journal-index" -->
-## Give the journal a real front page
+### Give the journal a real front page
 
 Show readers what they need to choose a story: the publication name, a featured article, and a list with enough information to judge each result. Field Journal has six stories about Rust, product design, and field notes. Each card shows the title, category, summary, author, date, and reading time. “Read story” opens that article.
 
