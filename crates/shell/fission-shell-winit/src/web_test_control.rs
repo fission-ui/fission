@@ -73,7 +73,7 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
         }
         437 if iteration == 42 => true,
         437 if iteration == 31 => WEB_WAKE_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 32 == 0,
-        450..=470 | 474 | 475 => true,
+        450..=470 | 474 | 475 | 476 => true,
         90 | 91 if iteration == 42 => true,
         _ => false,
     };

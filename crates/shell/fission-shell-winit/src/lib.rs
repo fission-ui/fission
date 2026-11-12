@@ -7094,12 +7094,15 @@ where
                             &mut frame_trace,
                             "test_fill_text_selector",
                         );
+                        // 467 brackets the 466 console diagnostic. If 467 appears but 476 does
+                        // not, the callback is stuck while recording 466 rather than in cleanup.
+                        record_web_test_diagnostic(467, 0);
                         record_web_test_diagnostic(466, 0);
+                        record_web_test_diagnostic(476, 0);
                         // Keep the final Web LiveTest callback boundary visible. The response
                         // sender and selector strings normally drop at the end of this arm; make
                         // those drops explicit so a browser-side stall can be narrowed to a
                         // specific destructor instead of appearing as a missing event exit.
-                        record_web_test_diagnostic(467, 0);
                         record_web_test_diagnostic(474, 0);
                         drop(response_tx);
                         record_web_test_diagnostic(475, 0);
