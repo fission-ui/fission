@@ -572,7 +572,8 @@ The 7-day and 30-day values are named in the component because this example has 
 ```rust
 use crate::app::SolarDashboardState;
 use fission::prelude::*;
-use fission::charts::{Axis, AxisType, BarSeries, Chart, Legend, Tooltip};
+use fission::charts::axis::AxisType;
+use fission::charts::{Axis, BarSeries, Chart, Legend, Tooltip};
 
 fission_component! {
     pub SolarGenerationTrend<SolarDashboardState> {
@@ -603,10 +604,13 @@ fission_component! {
                 0
             };
             let period = cx.tr(if trend.thirty_days { "chart.range.30" } else { "chart.range.7" });
+            let chart_title = cx.tr("chart.title");
+            let generated_label = cx.tr("chart.series.generated");
+            let forecast_label = cx.tr("chart.series.forecast");
             let chart: Widget = Chart::new()
                 .width(trend.width)
                 .height(300.0)
-                .title(cx.tr("chart.title"))
+                .title(&chart_title)
                 .x_axis(Axis {
                     axis_type: AxisType::Category,
                     data: labels,
@@ -622,8 +626,8 @@ fission_component! {
                 .legend(Legend::top_right())
                 .tooltip(Tooltip::axis_trigger())
                 .series(vec![
-                    BarSeries::new(cx.tr("chart.series.generated")).data(generated).into(),
-                    BarSeries::new(cx.tr("chart.series.forecast")).data(forecast).into(),
+                    BarSeries::new(&generated_label).data(generated).into(),
+                    BarSeries::new(&forecast_label).data(forecast).into(),
                 ])
                 .into();
             (generated_total, forecast_total, percent, period, chart)
@@ -765,15 +769,19 @@ fission_component! {
     SemanticsRegion(
         identifier: Some("cedar-peak-solar-dashboard".to_string()),
         label: Some(cx.tr("dashboard.summary.a11y")),
-        child: Responsive::new(SolarInsightsWide {
-            chart_width: wide_chart_width,
-            summary_width,
-        })
-            .id(WidgetId::explicit("cedar-peak.insights"))
-            .case(ResponsiveCase::max_width(
-                920.0,
-                SolarInsightsCompact { chart_width: inner_width },
-            )),
+        child: Some(
+            Responsive::new_with_id(
+                WidgetId::explicit("cedar-peak.insights"),
+                || SolarInsightsWide {
+                    chart_width: wide_chart_width,
+                    summary_width,
+                },
+            )
+            .case_max_width_with(920.0, || SolarInsightsCompact {
+                chart_width: inner_width,
+            })
+            .into(),
+        ),
     )
 }
 

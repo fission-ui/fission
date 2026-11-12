@@ -480,7 +480,8 @@ The **7 days** and **30 days** buttons select sample data for that window. The b
 use crate::app::TransitOperationsDashboard;
 use crate::state::TransitDashboardState;
 use fission::prelude::*;
-use fission::charts::{Axis, AxisType, BarSeries, Chart, Legend, Tooltip};
+use fission::charts::axis::AxisType;
+use fission::charts::{Axis, BarSeries, Chart, Legend, Tooltip};
 
 fission_component! {
     pub RoutePunctualityTrend<TransitDashboardState> {
@@ -507,10 +508,12 @@ fission_component! {
                 (rates.iter().sum::<f32>() / rates.len() as f32).round() as u32
             };
             let period = cx.tr(if trend.thirty_days { "chart.range.30" } else { "chart.range.7" });
+            let chart_title = cx.tr("chart.title");
+            let rate_label = cx.tr("chart.series.rate");
             let chart: Widget = Chart::new()
                 .width(trend.width)
                 .height(320.0)
-                .title(cx.tr("chart.title"))
+                .title(&chart_title)
                 .x_axis(Axis {
                     axis_type: AxisType::Category,
                     data: labels,
@@ -525,7 +528,7 @@ fission_component! {
                 .y_axis(Axis::value().min(0.0).max(100.0))
                 .legend(Legend::top_right())
                 .tooltip(Tooltip::axis_trigger())
-                .series(vec![BarSeries::new(cx.tr("chart.series.rate")).data(rates).into()])
+                .series(vec![BarSeries::new(&rate_label).data(rates).into()])
                 .into();
             (average, period, chart)
         });

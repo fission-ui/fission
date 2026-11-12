@@ -497,7 +497,8 @@ Keeping the filter in this chart component's retained local state is appropriate
 ```rust
 use crate::state::OperationsDashboardState;
 use fission::prelude::*;
-use fission::charts::{Axis, AxisType, BarSeries, Chart, Legend, Tooltip};
+use fission::charts::axis::AxisType;
+use fission::charts::{Axis, BarSeries, Chart, Legend, Tooltip};
 
 fission_component! {
     pub FulfilmentTrend<OperationsDashboardState> {
@@ -520,10 +521,12 @@ fission_component! {
             };
             let total = picks.iter().sum::<f32>().round() as u32;
             let period = cx.tr(if trend.thirty_days { "chart.range.30" } else { "chart.range.7" });
+            let chart_title = cx.tr("chart.title");
+            let picks_label = cx.tr("chart.series.picks");
             let chart: Widget = Chart::new()
                 .width(trend.width)
                 .height(320.0)
-                .title(cx.tr("chart.title"))
+                .title(&chart_title)
                 .x_axis(Axis {
                     axis_type: AxisType::Category,
                     data: labels,
@@ -538,7 +541,7 @@ fission_component! {
                 .y_axis(Axis::value())
                 .legend(Legend::top_right())
                 .tooltip(Tooltip::axis_trigger())
-                .series(vec![BarSeries::new(cx.tr("chart.series.picks")).data(picks).into()])
+                .series(vec![BarSeries::new(&picks_label).data(picks).into()])
                 .into();
             (total, period, chart)
         });
@@ -600,7 +603,7 @@ fission_component! {
             height: cx.view.viewport_size().height,
             semantic_label: Some(cx.tr("dashboard.a11y")),
             child: Some(Column(gap: tokens.spacing.m, children: [
-                crate::app::OperationsDashboard(),
+                crate::app::OperationsDashboard,
                 FulfilmentTrend(chart_width),
             ]).into()),
         ),
