@@ -99,14 +99,45 @@ static WEB_WAKE_EVENT_PENDING: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn send_wake_event(proxy: &EventLoopProxy<TestEvent>) {
     #[cfg(target_arch = "wasm32")]
-    if WEB_WAKE_EVENT_PENDING.swap(true, Ordering::AcqRel) {
+    {
+        if WEB_WAKE_EVENT_PENDING.swap(true, Ordering::AcqRel) {
+            return;
+        }
+
+        // EventLoopProxy::send_event can synchronously re-enter Winit's Web
+        // callback. If a reducer or effect sends another wake while that
+        // callback is still applying state, nested event-loop passes can keep
+        // the browser task from yielding to timers, RAF, or DevTools. Queue the
+        // wake as a new browser task so the current callback can unwind first.
+        let deferred_proxy = proxy.clone();
+        let callback = Closure::once(move || {
+            if deferred_proxy.send_event(TestEvent::Wake).is_err() {
+                WEB_WAKE_EVENT_PENDING.store(false, Ordering::Release);
+            }
+        });
+        if let Some(window) = web_sys::window() {
+            if window
+                .set_timeout_with_callback_and_timeout_and_arguments_0(
+                    callback.as_ref().unchecked_ref(),
+                    0,
+                )
+                .is_ok()
+            {
+                callback.forget();
+                return;
+            }
+        }
+        drop(callback);
+        // A missing Web timer should not lose an application wake. Keep the
+        // immediate proxy path as a fallback for unusual shutdown states.
+        if proxy.send_event(TestEvent::Wake).is_err() {
+            WEB_WAKE_EVENT_PENDING.store(false, Ordering::Release);
+        }
         return;
     }
 
-    if proxy.send_event(TestEvent::Wake).is_err() {
-        #[cfg(target_arch = "wasm32")]
-        WEB_WAKE_EVENT_PENDING.store(false, Ordering::Release);
-    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = proxy.send_event(TestEvent::Wake);
 }
 
 // Vello / WGPU
