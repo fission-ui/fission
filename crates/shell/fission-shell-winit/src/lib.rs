@@ -7090,12 +7090,13 @@ where
                         // sender and selector strings normally drop at the end of this arm; make
                         // those drops explicit so a browser-side stall can be narrowed to a
                         // specific destructor instead of appearing as a missing event exit.
-                        drop(response_tx);
                         record_web_test_diagnostic(467, 0);
-                        drop(query);
+                        drop(response_tx);
                         record_web_test_diagnostic(468, 0);
-                        drop(text);
+                        drop(query);
                         record_web_test_diagnostic(469, 0);
+                        drop(text);
+                        record_web_test_diagnostic(470, 0);
                     }
                     TestEvent::ClearText { query, response_tx } => {
                         let Some(window) = platform_window.active_window() else {
