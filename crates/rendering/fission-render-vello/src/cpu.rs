@@ -16,7 +16,7 @@ use anyhow::{anyhow, Result};
 use fission_render::{Color as RenderColor, RenderScene, Renderer};
 use vello_cpu::kurbo::{Affine, Rect};
 use vello_cpu::peniko::{Color, ImageAlphaType};
-use vello_cpu::{PaintType, Pixmap, RenderContext, Resources};
+use vello_cpu::{PaintType, Pixmap, RasterizerSettings, RenderContext, Resources, TargetInit};
 
 use crate::{CpuPainter, Painter, VelloRenderer, VelloTextMeasurer};
 
@@ -166,20 +166,18 @@ fn render_scene_to_pixmap(
 ) -> Result<(Pixmap, CpuRenderTimings)> {
     let recording_started = Instant::now();
     let mut pixmap = Pixmap::new(width, height);
+    let background = Color::from_rgba8(background.r, background.g, background.b, background.a);
     {
         let mut painter = CpuPainter { ctx, resources };
-        // Drawn into the scene rather than used as a clear colour, so a backdrop filter at the
-        // root sees the background exactly as it would on the GPU.
-        painter.fill_rect(
-            Affine::IDENTITY,
-            PaintType::from(Color::from_rgba8(
-                background.r,
-                background.g,
-                background.b,
-                background.a,
-            )),
-            &Rect::new(0.0, 0.0, f64::from(width), f64::from(height)),
-        );
+        if backdrop_filters_enabled {
+            // Drawn into the scene rather than used as a clear colour, so a backdrop filter at
+            // the root sees the background exactly as it would on the GPU.
+            painter.fill_rect(
+                Affine::IDENTITY,
+                PaintType::from(background),
+                &Rect::new(0.0, 0.0, f64::from(width), f64::from(height)),
+            );
+        }
         VelloRenderer::new(&mut painter, measurer, scale_factor)
             .with_backdrop_filters(backdrop_filters_enabled)
             .render_scene(scene)?;
@@ -188,7 +186,21 @@ fn render_scene_to_pixmap(
 
     let raster_started = Instant::now();
     ctx.flush();
-    ctx.render(&mut pixmap, resources);
+    if backdrop_filters_enabled {
+        ctx.render(&mut pixmap, resources);
+    } else {
+        // The Canvas2D fallback omits backdrop filters, so the background can be installed as
+        // the target's initial color. This avoids rasterizing and compositing an extra full-window
+        // rectangle on every software frame.
+        ctx.render_with(
+            &mut pixmap,
+            resources,
+            RasterizerSettings {
+                target_init: TargetInit::Clear(background),
+                ..RasterizerSettings::default()
+            },
+        );
+    }
     let rasterization = raster_started.elapsed();
     Ok((
         pixmap,
@@ -251,5 +263,44 @@ mod tests {
 
             assert_eq!(reused, one_shot);
         }
+    }
+
+    #[test]
+    fn software_fallback_clear_matches_a_rasterized_background() {
+        let bounds = LayoutRect::new(0.0, 0.0, 24.0, 16.0);
+        let mut list = fission_render::DisplayList::new(bounds);
+        list.push(fission_render::DisplayOp::DrawRect {
+            rect: LayoutRect::new(4.0, 4.0, 12.0, 12.0),
+            fill: Some(fission_render::Fill::Solid(fission_render::Color {
+                r: 240,
+                g: 80,
+                b: 24,
+                a: 128,
+            })),
+            stroke: None,
+            corner_radius: 0.0,
+            shadow: None,
+            bounds: LayoutRect::new(4.0, 4.0, 12.0, 12.0),
+            node_id: None,
+            corner_radii: None,
+            border_sides: None,
+        });
+        let scene = RenderScene::from_display_list(list);
+        let background = RenderColor {
+            r: 12,
+            g: 34,
+            b: 56,
+            a: 255,
+        };
+        let measurer = measurer();
+        let rasterized_background = CpuRenderer::new()
+            .render_to_rgba8(&scene, 24, 16, background, 1.0, measurer.clone())
+            .unwrap();
+        let cleared_background = CpuRenderer::new()
+            .with_backdrop_filters(false)
+            .render_to_rgba8(&scene, 24, 16, background, 1.0, measurer)
+            .unwrap();
+
+        assert_eq!(cleared_background, rasterized_background);
     }
 }
