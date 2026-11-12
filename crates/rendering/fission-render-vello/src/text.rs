@@ -344,6 +344,11 @@ impl VelloTextMeasurer {
         self.font_cx.clone()
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn default_font_family(&self) -> &str {
+        &self.default_family
+    }
+
     fn width_bits(width: Option<f32>) -> Option<u32> {
         width.map(|w| ((w * 4.0).round() / 4.0).to_bits())
     }

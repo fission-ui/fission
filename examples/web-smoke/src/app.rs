@@ -146,6 +146,10 @@ fission_component! {
                 Text("This exercises the shared Fission runtime through the browser shell.")
                     .size(tokens.typography.body_large_size)
                     .color(tokens.colors.text_secondary),
+                Text("文档 🙂")
+                    .size(tokens.typography.body_large_size)
+                    .color(tokens.colors.text_primary)
+                    .semantics_identifier("web-smoke.unicode-fallback"),
             ],
         )
 }

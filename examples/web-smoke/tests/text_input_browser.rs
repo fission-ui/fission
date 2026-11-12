@@ -31,6 +31,32 @@ fn changed_pixels_in_bounds(
         .count()
 }
 
+fn non_background_pixels_in_bounds(
+    png: &[u8],
+    bounds: fission_test_driver::Bounds,
+) -> Result<usize> {
+    let image = image::load_from_memory(png)?.to_rgba8();
+    let left = bounds.x.max(0.0).floor() as u32;
+    let top = bounds.y.max(0.0).floor() as u32;
+    let right = (bounds.x + bounds.width)
+        .ceil()
+        .max(0.0)
+        .min(image.width() as f32) as u32;
+    let bottom = (bounds.y + bounds.height)
+        .ceil()
+        .max(0.0)
+        .min(image.height() as f32) as u32;
+    if left >= right || top >= bottom {
+        return Ok(0);
+    }
+
+    let background = *image.get_pixel(left, top);
+    Ok((top..bottom)
+        .flat_map(|y| (left..right).map(move |x| (x, y)))
+        .filter(|&(x, y)| image.get_pixel(x, y) != &background)
+        .count())
+}
+
 fn browser_url() -> Option<String> {
     std::env::var("FISSION_WEB_SMOKE_URL").ok()
 }
@@ -181,6 +207,36 @@ fn physical_key_on_the_ime_bridge_is_applied_once() -> Result<()> {
     client.focus_selector(SelectorQuery::semantic_identifier("web-smoke.text.primary"))?;
     client.press_key("q", 0)?;
     client.wait_for_text("Primary value: q (edits: 1)", 5_000)?;
+    Ok(())
+}
+
+#[test]
+fn browser_renderer_paints_cjk_and_emoji_glyph_fallbacks() -> Result<()> {
+    let Some(url) = browser_url() else {
+        eprintln!("set FISSION_WEB_SMOKE_URL to run the browser font-fallback test");
+        return Ok(());
+    };
+    let client = LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())?;
+    let query = SelectorQuery::semantic_identifier("web-smoke.unicode-fallback");
+    client.wait_for_visible(query.clone(), 10_000)?;
+    client.wait_for_text("文档 🙂", 10_000)?;
+
+    let semantic = client.resolve_selector(query)?;
+    assert_eq!(semantic.label.as_deref(), Some("文档 🙂"));
+    let screenshot = client.capture_screenshot_png()?;
+    let non_background = non_background_pixels_in_bounds(&screenshot, semantic.logical_bounds)?;
+    assert!(
+        non_background > 20,
+        "CJK and emoji text was present in the semantic tree but did not paint visible pixels"
+    );
+
+    if let Ok(artifact_dir) = std::env::var("FISSION_WEB_SMOKE_ARTIFACT_DIR") {
+        std::fs::create_dir_all(&artifact_dir)?;
+        std::fs::write(
+            std::path::Path::new(&artifact_dir).join("browser-cjk-emoji-fallback.png"),
+            screenshot,
+        )?;
+    }
     Ok(())
 }
 

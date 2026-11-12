@@ -28,6 +28,16 @@ layouts (simple and rich), decoded images, and parsed SVG paths to keep frame ti
 - `DrawSurface` (video surface placeholder)
 - `Save` / `Restore` / `ClipRect` / `ClipRoundedRect` / `Translate` / `Transform`
 
+## Web font fallback
+
+The Web renderer uses Parley for layout and shaping. Browser builds cannot enumerate fonts
+installed on the user's device, so a missing glyph would otherwise become a tofu box. When a
+Web text run contains a missing glyph, Fission rasterizes that run with Canvas 2D and the
+browser's own font fallback stack, then paints the resulting image in the Vello scene. This
+lets installed CJK and emoji fonts work without embedding large fallback files in every app.
+The fallback image uses the width and vertical metrics already assigned by Parley and is cached
+for reuse across frames.
+
 ## Usage example
 
 ```rust
