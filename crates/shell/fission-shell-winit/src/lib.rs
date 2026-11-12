@@ -5851,6 +5851,15 @@ where
                 if debug_android_events {
                     eprintln!("[android-events] user_event={test_event:?}");
                 }
+                let diagnostic_kind = match &test_event {
+                    TestEvent::MotionStatus { .. } => 1,
+                    TestEvent::Pump { .. } => 2,
+                    TestEvent::ResolveSelector { .. } => 3,
+                    TestEvent::GetText { .. } => 4,
+                    TestEvent::GetTree { .. } => 5,
+                    _ => 0,
+                };
+                record_web_test_diagnostic(90, diagnostic_kind);
                 match test_event {
                     TestEvent::MouseMove { x, y } => {
                         let Some(window) = platform_window.active_window() else {
@@ -7233,6 +7242,7 @@ where
                         elwt.exit();
                     }
                 }
+                record_web_test_diagnostic(91, diagnostic_kind);
             };
 
             #[cfg(target_os = "android")]
