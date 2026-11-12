@@ -30,6 +30,7 @@ pub struct CpuRenderer {
     context_size: Option<(u16, u16)>,
     resources: Resources,
     backdrop_filters_enabled: bool,
+    exact_root_clip_elision: bool,
 }
 
 /// Time spent in the main software-rendering stages for one frame.
@@ -51,6 +52,7 @@ impl CpuRenderer {
             context_size: None,
             resources: Resources::new(),
             backdrop_filters_enabled: true,
+            exact_root_clip_elision: false,
         }
     }
 
@@ -60,6 +62,14 @@ impl CpuRenderer {
     /// a full-window backdrop. The remaining scene, including translucent scrims, is unchanged.
     pub fn with_backdrop_filters(mut self, enabled: bool) -> Self {
         self.backdrop_filters_enabled = enabled;
+        self
+    }
+
+    /// Skip an exact scene viewport clip layer when the CPU target already has
+    /// the same dimensions. This is intended for software fallbacks that render
+    /// directly to their final viewport-sized target.
+    pub fn with_exact_root_clip_elision(mut self, enabled: bool) -> Self {
+        self.exact_root_clip_elision = enabled;
         self
     }
 
@@ -111,6 +121,9 @@ impl CpuRenderer {
             scale_factor,
             measurer,
             self.backdrop_filters_enabled,
+            self.exact_root_clip_elision
+                && !self.backdrop_filters_enabled
+                && target_matches_scene_bounds(scene, width, height, scale_factor),
         )?;
         let copy_started = Instant::now();
         let rgba = pixmap.take_rgba8(ImageAlphaType::AlphaPremultiplied);
@@ -149,6 +162,7 @@ pub fn render_to_pixmap(
         scale_factor,
         measurer,
         true,
+        false,
     )
     .map(|(pixmap, _)| pixmap)
 }
@@ -163,6 +177,7 @@ fn render_scene_to_pixmap(
     scale_factor: f64,
     measurer: Arc<VelloTextMeasurer>,
     backdrop_filters_enabled: bool,
+    exact_root_clip_elision: bool,
 ) -> Result<(Pixmap, CpuRenderTimings)> {
     let recording_started = Instant::now();
     let mut pixmap = Pixmap::new(width, height);
@@ -180,6 +195,7 @@ fn render_scene_to_pixmap(
         }
         VelloRenderer::new(&mut painter, measurer, scale_factor)
             .with_backdrop_filters(backdrop_filters_enabled)
+            .with_exact_root_clip_elision(exact_root_clip_elision)
             .render_scene(scene)?;
     }
     let scene_recording = recording_started.elapsed();
@@ -210,6 +226,28 @@ fn render_scene_to_pixmap(
             output_copy: Duration::ZERO,
         },
     ))
+}
+
+fn target_matches_scene_bounds(
+    scene: &RenderScene,
+    width: u16,
+    height: u16,
+    scale_factor: f64,
+) -> bool {
+    if !scale_factor.is_finite()
+        || scale_factor <= 0.0
+        || scene.bounds.origin.x != 0.0
+        || scene.bounds.origin.y != 0.0
+    {
+        return false;
+    }
+
+    let expected_width = f64::from(scene.bounds.size.width) * scale_factor;
+    let expected_height = f64::from(scene.bounds.size.height) * scale_factor;
+    expected_width.is_finite()
+        && expected_height.is_finite()
+        && expected_width.round() == f64::from(width)
+        && expected_height.round() == f64::from(height)
 }
 
 /// Render `scene` into premultiplied RGBA8 bytes over `background`.
@@ -302,5 +340,54 @@ mod tests {
             .unwrap();
 
         assert_eq!(cleared_background, rasterized_background);
+    }
+
+    #[test]
+    fn exact_root_viewport_clip_elision_preserves_target_pixels() {
+        let bounds = LayoutRect::new(0.0, 0.0, 24.0, 16.0);
+        let mut content = fission_render::DisplayList::new(bounds);
+        content.push(fission_render::DisplayOp::DrawRect {
+            rect: LayoutRect::new(-4.0, 3.0, 32.0, 10.0),
+            fill: Some(fission_render::Fill::Solid(fission_render::Color {
+                r: 240,
+                g: 80,
+                b: 24,
+                a: 128,
+            })),
+            stroke: None,
+            corner_radius: 0.0,
+            shadow: None,
+            bounds: LayoutRect::new(-4.0, 3.0, 32.0, 10.0),
+            node_id: None,
+            corner_radii: None,
+            border_sides: None,
+        });
+        let mut root = fission_render::RenderLayer::new(bounds);
+        root.style.clip = Some(fission_render::LayerClip::Rect(bounds));
+        root.children
+            .push(fission_render::RenderNode::Paint(content));
+        let mut scene = RenderScene::new(bounds);
+        scene.roots.push(fission_render::RenderNode::Layer(root));
+        assert!(target_matches_scene_bounds(&scene, 24, 16, 1.0));
+        assert!(!target_matches_scene_bounds(&scene, 48, 16, 1.0));
+        let background = RenderColor {
+            r: 12,
+            g: 34,
+            b: 56,
+            a: 255,
+        };
+        let measurer = measurer();
+
+        let clipped = CpuRenderer::new()
+            .with_backdrop_filters(false)
+            .render_to_rgba8(&scene, 24, 16, background, 1.0, measurer.clone())
+            .unwrap();
+        let clip_elided = CpuRenderer::new()
+            .with_backdrop_filters(false)
+            .with_exact_root_clip_elision(true)
+            .render_to_rgba8(&scene, 24, 16, background, 1.0, measurer)
+            .unwrap();
+
+        assert_eq!(clip_elided, clipped);
     }
 }

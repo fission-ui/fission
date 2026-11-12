@@ -2008,6 +2008,7 @@ pub struct VelloRenderer<'a> {
     clip_stack: Vec<Rect>,
     scale_factor: f64,
     backdrop_filters_enabled: bool,
+    exact_root_clip_elision: bool,
 }
 
 impl<'a> VelloRenderer<'a> {
@@ -2026,6 +2027,7 @@ impl<'a> VelloRenderer<'a> {
             clip_stack: Vec::new(),
             scale_factor,
             backdrop_filters_enabled: true,
+            exact_root_clip_elision: false,
         }
     }
 
@@ -2036,6 +2038,14 @@ impl<'a> VelloRenderer<'a> {
     /// render effects, including the scrim fill drawn over the backdrop, are left unchanged.
     pub fn with_backdrop_filters(mut self, enabled: bool) -> Self {
         self.backdrop_filters_enabled = enabled;
+        self
+    }
+
+    /// Omit the painter layer for an exact root viewport clip when the output
+    /// target already enforces that same boundary. CPU fallback callers must
+    /// verify that the target dimensions exactly cover the scene viewport.
+    pub(crate) fn with_exact_root_clip_elision(mut self, enabled: bool) -> Self {
+        self.exact_root_clip_elision = enabled;
         self
     }
 
@@ -4252,11 +4262,11 @@ impl<'a> VelloRenderer<'a> {
     fn render_node(&mut self, node: &RenderNode) -> Result<()> {
         match node {
             RenderNode::Paint(list) => self.render_paint_list(list),
-            RenderNode::Layer(layer) => self.render_layer(layer),
+            RenderNode::Layer(layer) => self.render_layer(layer, false),
         }
     }
 
-    fn render_layer(&mut self, layer: &RenderLayer) -> Result<()> {
+    fn render_layer(&mut self, layer: &RenderLayer, elide_clip_layer: bool) -> Result<()> {
         let saved_transform = self.current_transform;
         let saved_layer_count = self.current_layer_count;
         let saved_clip_count = self.clip_stack.len();
@@ -4272,7 +4282,11 @@ impl<'a> VelloRenderer<'a> {
                     (RoundedRect::from_rect(r, *radius as f64).to_path(0.1), r)
                 }
             };
-            self.push_layer_for(path, bounds, BlendMode::default(), 1.0);
+            if elide_clip_layer {
+                self.push_clip_bounds(bounds);
+            } else {
+                self.push_layer_for(path, bounds, BlendMode::default(), 1.0);
+            }
         }
 
         if (layer.style.opacity - 1.0).abs() > 0.001 || !layer.style.blend_mode.is_normal() {
@@ -4305,9 +4319,52 @@ impl<'a> VelloRenderer<'a> {
 
 impl<'a> Renderer for VelloRenderer<'a> {
     fn render_scene(&mut self, scene: &RenderScene) -> Result<()> {
-        for root in &scene.roots {
-            self.render_node(root)?;
+        for (index, root) in scene.roots.iter().enumerate() {
+            let elide_root_clip = self.exact_root_clip_elision
+                && index == 0
+                && matches!(
+                    root,
+                    RenderNode::Layer(layer)
+                        if layer.bounds == scene.bounds
+                            && layer.style.clip == Some(LayerClip::Rect(scene.bounds))
+                            && layer.style.opacity == 1.0
+                            && layer.style.blend_mode.is_normal()
+                            && layer.style.transform.is_none()
+                            && layer_subtree_uses_normal_blending(layer)
+                );
+            if elide_root_clip {
+                if let RenderNode::Layer(layer) = root {
+                    self.render_layer(layer, true)?;
+                }
+            } else {
+                self.render_node(root)?;
+            }
         }
         Ok(())
+    }
+}
+
+fn layer_subtree_uses_normal_blending(layer: &RenderLayer) -> bool {
+    layer.style.blend_mode.is_normal()
+        && layer.children.iter().all(|child| match child {
+            RenderNode::Layer(child) => layer_subtree_uses_normal_blending(child),
+            RenderNode::Paint(_) => true,
+        })
+}
+
+#[cfg(test)]
+mod root_clip_elision_tests {
+    use super::{layer_subtree_uses_normal_blending, RenderLayer, RenderNode};
+    use fission_layout::LayoutRect;
+
+    #[test]
+    fn root_clip_elision_keeps_non_normal_blend_groups() {
+        let bounds = LayoutRect::new(0.0, 0.0, 24.0, 16.0);
+        let mut root = RenderLayer::new(bounds);
+        let mut blended = RenderLayer::new(bounds);
+        blended.style.blend_mode = fission_ir::BlendMode::Multiply;
+        root.children.push(RenderNode::Layer(blended));
+
+        assert!(!layer_subtree_uses_normal_blending(&root));
     }
 }
