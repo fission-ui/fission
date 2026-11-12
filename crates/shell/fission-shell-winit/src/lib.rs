@@ -2183,9 +2183,9 @@ fn request_redraw_once(window: &Window, frame_schedule: &mut FrameScheduleState)
         }
     }
 
-    // Native platforms use winit's redraw dispatch. Web injects a redraw event
-    // through its user-event queue because its requestAnimationFrame redraw can
-    // remain pending while other user events continue to arrive.
+    // Native platforms use winit's redraw dispatch. Web schedules a single
+    // owned animation frame so redraws yield to browser tasks and LiveTest CDP
+    // commands instead of chaining microtask user events.
     window.request_redraw();
     frame_schedule.redraw_scheduled = true;
     true
@@ -2246,20 +2246,58 @@ struct FrameScheduleState {
 
 #[cfg(target_arch = "wasm32")]
 struct WebRedrawScheduler {
-    proxy: EventLoopProxy<TestEvent>,
+    window: web_sys::Window,
+    callback: wasm_bindgen::closure::Closure<dyn FnMut(f64)>,
+    handle: Rc<Cell<Option<i32>>>,
 }
 
 #[cfg(target_arch = "wasm32")]
 impl WebRedrawScheduler {
-    fn new(proxy: EventLoopProxy<TestEvent>) -> Self {
-        Self { proxy }
+    fn new(proxy: EventLoopProxy<TestEvent>) -> anyhow::Result<Self> {
+        use wasm_bindgen::JsCast;
+
+        let window =
+            web_sys::window().ok_or_else(|| anyhow::anyhow!("browser window is unavailable"))?;
+        let handle = Rc::new(Cell::new(None));
+        let callback_handle = handle.clone();
+        let callback = wasm_bindgen::closure::Closure::wrap(Box::new(move |_timestamp: f64| {
+            callback_handle.set(None);
+            record_web_test_diagnostic(438, 1);
+            let _ = proxy.send_event(TestEvent::WebRedrawFrame);
+        }) as Box<dyn FnMut(f64)>);
+
+        Ok(Self {
+            window,
+            callback,
+            handle,
+        })
     }
 
     fn request(&self) -> Result<(), String> {
-        record_web_test_diagnostic(438, 1);
-        self.proxy
-            .send_event(TestEvent::WebRedrawFrame)
-            .map_err(|_| "Web event loop is closed".to_owned())
+        use wasm_bindgen::JsCast;
+
+        if self.handle.get().is_some() {
+            return Ok(());
+        }
+        let handle = self
+            .window
+            .request_animation_frame(self.callback.as_ref().unchecked_ref())
+            .map_err(js_error_to_string)?;
+        self.handle.set(Some(handle));
+        Ok(())
+    }
+
+    fn cancel(&self) {
+        if let Some(handle) = self.handle.take() {
+            let _ = self.window.cancel_animation_frame(handle);
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for WebRedrawScheduler {
+    fn drop(&mut self) {
+        self.cancel();
     }
 }
 
@@ -2294,12 +2332,20 @@ impl FrameScheduleState {
     }
 
     fn redraw_started(&mut self) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(web_redraw) = self.web_redraw.as_ref() {
+            web_redraw.cancel();
+        }
         self.redraw_scheduled = false;
     }
 
     #[cfg(target_arch = "wasm32")]
-    fn install_web_redraw_scheduler(&mut self, proxy: EventLoopProxy<TestEvent>) {
-        self.web_redraw = Some(WebRedrawScheduler::new(proxy));
+    fn install_web_redraw_scheduler(
+        &mut self,
+        proxy: EventLoopProxy<TestEvent>,
+    ) -> anyhow::Result<()> {
+        self.web_redraw = Some(WebRedrawScheduler::new(proxy)?);
+        Ok(())
     }
 
     fn redraw_timing(
@@ -5888,7 +5934,9 @@ where
             .unwrap_or(false);
         let mut frame_trace = FrameScheduleState::new(frame_trace_enabled());
         #[cfg(target_arch = "wasm32")]
-        frame_trace.install_web_redraw_scheduler(event_proxy.clone());
+        if let Err(error) = frame_trace.install_web_redraw_scheduler(event_proxy.clone()) {
+            eprintln!("failed to install Web animation-frame scheduler: {error}");
+        }
         let mut presented_frames: u64 = 0;
         #[cfg(not(target_arch = "wasm32"))]
         let mut software_frame_valid = false;
