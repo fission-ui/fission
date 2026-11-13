@@ -1,0 +1,55 @@
+---
+title: Small multiple bars A
+sidebar_label: Small multiple bars A
+description: Build one reusable branch-orders panel with a shared scale and stable chart identity.
+---
+
+# Small multiple bars A
+
+![Small multiple bars A screenshot](/img/charts/bar-small-multiples-a.png)
+
+Small multiples separate several branches into comparable panels. The separation reduces overlapping marks, but only if every panel keeps the same periods, scale and counting rule.
+
+This page defines the reusable panel. The [second example](./bar-small-multiples-b) places two independent instances together.
+
+## Compose panel
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+fission_component! {
+    pub WeeklyBranchOrders<()> {
+        props {
+            chart_id: WidgetId,
+            title: String,
+            measure_label: String,
+            periods: Vec<String>,
+            counts: Vec<u32>,
+            shared_max: f32,
+        }
+    }
+    view(panel, _state, _cx) {
+        let labels = panel.periods.iter().map(String::as_str).collect();
+        let values = panel.counts.iter().map(|count| *count as f32).collect();
+    } => Chart(
+        id: Some(panel.chart_id),
+        title: Some(panel.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0).max(panel.shared_max)),
+        series: vec![Series::Bar(
+            BarSeries::new(&panel.measure_label).data(values),
+        )],
+    )
+}
+```
+
+Put this component in `widgets/weekly_branch_orders.rs`. The parent supplies translated labels, a ready snapshot and a chart ID derived from the branch's durable identity. Each panel constructs its own chart; it does not clone a retained widget into multiple positions.
+
+## Choose the scale once
+
+Validate that labels and counts have equal lengths, and calculate a finite positive `shared_max` covering every panel. If each chart auto-scales independently, a branch with ten orders can appear as busy as one with a thousand.
+
+Test different distributions on the same scale and inspect panel widths at mobile and desktop sizes. Expose exact counts in a corresponding report list. The screenshot is one gallery fixture, not a complete small-multiples layout.
+
+[Bar family overview](./overview)

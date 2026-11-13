@@ -1,0 +1,44 @@
+---
+title: Product trend dataset
+sidebar_label: Product trend dataset
+description: Compare product demand through one named-column dataset.
+---
+
+# Product trend dataset
+
+![Product trend dataset screenshot](/img/charts/dataset-product-trends.png)
+
+A product trend is useful only if its points refer to the same reporting periods. For example, comparing weekly orders for two products requires complete weeks in a shared order, not two independently sorted lists.
+
+Use the [encoded lines component](../dataset-and-dynamic/dataset-encoded-lines) when the two measures are orders received and orders fulfilled. For two products, keep the same mechanism but name the columns for those products:
+
+```rust
+use fission::charts::{DataValue, Dataset, Encode, LineSeries};
+
+pub fn product_orders(
+    rows: &[(String, u32, u32)],
+    first_label: &str,
+    second_label: &str,
+) -> (Dataset, Vec<LineSeries>) {
+    let dataset = Dataset::new()
+        .dimensions(vec!["week".into(), "first_product".into(), "second_product".into()])
+        .source(rows.iter().map(|(week, first, second)| vec![
+            DataValue::from(week.clone()),
+            DataValue::from(*first as f32),
+            DataValue::from(*second as f32),
+        ]).collect());
+    let lines = vec![
+        LineSeries::new(first_label)
+            .encode(Encode::new().x("week").y("first_product")),
+        LineSeries::new(second_label)
+            .encode(Encode::new().x("week").y("second_product")),
+    ];
+    (dataset, lines)
+}
+```
+
+Pass the returned dataset to `Chart.dataset`, map the lines with `Series::Line`, and use an empty category axis so the encoding supplies week labels. The linked Compose example shows that boundary without a second reporting store.
+
+The labels come from the caller's translations; the column keys are an internal schema. A missing week is not zero demand unless the source confirms it. Validate the input before constructing the dataset, because malformed encoded numeric cells can fall back to zero. Category positions are equally spaced, so this is not an irregular timestamp plot. Test the projected rows and keep exact order counts alongside the visual. The gallery image uses separate fixture data.
+
+[Dataset family overview](./overview)

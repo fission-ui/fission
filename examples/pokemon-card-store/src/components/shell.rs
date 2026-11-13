@@ -6,7 +6,7 @@ use fission::prelude::*;
 
 fission_component! {
     #[derive(Clone)] pub StoreShell<StoreState> { child: Widget }
-    |component, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(component, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         Container(Column(gap: tokens.spacing.l, children: [StoreNav(), component.child.clone(), StoreFooter()]))
         .min_height_length(Length::max(vec![
             Length::vh(100.0),

@@ -1,0 +1,58 @@
+---
+title: Monitoring traffic bars
+sidebar_label: Monitoring traffic bars
+description: Fission Charts reference for Monitoring traffic bars.
+---
+
+# Monitoring traffic bars
+
+![Monitoring traffic bars screenshot](/img/charts/monitoring-traffic-bars.png)
+
+Traffic bars compare how many requests reached each endpoint during the same reporting period. A common baseline makes the largest contributors easier to compare than a collection of independently scaled metrics. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Group by a meaningful endpoint identity, such as the route pattern, rather than raw URLs containing account or order IDs. Otherwise one logical endpoint fragments into many categories and the comparison stops answering the operational question.
+
+## Data model
+
+Supply endpoint labels and request totals in matching order. Counts are not requests per second: if reporting durations differ, calculate and label a rate instead. Keep the integer totals authoritative and prepare bounded `f32` display values for `BarSeries`.
+
+## Authoring from a Fission component
+
+The parent owns aggregation, ordering and the reporting window. This presentation component adds no fixture traffic or network calls.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub EndpointTrafficChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            endpoint_patterns: Vec<String>,
+            request_counts: Vec<f32>,
+        }
+    }
+    view(traffic, _state, _cx) {
+        let endpoints = traffic.endpoint_patterns.iter().map(String::as_str).collect();
+    } => Chart(
+        title: Some(traffic.chart_title.clone()),
+        x_axis: Some(Axis::category(endpoints)),
+        y_axis: Some(Axis::value().min(0.0)),
+        series: vec![BarSeries::new(&traffic.series_label)
+            .data(traffic.request_counts.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test unknown routes, zero counts and category labels long enough to need a different layout. If grouping low-volume endpoints into “Other”, preserve that total and explain the grouping. Provide exact totals and the period outside the plot, and avoid placing sensitive path parameters in labels.
+
+Tags: `monitoring`, `bar`.
+
+[Monitoring family overview](./overview)

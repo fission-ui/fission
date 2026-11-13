@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="fission-mark-title fission-mark-desc">
+  <title id="fission-mark-title">Fission</title>
+  <desc id="fission-mark-desc">A fractured geometric letter F</desc>
+  <defs>
+    <linearGradient id="fission-docs-gradient" x1="8" y1="6" x2="52" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#05625d"/>
+      <stop offset="1" stop-color="#18867c"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#fission-docs-gradient)">
+    <path d="M10 7h44l-7 12H25l-15 15V7Z"/>
+    <path d="M26 25h21l-7 12H26V25Z"/>
+    <path d="M10 38 22 26v31H10V38Z"/>
+  </g>
+</svg>

@@ -1,0 +1,179 @@
+---
+title: Terminal user interfaces
+description: Build terminal applications with the same Fission widget, reducer, and shell model used by macOS, Windows, Linux, Web, Android, iOS, Static site, and SSR targets.
+---
+
+# Terminal user interfaces
+
+Fission can render a normal Fission application inside a terminal. This is not a separate terminal UI framework bolted onto the side of the project. The terminal shell builds your widget tree, lowers it to Fission Core IR, computes layout, verifies that the result can be represented in a terminal, and then paints the frame into terminal cells.
+
+That distinction matters. You still write state, actions, reducers, selectors, screens, routes, and widgets in the same style you would use for a desktop or mobile app. The terminal shell only changes the final presentation layer. It gives you a fast keyboard-first interface for command tools, dashboards, setup flows, diagnostics, and local developer workflows without making you learn a second application model.
+
+## When to choose the terminal shell
+
+A terminal user interface is a good fit when the user is already working in a shell and the task benefits from a persistent interactive view. Running checks, choosing devices, selecting targets, following logs, editing a small set of settings, and launching build workflows are all better experiences when the user can see state, navigate between screens, and keep command output visible.
+
+It is not the right target for highly visual interfaces, freeform graphics, media playback, canvas-heavy content, or flows that depend on exact pointer positioning. The terminal shell deliberately verifies the lowered output and reports unsupported Core IR instead of pretending every widget can be faithfully translated to cells.
+
+## Add the terminal shell feature
+
+Use the Fission facade crate and enable the terminal shell feature for tools that need terminal rendering.
+
+```toml
+[dependencies]
+fission = { version = "0.16.0", features = ["terminal-shell"] }
+```
+
+The public API is available through the facade, so app code should use `fission::terminal::TerminalApp` or import from the prelude when appropriate. You should not depend directly on the internal shell crate unless you are working on Fission itself.
+
+## Build a terminal app from normal widgets
+
+A terminal app uses the same retained components and reducer scopes as other
+targets. This log viewer demonstrates a real presentation choice: show all
+entries or only failures, without inventing another copy of the log data.
+
+```rust
+use fission::prelude::*;
+
+#[derive(Debug, Clone, PartialEq)]
+struct LogEntry {
+    sequence: u64,
+    message: String,
+    is_error: bool,
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+struct ToolState {
+    errors_only: bool,
+    logs: Vec<LogEntry>,
+}
+
+impl GlobalState for ToolState {}
+
+fission_component! {
+    pub ToolApp<ToolState> {}
+    view(_app, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let visible: Vec<_> = state.logs.iter()
+            .filter(|entry| !state.errors_only || entry.is_error)
+            .collect();
+    } =>
+    Column(gap: tokens.spacing.s, children: [
+        Row(gap: tokens.spacing.s, children: [
+            Button(
+                child: Text(cx.tr(if state.errors_only { "logs.show_all" } else { "logs.show_errors" })),
+                key: "filter",
+                on_press: reduce { state.errors_only = !state.errors_only; },
+            ),
+            Button(
+                child: Text(cx.tr("logs.clear")),
+                key: "clear",
+                disabled: state.logs.is_empty(),
+                on_press: reduce { state.logs.clear(); },
+            ),
+        ]),
+        Scroll(
+            semantic_label: cx.tr("logs.output"),
+            child: Column(children: [
+                if visible.is_empty() {
+                    Text(cx.tr(if state.errors_only { "logs.no_errors" } else { "logs.no_output" }))
+                },
+                for entry in visible {
+                    Text(entry.message.clone(), key: entry.sequence)
+                },
+            ]),
+        ),
+    ])
+}
+```
+
+The sequence number identifies a log entry independently of filtering. The
+viewer starts empty; a job or service supplies actual command output, using a
+bounded buffer as described below. The filter does not start a command or
+discard hidden entries.
+
+Define the `logs.*` messages in the shared translation bundles and prepare the
+environment in the app's presentation module. The thin terminal entrypoint then
+installs it:
+
+```rust
+fn main() -> anyhow::Result<()> {
+    fission::terminal::TerminalApp::with_state(ToolApp, ToolState::default())
+        .with_env(crate::presentation::create_env()?)
+        .with_title("Build logs")
+        .run()
+}
+```
+
+Here `presentation::create_env()` is app code returning `anyhow::Result<Env>`,
+not a terminal-specific API. Use the same theme and i18n setup described in
+[Theming and i18n](/docs/guides/theming-and-i18n/) for the other shells.
+
+Real applications should not keep everything in one file. Follow the same structure you would use for a production Fission app: keep state in a state module, reducers in an actions module, screens in a screens module, reusable widgets in a components module, and route selection in a routes module.
+
+## Use the Fission command as the reference example
+
+The interactive Fission command is a terminal Fission app. Running `fission ui --project-dir .` opens an app built from normal Fission widgets and hosted by `TerminalApp`.
+
+The CLI UI is organised around the same patterns recommended for product applications:
+
+| Area | What it does |
+| --- | --- |
+| `ui/state.rs` | Holds project state, selected route, selected target, devices, command output, theme mode, density, and settings. |
+| `ui/routes.rs` | Defines the screens the terminal app can show. |
+| `ui/actions.rs` | Defines actions and reducers for navigation, settings, toggles, and command execution. |
+| `ui/screens/` | Contains the route-level widgets such as dashboard, project setup, run, build, logs, and settings. |
+| `ui/components/` | Contains reusable widgets such as the shell chrome, output panel, controls, and data tables. |
+| `ui/commands.rs` | Runs command-line workflows without blocking the UI and stores bounded scrollback. |
+
+This is the important lesson from the CLI: a terminal app should still be a real app. Avoid writing one giant render function that switches over strings and hand-assembles terminal rows. Use typed state and widgets so the app remains testable, refactorable, and consistent with the rest of Fission.
+
+## Keep long-running work out of the frame loop
+
+Terminal tools often run slow commands: build, test, doctor, deploy, logs, and server processes. Do not run that work directly inside `component conversion` and do not block the terminal event loop while a command is running.
+
+The CLI starts command work on a background thread, stores progress in shared command state, and lets the terminal app poll for new output between input events. That keeps the interface responsive while the command runs. The visible output panel is just another widget reading app state.
+
+A good command workflow has three parts:
+
+1. Dispatch an action when the user presses a button or selects a command.
+2. Start the command outside `component conversion` and immediately return control to the UI.
+3. Append output to bounded scrollback and request a redraw when new data arrives.
+
+That pattern keeps keyboard navigation, mouse clicks, scrolling, theme changes, and settings usable while the command is still running.
+
+## Handle scrollback deliberately
+
+Terminal logs can grow forever. A production terminal app must not keep appending to an unbounded `String` until it exhausts memory.
+
+The CLI uses a bounded ring buffer for command output. The default scrollback is 100,000 lines, and the settings screen lets the user change that value. Older lines are discarded once the limit is reached. This follows the same practical approach used by mature terminal applications: keep enough history for real debugging, but bound memory growth so long-running sessions remain predictable.
+
+If your terminal app displays logs, traces, or streaming output, treat scrollback as a setting rather than an implementation detail. Decide the default, explain it in the UI, and make sure changing it trims existing output safely.
+
+## Support keyboard and mouse input
+
+Terminal apps should work without a mouse, but they do not have to reject mouse input. The terminal shell forwards keyboard events, pointer events, and scroll events into the normal Fission input pipeline where the terminal supports them.
+
+That means buttons can be clicked, scroll areas can receive wheel events, and keyboard navigation can remain the reliable baseline. Design the app so every important command is reachable from the keyboard, then add pointer support to make the experience feel natural in modern terminals.
+
+## Use density settings for terminal screens
+
+A terminal has far fewer layout rows than a desktop window has pixels. Comfortable desktop spacing can feel huge in a terminal because every point maps to cell-sized space.
+
+The CLI defaults to compact density for this reason. Buttons, navigation rows, headers, and text inputs are shorter by default, while a settings page lets users switch back to more comfortable spacing. If you build a terminal app with dense information, add an explicit density setting instead of forcing one layout on every terminal size.
+
+## What the terminal shell verifies
+
+The terminal shell verifies the lowered Core IR before rendering. Unsupported graphical paint operations are rejected rather than silently turned into misleading terminal output. This keeps the shell honest: if an interface cannot be represented as text, boxes, borders, and terminal-compatible color, the shell should tell you early.
+
+The support decision is based on the generated IR and semantics, not hard-coded widget names. That is why the same widget may be acceptable in one configuration and unsupported in another if the lowered output changes.
+
+## Testing terminal apps
+
+At minimum, add tests that render every route of your terminal app through `TerminalApp::render_frame(...)`. That catches unsupported output and layout regressions without needing a live terminal session.
+
+The CLI has a route smoke test that creates the UI state, renders each route, and fails if the terminal shell cannot lower, layout, verify, and render it. Use that as the baseline. For command flows, test reducers and command-state updates separately so slow platform work does not make UI tests flaky.
+
+## Where to go next
+
+Read [Platform shells, command-line interface, and testing](/docs/guides/platform-shells-cli-and-testing/) for the broader shell model. Read [Testing and diagnostics](/docs/guides/testing-and-diagnostics/) for the general testing strategy. If you want to build static documentation or marketing sites instead of terminal tools, continue to [Static sites](/docs/guides/static-sites/). If the site needs request-time data, sessions, signed actions, cache revalidation, workers, or islands, continue to [Server-rendered sites](/docs/guides/server-sites/).

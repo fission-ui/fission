@@ -1,0 +1,54 @@
+---
+title: Risk bubbles dataset
+sidebar_label: Risk bubbles dataset
+description: Project operational risk records into explicit bubble coordinates.
+---
+
+# Risk bubbles dataset
+
+![Risk bubbles dataset screenshot](/img/charts/dataset-risk-bubbles.png)
+
+A risk register usually has more than one useful measure. Plotting estimated likelihood against impact makes their relationship visible; bubble size can then indicate how many assets are exposed. These are three different quantities and should remain separate in the source model.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BubbleSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct AssetRisk {
+    pub id: String,
+    pub likelihood_percent: f32,
+    pub impact_score: f32,
+    pub exposed_assets: u32,
+}
+
+fission_component! {
+    pub AssetRiskBubbles<()> {
+        props {
+            title: String,
+            risks_label: String,
+            likelihood_label: String,
+            impact_label: String,
+            risks: Vec<AssetRisk>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.title.clone()),
+        x_axis: Some(Axis::value().name(report.likelihood_label.clone()).min(0.0).max(100.0)),
+        y_axis: Some(Axis::value().name(report.impact_label.clone()).min(0.0).max(10.0)),
+        series: vec![Series::Bubble(BubbleSeries::new(&report.risks_label)
+            .data(report.risks.iter().map(|risk| (
+                risk.likelihood_percent,
+                risk.impact_score,
+                risk.exposed_assets as f32,
+            )).collect())
+            .radius_range(4.0, 24.0))],
+    )
+}
+```
+
+This is a typed Rust projection, not automatic `Dataset`/`Encode` binding: the current resolver supports those bindings for bars and lines. Validate the stated 0–100 likelihood and 0–10 impact scales rather than clipping invalid records into a plausible picture.
+
+Bubble radii are relative to the series and have a minimum, so zero exposure is not represented by a zero-area mark. Exclude inactive risks explicitly, retain exact asset counts in an accompanying list, and keep IDs when resolving selections. Supply translated labels from the parent. The gallery image uses its own fixture.
+
+[Dataset family overview](./overview)

@@ -3,7 +3,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(crate) GalleryCompact<GalleryState> { sidebar: Widget, content: Widget }
-    |gallery, _state, cx| {} =>
+    view(gallery, _state, cx) {} =>
         Scroll(
             id: WidgetId::explicit("chart-gallery.page-scroll.compact"),
             direction: FlexDirection::Column,

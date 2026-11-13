@@ -1,0 +1,45 @@
+---
+title: AlertKind
+description: Choose the severity and visual meaning of an Alert.
+slug: /widgets/alert-kind
+---
+# AlertKind
+
+`AlertKind` is the severity enum used by [`Alert`](/reference/widgets/alert).
+
+It tells the alert whether it is information, a warning, an error, or a
+success message. Choose the kind for what happened, not for the colour you want.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub StorageWarning<()>
+    view(_warning, _state, cx) =>
+    Alert(
+        kind: AlertKind::Warning,
+        title: cx.tr("storage.almost_full"),
+        description: Some(cx.tr("storage.clear_space_before_uploading")),
+    )
+}
+```
+
+## Choice table
+
+| Choice | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `Info` | `AlertKind` | Informational message. | Good for neutral guidance or status updates. |
+| `Warning` | `AlertKind` | Potential problem that needs attention soon. | Good when the user should notice risk before failure. |
+| `Error` | `AlertKind` | Something failed or is invalid right now. | Use when the user needs to recover or change input. |
+| `Success` | `AlertKind` | Positive confirmation that something worked. | Best for meaningful success, not every tiny action. |
+
+## Specific advice
+
+Pick the kind based on product meaning, not aesthetics. If everything becomes a warning just because orange looks noticeable, users lose trust in the severity system.
+
+
+## Related
+
+[`Alert`](/reference/widgets/alert), [`ToastKind`](/reference/widgets/toast-kind), [`Badge`](/reference/widgets/badge), and [`EmptyState`](/reference/widgets/empty-state).

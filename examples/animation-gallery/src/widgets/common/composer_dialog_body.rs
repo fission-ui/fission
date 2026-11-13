@@ -9,7 +9,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) ComposerDialogBody<AnimationGalleryState> { case: GalleryCase, atoms: Vec<MotionAtom> }
-    |body, state, cx| {
+    view(body, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let path = state.current_path.clone();
         let expression = composition_expression(&path, &body.atoms);

@@ -17,6 +17,13 @@ type MountedRuntimes = HashMap<String, RuntimeSlot>;
 static MOUNTED_RUNTIMES: OnceLock<Mutex<MountedRuntimes>> = OnceLock::new();
 const MOUNTED_PREVIEW_SCOPE: &str = "showcase.mounted-preview";
 
+fission_component! {
+    #[derive(Clone)] pub(crate) MountedExampleView<crate::state::ShowcaseState> {
+        render: Arc<dyn Fn() -> Widget>,
+    }
+    view(component, _state, _cx) {} => (component.render)()
+}
+
 struct RuntimeSlot {
     generation: u64,
     runtime: Arc<Mutex<Runtime>>,
@@ -56,92 +63,98 @@ where
         self.configure_env = Some(configure_env);
         self
     }
+
+    pub(crate) fn into_component(self) -> MountedExampleView
+    where
+        W: Clone + Into<Widget> + 'static,
+        S: 'static,
+    {
+        MountedExampleView::new(Arc::new(move || render_mounted_example(&self)))
+    }
 }
 
-impl<S, W> From<MountedExample<S, W>> for Widget
+fn render_mounted_example<S, W>(component: &MountedExample<S, W>) -> Widget
 where
     S: GlobalState + Default,
-    W: Into<Widget>,
+    W: Clone + Into<Widget>,
 {
-    fn from(component: MountedExample<S, W>) -> Self {
-        let (outer_ctx, outer_view) = fission::build::current::<crate::state::ShowcaseState>();
-        // There is only one mounted preview. Reusing one scope means rebuilding or
-        // navigating replaces the active handlers instead of leaving every preview
-        // visited during this process registered forever.
-        let scope = ActionScopeId::from_name(MOUNTED_PREVIEW_SCOPE);
-        let runtime_key = runtime_key::<S>(component.key);
-        let runtime =
-            mounted_runtime::<S>(component.key, component.generation, component.initial_state);
-        let mut child_env = outer_view.env().clone();
-        configure_child_viewport(&outer_view, &mut child_env);
-        // The design system picker styles the preview, not the showcase around it.
-        let preview = outer_view.state();
-        child_env.theme = preview.design_system.theme(preview.theme_mode);
-        outer_ctx.register(
-            on_mounted_resource_callback
-                as fn(
-                    &mut crate::state::ShowcaseState,
-                    MountedResourceCallback,
-                    &mut ReducerContext<crate::state::ShowcaseState>,
-                ),
-        );
+    let (outer_ctx, outer_view) = fission::build::current::<crate::state::ShowcaseState>();
+    // There is only one mounted preview. Reusing one scope means rebuilding or
+    // navigating replaces the active handlers instead of leaving every preview
+    // visited during this process registered forever.
+    let scope = ActionScopeId::from_name(MOUNTED_PREVIEW_SCOPE);
+    let runtime_key = runtime_key::<S>(component.key);
+    let runtime =
+        mounted_runtime::<S>(component.key, component.generation, component.initial_state);
+    let mut child_env = outer_view.env().clone();
+    configure_child_viewport(&outer_view, &mut child_env);
+    // The design system picker styles the preview, not the showcase around it.
+    let preview = outer_view.state();
+    child_env.theme = preview.design_system.theme(preview.theme_mode);
+    outer_ctx.register(
+        on_mounted_resource_callback
+            as fn(
+                &mut crate::state::ShowcaseState,
+                MountedResourceCallback,
+                &mut ReducerContext<crate::state::ShowcaseState>,
+            ),
+    );
 
-        let (child, action_ids, mut child_ctx) = {
-            let mut runtime_guard = runtime
-                .lock()
-                .expect("mounted example runtime mutex poisoned");
-            // The outer shell owns input, focus, gestures, text editing and motion for
-            // the combined IR. Retained component-local values still belong to the
-            // mounted runtime because its scoped reducers update that store. Compose
-            // those two authorities rather than replacing either runtime wholesale.
-            let mut child_runtime_state = outer_view.runtime().clone();
-            child_runtime_state.local_widget_state =
-                runtime_guard.runtime_state.local_widget_state.clone();
-            let child_state = runtime_guard
-                .get_global_state::<S>()
-                .expect("mounted example state must be registered");
-            if let Some(configure_env) = component.configure_env {
-                configure_env(child_state, &mut child_env);
-            }
+    let (child, action_ids, mut child_ctx) = {
+        let mut runtime_guard = runtime
+            .lock()
+            .expect("mounted example runtime mutex poisoned");
+        // The outer shell owns input, focus, gestures, text editing and motion for
+        // the combined IR. Retained component-local values still belong to the
+        // mounted runtime because its scoped reducers update that store. Compose
+        // those two authorities rather than replacing either runtime wholesale.
+        let mut child_runtime_state = outer_view.runtime().clone();
+        child_runtime_state.local_widget_state =
+            runtime_guard.runtime_state.local_widget_state.clone();
+        let child_state = runtime_guard
+            .get_global_state::<S>()
+            .expect("mounted example state must be registered");
+        if let Some(configure_env) = component.configure_env {
+            configure_env(child_state, &mut child_env);
+        }
 
-            let child_view = View::new(
-                child_state,
-                &child_runtime_state,
-                &child_env,
-                outer_view.layout(),
-            );
-            let mut child_ctx = BuildCtx::<S>::new();
-            let root_id = WidgetId::explicit(&format!(
-                "showcase.mount.{}.{}",
-                component.key, component.generation
-            ));
-            let child = build::enter(&mut child_ctx, &child_view, || {
-                let root: Widget = component.root.into();
-                root.id(root_id)
-            });
-            let action_ids = child_ctx.registry.action_ids();
-
-            runtime_guard.clear_reducers();
-            runtime_guard.absorb_registry(std::mem::take(&mut child_ctx.registry));
-            (child, action_ids, child_ctx)
-        };
-
-        // Lower with the preview's environment too, not just build with it, so recipe
-        // values read while lowering (control heights, padding) match the chosen look.
-        let child_env = Arc::new(child_env);
-        forward_build_registrations(
-            &outer_ctx,
-            &mut child_ctx,
-            scope,
+        let child_view = View::new(
+            child_state,
+            &child_runtime_state,
             &child_env,
-            outer_view.viewport_size(),
-            &runtime_key,
-            component.generation,
+            outer_view.layout(),
         );
-        install_action_handlers(scope, action_ids, runtime);
+        let mut child_ctx = BuildCtx::<S>::new();
+        let root_id = WidgetId::explicit(&format!(
+            "showcase.mount.{}.{}",
+            component.key, component.generation
+        ));
+        let child = build::enter(&mut child_ctx, &child_view, || {
+            let root: Widget = component.root.clone().into();
+            root.id(root_id)
+        });
+        let action_ids = child_ctx.registry.action_ids();
 
-        ActionScope::new(scope, EnvScope::new(child_env, child)).into()
-    }
+        runtime_guard.clear_reducers();
+        runtime_guard.absorb_registry(std::mem::take(&mut child_ctx.registry));
+        (child, action_ids, child_ctx)
+    };
+
+    // Lower with the preview's environment too, not just build with it, so recipe
+    // values read while lowering (control heights, padding) match the chosen look.
+    let child_env = Arc::new(child_env);
+    forward_build_registrations(
+        &outer_ctx,
+        &mut child_ctx,
+        scope,
+        &child_env,
+        outer_view.viewport_size(),
+        &runtime_key,
+        component.generation,
+    );
+    install_action_handlers(scope, action_ids, runtime);
+
+    ActionScope::new(scope, EnvScope::new(child_env, child)).into()
 }
 
 fn runtime_key<S: GlobalState>(key: &str) -> String {

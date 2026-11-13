@@ -1,0 +1,53 @@
+---
+title: Wide-label horizontal bars
+sidebar_label: Wide-label horizontal bars
+description: Reserve explicit chart margin for long labels while using horizontal comparison bars.
+---
+
+# Wide-label horizontal bars
+
+![Wide-label horizontal bars screenshot](/img/charts/bar-wide-labels.png)
+
+Horizontal bars move category names onto the vertical axis, but that does not automatically provide unlimited room for them. The plot still needs an intentional label margin.
+
+For a support report with long queue names, keep the full names in the data and reserve margin through the chart's grid configuration. Do not shorten the authoritative queue identity to fit a screenshot.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Grid as ChartGrid, Series};
+
+#[derive(Clone)]
+pub struct QueueCount {
+    pub label: String,
+    pub waiting: u32,
+}
+
+fission_component! {
+    pub NamedQueueBacklogs<()> {
+        props {
+            title: String,
+            count_label: String,
+            queues: Vec<QueueCount>,
+            plot_grid: ChartGrid,
+        }
+    }
+    view(queues, _state, _cx) {
+        let labels = queues.queues.iter().map(|queue| queue.label.as_str()).collect();
+        let values = queues.queues.iter().map(|queue| queue.waiting as f32).collect();
+    } => Chart(
+        title: Some(queues.title.clone()),
+        grid: Some(queues.plot_grid.clone()),
+        x_axis: Some(Axis::value().min(0.0)),
+        y_axis: Some(Axis::category(labels)),
+        series: vec![Series::Bar(
+            BarSeries::new(&queues.count_label).horizontal().data(values),
+        )],
+    )
+}
+```
+
+Use `fission::charts::Grid`, not the layout widget with the same name. The parent can adjust its left margin for the available width and design-system spacing; the component does not invent a fixed label allowance for every target.
+
+Inspect actual long translations at mobile and desktop sizes. The current chart labels have finite layout space, so horizontal orientation is not a guarantee that every name will fit. Keep full labels and exact counts in an accessible companion list. Test an empty queue report and enough rows to reveal crowding. The image is the gallery fixture.
+
+[Bar family overview](./overview)

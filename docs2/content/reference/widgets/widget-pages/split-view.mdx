@@ -1,0 +1,84 @@
+---
+title: SplitView
+description: Divide space between two panes using a split ratio and a visual divider.
+slug: /widgets/split-view
+---
+# SplitView
+
+`SplitView` divides a region into two panes, such as a sidebar and content
+area or an editor and inspector.
+
+Use it when both panes belong on screen together. If a narrow layout should
+switch to a single column, make that responsive choice before building the
+`SplitView`.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub MailPanes<()> {
+        props {
+            folders: Widget,
+            messages: Widget,
+            ratio: f32,
+            resize: ActionEnvelope,
+        }
+    }
+
+    view(panes, _state, _cx) =>
+        SplitView(
+            id: WidgetId::explicit("mail.panes"),
+            direction: SplitDirection::Horizontal,
+            first: panes.folders.clone(),
+            second: panes.messages.clone(),
+            split_ratio: panes.ratio,
+            on_resize: panes.resize.clone(),
+        )
+}
+```
+
+The parent supplies actual folder/message trees and a resize action bound to
+its shared pane preference. The reducer needs the split region's measured
+width or height when converting pointer deltas into a ratio; a viewport width
+is wrong when this region occupies only part of the screen.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetId` | Stable identity for the split surface. | Required. |
+| `direction` | `SplitDirection` | Whether the panes are left/right or top/bottom. | Required. |
+| `first` | `Widget` | Content of the first pane. | Required. |
+| `second` | `Widget` | Content of the second pane. | Required. |
+| `split_ratio` | `f32` | Share of space given to the first pane. | Clamped by the current implementation to `0.1..=0.9`. |
+| `on_resize` | `Option<ActionEnvelope>` | Action dispatched while the divider is dragged. | Read `(x, y, delta_x, delta_y)` from `ctx.input.as_pointer()` and update the controlled ratio. |
+
+## Current behavior
+
+The checked-in implementation renders the panes using `flex_grow` values derived from `split_ratio` and inserts a thin visual divider between them. `Horizontal` mode uses a `Row`; `Vertical` mode uses a `Column`.
+
+The divider is an interactive separator. Drag updates dispatch `on_resize`
+with pointer coordinates and per-update deltas. The application remains the
+authority for `split_ratio`: divide the relevant delta by the split view's
+known width or height, clamp according to product policy, and store the result
+in state. The next conversion applies that ratio.
+
+## Specific advice
+
+Use a stable `id` so an active drag remains attached to the same separator
+across state updates. If resizing needs minimum pane sizes beyond the built-in
+ratio clamp, apply those limits in the reducer that handles `on_resize`.
+
+If the app needs real responsive adaptation between one-pane and two-pane layouts, keep that structural branch outside this widget and let `SplitView` stay focused on the two-pane case.
+
+## Production checklist
+
+- Measure the actual split region when converting pointer deltas to ratios.
+- Test minimum pane sizes, continuous drag across rebuilds, and resizing while selected.
+- Choose a separately constructed one-pane layout below a readable breakpoint.
+
+## Related
+
+[`SplitDirection`](/reference/widgets/split-direction), [`Row`](/reference/widgets/row), and [`Column`](/reference/widgets/column).

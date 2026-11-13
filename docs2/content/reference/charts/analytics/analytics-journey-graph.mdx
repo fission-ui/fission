@@ -1,0 +1,50 @@
+---
+title: Journey graph
+sidebar_label: Journey graph
+description: Show observed navigation relationships with stable page IDs and a Compose graph.
+---
+
+# Journey graph
+
+![Journey graph screenshot](/img/charts/analytics-journey-graph.png)
+
+A journey graph is useful when the interesting part is which pages connect, rather than how many people completed a fixed sequence. It can reveal loops and alternative routes that a straight funnel would hide.
+
+Keep page identity separate from its display name. A translated label can change; an edge referring to the page should still resolve to the same node.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GraphNode, GraphSeries, Series};
+use fission::charts::series::graph::GraphEdge;
+
+fission_component! {
+    pub NavigationRelationships<()> {
+        props {
+            title: String,
+            journey_label: String,
+            pages: Vec<GraphNode>,
+            transitions: Vec<GraphEdge>,
+        }
+    }
+    view(journey, _state, _cx) => Chart(
+        title: Some(journey.title.clone()),
+        series: vec![Series::Graph(
+            GraphSeries::new(&journey.journey_label)
+                .nodes(journey.pages.clone())
+                .edges(journey.transitions.clone()),
+        )],
+    )
+}
+```
+
+Build nodes from the report's stable page IDs. Put translated page labels in `GraphNode.name`, non-negative finite visit counts in `value`, and existing node IDs in `GraphEdge.source` and `target`.
+
+## What the geometry means
+
+The renderer chooses a force-directed layout. Distance is a layout consequence, not elapsed time or journey length. Node value influences marker size; `GraphEdge` has no count or weight field, so an edge only establishes a relationship.
+
+Validate unique IDs and edge endpoints before rendering. Keep transition counts in an accompanying list if frequency matters, and provide a textual account of important loops or paths. Test filtering with edges whose endpoints disappear; silently keeping dangling relationships is not a valid filtered report. The screenshot is a gallery fixture.
+
+[Analytics family overview](./overview)

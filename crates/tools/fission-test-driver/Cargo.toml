@@ -1,6 +1,6 @@
 [package]
 name = "fission-test-driver"
-version = "0.15.1"
+version = "0.16.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/fission-ui/fission"
@@ -25,6 +25,6 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 tempfile = "3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-fission-command-process = { path = "../fission-command-process", version = "0.15.1" }
+fission-command-process = { path = "../fission-command-process", version = "0.16.0" }
 ureq = { version = "2", features = ["json"] }
 tungstenite = "0.24"

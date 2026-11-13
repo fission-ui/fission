@@ -4,7 +4,7 @@ use crate::model::{on_select_order, FieldInspectorState, SelectOrder};
 use fission::prelude::*;
 fission_component! {
     pub WorkOrderRail<FieldInspectorState> { compact: bool }
-    |rail, state, cx| {
+    view(rail, state, cx) {
         let spacing = &cx.view.env().theme.tokens.spacing;
     } =>
         PanelCard(Column(

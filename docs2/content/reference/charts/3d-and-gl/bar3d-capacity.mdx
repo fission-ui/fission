@@ -1,0 +1,110 @@
+---
+title: 3D capacity bars
+sidebar_label: 3D capacity bars
+description: Compare capacity readings without losing their positions in a facility.
+---
+
+# 3D capacity bars
+
+![3D capacity bars screenshot](/img/charts/bar3d-capacity.png)
+
+Capacity can mean an absolute quantity, such as occupied storage slots, or a proportion of what is available. That distinction matters before choosing a chart. A rack holding 80 items is not necessarily closer to full than one holding 40; the answer depends on their respective limits. The screenshot is a sample from Fission's chart gallery.
+
+## What the chart is for
+
+A spatial grid is useful when the reader needs to locate a capacity problem, for example which part of a storage floor is filling up. Use height for one consistently defined measure and keep the grid aligned with the locations it represents.
+
+If location is irrelevant, depth adds a cost without adding information. A two-dimensional bar chart is usually better for comparing departments, and a table is better when the user needs exact remaining capacity.
+
+## Data model
+
+Keep the occupied quantity and capacity in the source model. Derive utilisation as `occupied / capacity` when presenting the data; do not replace the original quantities with a rounded percentage. This leaves the same data available for labels, alerts and tests.
+
+The gallery renders its bars as cuboid meshes in `fission::three_d::Scene3D`. They are not a built-in `Chart` series and do not acquire axes or capacity semantics automatically.
+
+## Rust API
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `Scene3D::new()` | `Scene3D` | Creates an empty scene; requires Fission's `three-d` feature. |
+| `add_primitive(...)` | `Primitive3D` | Adds a cube, sphere or triangle mesh. |
+| `width / height` | `Option<f32>` | Optional viewport dimensions. |
+
+The legacy `fission::three_d::Scene3D` used by this gallery exposes no `camera`, `size` or `ambient_light` builder methods. Use its actual geometry and sizing API rather than treating it as another chart configuration object.
+
+## Example
+
+```rust
+#[derive(Clone)]
+pub struct RackUsage {
+    pub occupied: f32,
+    pub capacity: f32,
+}
+
+impl RackUsage {
+    pub fn utilisation(&self) -> Option<f32> {
+        if !self.occupied.is_finite()
+            || !self.capacity.is_finite()
+            || self.occupied < 0.0
+            || self.capacity <= 0.0
+        {
+            return None;
+        }
+        let ratio = self.occupied / self.capacity;
+        ratio.is_finite().then_some(ratio)
+    }
+}
+```
+
+## Interaction and animation
+
+The geometry alone does not identify a rack to a reducer. Do not expect `ChartInteractionEvent` or `ChartAnimation` to apply to these scene primitives. Provide an associated rack list for selection unless you are using a scene interface which explicitly supports picking.
+
+## Testing guidance
+
+Test a half-full rack, an empty rack, a zero-capacity rack and a reading above capacity. The last case is important: clamping it to 100% hides the very problem a capacity screen should reveal. Missing readings must remain distinguishable from genuine zero usage in the surrounding UI.
+
+## Authoring from a Fission component
+
+Use the `StorageReadings` component and `reading_bar` geometry from [3D bar](./bar3d-basic). Put them in `widgets/spatial_readings.rs`; this example imports that shared component rather than repeating the mesh construction. `RackUsage` comes from the preceding model.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use crate::widgets::spatial_readings::StorageReadings;
+
+fission_component! {
+    pub CapacityFloorPlan<()> {
+        props {
+            title: TextContent,
+            racks: Vec<Vec<RackUsage>>,
+            bar_color: Color,
+        }
+    }
+    view(plan, _state, _cx) {
+        let readings: Vec<Vec<Option<f32>>> = plan.racks
+            .iter()
+            .map(|row| row.iter().map(RackUsage::utilisation).collect())
+            .collect();
+    } => StorageReadings {
+        title: plan.title.clone(),
+        readings: readings,
+        bar_color: plan.bar_color,
+    }
+}
+```
+Here, a full rack has a height of one scene unit. Invalid readings remain `None` rather than being converted to zero. Both produce no bar, so the surrounding UI must still explain unavailable readings and their cause. Retain the original quantities for the accessible table and load them through effects and reducers before building this presentation component.
+
+## Options, accessibility, and diagnostics
+
+| Area | What to decide | How to check it |
+| --- | --- | --- |
+| Data shape | Retain occupied quantity and capacity; derive utilisation for display. | Test invalid capacity and ratios above one. |
+| Presentation | Keep rack positions stable and state what bar height means. | Inspect the smallest and largest supported floor layouts. |
+| Accessibility | Offer the rack name, occupied quantity, capacity and unavailable state outside the scene. | Check that the same information is usable without seeing the bars. |
+| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
+| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+
+Tags: `3d`, `bar`.
+
+[3D and GL family overview](./overview)

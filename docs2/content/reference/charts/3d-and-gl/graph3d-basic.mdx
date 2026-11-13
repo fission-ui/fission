@@ -1,0 +1,134 @@
+---
+title: 3D graph
+sidebar_label: 3D graph
+description: Render spatial nodes and their connections as a native scene without confusing geometry with graph data.
+---
+
+# 3D graph
+
+![3D graph screenshot](/img/charts/graph3d-basic.png)
+
+A graph records relationships; its drawing assigns positions to them. Those are different things. Moving a device in a topology view should not change which devices it is connected to, and two spheres being close together does not itself imply a connection.
+
+Use depth when positions have spatial meaning, such as equipment placed on different floors. For an ordinary dependency diagram, a two-dimensional graph is often easier to read and interact with.
+
+## From a connection to a mesh
+
+The gallery uses `fission::three_d::Scene3D`, whose primitives are cubes, spheres and triangle meshes. There is no built-in graph layout or edge primitive in this interface. A connection can be represented by a narrow prism between two resolved positions.
+
+Place this helper in `widgets/spatial_graph.rs`. It follows the gallery's segment construction, with an explicit rejection of coincident endpoints and invalid geometry inputs.
+
+```rust
+use fission::core::op::Color;
+use fission::three_d::{Point3D, Primitive3D};
+
+pub fn segment_prism(
+    from: &Point3D,
+    to: &Point3D,
+    half_width: f32,
+    color: Color,
+) -> Option<Primitive3D> {
+    let delta = [to.x - from.x, to.y - from.y, to.z - from.z];
+    let length = delta[0].hypot(delta[1]).hypot(delta[2]);
+    if !length.is_finite() || length <= f32::EPSILON
+        || !half_width.is_finite() || half_width <= 0.0
+    {
+        return None;
+    }
+
+    let direction = delta.map(|value| value / length);
+    let reference = if direction[1].abs() > 0.92 {
+        [1.0, 0.0, 0.0]
+    } else {
+        [0.0, 1.0, 0.0]
+    };
+    let cross = |a: [f32; 3], b: [f32; 3]| [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ];
+    let perpendicular = cross(direction, reference);
+    let side_length = perpendicular[0].hypot(perpendicular[1]).hypot(perpendicular[2]);
+    let side = perpendicular.map(|value| value / side_length * half_width);
+    let up = cross(side, direction);
+    let corner = |point: &Point3D, s: f32, u: f32| Point3D::new(
+        point.x + s * side[0] + u * up[0],
+        point.y + s * side[1] + u * up[1],
+        point.z + s * side[2] + u * up[2],
+    );
+
+    Some(Primitive3D::Mesh {
+        vertices: vec![
+            corner(from, 1.0, 1.0), corner(from, -1.0, 1.0),
+            corner(from, -1.0, -1.0), corner(from, 1.0, -1.0),
+            corner(to, 1.0, 1.0), corner(to, -1.0, 1.0),
+            corner(to, -1.0, -1.0), corner(to, 1.0, -1.0),
+        ],
+        indices: vec![
+            0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5,
+            2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7,
+            0, 3, 2, 0, 2, 1, 4, 5, 6, 4, 6, 7,
+        ],
+        color,
+    })
+}
+```
+
+The reference vector is chosen so it is not parallel to the connection. Its cross product supplies a side vector; another cross product supplies the remaining face direction. The result has eight corners and twelve triangles, independent of link length.
+
+## Compose the resolved view
+
+Add the following types to the same module. Enable Fission's `three-d` feature.
+
+```rust
+use fission::prelude::*;
+use fission::three_d::Scene3D;
+
+#[derive(Clone)]
+pub struct Link3D {
+    pub from: Point3D,
+    pub to: Point3D,
+}
+
+fission_component! {
+    pub NetworkScene<()> {
+        props {
+            title: TextContent,
+            positions: Vec<Point3D>,
+            links: Vec<Link3D>,
+            node_color: Color,
+            link_color: Color,
+        }
+    }
+    view(network, _state, _cx) {
+        let mut scene = Scene3D::new().height(320.0);
+        for link in &network.links {
+            if let Some(mesh) = segment_prism(&link.from, &link.to, 0.025, network.link_color) {
+                scene = scene.add_primitive(mesh);
+            }
+        }
+        for position in &network.positions {
+            scene = scene.add_primitive(Primitive3D::Sphere {
+                center: position.clone(),
+                radius: 0.12,
+                color: network.node_color,
+            });
+        }
+    } => Column(children: [
+        Text(network.title.clone()),
+        scene,
+    ])
+}
+```
+
+The radii are scene geometry, not interface spacing tokens. The parent supplies theme colours, translated text and validated positions. It should resolve durable node IDs to coordinates before constructing this display projection, whilst retaining the original graph for selection, inspection and accessible descriptions.
+
+## Boundaries and checks
+
+This scene does not expose `ChartInteractionEvent`, graph picking or `ChartAnimation` for individual primitives. If selecting a node inside the scene is required, choose an interface with an explicit picking contract; a labelled adjacent list can use ordinary Fission actions.
+
+Test endpoint resolution separately from geometry. Test vertical and horizontal links, coincident positions, triangle indices and invalid coordinates, then inspect a rendered network for occlusion. A rejected prism means no visible connection, so expose invalid graph data in the surrounding UI rather than silently claiming the graph is complete. The screenshot is a gallery fixture.
+
+Tags: `3d`, `graph`.
+
+[3D and GL family overview](./overview)

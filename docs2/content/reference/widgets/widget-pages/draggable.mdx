@@ -1,0 +1,78 @@
+---
+title: Draggable
+description: Wrap a child so it can start an internal drag with an explicit byte payload.
+slug: /widgets/draggable
+---
+# Draggable
+
+`Draggable` wraps the visible drag source and carries a byte payload to a
+[`DragTarget`](/reference/widgets/drag-target) or
+[`Dropzone`](/reference/widgets/dropzone). Treat those bytes as the drag
+message, not as the source of truth for your data.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub DraggableCard<()> {
+        props {
+            card_id: String,
+            title: String,
+            open_card: ActionEnvelope,
+        }
+    }
+
+    view(card, _state, _cx) =>
+        Draggable(
+            id: WidgetId::explicit(&format!("board.card.{}", card.card_id)),
+            semantics_identifier: Some(format!("board.card.{}", card.card_id)),
+            payload: card.card_id.as_bytes().to_vec(),
+            child: Button(
+                child: Text(card.title.clone()),
+                on_press: card.open_card.clone(),
+            ),
+            preview: Tag(label: card.title.clone()),
+        )
+}
+```
+
+The parent binds `open_card` to the same durable card id. The title is application
+data, not reusable English copy. The preview is an independent retained tag,
+not the same `Widget` value mounted twice.
+
+The payload carries just enough information for the eventual drop target to know what moved. The actual board order, selection state, and persistence rules still belong in `GlobalState` and reducers.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable identity for the drag source. | Use explicit IDs for reordered, filtered, or generated rows. |
+| `semantics_identifier` | `Option<String>` | Stable semantic/test identifier. | Lets tests and accessibility tooling identify the drag source. |
+| `payload` | `Vec<u8>` | Bytes attached to the drag. | Required. The reducer on the drop target decodes them from `ctx.input.as_internal_drop()`. |
+| `child` | `Widget` | Visible content that the user drags. | Required. |
+| `preview` | `Option<Widget>` | Optional drag avatar rendered near the pointer. | Defaults to `None`; provide `id` or `semantics_identifier` so the runtime can match the source during rebuilds. |
+| `preview_options` | `DragPreviewOptions` | Pointer offset and optional preview snapping. | Defaults to a small pointer offset and no snapping. |
+| `on_drag_start` | `Option<ActionEnvelope>` | Action fired when dragging begins. | Defaults to `None`. Useful for visual state such as highlighting the source item. |
+| `on_drag_end` | `Option<ActionEnvelope>` | Action fired when dragging ends. | Defaults to `None`, regardless of whether a target accepted the drop. |
+
+## What belongs in app state and what belongs in the payload
+
+The payload should identify the thing being dragged. The app state should continue to own everything else: the actual collection order, which target is active, whether a drop is allowed, and what happens after acceptance.
+
+This separation matters because it keeps drag-and-drop deterministic. Rebuilding the tree does not lose the product state, and tests can assert the reducer result without simulating hidden mutable widget internals.
+
+## Specific advice
+
+If you only need reordering inside one list, use a small stable id in the payload and let the reducer interpret it. If the dragged data is too large or too fragile to serialize to bytes comfortably, that is usually a sign that the payload is carrying too much product logic.
+
+## Production checklist
+
+- Test drag identity after a board reorder and filter change.
+- Keep payloads to stable ids and revalidate the current record at the target.
+- Keep ordinary button navigation and an alternative move command usable without dragging.
+
+## Related
+
+[`DragTarget`](/reference/widgets/drag-target), [`Dropzone`](/reference/widgets/dropzone), [`GestureDetector`](/reference/widgets/gesture-detector), and [`Button`](/reference/widgets/button).

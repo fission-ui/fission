@@ -1,0 +1,54 @@
+---
+title: Progress gauge
+sidebar_label: Progress gauge
+description: Fission Charts reference for Progress gauge.
+---
+
+# Progress gauge
+
+![Progress gauge screenshot](/img/charts/gauge-progress.png)
+
+Progress is a relation between work completed and work expected. A dial can show that relation for a bounded job, such as validating all records in an import, when the total is genuinely known. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Report completed records rather than elapsed time unless elapsed time really determines completion. If the job is still discovering work, use an indeterminate progress state instead of inventing a percentage.
+
+## Data model
+
+Calculate completed/total as a percentage and pass one `GaugeSeries` value. Despite the vector-shaped API, the current gauge renderer shows only the first entry on its fixed 0–100 arc. Keep failed records distinct from successfully processed records in the domain model.
+
+## Authoring from a Fission component
+
+The parent updates the percentage from the job's effect/reducer flow. This component neither starts the job nor simulates progress during rendering.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GaugeSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ImportValidationProgress<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            value_label: String,
+            completed_percent: f32,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![GaugeSeries::new(&report.series_label)
+            .data(vec![(&report.value_label, report.completed_percent)])
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test zero work, completion, cancellation and a changing discovered total. A failed job is not a completed job merely because every attempted record has returned a result. Provide processed and expected record counts plus the current job status as accessible content.
+
+Tags: `gauge`, `progress`.
+
+[Radial and polar family overview](./overview)

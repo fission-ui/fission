@@ -31,19 +31,18 @@ pub(crate) fn preview_pane_width(view: &ViewHandle<ShowcaseState>, window_width:
 fission_component! {
 /// The catalog beside the open example.
 ///
-/// Below the medium breakpoint there is no room for both panes, so the catalog
-/// and the example each take the whole window: the home route lists examples,
-/// and an example page has a way back to the list.
+/// Below the medium breakpoint there is no room for both panes, so the default
+/// route opens the Inbox example and its back action reveals the catalogue.
     #[derive(Clone, Copy, Debug)] pub(crate) Workbench<ShowcaseState> {
         example: ExampleDefinition,
     }
-    |component, state, cx| {
+    view(component, state, cx) {
         let compact = cx.view.viewport_size().width
             < cx.view.env().theme.tokens.breakpoints.medium_max;
     } =>
         if !compact {
             WorkbenchExpanded(component.example)
-        } else if state.current_path == "/" {
+        } else if state.current_path == "/examples" {
             CatalogPage(component.example.slug)
         } else {
             ExamplePage(component.example)
@@ -54,7 +53,7 @@ fission_component! {
     #[derive(Clone, Copy, Debug)] WorkbenchExpanded<ShowcaseState> {
         example: ExampleDefinition,
     }
-    |component, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(component, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         SplitView(
             id: WidgetId::explicit("showcase.workbench.split"),
             direction: SplitDirection::Horizontal,
@@ -73,7 +72,7 @@ fission_component! {
     #[derive(Clone, Copy, Debug)] CatalogPage<ShowcaseState> {
         selected_slug: &'static str,
     }
-    |component, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(component, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         Scroll(
             id: WidgetId::explicit("showcase.catalog.compact.scroll"),
             child: Container(CatalogPanel(component.selected_slug.into()))
@@ -89,9 +88,9 @@ fission_component! {
     #[derive(Clone, Copy, Debug)] ExamplePage<ShowcaseState> {
         example: ExampleDefinition,
     }
-    |component, _state, cx| {
+    view(component, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let back = with_reducer!(cx.build, Navigate("/".into()), on_navigate);
+        let back = with_reducer!(cx.build, Navigate("/examples".into()), on_navigate);
     } =>
         Column(
             children: [

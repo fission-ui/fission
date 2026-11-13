@@ -3,7 +3,7 @@ use crate::model::FieldInspectorState;
 use fission::prelude::*;
 fission_component! {
     pub OverviewAssetDetails<FieldInspectorState> {}
-    |_details, state, cx| {
+    view(_details, state, cx) {
         let order = state.selected_order();
         let tokens = &cx.view.env().theme.tokens;
     } =>

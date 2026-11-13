@@ -1,0 +1,41 @@
+---
+title: Live radar score
+sidebar_label: Live radar score
+description: Refresh consistently defined product-health dimensions together.
+---
+
+# Live radar score
+
+![Live radar score screenshot](/img/charts/dynamic-radar-score.png)
+
+A scorecard is useful only whilst its dimensions mean the same thing. Changing one measure from a percentage to a raw count would change the shape without establishing any change in product health.
+
+The [product health profile](../analytics/analytics-radar-product) defines four percentage measures in `widgets/product_health_profile.rs`. Reuse it with a coherent snapshot:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::product_health_profile::{ProductHealth, ProductHealthProfile};
+
+fission_component! {
+    pub CurrentProductHealth<()> {
+        props {
+            title: String,
+            profile_label: String,
+            dimension_key: TextContent,
+            health: ProductHealth,
+        }
+    }
+    view(report, _state, _cx) => ProductHealthProfile {
+        title: report.title.clone(),
+        profile_label: report.profile_label.clone(),
+        dimension_key: report.dimension_key.clone(),
+        health: report.health.clone(),
+    }
+}
+```
+
+Keep setup, activation, retention and successful-task measures in that documented order and within 0–100. Their denominators and reporting windows should be explicit. Replace the vector together when an effect completes; mixing current activation with stale retention would produce a scorecard for no actual snapshot.
+
+The renderer uses a fixed percentage scale and does not supply individual dimension captions through this API. The translated `dimension_key` explains the order beside the chart. Polygon area is not an aggregate health score. Test each dimension independently and include exact values for comparison. The gallery image is independent of these inputs.
+
+[Dataset family overview](./overview)

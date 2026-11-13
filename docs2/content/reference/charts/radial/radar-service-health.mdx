@@ -1,0 +1,57 @@
+---
+title: Service health radar
+sidebar_label: Service health radar
+description: Fission Charts reference for Service health radar.
+---
+
+# Service health radar
+
+![Service health radar screenshot](/img/charts/radar-service-health.png)
+
+A service health profile can combine several policy-defined assessments, but raw latency, error percentage and free memory do not share a scale. Their conversion into scores needs to be explicit. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use four 0–100 scores with higher meaning healthier in every dimension. Retain the raw measurements and urgent failures so the profile cannot conceal an incident behind an attractive average shape.
+
+## Data model
+
+The renderer uses the first radar row to determine spoke count and clamps every radius to 0–100. It does not draw spoke names or calculate health. Keep score order stable and treat missing collection separately from a measured zero.
+
+## Authoring from a Fission component
+
+The parent computes the policy scores, supplies a localized dimension explanation and owns refresh/loading/error state.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, RadarSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ServiceHealthAssessment<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            scores: [f32; 4],
+            dimension_description: TextContent,
+        }
+    }
+    view(report, _state, _cx) => Column(children: [
+        Text(report.dimension_description.clone()),
+        Chart(
+            title: Some(report.chart_title.clone()),
+            series: vec![RadarSeries::new(&report.series_label)
+                .data(vec![report.scores.to_vec()])
+                .into()],
+        ),
+    ])
+}
+```
+
+## Testing and accessibility
+
+Test failed collection, stale observations and a breached critical limit. Provide the four exact scores, underlying values and observation time outside the radar; the polygon is not the alerting policy.
+
+Tags: `radar`, `health`.
+
+[Radial family overview](./overview)

@@ -1,0 +1,272 @@
+---
+layout: goal
+title: Add Android to an existing Fission app
+description: "Add the generated Android host to an existing shared Rust app without replacing its state, components or product rules with a second platform-specific implementation."
+goal: "Run an existing visit-preparation flow on Android while keeping its validation and acknowledgments in the shared app."
+path: /blog/add-android-to-an-existing-fission-app/
+order: 20
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-add-android-to-an-existing-fission-app
+outcomes:
+  - "Add the Android target without reinitialising or overwriting the existing project"
+  - "Keep state, reducers, translations and components in the shared core"
+  - "Make the native shell launch the real visit-preparation screen"
+  - "Check keyboard, Back and device behaviour separately from compilation"
+---
+
+Adding Android should add a shell, not another application. The existing app state, reducers and screens remain the authority for product behaviour. If the Android version needs its own copy of a validation rule, we have moved too much into the host.
+
+Here, we use a service-visit preparation screen to make that boundary concrete. A technician enters a site and confirms access and safety before starting. Those rules should behave the same in the existing target and on Android; the SDK, packaging and native launch are the parts that change.
+
+## Add the target to your existing project
+
+Start at the root of the Fission app you already have. Do not run `fission init` over it or replace its app modules with this example. Complete [Android SDK and NDK setup](/blog/set-up-rust-android-gui-development-with-fission/) first, then add the target:
+
+```sh
+git status --short
+fission add-target android --project-dir .
+git diff -- Cargo.toml fission.toml
+fission doctor android --project-dir .
+```
+
+Inspect the changes before modifying the generated host. The command creates `platforms/android/` and updates target configuration; it should not become an excuse to reorganise an otherwise working app. Existing persistence, routing and capability setup must still be installed by the new shell.
+
+<!-- fission:step id="start-screen" -->
+## Keep a real interaction in shared Compose code
+
+This is the small standalone example used by the embedded preview. In your app, use the screen you already have and retain its public module boundaries. Do not replace an application's `GlobalState` with `()` merely because this isolated screen only needs retained local state.
+
+The site name and acknowledgements belong to one preparation form, so the component retains them locally. They are not saved work-order data and do not survive a restart. A production start-visit command would submit or persist the prepared record through an effect before claiming it was saved.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub VisitReadiness<()> {
+        state {
+            site: String = String::new(),
+            access_confirmed: bool = false,
+            safety_checked: bool = false,
+            started: bool = false,
+        }
+    }
+    view(visit, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let can_start = !visit.site.trim().is_empty()
+            && visit.access_confirmed && visit.safety_checked;
+    } =>
+    Container(SafeArea(child: Scroll(child:
+        Container(Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("visit.title")).size(tokens.typography.heading1_size),
+            Text(cx.tr("visit.context")).color(tokens.colors.text_secondary),
+            TextInput(
+                label: Some(cx.tr("visit.site").into()),
+                bind: visit.site,
+                required: true,
+                read_only: visit.started,
+                semantics_identifier: "visit.site".to_string(),
+            ),
+            Checkbox(
+                label: Some(cx.tr("visit.access")),
+                checked: visit.access_confirmed,
+                disabled: visit.started,
+                bind(on_toggle): to(visit.access_confirmed),
+            ),
+            Checkbox(
+                label: Some(cx.tr("visit.safety")),
+                checked: visit.safety_checked,
+                disabled: visit.started,
+                bind(on_toggle): to(visit.safety_checked),
+            ),
+            Button(
+                child: Text(cx.tr(if visit.started { "visit.edit" } else { "visit.start" })),
+                key: "start-visit",
+                disabled: !can_start,
+                on_press: reduce { visit.started = !visit.started; },
+            ).semantics_identifier("visit.start"),
+            Text(cx.tr(if visit.started { "visit.started" } else { "visit.pending" })
+                .replace("{site}", &visit.site)),
+        ]))
+        .padding_all(tokens.spacing.l)
+        .width_length(Length::percent(100.0))
+        .max_width(720.0),
+    )))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+visit.title: "Prepare a service visit"
+visit.context: "Confirm access and safety before starting work."
+visit.site: "Site name"
+visit.access: "Access to the site is confirmed"
+visit.safety: "The safety check is complete"
+visit.start: "Start visit"
+visit.edit: "Edit visit preparation"
+visit.started: "Visit started at {site}."
+visit.pending: "Enter the site and complete both checks to continue."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+visit.title: "Preparar una visita de servicio"
+visit.context: "Confirma el acceso y la seguridad antes de empezar."
+visit.site: "Nombre del lugar"
+visit.access: "Se ha confirmado el acceso al lugar"
+visit.safety: "La comprobación de seguridad está completa"
+visit.start: "Iniciar visita"
+visit.edit: "Editar la preparación de la visita"
+visit.started: "Visita iniciada en {site}."
+visit.pending: "Introduce el lugar y completa ambas comprobaciones para continuar."
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod translations;
+
+use app::VisitReadiness;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(VisitReadiness::new())
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), VisitReadiness> {
+    let app = MobileApp::<(), _>::new(VisitReadiness::new())
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(VisitReadiness::new())
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::VisitReadiness::new())
+        .with_env(translations::create_env())
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+
+The example uses YAML bundles, so a standalone project needs `cargo add serde_yaml`. An existing app should keep its own checked-in translation format and environment setup instead of installing a second i18n system for Android.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+With an empty site, **Start visit** is disabled. Enter a site and check only one acknowledgement; it should still be disabled. Complete both, start the visit and then return to preparation. This is the behaviour to compare across targets, not a simulation of an Android build.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Connect the existing application to the Android shell
+
+The standalone `src/lib.rs` above shows the shell shape. Adapt that shape to your existing app type and state rather than overwriting the file wholesale. Its `android_main` receives the Android app handle and passes it to `run_with_android_app`; the host owns lifecycle integration.
+
+Carry over every relevant app-wide input: environment, theme, translations, route handler, startup action and configured providers. Keep those choices in shared setup functions when multiple shells need them. A mobile shell which starts the same root widget without its hydration action is not equivalent to the existing app.
+
+Review target-limited features as well. For example, an embedded Terminal view cannot be carried onto Android simply because the surrounding Compose component compiles. Use a real supported alternative or make the unavailable action explicit; do not silently remove a promised workflow.
+
+Read `platforms/android/README.md` before changing Android host configuration. Keep signing, native lifecycle and capability bridges there. The visit validation still belongs in Rust.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+The preview does not change in this step because the shared interaction has not changed. The thing to verify is the new shell: an Android launch must show your actual app, not the generated counter or a separate mobile-only imitation.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Run both targets and compare the behaviour
+
+Create an emulator using the [emulator guide](/blog/create-and-launch-a-fission-android-emulator/) or connect a phone using the [device guide](/blog/run-a-fission-app-on-a-physical-android-phone/). Select its ID when more than one device is available:
+
+```sh
+cargo test
+fission devices --project-dir .
+fission run --target android --device <device-id> --project-dir .
+fission test --target android --project-dir .
+fission build --target android --project-dir . --release
+```
+
+Also run the original target with its existing command. Repeat the same input, validation and state transitions in both. On Android, check a narrow window, the soft keyboard, Back and app resume; a successful desktop build does not exercise those behaviours.
+
+A host smoke test establishes startup, not that every shared feature works on a phone. Keep complete command output when a build fails and address the first reported SDK, NDK, Rust-target or device prerequisite before retrying.
+
+### Current references
+
+- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
+- [Fission component and widget reference](/reference/widgets/catalog/)
+
+<!-- /fission:step -->

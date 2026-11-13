@@ -1,0 +1,160 @@
+---
+title: Fission 0.5.0: explicit widget motion and the motion workbench
+authors:
+  - fission
+tags:
+  - release
+  - motion
+  - widgets
+  - testing
+categories:
+  - Releases
+---
+
+Fission 0.5.0 makes widget motion easier to configure without hiding how it works. It follows the Widget Motion API RFC: motion is explicit, belongs to the widget that uses it, composes with other motion, and remains available to tests and inspection tools.
+
+This is the 0.5.0 release contract, including its opt-in defaults. Later
+releases changed some built-in defaults. Use the current
+[motion guide](/docs/guides/media-animation-portals-and-3d/) and
+[Compose](/compose/) for a new app; do not infer today's policy from these
+historical struct examples.
+
+Built-in widgets no longer need a growing global namespace of animation helpers. A widget that supports built-in motion exposes a small motion enum of its own. Those values lower into the same `Motion`, `Presence`, `RippleLayer`, `MotionTrack`, and `MotionExpr` runtime model available to advanced authors.
+
+```rust
+Modal {
+    motion: Some(ModalMotion::FromTop + ModalMotion::Fade + ModalMotion::Scale),
+    ..Default::default()
+}
+.into()
+```
+
+Motion remains opt-in. With `motion: None`, a widget emits no widget-owned motion declaration. `motion: Some(WidgetMotion::Default)` explicitly selects that widget's curated motion; it does not turn animation on through a hidden default.
+
+## Widget-owned motion enums
+
+0.5.0 moves common widget motion into local widget-owned enums:
+
+```rust
+Accordion {
+    motion: Some(
+        AccordionMotion::Collapse + AccordionMotion::Fade + AccordionMotion::Chevron,
+    ),
+    ..Default::default()
+}
+.into()
+```
+
+```rust
+Tabs {
+    motion: Some(TabsMotion::Indicator + TabsMotion::SlideContent),
+    ..Default::default()
+}
+.into()
+```
+
+```rust
+Button {
+    motion: Some(ButtonMotion::HoverScale + ButtonMotion::PressScale + ButtonMotion::Ripple),
+    ..Default::default()
+}
+.into()
+```
+
+The composition rule is simple: motion atoms compose in order. Tracks for different stable slot, property, or phase are kept. If two atoms target the same track, the widget's lowering plan resolves the conflict deterministically.
+
+This keeps application code compact. Adding motion to another widget does not mean adding another set of `motion::modal()`, `motion::tabs()`, or `motion::button()` helpers to a shared namespace.
+
+## One native motion runtime
+
+The widget-owned enums are an authoring convenience, not a second runtime. They lower into Fission's existing motion system.
+
+The native model remains available for framework authors and advanced users:
+
+```rust
+Motion {
+    id: WidgetId::explicit("send_button_motion"),
+    tracks: vec![/* explicit MotionTrack values */],
+    child: Button {
+        id: Some(WidgetId::explicit("send_button")),
+        motion: None,
+        ..button
+    }
+    .into(),
+    ..Default::default()
+}
+.into()
+```
+
+Presence-based widgets such as modals, drawers, popovers, tooltips, and toasts still lower through `Presence` semantics where appropriate. Interaction feedback and pointer-origin effects still lower through native interaction tracks or `RippleLayer`.
+
+Tests, inspectors, shells, and renderers therefore see one motion representation instead of a mix of unrelated animation systems.
+
+## Motion identity fixes
+
+Manual QA of the new gallery exposed an identity bug in some motion wrappers: they reused the child's `WidgetId`. In the worst case, that could make the lowered tree refer to itself and overflow the stack.
+
+Version 0.5.0 fixes this by deriving stable motion-slot IDs from the widget's root ID. The wrapper and child no longer share that ID.
+
+The fix covers core button motion, chart animation progress, circular progress, spinner, skeleton, toast presence, and regression tests for motion-enabled widgets. The regression test checks that motion-enabled widgets do not lower into self-child edges.
+
+## Animation Gallery becomes a motion workbench
+
+The old animation gallery demonstrated individual properties, but it did not show how the new widget-motion model works in a real app.
+
+Version 0.5.0 rebuilds `examples/animation-gallery` as a motion workbench. It starts calm: choose a route, press Play, scrub the timeline, inspect the lowered tracks, and compare the different source forms.
+
+The new gallery includes:
+
+- per-widget pages for Modal, Drawer, Popover, Tooltip, Toast, Accordion, Tabs, Button, Checkbox, Switch, Sidebar, and Carousel;
+- property lab pages for opacity, translate, scale, rotation, width/height, background color, border color, corner radius, and clip/reveal;
+- composition routes for additive motion, conflicting motion, ordered last-wins behavior, and live composition;
+- policy routes for full, reduced, and disabled motion;
+- diagnostics routes for lowered `MotionDeclaration`, lowered `MotionExpr`, timeline values, and test examples.
+
+The gallery uses Fission's router, route state, and shell route handling, with one module per widget page. It is structured more like an app you would build, rather than a collection of unrelated demos.
+
+## Per-widget composition builder
+
+Every widget page has a `Compose...` control. It opens a dialog scoped to that widget where motion atoms can be added, undone, cleared, reset, and inspected.
+
+Composition is easier to understand when you can change it and see the result. Build a widget-specific motion setup in the dialog, close it, press Play, and watch that widget use the edited composition.
+
+Each widget route keeps its own composition. Changing Modal motion does not alter Drawer, Popover, or the standalone composition examples.
+
+Manual QA also found duplicate action dispatch in the composer. Its controls now send a complete `SetCompositionAtoms(next_vec)` action: one click adds one atom, and one undo removes one.
+
+## LiveTest coverage
+
+LiveTest now launches the real shell, drives it through the HTTP `/cmd` test-control path, captures screenshots, and checks interactions in the gallery.
+
+The coverage verifies:
+
+- every widget example can be opened, played, and dismissed or reset;
+- every property page renders and can be scrubbed;
+- composition, policy, and diagnostics routes are live and route-specific;
+- the per-widget composition dialog edits the current widget without duplicate atom dispatch;
+- the button route no longer stack-overflows;
+- resize and initial paint regressions remain covered.
+
+These tests are ignored by default because they launch the live shell. They are still part of release verification.
+
+## Migration notes
+
+Apps using the 0.4 authoring API keep the same `impl From<Component> for Widget` structure.
+
+For motion:
+
+- Replace old one-property animation helpers and `Transition`-style demos with widget-owned motion enums or native `Motion` / `Presence` declarations.
+- Keep `motion: None` when a widget should not animate.
+- Use `motion: Some(WidgetMotion::Default)` only when the widget's curated motion is explicitly wanted.
+- Use `WidgetMotion::A + WidgetMotion::B` for common compositions.
+- Use native `MotionTrack` declarations when a widget-owned enum does not express the behavior needed.
+
+If you have custom wrappers around built-in widgets, make sure the wrapper and child IDs are different. Derive motion-slot IDs from the root widget identity instead of reusing the child's `WidgetId`.
+
+## Verification
+
+Before tagging, we ran formatting, compiled the animation gallery, ran the motion-identity regression tests and gallery LiveTests, and completed static checks.
+
+The key gallery LiveTest suite reported 10 passed, 0 failed.

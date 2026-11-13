@@ -10,7 +10,7 @@ fission_component! {
         atoms: Vec<MotionAtom>,
         lowered: String,
     }
-    |grid, _state, cx| {
+    view(grid, _state, cx) {
         let gap = cx.view.env().theme.tokens.spacing.s;
         let sequence = atom_sequence(&grid.atoms);
     } =>

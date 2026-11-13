@@ -8,7 +8,7 @@ use fission::widgets::{Tooltip, TooltipMotion};
 
 fission_component! {
     pub(super) TooltipPreview<AnimationGalleryState> {}
-    |_preview, state, cx| {
+    view(_preview, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         PreviewShell(

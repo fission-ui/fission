@@ -1,0 +1,57 @@
+---
+title: Radar profile A
+sidebar_label: Radar profile A
+description: Fission Charts reference for Radar profile A.
+---
+
+# Radar profile A
+
+![Radar profile A screenshot](/img/charts/radar-profile-a.png)
+
+A capability profile can summarise several assessments without pretending they are one quantity. For a supplier review, delivery, support, quality and continuity can be shown together only after their scoring scales have been defined. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use a common 0–100 scale with the same direction on every spoke, such as higher meaning better assessed capability. The chart does not make subjective scores objective or establish that a supplier with a larger polygon is the better choice.
+
+## Data model
+
+`RadarSeries::data` stores `Vec<Vec<f32>>`. The first row sets the number of spokes and each value is mapped to a fixed 0–100 radius. The renderer does not supply named spoke labels; keep the dimension order and exact values in surrounding content.
+
+## Authoring from a Fission component
+
+A fixed-length array makes the four-score requirement explicit. The parent supplies localized title, series name and dimension explanation, and retains the evidence used to assign each score.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, RadarSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub SupplierCapabilityProfile<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            scores: [f32; 4],
+            dimension_description: TextContent,
+        }
+    }
+    view(supplier, _state, _cx) => Column(children: [
+        Text(supplier.dimension_description.clone()),
+        Chart(
+            title: Some(supplier.chart_title.clone()),
+            series: vec![RadarSeries::new(&supplier.series_label)
+                .data(vec![supplier.scores.to_vec()])
+                .into()],
+        ),
+    ])
+}
+```
+
+## Testing and accessibility
+
+Test invalid scores, unavailable assessments and dimension-order changes. Do not replace an unassessed capability with zero unless the policy explicitly treats absence that way. Provide the four named scores and their evidence as an accessible table.
+
+Tags: `radar`, `profile`.
+
+[Pie and radial family overview](./overview)

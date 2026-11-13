@@ -1,0 +1,57 @@
+---
+title: Risk bubble matrix
+sidebar_label: Risk bubble matrix
+description: Fission Charts reference for Risk bubble matrix.
+---
+
+# Risk bubble matrix
+
+![Risk bubble matrix screenshot](/img/charts/scatter-risk-bubbles.png)
+
+A risk matrix combines an assessment rule with the observations it summarises. Likelihood and impact categories need explicit definitions before their numeric positions have meaning. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here each risk record has a likelihood score, an impact score and an exposure magnitude in one currency. Scores are ordinal policy categories, not probabilities simply because they appear on numeric axes.
+
+## Data model
+
+`BubbleSeries` takes finite `(x, y, size)` triples, with non-negative size. Radius is bounded and relative, not an exact currency-area encoding. The series does not create discrete risk bands or calculate expected loss.
+
+## Authoring from a Fission component
+
+The parent validates score ranges, retains the rubric and supplies prepared risk records with localized labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, BubbleSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub AssessedRiskExposureBubbles<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            axis_label_2: String,
+            observations: Vec<(f32, f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::value().name(&report.axis_label)),
+        y_axis: Some(Axis::value().name(&report.axis_label_2)),
+        series: vec![BubbleSeries::new(&report.series_label)
+            .data(report.observations.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test records sharing a score, zero exposure and missing assessments. Keep exact exposures, assessment dates and record identities accessible outside the chart. An unassessed risk must not become a zero-risk marker.
+
+Tags: `scatter`, `bubble`.
+
+[Statistical family overview](./overview)

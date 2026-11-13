@@ -1,0 +1,62 @@
+---
+title: SafeArea
+description: Apply platform window insets so content stays clear of notches, system bars, and similar edges.
+slug: /widgets/safe-area
+---
+# SafeArea
+
+`SafeArea` keeps content clear of platform insets such as notches, rounded
+corners, and system bars. Those insets are often zero on desktop, but matter on
+mobile and in some browser embeddings.
+
+Use `SafeArea` near the root of full-screen screens or overlays that should respect platform edges. Do not use it as a substitute for ordinary design padding. If the goal is visual spacing rather than host insets, use [`Container`](/reference/widgets/container) or standard layout gap instead.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub MobileWorkspace<()> {
+        props { screen: Widget }
+    }
+
+    view(workspace, _state, _cx) =>
+        SafeArea(
+            child: workspace.screen.clone(),
+        )
+}
+```
+
+The parent supplies the actual shared screen. Apply this at the shell or page
+boundary once; nesting several safe-area wrappers can apply the same host
+inset more than once. Theme spacing remains the screen's separate concern.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `child` | `Widget` | The content that should be padded away from unsafe edges. | Required. `Default` uses an empty spacer child. |
+
+## Mobile and responsive behavior
+
+`SafeArea` reads `env.window_insets` from the current environment and turns those insets into box padding. The padding order is `[left, right, top, bottom]`, and the wrapper uses `flex_grow: 1.0` so it behaves naturally as a screen root.
+
+This is why `SafeArea` belongs in responsive and mobile-aware layouts: it connects platform shell information to ordinary widget composition without forcing every child to know about device edges.
+
+## Specific advice
+
+Apply `SafeArea` high enough in the tree that the whole screen respects unsafe edges, but not so broadly that deeply nested components accidentally inherit platform-specific spacing they should not know about.
+
+A common pattern is `SafeArea` at the screen root, followed by [`Scroll`](/reference/widgets/scroll) or a `Column` inside it.
+
+## Production checklist
+
+- Test actual host insets in both orientations and with system UI visible.
+- Check there is one intended inset boundary rather than nested duplicate padding.
+- Keep ordinary theme margins independent of platform-safe areas.
+
+## Related
+
+[`Container`](/reference/widgets/container), [`Scroll`](/reference/widgets/scroll), [`Column`](/reference/widgets/column), and [`Positioned`](/reference/widgets/positioned).

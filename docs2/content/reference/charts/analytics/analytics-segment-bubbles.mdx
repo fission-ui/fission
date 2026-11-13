@@ -1,0 +1,65 @@
+---
+title: Segment bubbles
+sidebar_label: Segment bubbles
+description: Compare segment activation, retention and cohort size with an explicitly interpreted bubble chart.
+---
+
+# Segment bubbles
+
+![Segment bubbles screenshot](/img/charts/analytics-segment-bubbles.png)
+
+A bubble chart can show two rates and one size measure without turning them into a single score. For example, compare a segment's activation rate on x, retention rate on y and eligible account count through marker size.
+
+That makes a small but unusually healthy segment visible whilst keeping its scale in context. It does not explain why the segment behaves differently.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BubbleSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct SegmentOutcome {
+    pub activation_percent: f32,
+    pub retention_percent: f32,
+    pub eligible_accounts: u32,
+}
+
+fission_component! {
+    pub SegmentOutcomes<()> {
+        props {
+            title: String,
+            measure_label: String,
+            activation_label: String,
+            retention_label: String,
+            segments: Vec<SegmentOutcome>,
+        }
+    }
+    view(outcomes, _state, _cx) {
+        let points = outcomes.segments.iter().map(|segment| (
+            segment.activation_percent,
+            segment.retention_percent,
+            segment.eligible_accounts as f32,
+        )).collect();
+    } => Chart(
+        title: Some(outcomes.title.clone()),
+        x_axis: Some(Axis::value()
+            .name(outcomes.activation_label.clone()).min(0.0).max(100.0)),
+        y_axis: Some(Axis::value()
+            .name(outcomes.retention_label.clone()).min(0.0).max(100.0)),
+        series: vec![Series::Bubble(
+            BubbleSeries::new(&outcomes.measure_label).data(points),
+        )],
+    )
+}
+```
+
+Validate both rates and calculate their denominators before rendering. Keep segment names in an adjacent indexed table in the same order as the points; the series stores coordinate triples rather than domain IDs.
+
+## Understand the marker scale
+
+The renderer normalises sizes against the largest value and interpolates radii using a square root with a non-zero minimum radius. It is therefore not an exact area-proportional count scale, and a zero-sized value can still produce a marker. Exclude ineligible cohorts deliberately rather than using zero as a placeholder for unknown data.
+
+Show exact rates and cohort counts in text. Test an outlier-sized segment and overlapping points, and inspect small-screen readability. The gallery image is a separate fixture.
+
+[Analytics family overview](./overview)

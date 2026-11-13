@@ -1,0 +1,58 @@
+---
+title: Feature treemap
+sidebar_label: Feature treemap
+description: Compare additive feature-area activity with the current top-level TreemapSeries renderer.
+---
+
+# Feature treemap
+
+![Feature treemap screenshot](/img/charts/analytics-treemap-features.png)
+
+A feature treemap can answer which areas account for most recorded activity. It needs an additive measure: distinct users per feature do not form a whole if the same person uses several features.
+
+This example uses classified task-completion events. Each event belongs to one feature area, so the areas can be summed without counting the same event twice.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, Series, TreemapNode, TreemapSeries};
+
+#[derive(Clone)]
+pub struct FeatureActivity {
+    pub label: String,
+    pub completed_tasks: u32,
+}
+
+fission_component! {
+    pub FeatureActivityMap<()> {
+        props {
+            title: String,
+            measure_label: String,
+            features: Vec<FeatureActivity>,
+        }
+    }
+    view(activity, _state, _cx) {
+        let nodes = activity.features.iter().map(|feature| TreemapNode {
+            name: feature.label.clone(),
+            value: feature.completed_tasks as f32,
+            children: Vec::new(),
+        }).collect();
+    } => Chart(
+        title: Some(activity.title.clone()),
+        series: vec![Series::Treemap(
+            TreemapSeries::new(&activity.measure_label).data(nodes),
+        )],
+    )
+}
+```
+
+Supply translated names and one reporting window from application state. Classify unknown events explicitly if they belong in the report total.
+
+## Current hierarchy boundary
+
+Although `TreemapNode` can contain children, the current treemap renderer lays out only the supplied top-level nodes. This example deliberately uses leaves. Do not describe nested records as visible drill-down support; use the sunburst or a separate hierarchy view when levels matter.
+
+Check that the displayed totals reconcile, and provide a ranked value list for exact comparisons. Small rectangles may not have room for labels, so the visual cannot be the only way to discover a feature's value. The image above is a gallery fixture.
+
+[Analytics family overview](./overview)

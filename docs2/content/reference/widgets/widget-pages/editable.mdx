@@ -1,0 +1,87 @@
+---
+title: Editable
+description: Switch between read mode and text-edit mode for inline renaming or quick editing.
+slug: /widgets/editable
+---
+# Editable
+
+`Editable` switches between a low-emphasis button showing the current value
+and a [`TextInput`](/reference/widgets/text-input) for editing it. Use it for
+inline renaming, such as a title, tag, or list item.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub ProjectNameEditor<()> {
+        props {
+            draft: String,
+            editing: bool,
+            edit_draft: ActionEnvelope,
+            begin_edit: ActionEnvelope,
+            commit: ActionEnvelope,
+            cancel: ActionEnvelope,
+        }
+    }
+
+    view(editor, _state, cx) =>
+        Editable(
+            id: WidgetId::explicit("project.name"),
+            value: editor.draft.clone(),
+            placeholder: cx.tr("project.untitled"),
+            is_editing: editor.editing,
+            on_input: editor.edit_draft.clone(),
+            on_edit: editor.begin_edit.clone(),
+            on_submit: editor.commit.clone(),
+            on_cancel: editor.cancel.clone(),
+        )
+}
+```
+
+All actions are bound by the parent to the same project. On begin, copy the
+committed name into the draft. The edit reducer reads `cx.input.text_change()`;
+commit validates and requests any save effect; cancel restores the committed
+name. Keep editing visible when a save fails rather than silently losing the draft.
+
+The usual reducer flow is to keep both the committed value and the draft in
+state, start editing with `on_edit`, update the draft from `on_input`, and only
+commit when the product decides the edit is complete.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable identity for the editing field. | Defaults to `None`. |
+| `value` | `String` | Current displayed or edited text. | Controlled by app state. |
+| `placeholder` | `String` | Text shown when `value` is empty. | Required for a good empty-state experience. |
+| `is_editing` | `bool` | Whether the widget is currently in edit mode. | Controlled by app state. |
+| `on_input` | `Option<ActionEnvelope>` | Action fired when the text changes in edit mode. | Preserves the bound action; read the edit through `ctx.input.text_change()`. |
+| `on_submit` | `Option<ActionEnvelope>` | Action dispatched when the user presses Enter in the single-line editor. | Use it to commit the controlled draft and leave edit mode. |
+| `on_edit` | `Option<ActionEnvelope>` | Action fired when the read-mode button is pressed. | Usually flips `is_editing` to `true`. |
+| `on_cancel` | `Option<ActionEnvelope>` | Action dispatched when the user presses Escape in the editor. | Use it to restore the committed value and leave edit mode. |
+
+## Current behavior
+
+`on_edit` enters the controlled editing state, `on_input` carries live text
+changes, Enter dispatches `on_submit`, and Escape dispatches `on_cancel`.
+Losing focus does not imply cancellation: products differ on whether blur
+commits, cancels, or keeps a draft, so that decision remains in application
+state rather than being hidden in the widget.
+
+## Specific advice
+
+Keep a committed value and an editing draft separately when cancellation must
+restore the pre-edit value. The widget deliberately does not retain a hidden
+backup copy.
+
+## Production checklist
+
+- Test begin, incremental edits, Enter commit, Escape cancellation, and failed save.
+- Keep committed value and draft separate until the save policy allows replacement.
+- Preserve editor identity when a list containing the project reorders.
+
+## Related
+
+[`TextInput`](/reference/widgets/text-input), [`Button`](/reference/widgets/button), [`FormControl`](/reference/widgets/form-control), and [`FocusScope`](/reference/widgets/focus-scope).

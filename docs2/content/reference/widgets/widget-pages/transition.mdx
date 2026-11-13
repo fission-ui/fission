@@ -1,0 +1,86 @@
+---
+title: Transition
+description: Animate state changes with the current Motion and Presence APIs.
+slug: /widgets/transition
+---
+
+# Transition
+
+This route is retained for existing links, but `Transition` and
+`AnimationPropertyId` are not current public widgets/types. Use `Motion` for
+property tracks and `Presence` when a child needs to remain mounted while
+its exit animation finishes.
+
+The distinction matters for a save confirmation: changing opacity alone
+does not define whether its content remains in layout or accepts input.
+`Presence` owns that lifecycle explicitly.
+
+## Example
+
+```rust
+use fission::prelude::*;
+use fission::motion::{fade, reverse_tracks_for_exit, Presence};
+
+fission_component! {
+    pub SavedNotice<()> {
+        props { visible: bool }
+    }
+    view(notice, _state, cx) =>
+    Presence(
+        visible: notice.visible,
+        enter: fade(),
+        exit: reverse_tracks_for_exit(&fade()),
+        child: Text(cx.tr("documents.saved")),
+    )
+}
+```
+
+The parent sets `visible` only after a confirmed save, and clears it when the
+draft changes. It does not infer save completion from the animation ending.
+Compose supplies a stable retained identity; use a durable record key when
+the notice belongs to a dynamic document instance.
+
+## Field table
+
+The example uses these current `Presence` fields:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable identity, supplied by Compose or explicitly in ordinary Rust. |
+| `visible` | Logical visibility supplied by the app. |
+| `enter` / `exit` | `Vec<MotionTrack>` declaring the two transitions. |
+| `child` | Retained content controlled by the wrapper. |
+| `keep_rendered` | Whether content remains rendered after exit. Defaults false. |
+| `inert_while_exiting` | Whether exiting content stops accepting interaction. Defaults true. |
+| `clip_to_bounds` | Whether visual overflow is clipped. |
+| `repaint_boundary` | Whether the wrapper requests a repaint/composite boundary. |
+
+## When to use it and when not to
+
+Use the built-in widget's own preset when it already owns the lifecycle.
+For a custom property transition, build a `MotionTrack` with
+`MotionPropertyId`, `MotionStartValue`, and `MotionTransition` and place it on
+`Motion`. Use `Presence` for enter/exit, not a timer that removes the child
+after a guessed duration.
+
+## Specific advice
+
+Keep state decisions in reducers and transient progress in the runtime.
+`MotionPreference::Reduced` makes declared transitions immediate and suppresses
+decorative ripples; it does not change the underlying saved/not-saved state.
+
+A custom motion property still needs a consumer that understands it. Naming
+one does not teach the renderer how to paint an application-specific effect.
+
+## Production checklist
+
+Test repeated show/hide transitions, reduced motion, and the end of exit.
+A disappearing control must not remain keyboard-activatable or block the
+content underneath. Inspect a real target as well as deterministic motion
+tests when the result depends on host composition.
+
+## Related
+
+[Animations, portals, and media](/reference/core/animations-portals-media/),
+[Hero](/reference/widgets/hero/), and
+[Rendering pipeline](/reference/core/rendering-pipeline/).

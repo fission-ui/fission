@@ -1,0 +1,45 @@
+---
+title: Axis tooltip
+sidebar_label: Axis tooltip
+description: Inspect related values at one category with the real axis tooltip configuration.
+---
+
+# Axis tooltip
+
+![Axis tooltip screenshot](/img/charts/tooltip-axis.png)
+
+An axis tooltip groups values for the category under inspection. It is useful when arrivals and completed jobs share a reporting interval, because the reader can compare them without moving between separate marks.
+
+It is not a replacement for the source table, and it should not combine unrelated units on one numeric scale.
+
+The [axis tooltip component](./component-tooltip-axis) defines `JobInterval` and `QueueIntervalTooltip`. Put both in `widgets/queue_interval_tooltip.rs`:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::queue_interval_tooltip::{JobInterval, QueueIntervalTooltip};
+
+fission_component! {
+    pub QueueThroughputReport<()> {
+        props {
+            chart_id: WidgetId,
+            title: String,
+            arrived_label: String,
+            completed_label: String,
+            intervals: Vec<JobInterval>,
+        }
+    }
+    view(report, _state, _cx) => QueueIntervalTooltip {
+        chart_id: report.chart_id,
+        title: report.title.clone(),
+        arrived_label: report.arrived_label.clone(),
+        completed_label: report.completed_label.clone(),
+        intervals: report.intervals.clone(),
+    }
+}
+```
+
+The underlying chart supplies both `Tooltip::axis_trigger()` configuration and `ChartInteraction::tooltips(ChartTooltipTrigger::Axis)`. It also enables keyboard category focus. Merely setting a title on an empty chart would not demonstrate this behaviour.
+
+Supply translated labels, aligned intervals and stable chart identity. Test pointer movement, hover clearing and keyboard focus against the actual target. Show counts in a companion table so touch users and readers who cannot use transient hover content can still inspect the report. The image above is a separate gallery fixture.
+
+[Components and interaction family overview](./overview)

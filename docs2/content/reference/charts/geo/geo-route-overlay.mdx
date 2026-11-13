@@ -1,0 +1,21 @@
+---
+title: Route overlay map
+sidebar_label: Route overlay map
+description: Keep route overlay limitations explicit rather than implying geographic alignment.
+---
+
+# Route overlay map
+
+![Route overlay map screenshot](/img/charts/geo-route-overlay.png)
+
+A route overlay needs one transform from geographic coordinates to screen coordinates. Without it, matching route and polygon coordinates in the input is not sufficient: each renderer may stretch, centre or pad them differently.
+
+That is the boundary here. `MapSeries` fits the supplied geographical features whilst `LinesSeries` fits the route endpoints independently. The public composition does not expose a shared projection, so a correct combined overlay is not established.
+
+Use [the paired route report](../geo-and-route/geo-route-map) when the product can show a regional map and a schematic dispatch view separately. It preserves the useful information without implying exact route placement. If the requirement is to identify where a road crosses a boundary, this alternative does not satisfy it; a shared projection and actual path data are needed.
+
+Keep report generation, region IDs and route IDs together in application state. Request external data through effects, accept a coherent completion in a reducer, then pass concrete descriptions to the Compose report. Translate captions explaining both the units and the schematic nature of the route panel.
+
+Test the joins and missing-data policy before screenshots. A visually attractive gallery overlay cannot demonstrate geographical correctness, and the curve itself cannot supply distance or turn-by-turn navigation.
+
+[Geo family overview](./overview)

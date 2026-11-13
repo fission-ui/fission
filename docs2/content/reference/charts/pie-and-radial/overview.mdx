@@ -1,0 +1,73 @@
+---
+title: Pie and radial
+sidebar_label: Overview
+description: Fission Charts reference for the Pie and radial family.
+---
+
+# Pie and radial
+
+Radial charts answer several different questions. A pie divides a total, a gauge places one value on a fixed scale, and a polar plot preserves a cyclic or directional position. Their similar outlines do not make their data models interchangeable.
+
+Choose the measure and its denominator before the shape. Keep calculation and loading outside the component, then supply a prepared report and localized labels through props.
+
+![Area rose screenshot](/img/charts/pie-area-rose.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Area rose](./pie-area-rose) | Label/value pairs with rose area mode. | Use it when the dual angle/radius encoding is intentional; exact area ratios are not preserved. |
+| [Capacity gauge](./gauge-capacity) | One bounded value. | Use it for operational capacity panels. |
+| [Cyclic polar bars](./polar-cyclic-bar) | Label/value pairs in polar coordinates. | Use it for cyclical categories. |
+| [Device mix donut](./pie-device-mix) | Label/value pairs plus inner radius. | Show a small composition snapshot; supply the total separately. |
+| [Market share pie](./pie-market-share) | Label/value pairs. | Use it for small composition snapshots. |
+| [Nested-style donut](./pie-nested-like) | Label/value pairs plus inner radius. | Use it when a central status label will be added by surrounding UI. |
+| [Presentation rose](./pie-rose-presentation) | Label/value pairs with rose radius mode. | Use it for presentation views with few categories. |
+| [Radar profile A](./radar-profile-a) | Vec&lt;Vec&lt;f32&gt;&gt; metric profiles. | Use it for capability or budget profiles. |
+| [Radar profile B](./radar-profile-b) | Vec&lt;Vec&lt;f32&gt;&gt; metric profiles. | Use it when the profile shape matters. |
+| [Score gauge](./gauge-score) | One label/value pair. | Use it for health or readiness scores. |
+| [Two-level donut](./pie-two-level) | Label/value pairs plus inner radius. | Show one selected hierarchy level; this is a flat ring, not nested data. |
+| [Wind polar line](./polar-wind-line) | Angle/radius samples. | Use it for direction and magnitude data. |
+
+## Choosing within this family
+
+For a composition chart, ensure categories are mutually exclusive parts of the same total. A donut adds whitespace, not another hierarchy level or an automatic total. The rose modes vary radius as well as angle; use exact values alongside them when precise comparison matters.
+
+Gauge and radar values use a fixed 0–100 scale in the current renderer. A gauge draws only its first entry, whilst a radar needs a fixed dimension order and external explanations for its unnamed spokes. Polar charts scale radius relative to their supplied data; that is a different contract from a fixed percentage gauge.
+
+## Authoring from a Fission component
+
+A device mix is one complete reporting population partitioned by device category. The parent supplies that population and resolved display labels, rather than making this reusable widget own analytics collection.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub SessionDeviceOverview<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            sessions_by_device: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.sessions_by_device.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .inner_radius(48.0)
+            .into()],
+    )
+}
+```
+
+## Checks
+
+Test the aggregation and denominator independently of rendering. Reject invalid negative or non-finite composition values, and show an empty state when there is no positive total. Preserve unknown categories rather than silently removing them from the population.
+
+Inspect label overlap at the intended sizes, and keep exact values accessible outside the plot. A visually clear ring does not prove that the underlying categories are complete or that the reader can distinguish them without colour.

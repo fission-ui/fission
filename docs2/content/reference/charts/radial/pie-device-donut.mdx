@@ -1,0 +1,58 @@
+---
+title: Device donut
+sidebar_label: Device donut
+description: Fission Charts reference for Device donut.
+---
+
+# Device donut
+
+![Device donut screenshot](/img/charts/pie-device-donut.png)
+
+A device breakdown describes a reporting population, not an inherent property of a person. Here the population is completed sessions, classified once by their recorded device category. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use a donut for a few mutually exclusive categories. A person using both a phone and laptop can contribute two sessions without being two users; keep the counted entity explicit.
+
+## Data model
+
+Supply finite non-negative session totals, including unknown devices. `PieSeries::inner_radius` uses logical pixels and adds whitespace, not a computed total or label in the centre.
+
+## Authoring from a Fission component
+
+The parent supplies the complete session report and localized category names.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub CompletedSessionDeviceDonut<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            sessions_by_device: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.sessions_by_device.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .inner_radius(48.0)
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Check unknown devices, one category and no sessions. Show exact counts and the reporting period outside the chart; inspect narrow layouts for labels crossing the hole or other segments.
+
+Tags: `donut`, `device`.
+
+[Radial family overview](./overview)

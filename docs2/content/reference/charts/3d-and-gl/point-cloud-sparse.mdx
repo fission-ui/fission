@@ -1,0 +1,53 @@
+---
+title: Sparse point cloud
+sidebar_label: Sparse point cloud
+description: Show individually meaningful spatial observations without inventing continuity between them.
+---
+
+# Sparse point cloud
+
+![Sparse point cloud screenshot](/img/charts/point-cloud-sparse.png)
+
+When observations are widely separated, the space between them can be as important as the points themselves. For a building survey, a point may identify an inspected location; an empty region may simply mean that no observation was taken there.
+
+Do not join sparse points into a surface unless the data model justifies that interpolation. A smooth-looking surface can imply evidence which the survey never collected.
+
+## Compose the observation view
+
+Use `PointCloudScene` from [Point cloud](./point-cloud), placed in `widgets/point_cloud.rs`. This named component keeps sphere construction in one place whilst the survey screen owns filtering and observation metadata.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::point_cloud::PointCloudScene;
+
+fission_component! {
+    pub SurveyLocations<()> {
+        props {
+            title: TextContent,
+            positions: Vec<Point3D>,
+            point_radius: f32,
+            point_color: Color,
+        }
+    }
+    view(survey, _state, _cx) => PointCloudScene {
+        title: survey.title.clone(),
+        positions: survey.positions.clone(),
+        point_radius: survey.point_radius,
+        point_color: survey.point_color,
+    }
+}
+```
+
+Enable the `three-d` feature. The parent supplies translated text, a design-system colour, finite positions and a finite positive marker radius. Keep the radius tied to the display scale rather than inflating markers until separate observations appear connected.
+
+## Inspection and accessibility
+
+A sparse scene can still hide points which align along the viewing direction. Keep a labelled observation list available so selection does not depend on guessing which sphere is in front. The legacy sphere interface does not emit per-observation `ChartInteractionEvent` values.
+
+Test single observations, widely separated groups and points which overlap in projection. State coordinate units and distinguish no observations from a failed load. The screenshot above uses the gallery's sample positions.
+
+Tags: `3d`, `point-cloud`.
+
+[3D and GL family overview](./overview)

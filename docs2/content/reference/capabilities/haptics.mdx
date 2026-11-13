@@ -1,0 +1,53 @@
+---
+title: Haptics
+description: Reference for the haptics capability API, provider contract, operations, and platform configuration.
+---
+
+# Haptics
+
+Haptics are tactile cues. They should reinforce meaningful interactions, not replace visual text, screen-reader output, or error messages. Unsupported hosts return errors because many machines have no haptic hardware.
+
+Start with the [Haptics guide](/docs/capabilities/haptics/) to add the feature to your app. Return here for operation names, request and result types, provider contracts, and target configuration.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper or entrypoint | `ctx.effects.haptics()` |
+| Provider trait or host contract | `HapticHost` |
+| Test provider or test entrypoint | `MemoryHapticHost` |
+| Primary request types | `HapticImpactRequest / HapticNotificationRequest / HapticPatternRequest` |
+| Primary success types | `()` |
+| Error type | `HapticError` |
+| CLI value | `haptics` |
+
+## Operations
+
+| Method or operation | Purpose | Request | Success |
+| --- | --- | --- | --- |
+| `impact` | Play physical-feeling impact feedback. | `HapticImpactRequest` | `()` |
+| `notification` | Play success, warning, or error feedback. | `HapticNotificationRequest` | `()` |
+| `selection` | Play a light selection-change tick. | `()` | `()` |
+| `pattern` | Play a short custom duration/intensity pattern. | `HapticPatternRequest` | `()` |
+
+## Provider contract
+
+Register a `HapticHost` with `.with_haptic_host(...)`. Use `MemoryHapticHost` in tests. Providers should reject long or unsupported patterns rather than blocking the UI or silently doing nothing.
+
+Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
+
+## Platform configuration
+
+The CLI adds Android vibration permission. iOS does not need an Info.plist key for the generated scaffold. Desktop haptics are hardware-dependent and usually require a custom provider for game controllers or specialized devices.
+
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
+
+## Runtime behavior
+
+Capability calls are queued from reducers through `ctx.effects`. The active shell resolves the request with the registered provider and then dispatches the configured success or error action. Missing providers should produce typed unsupported errors. Packaging mistakes usually show up as denied permissions, missing entitlements, missing route registration, or provider-specific failures.
+
+## Related pages
+
+- [Haptics guide](/docs/capabilities/haptics/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Platform capabilities reference](/reference/core/platform-capabilities/)

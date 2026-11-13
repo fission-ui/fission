@@ -1,0 +1,45 @@
+---
+title: Large line
+sidebar_label: Large line
+description: Bound the displayed queue history while retaining complete telemetry outside the chart.
+---
+
+# Large line
+
+![Large line screenshot](/img/charts/line-large.png)
+
+A monitoring screen rarely needs to draw its entire stored history on every build. Select a deliberate recent window and keep the full history in the data layer for investigation and export.
+
+The renderer thins dense line geometry to the plot width and omits crowded symbols. That reduces overdraw, but does not make an unbounded input free to store, project or inspect.
+
+The [basic line](./line-basic) defines `QueueSample` and `QueueLoadTrend`. Put them in `widgets/queue_load_trend.rs`:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::queue_load_trend::{QueueSample, QueueLoadTrend};
+
+fission_component! {
+    pub RecentQueueHistory<()> {
+        props {
+            title: String,
+            jobs_label: String,
+            samples: Vec<QueueSample>,
+            window_samples: usize,
+        }
+    }
+    view(history, _state, _cx) {
+        let start = history.samples.len().saturating_sub(history.window_samples);
+        let recent = history.samples[start..].to_vec();
+    } => QueueLoadTrend {
+        title: history.title.clone(),
+        jobs_label: history.jobs_label.clone(),
+        samples: recent,
+    }
+}
+```
+
+Choose a positive window and describe its duration in the translated title. This is sample-count windowing, not an elapsed-time query; it assumes the complete fixed sampling interval described by the basic example.
+
+Test a short history, a window boundary and important spikes against the actual rendering. Thinning is not statistical aggregation or a guarantee that every extreme remains visually distinct. Profile representative histories and retain exact observations for the report list. The gallery screenshot does not establish an unlimited-data performance claim.
+
+[Cartesian family overview](./overview)

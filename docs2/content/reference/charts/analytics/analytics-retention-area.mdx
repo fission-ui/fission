@@ -1,0 +1,61 @@
+---
+title: Retention area
+sidebar_label: Retention area
+description: Render retention percentages for one mature cohort with a meaningful zero baseline.
+---
+
+# Retention area
+
+![Retention area screenshot](/img/charts/analytics-retention-area.png)
+
+Retention is the proportion of an original cohort that remains active at a later age. An area fill can make the overall pattern visible, but it should not turn the area under the line into another invented measure.
+
+Keep the original eligible cohort as the denominator. A shrinking denominator can make a declining product appear to retain everyone who is left.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, Chart, LineSeries, Series};
+
+#[derive(Clone)]
+pub struct RetentionAge {
+    pub label: String,
+    pub retained_percent: f32,
+}
+
+fission_component! {
+    pub CohortRetentionArea<()> {
+        props {
+            title: String,
+            cohort_label: String,
+            ages: Vec<RetentionAge>,
+            fill_colour: Color,
+        }
+    }
+    view(retention, _state, _cx) {
+        let labels = retention.ages.iter().map(|age| age.label.as_str()).collect();
+        let values = retention.ages.iter().map(|age| age.retained_percent).collect();
+    } => Chart(
+        title: Some(retention.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0).max(100.0)),
+        series: vec![Series::Line(
+            LineSeries::new(&retention.cohort_label)
+                .data(values)
+                .area_style(retention.fill_colour),
+        )],
+    )
+}
+```
+
+Pass a theme-derived fill colour and an age-ordered snapshot. Use equal elapsed intervals because category positions are equally spaced. The example intentionally leaves smoothing off: an interpolated curve would suggest observations that were never measured.
+
+## Distinguish absent from inactive
+
+Only include ages the cohort has reached and for which reporting is complete. Validate finite percentages in 0–100, and show the cohort size and activity definition near the chart.
+
+Test the first observation, an immature cohort and an empty eligible cohort. A line cannot explain those conditions on its own, so use an explicit pending or unavailable state where required. The image above is a separate gallery fixture.
+
+[Analytics family overview](./overview)

@@ -1,0 +1,67 @@
+---
+title: Regional trend comparison
+sidebar_label: Regional trend comparison
+description: Fission Charts reference for Regional trend comparison.
+---
+
+# Regional trend comparison
+
+![Regional trend comparison screenshot](/img/charts/line-region-comparison.png)
+
+Regional lines are comparable when they describe the same event over the same reporting period. A shared chart then makes the direction of each region visible without changing the scale between panels. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example compares completed-order counts, not conversion rates or performance per customer. A larger region may naturally have more orders. Use a normalised measure if relative adoption or efficiency is the question.
+
+## Data model
+
+Align both vectors to the same ordered reporting-day labels and a declared timezone. Counts aggregated by two different local midnights describe different intervals even when the labels look identical.
+
+## Authoring from a Fission component
+
+The parent supplies prepared values and matching reporting labels. Keep loading and calculation errors in that parent workflow.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, Legend, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub RegionalTrendComparisonChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            comparison_series_label: String,
+            labels: Vec<String>,
+            north_orders: Vec<f32>,
+            south_orders: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            legend: Some(Legend::top_right()),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.north_orders.clone())
+                    .into(),
+                LineSeries::new(&report.comparison_series_label)
+                    .data(report.south_orders.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test a region with no orders and changes to the reporting timezone. Check legend names and exact values without relying on colour, and do not interpret absolute counts as a regional quality ranking.
+
+Tags: `line`, `region`.
+
+[Line family overview](./overview)

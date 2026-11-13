@@ -1,0 +1,92 @@
+---
+title: Budget treemap
+sidebar_label: Budget treemap
+description: Fission Charts reference for Budget treemap.
+---
+
+# Budget treemap
+
+![Budget treemap screenshot](/img/charts/treemap-budget.png)
+
+A budget treemap makes the size of each allocation visible within the overall budget. The area carries the quantity, whilst nesting carries the organisational grouping. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example shows planned expenditure in GBP for one quarter. It does not show spending to date or variance from plan. Those are separate measures and should not silently share the same area encoding.
+
+## Data model
+
+TreemapSeries accepts nested TreemapNode records with non-negative values. Use the same unit throughout the hierarchy and provide parent totals consistent with their children. Keep exact currency amounts in the budget model rather than treating f32 chart values as accounting storage.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `TreemapSeries::data` | `Vec<TreemapNode>` | Supplies the root nodes and their nested children. |
+| `TreemapNode::children` | `Vec<TreemapNode>` | Describes the next level of the hierarchy. |
+| `TreemapNode::value` | `f32` | Carries the node's numeric measure. |
+| `Chart::series` | `Vec<Series>` | Adds this hierarchy without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, TreemapSeries, TreemapNode};
+
+let nodes = vec![TreemapNode {
+    name: "Operations".into(),
+    value: 100000.0,
+    children: vec![
+        TreemapNode {
+            name: "People".into(),
+            value: 70000.0,
+            children: vec![],
+        },
+        TreemapNode {
+            name: "Infrastructure".into(),
+            value: 30000.0,
+            children: vec![],
+        },
+    ],
+}];
+
+let chart = Chart::new()
+    .title("Quarterly operating budget (GBP)")
+    .series(vec![TreemapSeries::new("Budget (GBP)")
+        .data(nodes)
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The parent supplies the prepared hierarchy. Keep loading, aggregation and any errors outside this presentation component.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, TreemapSeries, TreemapNode};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub BudgetTreemapChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<TreemapNode>,
+        }
+    }
+    view(hierarchy, _state, _cx) =>
+        Chart(
+            title: Some(hierarchy.chart_title.clone()),
+            series: vec![TreemapSeries::new(&hierarchy.series_label)
+                .data(hierarchy.nodes.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check total reconciliation, zero allocations and very small categories. Provide exact amounts in a table, since similar rectangles are difficult to compare precisely and a tiny area may not fit a label.
+
+Tags: `treemap`, `budget`.
+
+[Hierarchy and flow family overview](./overview)

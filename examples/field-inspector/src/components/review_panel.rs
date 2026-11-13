@@ -9,7 +9,7 @@ use crate::model::{
 use fission::prelude::*;
 fission_component! {
     pub ReviewPanel<FieldInspectorState> {}
-    |_panel, state, cx| {
+    view(_panel, state, cx) {
         let copy = with_reducer!(cx.build, CopyReportSummary, on_copy_report_summary);
         let reminder = with_reducer!(cx.build, ScheduleReminder, on_schedule_reminder);
         let volume_down = with_reducer!(cx.build, AdjustAlertVolume(VolumeAdjustDirection::Down), on_adjust_alert_volume);

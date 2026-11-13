@@ -1,0 +1,68 @@
+---
+title: Overlay
+description: Draw one overlay layer on top of one main content layer.
+slug: /widgets/overlay
+---
+# Overlay
+
+`Overlay` is the two-layer stacking helper.
+
+It renders `content` first, then renders `overlay` on top of that content while filling the same bounds. This is a strong fit for loading scrims, badges that should cover the same card, transient blocking layers, or other cases where you conceptually have a base surface plus one extra layer.
+
+Use `Overlay` when the relationship is naturally "main thing plus one covering layer." Do not use it when you need many independently ordered layers or precise corner positioning. Those cases are clearer with [`ZStack`](/reference/widgets/z-stack) and [`Positioned`](/reference/widgets/positioned).
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub ReportWithProgress<()> {
+        props { report: Widget }
+    }
+
+    view(region, _state, cx) =>
+        Overlay(
+            content: region.report.clone(),
+            overlay: Center(
+                Spinner(
+                    motion: SpinnerMotion::Default,
+                    label: Some(cx.tr("report.refreshing")),
+                ),
+            ),
+        )
+}
+```
+
+Show this presentation only while the parent has a refresh in flight. The
+report remains readable underneath, and the spinner names the real operation.
+This is not a blocking security or focus boundary: a painted overlay alone does
+not disable underlying controls. Use `Modal` for a blocking decision.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `content` | `Widget` | The base layer, drawn first. | Required. `Default` uses empty text widgets as placeholders. |
+| `overlay` | `Widget` | The top layer, drawn above `content`. | Required. Internally wrapped in an absolute-fill layer. |
+
+## Layout behavior
+
+`Overlay` builds an internal stack. The overlay child is wrapped in an `AbsoluteFill` layout node so it covers the full bounds of the composed area, and the resulting stack is wrapped so it can stretch inside surrounding layouts.
+
+That makes `Overlay` a practical high-level helper when the overlay should cover the same region rather than float at some independent position.
+
+## Specific advice
+
+Use `Overlay` when the two-layer relationship itself is important to code readability. If the overlay needs a dismiss backdrop, focus trap, and multiple positioned children, step up to `ZStack`, [`FocusScope`](/reference/widgets/focus-scope), and `Positioned` instead of trying to force everything through one `overlay` field.
+
+## Check the layers in context
+
+- Use `Overlay` for one full-bounds layer over one base child; switch to `ZStack` and `Positioned` when you need several independently placed layers.
+- A covering child does not give you modal focus, dismissal, or backdrop behavior. Use `Modal` or compose those behaviors explicitly when the layer blocks interaction.
+- Check both the base and covering content at the narrowest supported size so the top layer does not hide information users still need.
+
+## Related
+
+[`ZStack`](/reference/widgets/z-stack), [`absolute_fill(...)`](/reference/widgets/absolute-fill), and [`Positioned`](/reference/widgets/positioned).

@@ -1,0 +1,53 @@
+---
+title: 3D mesh field
+sidebar_label: 3D mesh field
+description: Present a connected measurement surface without inventing connectivity or filling missing values.
+---
+
+# 3D mesh field
+
+![3D mesh field screenshot](/img/charts/scene3d-mesh-field.png)
+
+A field surface makes a claim about the space between measurements. For a surveyed floor, connected triangles can represent the measured shape, but only if their connectivity and coordinate scale are intentional. Joining unrelated observations can produce an attractive surface which the data does not justify.
+
+This gallery entry uses `Primitive3D::Mesh`, the same construction described in [Mesh surface](./mesh-surface).
+
+## Reuse the validated mesh component
+
+Place `SurveySurface` from the linked reference in `widgets/survey_surface.rs`. Supply its geometry from the data projection rather than performing file reads or network work during component construction.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::survey_surface::SurveySurface;
+
+fission_component! {
+    pub FloorSurveyField<()> {
+        props {
+            title: TextContent,
+            vertices: Vec<Point3D>,
+            triangle_indices: Vec<u32>,
+            surface_color: Color,
+        }
+    }
+    view(field, _state, _cx) => SurveySurface {
+        title: field.title.clone(),
+        vertices: field.vertices.clone(),
+        indices: field.triangle_indices.clone(),
+        surface_color: field.surface_color,
+    }
+}
+```
+
+Enable the `three-d` feature. Each index triple selects one triangle from the vertex array. Validate finite positions, index bounds and winding before rendering, and retain missing measurements rather than replacing them with zero height.
+
+## Checks
+
+State coordinate units and any vertical exaggeration in accessible text. Test the generator on a small known grid and inspect holes or unexpectedly connected regions in a real rendering.
+
+The legacy scene API supplies geometry and optional viewport dimensions, not automatically labelled chart axes or per-triangle `ChartInteractionEvent` values. The screenshot above is a gallery fixture, not proof that a particular survey projection is correct.
+
+Tags: `3d`, `mesh`.
+
+[3D and GL family overview](./overview)

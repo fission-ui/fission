@@ -1,0 +1,62 @@
+---
+title: Region sales map
+sidebar_label: Region sales map
+description: Join regional sales totals to supplied GeoJSON boundaries using MapSeries.
+---
+
+# Region sales map
+
+![Region sales map screenshot](/img/charts/analytics-region-sales.png)
+
+A regional map helps when location itself explains the pattern. It is less useful for ranking sales totals: a large geographic region occupies more space even when its sales are small.
+
+The map needs two inputs, not just a list of names: geographic boundaries and sales values whose keys match those boundaries.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, MapSeries, Series, VisualMap};
+
+#[derive(Clone)]
+pub struct RegionalSales {
+    pub region_id: String,
+    pub display_amount: f32,
+}
+
+fission_component! {
+    pub SalesByRegion<()> {
+        props {
+            title: String,
+            sales_label: String,
+            boundaries: String,
+            regions: Vec<RegionalSales>,
+            colour_scale: VisualMap,
+        }
+    }
+    view(sales, _state, _cx) {
+        let values = sales.regions.iter()
+            .map(|region| (region.region_id.as_str(), region.display_amount))
+            .collect();
+    } => Chart(
+        title: Some(sales.title.clone()),
+        visual_map: Some(sales.colour_scale.clone()),
+        series: vec![Series::Map(
+            MapSeries::new(&sales.sales_label, "sales-territories")
+                .geojson(&sales.boundaries)
+                .name_property("region_id")
+                .data(values),
+        )],
+    )
+}
+```
+
+Supply valid GeoJSON polygons or multipolygons with a string `region_id` property. Keep these join keys stable and independent of translated display names. The `map_type` string names this map; it does not download boundary data.
+
+## Preserve the financial meaning
+
+Aggregate monetary amounts using the application's money type, convert only the display projection to `f32`, and declare the currency and reporting interval. Validate unique join keys and report sales records that do not match any boundary.
+
+Use a fixed, explained colour range when comparing maps. The current renderer fits the supplied coordinates to the plot; it is not a navigable basemap or a choice of cartographic projections. Provide a regional table for exact values and missing-data explanations. The gallery screenshot uses its own geographic fixture.
+
+[Analytics family overview](./overview)

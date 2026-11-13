@@ -4,7 +4,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) GuidedWorkflow<()> {}
-    |_workflow, _state, _cx| {} => Container(Column(
+    view(_workflow, _state, _cx) {} => Container(Column(
             gap: 0.0_f32,
             children: [
                 Text("Customer feedback triage")
@@ -40,7 +40,7 @@ fission_component! {
 
 fission_component! {
     pub(super) GuidedTabs<()> {}
-    |_tabs, _state, _cx| {
+    view(_tabs, _state, _cx) {
         let root_id = WidgetId::explicit("quality-gallery.guided.tabs");
         let list_id = WidgetId::derived(root_id.as_u128(), &[1]);
     } => Container(Column(

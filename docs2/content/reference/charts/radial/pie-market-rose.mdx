@@ -1,0 +1,58 @@
+---
+title: Market rose
+sidebar_label: Market rose
+description: Fission Charts reference for Market rose.
+---
+
+# Market rose
+
+![Market rose screenshot](/img/charts/pie-market-rose.png)
+
+A market presentation can emphasise category differences without expanding what the observations actually cover. Recorded unit sales in one region are not evidence of global market share. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This radius-style rose shows unit sales by supplier within one covered market. Preserve smaller suppliers in an explicit “Other” group when the report limits category count.
+
+## Data model
+
+The radius mode changes radius relative to the largest value, with a non-zero baseline, whilst angle represents share of the summed values. Neither radius nor area alone is an exact share. Validate a positive total and one consistent unit.
+
+## Authoring from a Fission component
+
+The parent defines the market, period and supplier grouping before supplying the display values.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub CoveredMarketSupplierRose<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            units_by_supplier: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.units_by_supplier.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .rose_type("radius")
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test incomplete coverage and the grouped remainder. Keep exact values and the coverage definition accessible; do not let a compelling shape imply broader data than the report contains.
+
+Tags: `rose`, `market`.
+
+[Radial family overview](./overview)

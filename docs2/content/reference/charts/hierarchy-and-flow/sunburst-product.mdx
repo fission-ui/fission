@@ -1,0 +1,92 @@
+---
+title: Product sunburst
+sidebar_label: Product sunburst
+description: Fission Charts reference for Product sunburst.
+---
+
+# Product sunburst
+
+![Product sunburst screenshot](/img/charts/sunburst-product.png)
+
+A product sunburst shows how an overall quantity is divided through a category hierarchy. The inner level gives the parent context, whilst outer levels show the parts that make it up. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here, the quantity is completed orders grouped by product category. A category name alone has no numeric meaning: define the measure before drawing the hierarchy, and keep the same unit at every level.
+
+## Data model
+
+SunburstSeries accepts nested TreemapNode records. Each node has a name, value and children. The example's root total equals its two child counts so the grouping remains understandable outside the chart as well.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `SunburstSeries::data` | `Vec<TreemapNode>` | Supplies the root nodes and their nested children. |
+| `TreemapNode::children` | `Vec<TreemapNode>` | Describes the next level of the hierarchy. |
+| `TreemapNode::value` | `f32` | Carries the node's numeric measure. |
+| `Chart::series` | `Vec<Series>` | Adds this hierarchy without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, SunburstSeries, TreemapNode};
+
+let nodes = vec![TreemapNode {
+    name: "Products".into(),
+    value: 120.0,
+    children: vec![
+        TreemapNode {
+            name: "Hardware".into(),
+            value: 75.0,
+            children: vec![],
+        },
+        TreemapNode {
+            name: "Accessories".into(),
+            value: 45.0,
+            children: vec![],
+        },
+    ],
+}];
+
+let chart = Chart::new()
+    .title("Completed orders by product category")
+    .series(vec![SunburstSeries::new("Orders")
+        .data(nodes)
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The parent supplies the prepared hierarchy. Keep loading, aggregation and any errors outside this presentation component.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, SunburstSeries, TreemapNode};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ProductSunburstChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<TreemapNode>,
+        }
+    }
+    view(hierarchy, _state, _cx) =>
+        Chart(
+            title: Some(hierarchy.chart_title.clone()),
+            series: vec![SunburstSeries::new(&hierarchy.series_label)
+                .data(hierarchy.nodes.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check that category totals match the source orders and that an order is not assigned to several leaves accidentally. Review small segments and long labels at the intended size; a correct hierarchy can still be difficult to read.
+
+Tags: `sunburst`, `hierarchy`.
+
+[Hierarchy and flow family overview](./overview)

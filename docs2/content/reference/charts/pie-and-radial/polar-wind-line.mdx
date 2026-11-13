@@ -1,0 +1,53 @@
+---
+title: Wind polar line
+sidebar_label: Wind polar line
+description: Fission Charts reference for Wind polar line.
+---
+
+# Wind polar line
+
+![Wind polar line screenshot](/img/charts/polar-wind-line.png)
+
+A directional profile pairs an angle with a magnitude. For wind observations, the useful distinction is between where the wind came from and how strong it was; neither should be inferred from the order of unrelated samples. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example shows mean wind speed by direction sector. Aggregate comparable observations into sectors first and state the averaging rule. A polar line is not a time trajectory or a wind-frequency rose.
+
+## Data model
+
+`PolarLineSeries` takes `(angle_degrees, radius)` pairs. Zero degrees is drawn at the top and angles increase clockwise. Radius is scaled against the largest supplied value. Points are connected in input order, and the renderer does not automatically close the final point back to the first.
+
+## Authoring from a Fission component
+
+Pass ordered direction-sector values prepared in the weather-report model. Keep angular wraparound and any duplicated closing point intentional; the component should not invent an unobserved direction.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PolarLineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub WindSpeedByDirection<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            degrees_and_speed_ms: Vec<(f32, f32)>,
+        }
+    }
+    view(wind, _state, _cx) => Chart(
+        title: Some(wind.chart_title.clone()),
+        series: vec![PolarLineSeries::new(&wind.series_label)
+            .data(wind.degrees_and_speed_ms.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test sectors around 0/360 degrees, calm conditions and missing sectors. Validate finite non-negative speed and a documented angle convention. Show the units, reporting period and exact sector values outside the chart; automatic radial scaling must not imply a fixed speed scale across reports.
+
+Tags: `polar`, `line`.
+
+[Pie and radial family overview](./overview)

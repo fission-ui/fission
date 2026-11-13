@@ -1,0 +1,455 @@
+---
+layout: goal
+title: Build an SEO-friendly website in Rust
+description: Set up a Rust website for search with descriptive titles, page summaries, canonical URLs, social metadata, structured data, a sitemap and robots rules.
+goal: Help search engines and visitors understand a Rust website before they open it
+path: /blog/build-an-seo-friendly-website-in-rust/
+order: 3
+difficulty: Beginner
+duration: 50 minutes
+run_command: "fission site serve --project-dir ."
+app: seo-friendly-rust-website
+outcomes:
+  - Write for one search intent
+  - Give every route unique metadata
+  - Inspect HTML and discovery files
+---
+
+Northstar's home page describes inventory software; its product page explains how a retailer reviews stock across locations. Giving both routes the title “Northstar” would make them difficult to distinguish before opening either one. The page content, title and description need to identify the same subject.
+
+We will build those two real Static site routes with Compose, give them distinct metadata and inspect the generated HTML. The preview is built from the actual Static site project below. Follow its real URLs and inspect the generated HTML: that is what a browser or crawler receives.
+
+## Create the website
+
+```sh
+cargo install cargo-fission
+fission init northstar-site --template website
+cd northstar-site
+cargo add serde_yaml
+```
+
+The website template already configures the Static site target and its generated `src/main.rs` calls `northstar_site::build_site()`. Replace `src/lib.rs` and `src/page.rs` below, add the translation module and YAML files, and keep the generated launcher. No WebAssembly router or browser-only dependency is needed for these pages.
+
+```text
+northstar-site/
+├── src/
+│   ├── main.rs          # generated Static site launcher
+│   ├── lib.rs           # route registration and document metadata
+│   ├── page.rs          # shared Compose pages and real links
+│   └── translations.rs
+├── i18n/
+│   ├── en-US.yaml
+│   └── es-ES.yaml
+└── fission.toml
+```
+
+Use the complete small-site configuration in the first checkpoint. The example domain is reserved for documentation. Before publishing, replace it in both the configuration and structured data with the real public origin.
+
+The complete small-site configuration is included in the first checkpoint.
+
+<!-- fission:step id="start-screen" -->
+## Build pages that identify their subject
+
+Use links for navigation, not buttons that flip a local boolean. A published product URL must open the product page directly, and visitors must be able to follow its links without running a WebAssembly app.
+
+`Page` keeps route paths and metadata keys together. Its relative Static site links also work when the site is hosted beneath a project path. The preview uses those same relative links and generated HTML, not a second router or a duplicate in-memory page.
+
+The `site-heading-1:` semantic identifier follows the website template's heading convention and emits an HTML `h1`. Increasing a text size alone would not create that document heading.
+
+<Tabs>
+<TabItem label="fission.toml">
+<!-- fission:file path="fission.toml" -->
+```toml
+targets = ["static-site"]
+
+[app]
+name = "northstar-site"
+app_id = "rs.example.northstar.site"
+
+[site]
+routes = []
+entry = "crate::site_app"
+title = "Northstar inventory software"
+description = "Inventory software for independent retailers."
+base_url = "https://northstar-site.example.com"
+out_dir = "dist/site"
+default_locale = "en-US"
+locales = ["en-US", "es-ES"]
+generate_sitemap = true
+generate_robots = true
+```
+</TabItem>
+<TabItem label="src/page.rs">
+<!-- fission:file path="src/page.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Page {
+    Home,
+    Inventory,
+}
+
+impl Page {
+    pub fn path(self) -> &'static str {
+        match self {
+            Self::Home => "/",
+            Self::Inventory => "/products/inventory/",
+        }
+    }
+
+    pub fn title_key(self) -> &'static str {
+        match self {
+            Self::Home => "search.home.title",
+            Self::Inventory => "search.inventory.title",
+        }
+    }
+
+    pub fn description_key(self) -> &'static str {
+        match self {
+            Self::Home => "search.home.description",
+            Self::Inventory => "search.inventory.description",
+        }
+    }
+
+    pub fn href(self, destination: Self) -> &'static str {
+        match (self, destination) {
+                (Self::Home, Self::Inventory) => "products/inventory/",
+                (Self::Inventory, Self::Home) => "../../",
+                _ => "./",
+        }
+    }
+}
+
+fission_component! {
+    pub SitePage<()> { props { page: Page } }
+    view(site, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let (heading, body, action, destination) = match site.page {
+            Page::Home => ("page.home.title", "page.home.description", "action.explore", Page::Inventory),
+            Page::Inventory => ("page.inventory.title", "page.inventory.description", "action.back", Page::Home),
+        };
+    } =>
+    Container(Column(gap: tokens.spacing.l, children: [
+        Wrap(spacing: tokens.spacing.m, children: [
+            Text(cx.tr("brand")).weight(tokens.typography.font_weight_bold),
+            Link::to(cx.tr("nav.home"), site.page.href(Page::Home)),
+            Link::to(cx.tr("nav.inventory"), site.page.href(Page::Inventory)),
+        ]),
+        Divider(),
+        SemanticsRegion(
+            identifier: Some("site-heading-1:page-title".into()),
+            child: Text(cx.tr(heading))
+                .size(tokens.typography.heading1_size)
+                .weight(tokens.typography.font_weight_bold),
+        ),
+        Text(cx.tr(body)).color(tokens.colors.text_secondary),
+        Link::to(cx.tr(action), site.page.href(destination)),
+        Text(cx.tr("site.scope")).color(tokens.colors.text_secondary),
+    ]))
+    .padding_all(tokens.spacing.l)
+    .width_length(Length::percent(100.0))
+    .max_width(1100.0)
+    .bg(tokens.colors.background)
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod page;
+mod translations;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn site_app() -> fission::site::FissionSite {
+    use page::{Page, SitePage};
+    let env = translations::create_env();
+    let mut site = fission::site::FissionSite::new()
+        .with_env(env.clone())
+        .default_locale("en-US");
+    for page in [Page::Home, Page::Inventory] {
+        let title = env.i18n.get(&env.locale, page.title_key())
+            .expect("page title is translated").to_owned();
+        let description = env.i18n.get(&env.locale, page.description_key())
+            .expect("page description is translated").to_owned();
+        site = site.route_widget::<(), _>(
+            page.path(),
+            title,
+            Some(description),
+            SitePage::new(page),
+        );
+    }
+    site
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn build_site() -> anyhow::Result<()> {
+    fission::site::build_from_cli(site_app())
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../i18n/es-ES.yaml")),
+];
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in SOURCES {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid tutorial translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+site.a11y: "Northstar product website"
+brand: "Northstar"
+nav.home: "Home"
+nav.inventory: "Product inventory"
+page.inventory.title: "A clearer view of every product"
+page.home.title: "Inventory software for independent retailers"
+page.inventory.description: "Find stock gaps early and keep every shop location in sync."
+page.home.description: "Keep stock counts, purchase orders and low-stock alerts together in one calm workspace."
+action.back: "Back to Northstar"
+action.explore: "Explore inventory features"
+search.preview: "Search result preview"
+search.inventory.title: "Product inventory for independent shops | Northstar"
+search.home.title: "Inventory software for independent retailers | Northstar"
+search.inventory.description: "Track stock across locations, spot low inventory and keep product records up to date."
+search.home.description: "A straightforward inventory workspace for independent retailers: stock, orders and low-stock alerts."
+site.scope: "Example product pages: no checkout, stock service or customer account is connected."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+site.a11y: "Sitio web de productos de Northstar"
+brand: "Northstar"
+nav.home: "Inicio"
+nav.inventory: "Inventario de productos"
+page.inventory.title: "Una visión más clara de cada producto"
+page.home.title: "Software de inventario para comercios independientes"
+page.inventory.description: "Detecta pronto las faltas de stock y mantén sincronizadas todas las tiendas."
+page.home.description: "Reúne recuentos, pedidos y avisos de poco stock en un espacio de trabajo claro."
+action.back: "Volver a Northstar"
+action.explore: "Ver las funciones de inventario"
+search.preview: "Vista previa del resultado de búsqueda"
+search.inventory.title: "Inventario de productos para tiendas independientes | Northstar"
+search.home.title: "Software de inventario para comercios independientes | Northstar"
+search.inventory.description: "Controla el stock entre tiendas, detecta niveles bajos y mantén los productos al día."
+search.home.description: "Un espacio sencillo de inventario para tiendas independientes: existencias, pedidos y avisos de poco stock."
+site.scope: "Páginas de ejemplo: no hay pagos, servicio de inventario ni cuentas conectados."
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Follow Product inventory and return Home. Both links must change the page and browser history, not merely change a card labelled “search preview”. Build the Static site and open its nested product URL directly as a separate check.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Attach metadata to the routes actually rendered
+
+The route builder reads titles and descriptions from the same translation bundle used by the components. Missing metadata keys therefore fail the build rather than quietly producing an empty description. The English build is explicit; including a Spanish bundle alone does not publish Spanish routes or create language-alternate links.
+
+JSON-LD describes facts on the page. Here the home page identifies the website, so a `WebSite` record is sufficient. Do not invent reviews, stock availability or commercial offers just to populate structured data.
+
+<Tabs>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod page;
+mod translations;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn site_app() -> fission::site::FissionSite {
+    use page::{Page, SitePage};
+    let env = translations::create_env();
+    let mut site = fission::site::FissionSite::new()
+        .with_env(env.clone())
+        .default_locale("en-US");
+    for page in [Page::Home, Page::Inventory] {
+        let title = env.i18n.get(&env.locale, page.title_key())
+            .expect("page title is translated").to_owned();
+        let description = env.i18n.get(&env.locale, page.description_key())
+            .expect("page description is translated").to_owned();
+        site = site.route_widget::<(), _>(
+            page.path(),
+            title,
+            Some(description),
+            SitePage::new(page),
+        );
+    }
+    site = site.with_route_structured_data(
+        "/",
+        [r#"{"@context":"https://schema.org","@type":"WebSite","name":"Northstar","url":"https://northstar.example.com/"}"#],
+    );
+    site
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn build_site() -> anyhow::Result<()> {
+    fission::site::build_from_cli(site_app())
+}
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Compare the two route titles and descriptions in the generated files. They must identify different pages. Confirm that the JSON-LD names Northstar and uses the same origin as the canonical URLs.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Check output rather than a simulated search card
+
+The tests below catch duplicate metadata and incorrect relative links in the source model. Then inspect the actual HTML, which is the output the browser and crawler receive.
+
+<Tabs>
+<TabItem label="src/page.rs">
+<!-- fission:file path="src/page.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Page {
+    Home,
+    Inventory,
+}
+
+impl Page {
+    pub fn path(self) -> &'static str {
+        match self {
+            Self::Home => "/",
+            Self::Inventory => "/products/inventory/",
+        }
+    }
+
+    pub fn title_key(self) -> &'static str {
+        match self {
+            Self::Home => "search.home.title",
+            Self::Inventory => "search.inventory.title",
+        }
+    }
+
+    pub fn description_key(self) -> &'static str {
+        match self {
+            Self::Home => "search.home.description",
+            Self::Inventory => "search.inventory.description",
+        }
+    }
+
+    pub fn href(self, destination: Self) -> &'static str {
+        match (self, destination) {
+                (Self::Home, Self::Inventory) => "products/inventory/",
+                (Self::Inventory, Self::Home) => "../../",
+                _ => "./",
+        }
+    }
+}
+
+fission_component! {
+    pub SitePage<()> { props { page: Page } }
+    view(site, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let (heading, body, action, destination) = match site.page {
+            Page::Home => ("page.home.title", "page.home.description", "action.explore", Page::Inventory),
+            Page::Inventory => ("page.inventory.title", "page.inventory.description", "action.back", Page::Home),
+        };
+    } =>
+    Container(Column(gap: tokens.spacing.l, children: [
+        Wrap(spacing: tokens.spacing.m, children: [
+            Text(cx.tr("brand")).weight(tokens.typography.font_weight_bold),
+            Link::to(cx.tr("nav.home"), site.page.href(Page::Home)),
+            Link::to(cx.tr("nav.inventory"), site.page.href(Page::Inventory)),
+        ]),
+        Divider(),
+        SemanticsRegion(
+            identifier: Some("site-heading-1:page-title".into()),
+            child: Text(cx.tr(heading))
+                .size(tokens.typography.heading1_size)
+                .weight(tokens.typography.font_weight_bold),
+        ),
+        Text(cx.tr(body)).color(tokens.colors.text_secondary),
+        Link::to(cx.tr(action), site.page.href(destination)),
+        Text(cx.tr("site.scope")).color(tokens.colors.text_secondary),
+    ]))
+    .padding_all(tokens.spacing.l)
+    .width_length(Length::percent(100.0))
+    .max_width(1100.0)
+    .bg(tokens.colors.background)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::translations::create_env;
+
+    #[test]
+    fn routes_have_distinct_paths_titles_and_descriptions() {
+        let env = create_env();
+        assert_ne!(Page::Home.path(), Page::Inventory.path());
+        for locale in ["en-US", "es-ES"] {
+            let locale = fission::i18n::Locale::from(locale);
+            let title = |page: Page| env.i18n.get(&locale, page.title_key()).unwrap();
+            let description = |page: Page| env.i18n.get(&locale, page.description_key()).unwrap();
+            assert_ne!(title(Page::Home), title(Page::Inventory));
+            assert_ne!(description(Page::Home), description(Page::Inventory));
+        }
+    }
+
+    #[test]
+    fn nested_static_page_links_return_to_the_site_root() {
+        assert_eq!(Page::Inventory.href(Page::Home), "../../");
+        assert_eq!(Page::Home.href(Page::Inventory), "products/inventory/");
+    }
+}
+```
+</TabItem>
+</Tabs>
+
+```sh
+cargo test
+fission site routes --project-dir .
+fission site check --project-dir .
+fission site build --project-dir .
+rg -n '<title>|name="description"|rel="canonical"|property="og:|<h1' dist/site/index.html
+rg -n '<title>|name="description"|rel="canonical"|<h1' dist/site/products/inventory/index.html
+rg -n 'application/ld\+json|schema.org' dist/site/index.html
+cat dist/site/sitemap.xml
+cat dist/site/robots.txt
+fission site serve --project-dir . --host 127.0.0.1 --port 8123
+```
+
+Disable JavaScript in the browser and open `http://127.0.0.1:8123/products/inventory/`. The content and Home link must still work. Check that the sitemap contains both public URLs, and that the canonical origin is your intended production domain rather than localhost or a staging host.
+
+Metadata is input to search engines, not control over their results. Google may choose another title or snippet from the page. Its guidance on [title links](https://developers.google.com/search/docs/appearance/title-link) and [snippets](https://developers.google.com/search/docs/appearance/snippet) explains that distinction; matching the visible content is more useful than filling a title with repeated phrases.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Verify both generated HTML files, the sitemap and robots file, then follow the nested route with JavaScript disabled. A successful source test does not prove indexing, ranking or the exact text of a search result.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Related reference
+
+- [Fission configuration](/reference/config/fission-toml/)
+- [Static sites](/docs/guides/static-sites/)
+- [Framework overview](/reference/overview/overview/)

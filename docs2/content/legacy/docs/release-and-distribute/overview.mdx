@@ -1,0 +1,66 @@
+---
+title: Release and distribute
+description: Publish Fission packages through release content, provider readiness, upload commands, tracks, rollouts, and receipts.
+---
+
+# Release and distribute
+
+Once `fission package` has written an artifact manifest, you can release that build. Validate the release content, check the provider requirements, upload or submit the manifest-backed artifact, and keep the receipt so you can see exactly what happened.
+
+## The release loop
+
+| Step | Command shape | What it proves |
+| --- | --- | --- |
+| Validate release content | `fission release-content validate ...` | Notes, screenshots, privacy files, review material, and store metadata exist and match provider requirements. |
+| Check provider readiness | `fission readiness distribute ...` | Credentials, provider tools, package identity, tracks, and artifact shape are valid before upload. |
+| Distribute | `fission distribute ...` or `fission publish ...` | The manifest-backed artifact is uploaded or submitted to the selected provider. |
+| Keep the receipt | `target/fission/distribution/...` | The team can later prove which asset, hash, provider id, URL, or rollout state was produced. |
+
+If credentials are missing or expired, a track is invalid, screenshots are absent, or the provider rejects the upload, fix that issue and retry. The command output and receipt should make clear what failed.
+
+## Choose a local or CI release path
+
+Use the same release model in every shell, but choose the interface that matches
+the job.
+
+| Path | Command | Best fit |
+| --- | --- | --- |
+| Guided local flow | `fission publish --provider play-store` | A developer is setting up a provider, signing, release notes, screenshots, or tracks for the first time. |
+| Windowed local flow | `fission publish --provider play-store --app` | A developer wants the visual release wizard and native file dialogs. |
+| Direct CI flow | `fission readiness ... --json`, `fission package ... --json`, `fission publish ... --artifact ... --yes --json` | Automation should build one artifact, publish that exact manifest, and fail without prompting. |
+| Provider lifecycle operation | `fission distribute status|promote|rollback ...` | A release has already been uploaded and needs provider-specific follow-up. |
+
+The guided shells can help discover missing setup, but they are not a different
+release system. They render the same plan, requirements, jobs, and receipts as
+direct commands.
+
+## Pick the provider page
+
+| Destination | Start here | Common artifacts |
+| --- | --- | --- |
+| GitHub release assets | [GitHub Releases](/docs/release-and-distribute/github-releases/) | installers, binaries, archives, APK/AAB/IPA, static site zip |
+| Static website hosting | [Static hosting](/docs/release-and-distribute/static-hosting/) | static site manifest |
+| Mobile and desktop stores | [App stores](/docs/release-and-distribute/app-stores/) | AAB, IPA, MSIX, store metadata |
+| Container registry | [Docker registries](/docs/release-and-distribute/docker-registries/) | static or server Docker image |
+| Buckets and object stores | [Object storage](/docs/release-and-distribute/object-storage/) | arbitrary package assets and static files |
+| Notes, screenshots, review files | [Release content](/docs/release-and-distribute/release-content/) | provider metadata and human-facing release material |
+
+Use [Release lifecycle details](/docs/release-and-distribute/post-build-lifecycle/) when you need the full command model and provider lifecycle rather than one provider path.
+
+## Keep `fission.toml` readable
+
+[`fission.toml`](/reference/config/fission-toml/) is the root manifest. Put stable facts there: app id, version, target declarations, provider references, release tracks, and paths to release-content files.
+
+Do not put full release notes, long localized store descriptions, screenshot inventories, or review attachments directly into [`fission.toml`](/reference/config/fission-toml/). Put those in referenced files so people can review them and reuse them across CI.
+
+## Receipts matter
+
+A release receipt records provider ids, URLs, deployment ids, uploaded bytes, artifact hashes, release status, and follow-up steps. Keep receipts in CI artifacts or release records. They answer practical questions later: what was uploaded, where did it go, which hash did we publish, and what did the provider return?
+
+## Next steps
+
+If you do not have an artifact manifest yet, go back to [Build and package](/docs/build-and-package/overview/). If you are preparing a store or public release, start with [Release content](/docs/release-and-distribute/release-content/) before upload.
+
+## Release flows
+
+Use [Local publishing](/docs/release-and-distribute/local-publishing/) when a developer is proving the flow interactively on their machine. Use [CI publishing](/docs/release-and-distribute/ci-publishing/) when all choices and secrets are supplied non-interactively. In both cases, follow the [App release checklist](/docs/release-and-distribute/app-release-checklist/) before upload.

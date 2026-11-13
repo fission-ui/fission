@@ -9,7 +9,7 @@ const DIALOG_WIDTH: f32 = 720.0;
 
 fission_component! {
     pub CompositionDialog<AnimationGalleryState> { case: GalleryCase }
-    |dialog, state, cx| {
+    view(dialog, state, cx) {
         let close = cx.bind(CloseComposer, reduce_with!(close_composer));
     } =>
         Modal(

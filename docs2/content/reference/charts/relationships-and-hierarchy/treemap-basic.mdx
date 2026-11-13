@@ -1,0 +1,53 @@
+---
+title: Treemap
+sidebar_label: Treemap
+description: Fission Charts reference for Treemap.
+---
+
+# Treemap
+
+![Treemap screenshot](/img/charts/treemap-basic.png)
+
+A treemap gives more display area to larger parts whilst retaining their parent categories. An operating-budget report can use it to show which departments and cost centres account for the allocation. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use one additive, non-negative measure. Budget, expenditure and remaining funds are different facts; combining them in one hierarchy would produce a total with no clear meaning.
+
+## Data model
+
+`TreemapSeries` takes nested `TreemapNode` records. Prepare consistent parent/child values in one currency and period. Keep authoritative money values exact, converting only the final display projection to f32.
+
+## Authoring from a Fission component
+
+The parent supplies the reconciled budget hierarchy and localized names. The component does not calculate allocations or load financial records.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, TreemapSeries, TreemapNode};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DepartmentBudgetTreemap<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            budget_gbp: Vec<TreemapNode>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![TreemapSeries::new(&report.series_label)
+            .data(report.budget_gbp.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test zero allocations, a child sum which disagrees with its parent and negative adjustments. Show exact amounts in a readable hierarchy outside the image; tiny rectangles cannot communicate small allocations precisely.
+
+Tags: `treemap`, `hierarchy`.
+
+[Relationships and hierarchy family overview](./overview)

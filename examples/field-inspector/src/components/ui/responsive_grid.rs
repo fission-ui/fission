@@ -5,7 +5,7 @@ pub const DEFAULT_ITEM_MIN_WIDTH: f32 = 176.0;
 
 fission_component! {
     pub ResponsiveGrid<FieldInspectorState> { children: Vec<Widget>, item_min_width: f32 }
-    |grid, _state, cx| {
+    view(grid, _state, cx) {
         let gap = cx.view.env().theme.tokens.spacing.s;
     } =>
         Grid(

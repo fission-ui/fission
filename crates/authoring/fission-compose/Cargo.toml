@@ -1,12 +1,12 @@
 [package]
 name = "fission-compose"
-version = "0.15.1"
+version = "0.16.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/fission-ui/fission"
 description = "Declarative component composition and typed bindings for Fission applications"
 
 [dependencies]
-fission-core = { path = "../../core/fission-core", version = "0.15.1" }
-fission-compose-macros = { path = "../fission-compose-macros", version = "0.15.1" }
+fission-core = { path = "../../core/fission-core", version = "0.16.0" }
+fission-compose-macros = { path = "../fission-compose-macros", version = "0.16.0" }
 serde = { version = "1", features = ["derive"] }

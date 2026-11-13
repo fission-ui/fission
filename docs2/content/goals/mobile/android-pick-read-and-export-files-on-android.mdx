@@ -1,0 +1,1047 @@
+---
+layout: goal
+title: Pick, read and export files on Android
+description: "Build an inspection document screen in Rust: choose a folder, stream a report and export a handover note without replacing an existing file."
+goal: Choose an inspection folder, read a report asynchronously and save a handover note with explicit cancellation and failure states.
+path: /blog/pick-read-and-export-files-on-android/
+order: 48
+difficulty: Intermediate
+duration: 50 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-pick-read-and-export-files-on-android
+outcomes:
+  - Request directory access from a visible user action
+  - Count report bytes and lines without collecting the whole file in UI state
+  - Export a note without silently overwriting an existing document
+  - Verify cancellation and provider failures on Android
+---
+
+An inspection visit produces two different kinds of document: the report already supplied for the job and the handover note written by the engineer. The app needs access to both, but it should not assume that a file name gives it permission to read or replace a document.
+
+Here, the user selects the folder for a visit. The app reads a report from that folder and saves a separate note beside it. Android's system document-tree picker supplies the directory grant. The user can choose a local folder or another document provider that supports the requested operations. This distinction matters: the directory handle represents access granted by the provider, whereas the name shown on screen is only a label.
+
+The example keeps that grant for the current run. It does not claim to restore access after a restart or upload inspection evidence to a server.
+
+## Create the project and add the target
+
+Complete [Android SDK and NDK setup](/blog/set-up-rust-android-gui-development-with-fission/) and either [create an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [connect an Android phone](/blog/run-a-fission-app-on-a-physical-android-phone/). Those guides cover the platform tools and launch prerequisites; this one concentrates on the document workflow.
+
+```sh
+fission init android-pick-read-and-export-files-on-android
+cd android-pick-read-and-export-files-on-android
+fission add-target android --project-dir .
+fission add-capability filesystem --project-dir .
+cargo add serde --features derive
+cargo add serde_yaml
+fission doctor android --project-dir .
+```
+
+Use the capability command, not just a Cargo feature. It configures the host as well as making the Rust API available.
+
+## Separate the screen from document processing
+
+The generated `src/main.rs` remains the thin shell entrypoint. Replace `src/lib.rs` with the setup below so that a normal platform launch runs this screen rather than the generated counter.
+
+```text
+src/
+├── main.rs          # generated entrypoint
+├── lib.rs           # target setup
+├── app.rs           # Compose screen and local text drafts
+├── state.rs         # selected directory and operation results
+├── jobs.rs          # asynchronous stream processing, added in step two
+└── translations.rs
+i18n/
+├── en-US.yaml
+└── es-ES.yaml
+```
+
+<!-- fission:step id="start-screen" -->
+## Choose the inspection folder
+
+The first useful operation is selecting a folder. A cancelled picker is not a failed read and must not remove a folder the user had already selected. Keep those outcomes distinct.
+
+The reducer marks the operation pending and requests the picker. Its completion reducers decode the capability result supplied by Fission; they do not substitute a fabricated success value or a default error.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use crate::state::{choose_directory, FilesState};
+use fission::prelude::*;
+
+fission_component! {
+    pub InspectionFiles<FilesState> {}
+    view(_files, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(SafeArea(
+        child: Scroll(
+            child: Container(Column(gap: tokens.spacing.m, children: [
+                Text(cx.tr("files.title")).size(tokens.typography.heading2_size),
+                Text(cx.tr("files.context")).color(tokens.colors.text_secondary),
+                Text(cx.tr("files.explanation")),
+                if let Some(directory) = &state.directory {
+                    Text(directory.name.clone()).weight(tokens.typography.font_weight_semibold)
+                } else {
+                    Text(cx.tr("files.no_folder")).color(tokens.colors.text_secondary)
+                },
+                Button(
+                    child: Text(cx.tr("files.choose")),
+                    key: "choose-folder",
+                    disabled: state.busy,
+                    on_press: reduce { choose_directory(state, cx); },
+                ).semantics_identifier("inspection.files.choose"),
+                if state.busy { Spinner(motion: Some(SpinnerMotion::Default), label: Some(cx.tr(&state.status_key))) },
+                Text(cx.tr(&state.status_key)),
+                if let Some(error) = &state.error { Code(text: error.clone()) },
+            ]))
+            .padding_all(tokens.spacing.l)
+            .width_length(Length::percent(100.0))
+            .max_width(720.0),
+        ),
+    ))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FilesState {
+    pub directory: Option<DirectoryHandle>,
+    pub busy: bool,
+    pub status_key: String,
+    pub error: Option<String>,
+}
+
+impl Default for FilesState {
+    fn default() -> Self {
+        Self {
+            directory: None,
+            busy: false,
+            status_key: "files.status.choose".into(),
+            error: None,
+        }
+    }
+}
+impl GlobalState for FilesState {}
+
+pub fn choose_directory(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    if state.busy {
+        return;
+    }
+    state.busy = true;
+    state.error = None;
+    state.status_key = "files.status.choosing".into();
+
+    let ok = cx.effects.bind(DirectoryChosen, reduce_with!(directory_chosen));
+    let err = cx.effects.bind(DirectoryFailed, reduce_with!(directory_failed));
+    cx.effects.file_system()
+        .pick_directory(PickDirectoryRequest {
+            access: FileSystemAccessMode::ReadWrite,
+            persistence_key: None,
+        })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(DirectoryChosen)]
+pub fn directory_chosen(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    state.busy = false;
+    state.status_key = "files.status.unexpected".into();
+    if let Some(result) = cx.input.capability_ok(PICK_DIRECTORY) {
+        if let Some(directory) = result.directory {
+            state.directory = Some(directory);
+            state.status_key = "files.status.selected".into();
+        } else {
+            state.status_key = "files.status.cancelled".into();
+        }
+    }
+}
+
+#[fission_reducer(DirectoryFailed)]
+pub fn directory_failed(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    state.busy = false;
+    state.status_key = "files.status.failed".into();
+    state.error = cx.input.capability_error(PICK_DIRECTORY)
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .or_else(|| cx.input.capability_error_message(PICK_DIRECTORY).map(str::to_owned));
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod state;
+mod translations;
+
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::FilesState, _>::new(app::InspectionFiles)
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<state::FilesState, app::InspectionFiles> {
+    let app = MobileApp::<state::FilesState, _>::new(app::InspectionFiles)
+        .with_env(translations::create_env())
+        .with_title("Inspection documents");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::FilesState, _>::new(app::InspectionFiles)
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("checked-in inspection translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+files.title: "Inspection documents"
+files.context: "WO-1048 · Pump-house inspection"
+files.explanation: "Choose the folder for this visit. Read the inspection report, then save your handover note beside it."
+files.no_folder: "No folder selected"
+files.choose: "Choose inspection folder"
+files.read_name: "Report file name"
+files.read: "Read report"
+files.bytes: "Bytes read"
+files.lines: "Lines read"
+files.export_name: "Note file name"
+files.note: "Handover note"
+files.no_overwrite: "An existing file will not be replaced. Choose another name if the note is already there."
+files.export: "Save handover note"
+files.written_bytes: "Bytes saved"
+files.status.choose: "Choose a folder to begin."
+files.status.choosing: "Waiting for your folder selection…"
+files.status.selected: "Folder selected."
+files.status.cancelled: "Selection cancelled. The previous folder is unchanged."
+files.status.reading: "Reading the report…"
+files.status.read: "Report read successfully."
+files.status.writing: "Saving the note…"
+files.status.written: "The file provider confirmed that the note was written."
+files.status.failed: "The file operation failed. Review the details, then retry or choose another folder."
+files.status.unexpected: "The operation returned no usable result. Try again."
+files.status.invalid_name: "Use one file name, not a path or a parent-directory reference."
+files.status.empty_note: "Write a handover note before saving."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+files.title: "Documentos de la inspección"
+files.context: "OT-1048 · Inspección de la sala de bombas"
+files.explanation: "Elige la carpeta de esta visita. Lee el informe y guarda junto a él tu nota de relevo."
+files.no_folder: "No hay ninguna carpeta seleccionada"
+files.choose: "Elegir carpeta de la inspección"
+files.read_name: "Nombre del archivo del informe"
+files.read: "Leer informe"
+files.bytes: "Bytes leídos"
+files.lines: "Líneas leídas"
+files.export_name: "Nombre del archivo de la nota"
+files.note: "Nota de relevo"
+files.no_overwrite: "No se sustituye ningún archivo existente. Elige otro nombre si la nota ya existe."
+files.export: "Guardar nota de relevo"
+files.written_bytes: "Bytes guardados"
+files.status.choose: "Elige una carpeta para empezar."
+files.status.choosing: "Esperando a que elijas una carpeta…"
+files.status.selected: "Carpeta seleccionada."
+files.status.cancelled: "Selección cancelada. La carpeta anterior no ha cambiado."
+files.status.reading: "Leyendo el informe…"
+files.status.read: "Informe leído correctamente."
+files.status.writing: "Guardando la nota…"
+files.status.written: "El proveedor de archivos ha confirmado la escritura de la nota."
+files.status.failed: "La operación ha fallado. Revisa los detalles y vuelve a intentarlo o elige otra carpeta."
+files.status.unexpected: "La operación no devolvió un resultado utilizable. Vuelve a intentarlo."
+files.status.invalid_name: "Escribe un solo nombre de archivo, no una ruta ni una referencia a la carpeta superior."
+files.status.empty_note: "Escribe una nota de relevo antes de guardarla."
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod state;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::FilesState, _>::new(app::InspectionFiles)
+        .with_env(translations::create_env())
+        .with_title("Inspection documents")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+
+The preview uses the real Web provider, not a simulated directory. A browser needs a secure context, picker support and a user gesture. If the host browser or its embedding policy does not allow directory selection, the app should show the provider failure. That is not evidence about native Android support; verify the native picker separately.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Choose a folder, cancel a second selection and confirm that the first folder remains selected. If the provider rejects access, confirm that the screen leaves its pending state and explains that the operation failed.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Read the report and save a separate note
+
+A large report should not become a large value in application state. The read operation supplies a stream identifier; a registered asynchronous job consumes its chunks and returns only the byte and line counts. Reducers remain synchronous throughout.
+
+The note is different: it is already a small text draft owned by the screen. The write request takes an owned snapshot of that text and sets `overwrite: false`. An existing document therefore produces an error instead of being replaced.
+
+Replace the screen, state and shell setup below, and add `src/jobs.rs`. The translations from step one remain unchanged.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use crate::state::{choose_directory, export_note, read_report, FilesState};
+use fission::prelude::*;
+
+fission_component! {
+    pub InspectionFiles<FilesState> {
+        state {
+            read_name: String = "inspection.md".into(),
+            export_name: String = "inspection-note.txt".into(),
+            note: String = String::new(),
+        }
+    }
+    view(files, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(SafeArea(
+        child: Scroll(
+            child: Container(Column(gap: tokens.spacing.m, children: [
+                Text(cx.tr("files.title")).size(tokens.typography.heading2_size),
+                Text(cx.tr("files.context")).color(tokens.colors.text_secondary),
+                Text(cx.tr("files.explanation")),
+                if let Some(directory) = &state.directory {
+                    Text(directory.name.clone()).weight(tokens.typography.font_weight_semibold)
+                } else {
+                    Text(cx.tr("files.no_folder")).color(tokens.colors.text_secondary)
+                },
+                Button(
+                    child: Text(cx.tr("files.choose")),
+                    key: "choose-folder",
+                    disabled: state.busy,
+                    on_press: reduce { choose_directory(state, cx); },
+                ).semantics_identifier("inspection.files.choose"),
+                Divider(),
+                TextInput(
+                    label: Some(cx.tr("files.read_name").into()),
+                    bind: files.read_name,
+                    read_only: state.busy,
+                    semantics_identifier: "inspection.files.read-name".to_string(),
+                ),
+                Button(
+                    child: Text(cx.tr("files.read")),
+                    key: "read-report",
+                    disabled: state.busy || state.directory.is_none(),
+                    on_press: reduce { read_report(state, files.read_name.clone(), cx); },
+                ).semantics_identifier("inspection.files.read"),
+                if let Some(summary) = &state.summary {
+                    Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                        Stat(label: cx.tr("files.bytes"), value: summary.bytes.to_string()),
+                        Stat(label: cx.tr("files.lines"), value: summary.lines.to_string()),
+                    ])
+                },
+                Divider(),
+                TextInput(
+                    label: Some(cx.tr("files.export_name").into()),
+                    bind: files.export_name,
+                    read_only: state.busy,
+                    semantics_identifier: "inspection.files.export-name".to_string(),
+                ),
+                TextInput(
+                    label: Some(cx.tr("files.note").into()),
+                    multiline: true,
+                    bind: files.note,
+                    read_only: state.busy,
+                    semantics_identifier: "inspection.files.note".to_string(),
+                ),
+                Text(cx.tr("files.no_overwrite")).color(tokens.colors.text_secondary),
+                Button(
+                    child: Text(cx.tr("files.export")),
+                    key: "export-note",
+                    disabled: state.busy || state.directory.is_none(),
+                    on_press: reduce {
+                        export_note(state, files.export_name.clone(), files.note.clone(), cx);
+                    },
+                ).semantics_identifier("inspection.files.export"),
+                if let Some(bytes) = state.written_bytes {
+                    Text(format!("{}: {}", cx.tr("files.written_bytes"), bytes))
+                },
+                if state.busy { Spinner(motion: Some(SpinnerMotion::Default), label: Some(cx.tr(&state.status_key))) },
+                Text(cx.tr(&state.status_key)),
+                if let Some(error) = &state.error { Code(text: error.clone()) },
+            ]))
+            .padding_all(tokens.spacing.l)
+            .width_length(Length::percent(100.0))
+            .max_width(720.0),
+        ),
+    ))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use crate::jobs::{ReportRequest, ReportSummary, INSPECT_REPORT};
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FilesState {
+    pub directory: Option<DirectoryHandle>,
+    pub busy: bool,
+    pub status_key: String,
+    pub error: Option<String>,
+    pub summary: Option<ReportSummary>,
+    pub written_bytes: Option<u64>,
+}
+
+impl Default for FilesState {
+    fn default() -> Self {
+        Self {
+            directory: None,
+            busy: false,
+            status_key: "files.status.choose".into(),
+            error: None,
+            summary: None,
+            written_bytes: None,
+        }
+    }
+}
+impl GlobalState for FilesState {}
+
+pub fn choose_directory(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    if state.busy {
+        return;
+    }
+    state.busy = true;
+    state.error = None;
+    state.status_key = "files.status.choosing".into();
+
+    let ok = cx.effects.bind(DirectoryChosen, reduce_with!(directory_chosen));
+    let err = cx.effects.bind(DirectoryFailed, reduce_with!(directory_failed));
+    cx.effects.file_system()
+        .pick_directory(PickDirectoryRequest {
+            access: FileSystemAccessMode::ReadWrite,
+            persistence_key: None,
+        })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(DirectoryChosen)]
+pub fn directory_chosen(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    state.busy = false;
+    state.status_key = "files.status.unexpected".into();
+    if let Some(result) = cx.input.capability_ok(PICK_DIRECTORY) {
+        if let Some(directory) = result.directory {
+            state.directory = Some(directory);
+            state.summary = None;
+            state.written_bytes = None;
+            state.status_key = "files.status.selected".into();
+        } else {
+            state.status_key = "files.status.cancelled".into();
+        }
+    }
+}
+
+#[fission_reducer(DirectoryFailed)]
+pub fn directory_failed(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    state.busy = false;
+    state.status_key = "files.status.failed".into();
+    state.error = cx.input.capability_error(PICK_DIRECTORY)
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .or_else(|| cx.input.capability_error_message(PICK_DIRECTORY).map(str::to_owned));
+}
+
+pub fn is_file_name(name: &str) -> bool {
+    !name.is_empty()
+        && name == name.trim()
+        && name != "."
+        && name != ".."
+        && !name.chars().any(|ch| matches!(ch, '/' | '\\' | ':' | '\0'))
+}
+
+pub fn read_report(state: &mut FilesState, name: String, cx: &mut ReducerContext<FilesState>) {
+    if state.busy {
+        return;
+    }
+    let Some(directory) = state.directory.as_ref() else {
+        state.status_key = "files.status.choose".into();
+        return;
+    };
+    if !is_file_name(&name) {
+        state.status_key = "files.status.invalid_name".into();
+        return;
+    }
+    let location = FileSystemLocation::directory(directory.id, name);
+    state.busy = true;
+    state.error = None;
+    state.summary = None;
+    state.status_key = "files.status.reading".into();
+
+    let ok = cx.effects.bind(ReportOpened, reduce_with!(report_opened));
+    let err = cx.effects.bind(ReadFailed, reduce_with!(read_failed));
+    cx.effects.file_system().read(ReadFileRequest { location }).on_ok(ok).on_err(err);
+}
+
+#[fission_reducer(ReportOpened)]
+pub fn report_opened(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    let Some(result) = cx.input.capability_ok(READ_FILE) else {
+        state.busy = false;
+        state.status_key = "files.status.unexpected".into();
+        return;
+    };
+    let ok = cx.effects.bind(ReportInspected, reduce_with!(report_inspected));
+    let err = cx.effects.bind(InspectionFailed, reduce_with!(inspection_failed));
+    cx.effects.app(INSPECT_REPORT, ReportRequest { stream: result.stream }).on_ok(ok).on_err(err);
+}
+
+#[fission_reducer(ReadFailed)]
+pub fn read_failed(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    state.busy = false;
+    state.status_key = "files.status.failed".into();
+    state.error = cx.input.capability_error(READ_FILE)
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .or_else(|| cx.input.capability_error_message(READ_FILE).map(str::to_owned));
+}
+
+#[fission_reducer(ReportInspected)]
+pub fn report_inspected(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    state.busy = false;
+    state.summary = cx.input.job_ok(INSPECT_REPORT);
+    state.status_key = if state.summary.is_some() {
+        "files.status.read"
+    } else {
+        "files.status.unexpected"
+    }.into();
+}
+
+#[fission_reducer(InspectionFailed)]
+pub fn inspection_failed(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    state.busy = false;
+    state.status_key = "files.status.failed".into();
+    state.error = cx.input.job_err(INSPECT_REPORT)
+        .or_else(|| cx.input.job_error_message(INSPECT_REPORT).map(str::to_owned));
+}
+
+pub fn export_note(
+    state: &mut FilesState,
+    name: String,
+    note: String,
+    cx: &mut ReducerContext<FilesState>,
+) {
+    if state.busy {
+        return;
+    }
+    let Some(directory) = state.directory.as_ref() else {
+        state.status_key = "files.status.choose".into();
+        return;
+    };
+    if !is_file_name(&name) {
+        state.status_key = "files.status.invalid_name".into();
+        return;
+    }
+    if note.trim().is_empty() {
+        state.status_key = "files.status.empty_note".into();
+        return;
+    }
+    let location = FileSystemLocation::directory(directory.id, name);
+    state.busy = true;
+    state.error = None;
+    state.written_bytes = None;
+    state.status_key = "files.status.writing".into();
+
+    let ok = cx.effects.bind(NoteWritten, reduce_with!(note_written));
+    let err = cx.effects.bind(WriteFailed, reduce_with!(write_failed));
+    cx.effects.file_system().write(WriteFileRequest {
+        location,
+        source: FileWriteSource::Bytes(note.into_bytes()),
+        create_parents: false,
+        overwrite: false,
+    }).on_ok(ok).on_err(err);
+}
+
+#[fission_reducer(NoteWritten)]
+pub fn note_written(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    state.busy = false;
+    state.written_bytes = cx.input.capability_ok(WRITE_FILE).map(|result| result.byte_len);
+    state.status_key = if state.written_bytes.is_some() {
+        "files.status.written"
+    } else {
+        "files.status.unexpected"
+    }.into();
+}
+
+#[fission_reducer(WriteFailed)]
+pub fn write_failed(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    state.busy = false;
+    state.status_key = "files.status.failed".into();
+    state.error = cx.input.capability_error(WRITE_FILE)
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .or_else(|| cx.input.capability_error_message(WRITE_FILE).map(str::to_owned));
+}
+```
+</TabItem>
+<TabItem label="src/jobs.rs">
+<!-- fission:file path="src/jobs.rs" -->
+```rust
+use fission::core::{DataStreamId, JobCtx, JobRef, JobSpec};
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReportRequest {
+    pub stream: DataStreamId,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReportSummary {
+    pub bytes: u64,
+    pub lines: u64,
+}
+
+pub struct InspectReport;
+impl JobSpec for InspectReport {
+    type Request = ReportRequest;
+    type Ok = ReportSummary;
+    type Err = String;
+    const NAME: &'static str = "inspection.files.inspect-report";
+}
+pub const INSPECT_REPORT: JobRef<InspectReport> = JobRef::new(InspectReport::NAME);
+
+pub async fn inspect_report(request: ReportRequest, cx: JobCtx) -> Result<ReportSummary, String> {
+    let mut stream = cx.open_data_stream(request.stream).map_err(|error| error.to_string())?;
+    let mut bytes = 0_u64;
+    let mut lines = 0_u64;
+    let mut ends_with_newline = true;
+
+    while let Some(chunk) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
+        let chunk = chunk.map_err(|error| error.to_string())?;
+        bytes = bytes.checked_add(chunk.len() as u64).ok_or("Report is too large")?;
+        lines = lines.checked_add(chunk.iter().filter(|byte| **byte == b'\n').count() as u64)
+            .ok_or("Report has too many lines")?;
+        if !chunk.is_empty() {
+            ends_with_newline = chunk.ends_with(b"\n");
+        }
+    }
+    if bytes > 0 && !ends_with_newline {
+        lines = lines.checked_add(1).ok_or("Report has too many lines")?;
+    }
+    Ok(ReportSummary { bytes, lines })
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod state;
+mod translations;
+mod jobs;
+
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::FilesState, _>::new(app::InspectionFiles)
+        .with_env(translations::create_env())
+        .with_async(|asyncs| {
+            asyncs.register_job(jobs::INSPECT_REPORT, |request, cx| async move {
+                jobs::inspect_report(request, cx).await
+            });
+        })
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<state::FilesState, app::InspectionFiles> {
+    let app = MobileApp::<state::FilesState, _>::new(app::InspectionFiles)
+        .with_env(translations::create_env())
+        .with_async(|asyncs| {
+            asyncs.register_job(jobs::INSPECT_REPORT, |request, cx| async move {
+                jobs::inspect_report(request, cx).await
+            });
+        })
+        .with_title("Inspection documents");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::FilesState, _>::new(app::InspectionFiles)
+        .with_env(translations::create_env())
+        .with_async(|asyncs| {
+            asyncs.register_job(jobs::INSPECT_REPORT, |request, cx| async move {
+                jobs::inspect_report(request, cx).await
+            });
+        })
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod state;
+mod translations;
+mod jobs;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::FilesState, _>::new(app::InspectionFiles)
+        .with_env(translations::create_env())
+        .with_async(|asyncs| {
+            asyncs.register_job(jobs::INSPECT_REPORT, |request, cx| async move {
+                jobs::inspect_report(request, cx).await
+            });
+        })
+        .with_title("Inspection documents")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+
+There are three useful boundaries here. Text drafts belong to the component; the selected directory and completed operation results belong to shared state; stream processing belongs to the asynchronous job. The job receives a stream identifier, not a live component or reducer context.
+
+Only one operation is admitted at a time. The screen disables its controls whilst it is busy, and the reducers check that condition too. As a result, a late report result cannot replace a result for a newly selected folder. A screen that permits concurrent reads would instead need an operation identity and stale-result checks.
+
+File-name validation deliberately accepts one name, not an arbitrary relative path. This is an application input rule, not a replacement for the provider's access enforcement. The line counter counts newline-delimited records, including a final non-empty line without a newline; it does not parse Markdown or assume the report is valid UTF-8.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Read an existing report and compare its byte and line counts with the file. Enter a missing file name and check the failure state. Save a note, then save to the same name again: the second write must fail and leave the original file intact.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="device-checks" -->
+## Verify the boundary cases on Android
+
+The browser preview exercises shared Rust behaviour. The native provider still needs a device check, particularly when documents live outside local storage.
+
+Add these small input tests to `src/state.rs`; they check the rule the app owns, rather than pretending to test a system picker without opening one.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use crate::jobs::{ReportRequest, ReportSummary, INSPECT_REPORT};
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FilesState {
+    pub directory: Option<DirectoryHandle>,
+    pub busy: bool,
+    pub status_key: String,
+    pub error: Option<String>,
+    pub summary: Option<ReportSummary>,
+    pub written_bytes: Option<u64>,
+}
+
+impl Default for FilesState {
+    fn default() -> Self {
+        Self {
+            directory: None,
+            busy: false,
+            status_key: "files.status.choose".into(),
+            error: None,
+            summary: None,
+            written_bytes: None,
+        }
+    }
+}
+impl GlobalState for FilesState {}
+
+pub fn choose_directory(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    if state.busy {
+        return;
+    }
+    state.busy = true;
+    state.error = None;
+    state.status_key = "files.status.choosing".into();
+
+    let ok = cx.effects.bind(DirectoryChosen, reduce_with!(directory_chosen));
+    let err = cx.effects.bind(DirectoryFailed, reduce_with!(directory_failed));
+    cx.effects.file_system()
+        .pick_directory(PickDirectoryRequest {
+            access: FileSystemAccessMode::ReadWrite,
+            persistence_key: None,
+        })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(DirectoryChosen)]
+pub fn directory_chosen(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    state.busy = false;
+    state.status_key = "files.status.unexpected".into();
+    if let Some(result) = cx.input.capability_ok(PICK_DIRECTORY) {
+        if let Some(directory) = result.directory {
+            state.directory = Some(directory);
+            state.summary = None;
+            state.written_bytes = None;
+            state.status_key = "files.status.selected".into();
+        } else {
+            state.status_key = "files.status.cancelled".into();
+        }
+    }
+}
+
+#[fission_reducer(DirectoryFailed)]
+pub fn directory_failed(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    state.busy = false;
+    state.status_key = "files.status.failed".into();
+    state.error = cx.input.capability_error(PICK_DIRECTORY)
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .or_else(|| cx.input.capability_error_message(PICK_DIRECTORY).map(str::to_owned));
+}
+
+pub fn is_file_name(name: &str) -> bool {
+    !name.is_empty()
+        && name == name.trim()
+        && name != "."
+        && name != ".."
+        && !name.chars().any(|ch| matches!(ch, '/' | '\\' | ':' | '\0'))
+}
+
+pub fn read_report(state: &mut FilesState, name: String, cx: &mut ReducerContext<FilesState>) {
+    if state.busy {
+        return;
+    }
+    let Some(directory) = state.directory.as_ref() else {
+        state.status_key = "files.status.choose".into();
+        return;
+    };
+    if !is_file_name(&name) {
+        state.status_key = "files.status.invalid_name".into();
+        return;
+    }
+    let location = FileSystemLocation::directory(directory.id, name);
+    state.busy = true;
+    state.error = None;
+    state.summary = None;
+    state.status_key = "files.status.reading".into();
+
+    let ok = cx.effects.bind(ReportOpened, reduce_with!(report_opened));
+    let err = cx.effects.bind(ReadFailed, reduce_with!(read_failed));
+    cx.effects.file_system().read(ReadFileRequest { location }).on_ok(ok).on_err(err);
+}
+
+#[fission_reducer(ReportOpened)]
+pub fn report_opened(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    let Some(result) = cx.input.capability_ok(READ_FILE) else {
+        state.busy = false;
+        state.status_key = "files.status.unexpected".into();
+        return;
+    };
+    let ok = cx.effects.bind(ReportInspected, reduce_with!(report_inspected));
+    let err = cx.effects.bind(InspectionFailed, reduce_with!(inspection_failed));
+    cx.effects.app(INSPECT_REPORT, ReportRequest { stream: result.stream }).on_ok(ok).on_err(err);
+}
+
+#[fission_reducer(ReadFailed)]
+pub fn read_failed(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    state.busy = false;
+    state.status_key = "files.status.failed".into();
+    state.error = cx.input.capability_error(READ_FILE)
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .or_else(|| cx.input.capability_error_message(READ_FILE).map(str::to_owned));
+}
+
+#[fission_reducer(ReportInspected)]
+pub fn report_inspected(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    state.busy = false;
+    state.summary = cx.input.job_ok(INSPECT_REPORT);
+    state.status_key = if state.summary.is_some() {
+        "files.status.read"
+    } else {
+        "files.status.unexpected"
+    }.into();
+}
+
+#[fission_reducer(InspectionFailed)]
+pub fn inspection_failed(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    state.busy = false;
+    state.status_key = "files.status.failed".into();
+    state.error = cx.input.job_err(INSPECT_REPORT)
+        .or_else(|| cx.input.job_error_message(INSPECT_REPORT).map(str::to_owned));
+}
+
+pub fn export_note(
+    state: &mut FilesState,
+    name: String,
+    note: String,
+    cx: &mut ReducerContext<FilesState>,
+) {
+    if state.busy {
+        return;
+    }
+    let Some(directory) = state.directory.as_ref() else {
+        state.status_key = "files.status.choose".into();
+        return;
+    };
+    if !is_file_name(&name) {
+        state.status_key = "files.status.invalid_name".into();
+        return;
+    }
+    if note.trim().is_empty() {
+        state.status_key = "files.status.empty_note".into();
+        return;
+    }
+    let location = FileSystemLocation::directory(directory.id, name);
+    state.busy = true;
+    state.error = None;
+    state.written_bytes = None;
+    state.status_key = "files.status.writing".into();
+
+    let ok = cx.effects.bind(NoteWritten, reduce_with!(note_written));
+    let err = cx.effects.bind(WriteFailed, reduce_with!(write_failed));
+    cx.effects.file_system().write(WriteFileRequest {
+        location,
+        source: FileWriteSource::Bytes(note.into_bytes()),
+        create_parents: false,
+        overwrite: false,
+    }).on_ok(ok).on_err(err);
+}
+
+#[fission_reducer(NoteWritten)]
+pub fn note_written(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    state.busy = false;
+    state.written_bytes = cx.input.capability_ok(WRITE_FILE).map(|result| result.byte_len);
+    state.status_key = if state.written_bytes.is_some() {
+        "files.status.written"
+    } else {
+        "files.status.unexpected"
+    }.into();
+}
+
+#[fission_reducer(WriteFailed)]
+pub fn write_failed(state: &mut FilesState, cx: &mut ReducerContext<FilesState>) {
+    state.busy = false;
+    state.status_key = "files.status.failed".into();
+    state.error = cx.input.capability_error(WRITE_FILE)
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .or_else(|| cx.input.capability_error_message(WRITE_FILE).map(str::to_owned));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_file_name;
+
+    #[test]
+    fn accepts_one_file_name() {
+        assert!(is_file_name("inspection.md"));
+        assert!(is_file_name("handover note.txt"));
+    }
+
+    #[test]
+    fn rejects_paths_and_ambiguous_names() {
+        for name in ["", ".", "..", "../report.md", "reports/report.md",
+                     "reports\\report.md", "report.md ", "scheme:report", "bad\0name"] {
+            assert!(!is_file_name(name), "{name:?}");
+        }
+    }
+}
+```
+</TabItem>
+</Tabs>
+
+```sh
+cargo test
+fission run --target android --project-dir .
+```
+
+```sh
+adb devices -l
+fission run --target android --device <adb-serial> --project-dir .
+```
+
+Use the device serial reported by `adb`. Create an `inspection.md` file in an accessible Documents folder using the device's Files app, or transfer one with `adb push inspection.md /sdcard/Documents/inspection.md`. Select that folder in the app.
+
+Check an empty report, a report whose final line has no newline, cancellation and a missing document. Where your provider allows it, also check read-only access or a location that becomes unavailable. Each failure must stop the spinner and leave the note draft available for a retry. Open an exported note in another app and compare its contents; a success label alone is not verification.
+
+This leaves the app with a working document boundary, not a full inspection system. Persistent access restoration, background uploads and an audit trail each introduce different ownership and failure requirements. Add them when the workflow needs them rather than suggesting that a directory picker provides them automatically.
+
+<!-- fission:preview -->
+<!-- /fission:step -->

@@ -1,0 +1,21 @@
+---
+title: Risk regions map
+sidebar_label: Risk regions map
+description: Use an explicitly defined regional risk measure and retain its evidence.
+---
+
+# Risk regions map
+
+![Risk regions map screenshot](/img/charts/map-risk-regions.png)
+
+Risk is not a universal quantity. A service-operations report may count sites breaching a latency threshold; an insurance report may estimate loss. Giving both an unexplained 0–100 score would hide the assumptions the reader needs.
+
+For the operations case, follow [the affected-site projection](../geo-and-route/map-risk). It divides affected sites by monitored sites, rejects impossible counts and leaves an unknown denominator absent. The [choropleth component](../geographic-and-route/map-choropleth) supplies the actual Compose map and stable-ID geometry join.
+
+Keep threshold, reporting window and monitored population with the report. Supply translated title, percentage caption and an explanation of what a breach means. Use a fixed colour domain across comparable snapshots, and provide affected/monitored counts in an exact-value list.
+
+A region without monitoring is not a low-risk region. Do not convert missing values to zero or rely on a red/green distinction to indicate operational status. If another risk model is needed, define and validate that model before projecting it into `RegionMeasure`.
+
+Test missing monitoring, changed thresholds, zero affected sites and geometry without a matching record. The gallery uses independent fixtures; it does not validate a risk model or predict future incidents.
+
+[Geo family overview](./overview)

@@ -1,0 +1,92 @@
+---
+title: Storage class treemap
+sidebar_label: Storage class treemap
+description: Fission Charts reference for Storage class treemap.
+---
+
+# Storage class treemap
+
+![Storage class treemap screenshot](/img/charts/treemap-storage-classes.png)
+
+A storage-class treemap compares how much data sits in each class. This helps an operator see whether most data is still in the active tier or has moved to archive. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example measures stored size in GiB, not monthly cost. Storage classes can have different pricing and retrieval charges, so their area shares must not be presented as cost shares.
+
+## Data model
+
+Use nested TreemapNode records with one current storage-class assignment per object. Decide whether the measured size is logical or billed size before aggregating. The same choice must apply to every branch.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `TreemapSeries::data` | `Vec<TreemapNode>` | Supplies the roots of the hierarchy. |
+| `TreemapNode::children` | `Vec<TreemapNode>` | Supplies each node's next level. |
+| `TreemapNode::value` | `f32` | Carries the numeric value associated with the node. |
+| `Chart::series` | `Vec<Series>` | Presents the hierarchy without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, TreemapSeries, TreemapNode};
+
+let nodes = vec![TreemapNode {
+    name: "Stored objects".into(),
+    value: 500.0,
+    children: vec![
+        TreemapNode {
+            name: "Standard".into(),
+            value: 350.0,
+            children: vec![],
+        },
+        TreemapNode {
+            name: "Archive".into(),
+            value: 150.0,
+            children: vec![],
+        },
+    ],
+}];
+
+let chart = Chart::new()
+    .title("Stored objects by storage class (GiB)")
+    .series(vec![TreemapSeries::new("Stored size (GiB)")
+        .data(nodes)
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The parent prepares the hierarchy and its loading or error state. The chart component only presents the records supplied to it.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, TreemapSeries, TreemapNode};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub StorageClassTreemapChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<TreemapNode>,
+        }
+    }
+    view(hierarchy, _state, _cx) =>
+        Chart(
+            title: Some(hierarchy.chart_title.clone()),
+            series: vec![TreemapSeries::new(&hierarchy.series_label)
+                .data(hierarchy.nodes.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check class transitions and partially completed moves so an object is not double-counted. Test an empty archive class and keep exact sizes readable outside small rectangles.
+
+Tags: `treemap`, `storage`.
+
+[Hierarchy family overview](./overview)

@@ -1,0 +1,50 @@
+---
+title: Journey sankey
+sidebar_label: Journey sankey
+description: Describe journey relationships with SankeySeries while respecting its current unweighted layout.
+---
+
+# Journey sankey
+
+![Journey sankey screenshot](/img/charts/analytics-journey-sankey.png)
+
+A weighted Sankey normally shows how a quantity moves between stages, with ribbon width representing the quantity. Fission's current `SankeySeries` does not implement that quantitative contract: its edges have no weight and its ribbons use a fixed width.
+
+It can show which entry pages connect to which next pages. It cannot establish that one path carried more customers than another.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GraphNode, SankeySeries, Series};
+use fission::charts::series::graph::GraphEdge;
+
+fission_component! {
+    pub EntryPageRelationships<()> {
+        props {
+            title: String,
+            relationship_label: String,
+            pages: Vec<GraphNode>,
+            transitions: Vec<GraphEdge>,
+        }
+    }
+    view(journey, _state, _cx) => Chart(
+        title: Some(journey.title.clone()),
+        series: vec![Series::Sankey(
+            SankeySeries::new(&journey.relationship_label)
+                .nodes(journey.pages.clone())
+                .edges(journey.transitions.clone()),
+        )],
+    )
+}
+```
+
+Use stable page IDs and validate every edge endpoint. Supply translated node names; do not encode a supposed flow quantity into an ID or rely on `GraphNode.value` to set ribbon width.
+
+## Choose the report deliberately
+
+The present layout puts source-only nodes in one column and other nodes in another. It is not a general multi-stage, flow-conserving Sankey layout. Limit this view to a simple relationship overview and state that all ribbons are unweighted.
+
+For conversion volumes, show counts in a table or use ordered funnel stages when that matches the question. Do not publish this diagram as a weighted journey report. The gallery screenshot illustrates the current renderer, not proof of quantitative flow support.
+
+[Analytics family overview](./overview)

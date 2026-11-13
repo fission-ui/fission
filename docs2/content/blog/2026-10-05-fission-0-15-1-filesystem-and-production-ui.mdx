@@ -1,0 +1,132 @@
+---
+title: Fission 0.15.1: portable files and production-ready UI
+description: Fission 0.15.1 adds an opt-in cross-platform filesystem, a stronger default design system, richer rendering, and more complete widget interactions.
+authors:
+  - fission
+categories:
+  - Releases
+tags:
+  - release
+  - authoring
+  - platform
+show_adjacent_posts: true
+---
+
+# Fission 0.15.1: portable files and production-ready UI
+
+Fission 0.15.1 makes two common parts of app development easier: working with
+user-approved files across native and Web targets, and building a coherent
+interface without reimplementing basic design and interaction behaviour in every
+app.
+
+This is the complete 0.15 release. The first 0.15.0 registry publication stopped
+after a package-only theme build failure, before the framework and CLI were
+uploaded. Fission 0.15.1 fixes that packaging issue and replaces 0.15.0.
+
+The release also updates rendering, charts, accessibility, retained identity,
+LiveTest, documentation, and the component catalogue. It adds public APIs and
+intentionally changes the default look.
+
+## One filesystem contract, native authority
+
+The new `filesystem` capability is opt-in. It gives your app one asynchronous
+effect API for native paths and provider-backed directories. You can list
+directories, read metadata, stream files, write bytes or streams, create
+directories, remove entries, check permissions, and release grants.
+
+Native paths use the process's operating-system permissions; Fission does not
+add another path sandbox. Platform pickers give users a way to select locations
+on desktop, Android, iOS, and modern browsers. On Web, Fission uses the File
+System Access API and can save granted handles in IndexedDB for later use. The
+file contents stay in the user's filesystem.
+
+Transfers are incremental on desktop and lazy on Web. The default chunk size is
+suited to ordinary interactive work; apps with different latency or throughput
+needs can change it.
+
+CLI-managed projects enable the capability with:
+
+```console
+fission add-capability filesystem --project-dir .
+```
+
+Apps that do not enable the capability do not compile or package its providers.
+
+## A stronger interface before application styling begins
+
+Tidewater is now Fission's default design system. It has a calm teal palette,
+clear surfaces, compact controls, consistent typography, and restrained depth.
+Graphite and Ember are available as alternate presets, and you can still install
+your own DSP package.
+
+Fission now provides design choices that used to end up duplicated across apps:
+compact, comfortable, and spacious density; minimum pointer and touch targets;
+paired surface and content colours; responsive breakpoints; elevation and layer
+roles; loading and busy states; and an optional platform-native look.
+
+Built-in components now get spacing, sizing, colour, radius, and motion from
+design tokens or component recipes. Existing DSP packages still work: new roles
+are optional and use compatible fallbacks when they are not defined.
+
+Several interaction details that can be easy to miss in screenshots are now
+complete. Split views resize by dragging; editable fields submit and cancel from
+the keyboard; file uploads expose accessible errors; calendars use labelled
+icons; comboboxes show placeholders; date ranges follow the theme spacing; and
+table headers fill their surface.
+
+## Rendering and interaction fidelity
+
+The Vello renderer now uses the sparse-strips pipeline and WGPU 29. Fission's
+retained render model adds per-corner radii, per-edge borders, sweep gradients,
+blend modes, backdrop colour filters, stroke trim and dash animation, and
+placement along a path. Text painting uses the same wrapping and alignment
+geometry as layout, fixing several first-frame and multiline mismatches.
+
+Focus, hover, minimum hit targets, implicit identities, drag and drop, scrollbars,
+selection handles, nested portals, and popup dismissal have all had focused bug
+fixes. Apps need less code to work around framework behaviour, and input is more
+consistent across desktop, mobile, and Web.
+
+Charts now support interactive tooltips and axis pointers, hover emphasis, legend
+selection, wheel and slider zoom, region brushing, keyboard navigation, assistive
+descriptions, and animated value changes. Dense line and category data is reduced
+for presentation so crowded plots stay readable.
+
+## A catalogue that can be inspected, not imagined
+
+The widget gallery now has a page for each supported component, with working
+state, responsive layouts, design-system and density controls, and maintained
+visual baselines. The showcase uses Fission widgets for its own controls and
+applies the selected design system only to the app being previewed.
+
+The docs site, crate directory, guides, and examples now match the current APIs.
+They explain what a capability lets you build before moving into implementation
+details. Widget authors can also use the public `LoweringContext` API and lexical
+`with_scope(...)` identity scoping instead of relying on private lowering
+internals.
+
+## Upgrade
+
+Update the framework and CLI:
+
+```toml
+[dependencies]
+fission = { version = "0.15.1", default-features = false, features = ["desktop"] }
+```
+
+```sh
+cargo install cargo-fission --version 0.15.1 --locked
+```
+
+The default look is Tidewater at compact density. Install a different design
+system or density if that is not right for your app.
+
+Several component sizing fields now use `Option<f32>` so `None` can inherit the
+active design system: `CircularProgress::size` and `thickness`,
+`RefreshIndicator::stroke_width` and `indicator_size`, and the sizing fields on
+`TimelineLayout`. Public design, semantics, environment, slider, combobox, and
+file-upload structs also gained optional fields. Use `..Default::default()` in
+struct literals unless you deliberately set every field.
+
+The version upgrade does not enable the filesystem capability. Add it with the
+CLI command above only if your app needs it.

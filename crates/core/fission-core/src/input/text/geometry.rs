@@ -750,12 +750,13 @@ impl TextInputController {
         Some(fission_layout::LayoutRect::new(x, y, 2.0, line_height))
     }
 
-    pub(super) fn auto_scroll_textinput(ctx: &mut ControllerContext, text_root: WidgetId) {
+    pub(crate) fn auto_scroll_textinput(ctx: &mut ControllerContext, text_root: WidgetId) -> bool {
         if Self::runtime_config(ctx, text_root)
             .is_some_and(|config| config.scroll_policy == TextScrollPolicy::Never)
         {
-            return;
+            return false;
         }
+        let mut changed = false;
         let font_size = Self::extract_font_size(ctx.ir, text_root).unwrap_or(16.0);
         if let Some(measurer) = ctx.measurer {
             // Need to get multiline status from semantics here
@@ -774,6 +775,11 @@ impl TextInputController {
             {
                 if let Some(scroll_geom) = ctx.layout.get_node_geometry(scroll_id) {
                     let viewport_size = scroll_geom.rect.size;
+                    // A responsive branch may give the same semantic input a
+                    // new WidgetId. The metric lookup below creates a fresh
+                    // edit session, so remember whether its lowered selection
+                    // must be copied into that session.
+                    let had_editing_session = ctx.text_edit.get(text_root).is_some();
 
                     let (current_text_value, metric_text, masked, scroll_padding) =
                         if let Some(node) = ctx.ir.nodes.get(&text_root) {
@@ -801,13 +807,43 @@ impl TextInputController {
                             (String::new(), String::new(), false, [2.0, 3.0, 2.0, 3.0])
                         };
 
-                    let current_caret_idx = if let Some(st) = ctx.text_edit.get(text_root) {
-                        st.display_preedit_cursor_range()
-                            .map(|(_, end)| end)
-                            .unwrap_or(st.caret)
-                    } else {
-                        0
-                    };
+                    // Seed a fresh session from the lowered selection before
+                    // measuring scroll. This keeps the runtime caret aligned
+                    // with TextInput's rendered caret.
+                    if !had_editing_session {
+                        let selection = ctx.ir.nodes.get(&text_root).and_then(|node| {
+                            if let Op::Semantics(semantics) = &node.op {
+                                semantics.text_selection
+                            } else {
+                                None
+                            }
+                        });
+                        if let Some((anchor, caret)) = selection {
+                            if let Some(state) = ctx.text_edit.states.get_mut(&text_root) {
+                                state.caret = caret.min(current_text_value.len());
+                                state.anchor = anchor.min(current_text_value.len());
+                            }
+                        }
+                    }
+
+                    let current_caret_idx = ctx
+                        .text_edit
+                        .get(text_root)
+                        .map(|st| {
+                            st.display_preedit_cursor_range()
+                                .map(|(_, end)| end)
+                                .unwrap_or(st.caret)
+                        })
+                        .or_else(|| {
+                            ctx.ir.nodes.get(&text_root).and_then(|node| {
+                                if let Op::Semantics(semantics) = &node.op {
+                                    semantics.text_selection.map(|(_, caret)| caret)
+                                } else {
+                                    None
+                                }
+                            })
+                        })
+                        .unwrap_or(current_text_value.len());
                     let metric_caret_idx = if masked {
                         Self::masked_byte_offset_from_source(
                             &current_text_value,
@@ -825,11 +861,23 @@ impl TextInputController {
                         None
                     };
 
-                    let resolved = Self::resolved_paragraph_for_text(
-                        ctx.layout,
-                        text_op_node_id,
-                        &metric_text,
-                    );
+                    // A platform replacement or LiveTest FillText can update the
+                    // retained editing value before the declarative tree and layout
+                    // have been rebuilt. Do not use caret geometry or text width
+                    // resolved for the previous value during that interval.
+                    let layout_has_current_text = !ctx
+                        .text_edit
+                        .get(text_root)
+                        .is_some_and(|state| state.pending_model_sync);
+                    let resolved = layout_has_current_text
+                        .then(|| {
+                            Self::resolved_paragraph_for_text(
+                                ctx.layout,
+                                text_op_node_id,
+                                &metric_text,
+                            )
+                        })
+                        .flatten();
                     let resolved_caret =
                         resolved.and_then(|paragraph| paragraph.caret(metric_caret_idx, false));
                     let (caret_x, caret_y) = resolved_caret
@@ -844,17 +892,24 @@ impl TextInputController {
                         });
 
                     let mut offset = ctx.scroll.get_offset(scroll_id);
+                    let previous_offset = offset;
 
                     if scroll_direction == op::FlexDirection::Row {
                         // Handle horizontal scrolling for single-line text
                         let line_width = resolved
-                            .and_then(|paragraph| paragraph.lines.first())
-                            .map(|line| line.width)
-                            .or_else(|| {
-                                measurer
-                                    .get_line_metrics(&metric_text, font_size, None)
-                                    .first()
+                            .map(|paragraph| {
+                                paragraph
+                                    .lines
+                                    .iter()
                                     .map(|line| line.width)
+                                    .fold(0.0f32, f32::max)
+                            })
+                            .or_else(|| {
+                                let lines =
+                                    measurer.get_line_metrics(&metric_text, font_size, None);
+                                (!lines.is_empty()).then(|| {
+                                    lines.iter().map(|line| line.width).fold(0.0f32, f32::max)
+                                })
                             })
                             .unwrap_or_else(|| measurer.measure(&metric_text, font_size, None).0);
                         let caret_left = caret_x
@@ -883,7 +938,15 @@ impl TextInputController {
                         } else if visible_left < margin_left {
                             offset = (caret_left - margin_left).max(0.0f32);
                         }
-                        let content_w = scroll_geom.content_size.width.max(viewport_size.width);
+                        // The snapshot's content width can still describe the old,
+                        // short value. Include the current measured line and caret
+                        // padding so a replacement at the end can scroll immediately.
+                        let measured_content_width = line_width + caret_width + margin_right;
+                        let content_w = scroll_geom
+                            .content_size
+                            .width
+                            .max(measured_content_width)
+                            .max(viewport_size.width);
                         let max_offset = (content_w - viewport_size.width).max(0.0f32);
                         offset = offset.clamp(0.0f32, max_offset);
                         ctx.scroll.set_offset(scroll_id, offset);
@@ -932,9 +995,11 @@ impl TextInputController {
                         offset = offset.clamp(0.0f32, max_offset);
                         ctx.scroll.set_offset(scroll_id, offset);
                     }
+                    changed |= (offset - previous_offset).abs() > 0.001;
                 }
             }
         }
+        changed
     }
 
     pub(super) fn handle_vertical_navigation(

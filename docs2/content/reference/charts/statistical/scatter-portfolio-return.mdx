@@ -1,0 +1,57 @@
+---
+title: Portfolio risk return
+sidebar_label: Portfolio risk return
+description: Fission Charts reference for Portfolio risk return.
+---
+
+# Portfolio risk return
+
+![Portfolio risk return screenshot](/img/charts/scatter-portfolio-return.png)
+
+Historical risk and return comparisons need one common reporting basis. Different periods, currencies or volatility conventions can make the positions look comparable whilst describing different measurements. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here x is annualised historical volatility, y is period total return and bubble size is absolute position exposure. The sign of short exposure remains a separate domain fact, not a negative marker radius.
+
+## Data model
+
+`BubbleSeries` accepts `(x, y, size)` triples. Validate finite values and non-negative size, preserving exact financial records outside the projection. Bounded square-root radius scaling does not make painted area an exact exposure ratio.
+
+## Authoring from a Fission component
+
+The parent supplies prepared historical observations and localized labels, retaining stable position IDs.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, BubbleSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub HistoricalPositionRiskReturn<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            axis_label_2: String,
+            observations: Vec<(f32, f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::value().name(&report.axis_label)),
+        y_axis: Some(Axis::value().name(&report.axis_label_2)),
+        series: vec![BubbleSeries::new(&report.series_label)
+            .data(report.observations.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test negative returns, zero and short exposure, and overlapping positions. Provide the dates, conventions and exact values outside the image. The chart is a report, not a portfolio optimiser or prediction.
+
+Tags: `scatter`, `portfolio`.
+
+[Statistical family overview](./overview)

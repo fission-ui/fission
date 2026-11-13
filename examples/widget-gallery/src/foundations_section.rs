@@ -58,7 +58,7 @@ fission_component! {
 /// The design tokens every widget draws from, plus the behaviour built on
 /// them: grown hit targets and the loading state.
     pub(crate) FoundationsSection<GalleryState> {}
-    |_section, _state, cx| { let tokens = cx.view.env().theme.tokens.clone(); } =>
+    view(_section, _state, cx) { let tokens = cx.view.env().theme.tokens.clone(); } =>
         Column(
             gap: tokens.spacing.l,
             children: [
@@ -85,7 +85,7 @@ fission_component! {
 fission_component! {
 /// A labelled block inside the Foundations section.
     FoundationGroup<()> { title: String, child: Widget }
-    |group, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(group, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         VStack(
             spacing: tokens.spacing.s,
             children: [
@@ -102,7 +102,7 @@ fission_component! {
 /// Look, mode and density, pinned above the page so any section can be
 /// checked in any theme without scrolling back to Foundations.
     pub(crate) ThemeBar<GalleryState> {}
-    |_bar, state, cx| {
+    view(_bar, state, cx) {
         let tokens = cx.view.env().theme.tokens.clone();
         let set_look = std::sync::Arc::new({
             let action = with_reducer!(cx.build, SetLook(0), set_look);
@@ -170,7 +170,7 @@ fission_component! {
 
 fission_component! {
     LookSwitcher<GalleryState> {}
-    |_switcher, state, cx| {
+    view(_switcher, state, cx) {
         let tokens = cx.view.env().theme.tokens.clone();
         let set_look = std::sync::Arc::new({
             let action = with_reducer!(cx.build, SetLook(0), set_look);
@@ -242,7 +242,7 @@ fission_component! {
 
 fission_component! {
     DensityDemo<GalleryState> {}
-    |_demo, state, cx| {
+    view(_demo, state, cx) {
         let tokens = cx.view.env().theme.tokens.clone();
         let set_density = std::sync::Arc::new({
             let action = with_reducer!(cx.build, SetDensity(0), set_density);
@@ -306,7 +306,7 @@ fission_component! {
 
 fission_component! {
     SpacingScale<()> {}
-    |_scale, _state, cx| {
+    view(_scale, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let spacing = &tokens.spacing;
         let steps = [
@@ -347,7 +347,7 @@ fission_component! {
 
 fission_component! {
     HitTargetDemo<GalleryState> {}
-    |_demo, state, cx| {
+    view(_demo, state, cx) {
         let tokens = cx.view.env().theme.tokens.clone();
         let press = with_reducer!(cx.build, PressHitTarget, press_hit_target);
         let toggle = with_reducer!(cx.build, ToggleHitAreas, toggle_hit_areas);
@@ -393,7 +393,7 @@ fission_component! {
 
 fission_component! {
     HitTarget<GalleryState> { index: usize, dot: f32, inset: f32, action: ActionEnvelope }
-    |target, state, cx| {
+    view(target, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         if state.show_hit_areas {
@@ -441,7 +441,7 @@ fission_component! {
 
 fission_component! {
     LoadingDemo<GalleryState> {}
-    |_demo, state, cx| {
+    view(_demo, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let press = with_reducer!(cx.build, PressLoadingButton, press_loading_button);
         let toggle = with_reducer!(cx.build, ToggleSlowWork, toggle_slow_work);
@@ -497,7 +497,7 @@ fission_component! {
 
 fission_component! {
     StateLayerSwatches<()> {}
-    |_swatches, _state, cx| {
+    view(_swatches, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let opacity = &tokens.opacity;
         let layers = [
@@ -541,7 +541,7 @@ fission_component! {
 fission_component! {
 /// Each paired role's fill with content drawn in its own foreground colour.
     ColourPairSwatches<()> {}
-    |_swatches, _state, cx| {
+    view(_swatches, _state, cx) {
         use fission::theme::ColorRole;
         let tokens = &cx.view.env().theme.tokens;
         let roles = [
@@ -570,7 +570,7 @@ fission_component! {
 
 fission_component! {
     ColourPairSwatch<()> { name: &'static str, role: fission::theme::ColorRole }
-    |swatch, _state, cx| {
+    view(swatch, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let pair = tokens.colors.pair(swatch.role);
     } =>
@@ -597,7 +597,7 @@ fission_component! {
 
 fission_component! {
     IconSizeScale<()> {}
-    |_scale, _state, cx| {
+    view(_scale, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let sizing = &tokens.sizing;
         let sizes = [
@@ -632,7 +632,7 @@ fission_component! {
 
 fission_component! {
     WindowClassReadout<()> {}
-    |_readout, _state, cx| {
+    view(_readout, _state, cx) {
         let env = cx.view.env();
         let tokens = &env.theme.tokens;
         let width = env.viewport_size.width;

@@ -1,0 +1,116 @@
+---
+title: LiveTest API
+description: Drive a real native or Web Fission app with semantic selectors, screenshots, and wait commands.
+---
+
+# LiveTest API
+
+LiveTest is the runtime control surface for real Fission hosts. It lets tests and manual QA drive the current frame without calculating coordinates by hand. Native hosts expose `/health` and `/cmd`; Web test builds expose the same command contract through Chromium.
+
+Enable the server by launching an app with `FISSION_TEST_CONTROL_PORT`.
+
+```bash
+FISSION_TEST_CONTROL_PORT=9876 cargo run -p counter
+```
+
+Then check readiness:
+
+```bash
+curl -s http://127.0.0.1:9876/health
+```
+
+## Command shape
+
+All commands go to `POST /cmd` with JSON.
+
+```bash
+curl -s http://127.0.0.1:9876/cmd   -H 'content-type: application/json'   -d '{"cmd":"GetTree"}'
+```
+
+Prefer `LiveTestClient` in Rust tests and `curl` for quick manual QA or screenshot capture.
+
+For Web, build and serve the application with `fission test --target web`, or set `FISSION_WEB_TEST_CONTROL=1` **on the command that compiles the WASM application**, then connect to the served URL. This is a compile-time switch: setting it only while serving the already-built files or while running the Rust browser test does not install the bridge. Rebuild the WASM output after changing it.
+
+```bash
+FISSION_WEB_TEST_CONTROL=1 ./platforms/web/build-wasm.sh
+```
+
+Ordinary production Web builds deliberately omit `globalThis.__FISSION_TEST__`.
+
+Then use the browser client:
+
+```rust
+use fission_test_driver::{BrowserTestOptions, LiveTestClient};
+
+let client = LiveTestClient::launch_browser(
+    BrowserTestOptions::new("http://127.0.0.1:8123/platforms/web/")
+        .fission_canvas(),
+)?;
+client.pump()?;
+client.assert_text_visible("Ready")?;
+client.simulate_resize(390, 844)?;
+let narrow_png = client.capture_screenshot_png()?;
+client.simulate_resize(1280, 900)?;
+```
+
+Web screenshots are composited Chromium page captures. The initial driver does not claim Firefox/WebKit coverage or trusted browser clipboard, file, accessibility, and IME event coverage.
+
+For any website, including a Fission Static site or SSR application, use the
+same client API with website mode. This needs no test bridge and works with
+ordinary rendered HTML, including real server navigation and browser session
+cookies:
+
+```rust
+use fission_test_driver::SelectorQuery;
+
+let client = LiveTestClient::launch_browser(
+    BrowserTestOptions::new("http://127.0.0.1:3000/sign-in").website(),
+)?;
+client.fill_text_semantic_identifier("sign-in.email", "person@example.com")?;
+client.tap_selector(SelectorQuery::role_label("button", "Sign in"))?;
+client.wait_for_text("Welcome", 5_000)?;
+```
+
+Website mode uses standard HTML labels, accessible roles, element ids and
+`data-testid` attributes. It also understands Fission semantic identifiers when
+present. It drives Chromium through the test process and does not add a remotely
+accessible test endpoint to the application.
+
+Keep the client alive to resize the same page while retaining its app state and
+route. For `.fission_canvas()` mode, enable Web test control on the compiling command, for example
+`FISSION_WEB_TEST_CONTROL=1 ./platforms/web/build-wasm.sh`, and serve the build
+through the existing `fission serve-web --project-dir .` helper or your test host.
+Website mode needs neither that compile-time flag nor a Fission app; it reads
+the rendered DOM through the browser driver.
+Resize uses CSS pixels, preserves the configured device scale and mobile mode
+(scale 1 and desktop mode by default), validates dimensions, and waits
+for actual viewport/canvas/submitted-layout frame dimensions and paint within
+the options timeout (capped at 60 seconds). A changed size must advance the
+frame acknowledgement; repeating the same size verifies the current frame.
+Raw Web bridge `SimulateResize` explicitly fails because it lacks host control.
+On failure inspect observed state and retry after repair, or drop/relaunch a
+closed client. Plain DOM mode (`BrowserTestOptions::new(url)`) remains the
+minimal host-resize and screenshot mode. Use `.website()` when the test needs
+semantic selectors, form interaction, navigation or text assertions on any
+rendered website.
+See [SimulateResize](/reference/core/live-test-command-api/#simulateresize)
+for limits and recovery. Inspect narrow and wide PNG content after checking
+dimensions.
+
+## Selector-driven actions
+
+```bash
+curl -s http://127.0.0.1:9876/cmd   -H 'content-type: application/json'   -d '{"cmd":"TapSelector","query":{"selector":{"kind":"semantic_identifier","identifier":"settings.save"}}}'
+```
+
+Selectors can target semantic identifiers, explicit widget ids, labels, role plus label, test/accessibility identifiers, duplicate indexes, and scopes.
+
+## Screenshots
+
+```bash
+curl -s http://127.0.0.1:9876/cmd   -H 'content-type: application/json'   -d '{"cmd":"Screenshot","path":".artifacts/manual/settings.png"}'
+```
+
+Use `Screenshot` to save a file on the app host. Use `CaptureScreenshot` when the caller needs the PNG bytes returned as base64 for a custom QA tool. Screenshots are used for visual QA, store assets, and golden comparisons.
+
+See [LiveTest commands](/reference/testing/live-test-commands/) for the complete reference.

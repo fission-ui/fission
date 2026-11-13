@@ -27,7 +27,7 @@ fission_component! {
     #[derive(Clone)] pub(super) AccountDetailsCard<GalleryState> {
         compact: bool,
     }
-    |card, _state, cx| {
+    view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let profile_action = with_reducer!(cx.build, QualityProfileAction, quality_profile_action);
     } =>
@@ -52,7 +52,7 @@ fission_component! {
         #[local_state(default = String::from("avery@"))]
         recovery_email: String,
     }
-    |fields, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(fields, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         Column(
             gap: tokens.spacing.m + tokens.spacing.xs,
             children: [
@@ -96,7 +96,7 @@ fission_component! {
 
 fission_component! {
     ProfileOptionsButton<GalleryState> { action: ActionEnvelope }
-    |button, _state, cx| {
+    view(button, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Button(
@@ -117,7 +117,7 @@ fission_component! {
 
 fission_component! {
     ProtectedAccountNotice<GalleryState> {}
-    |_notice, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(_notice, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         AlertLayout::new(
             AlertKind::Info,
             AlertContent::new(widgets![

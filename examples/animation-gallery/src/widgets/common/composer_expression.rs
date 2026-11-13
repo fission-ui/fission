@@ -6,7 +6,7 @@ const EXPRESSION_MAX_WIDTH: f32 = 650.0;
 
 fission_component! {
     pub(super) ComposerExpression<AnimationGalleryState> { path: String, expression: String }
-    |expression, _state, cx| {
+    view(expression, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
     } =>

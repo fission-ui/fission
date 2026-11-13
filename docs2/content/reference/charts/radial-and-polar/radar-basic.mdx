@@ -1,0 +1,57 @@
+---
+title: Radar
+sidebar_label: Radar
+description: Fission Charts reference for Radar.
+---
+
+# Radar
+
+![Radar screenshot](/img/charts/radar-basic.png)
+
+A radar arranges a fixed list of dimensions around one centre. For a service review, a prepared score for reliability, recovery, capacity and support can show which areas need attention without adding incompatible raw units together. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Define each score before plotting it. Every dimension here uses 0–100 with larger values meaning stronger assessed capability. The renderer does not turn unrelated measurements into comparable scores or calculate an overall grade.
+
+## Data model
+
+`RadarSeries` takes rows of values; the first row determines the spoke count. Values use a fixed 0–100 radius and are visually clamped outside it. Spoke labels are not drawn automatically, so supply a separate localized dimension explanation and exact values.
+
+## Authoring from a Fission component
+
+A four-element array prevents accidentally changing the dimension count in this component. Validation and assessment policy remain in the parent model.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, RadarSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ServiceCapabilityRadar<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            scores: [f32; 4],
+            dimension_description: TextContent,
+        }
+    }
+    view(service, _state, _cx) => Column(children: [
+        Text(service.dimension_description.clone()),
+        Chart(
+            title: Some(service.chart_title.clone()),
+            series: vec![RadarSeries::new(&service.series_label)
+                .data(vec![service.scores.to_vec()])
+                .into()],
+        ),
+    ])
+}
+```
+
+## Testing and accessibility
+
+Test score bounds and missing assessments. Keep dimension order stable across refreshes and reports; a reordered polygon suggests a change when no value changed. Provide the four named values outside the chart and avoid treating polygon area as an overall score.
+
+Tags: `radar`, `profile`.
+
+[Radial and polar family overview](./overview)

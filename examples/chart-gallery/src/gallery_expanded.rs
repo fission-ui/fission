@@ -4,7 +4,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(crate) GalleryExpanded<GalleryState> { sidebar: Widget, content: Widget }
-    |gallery, _state, _cx| {} =>
+    view(gallery, _state, _cx) {} =>
         Row(
             id: WidgetId::explicit("chart-gallery.layout.expanded"),
             align_items: AlignItems::Stretch,

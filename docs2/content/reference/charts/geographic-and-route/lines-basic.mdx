@@ -1,0 +1,55 @@
+---
+title: Lines
+sidebar_label: Lines
+description: Draw actual point-to-point service connections as a schematic.
+---
+
+# Lines
+
+![Lines screenshot](/img/charts/lines-basic.png)
+
+A connection diagram answers which sites communicate and how much traffic each connection carries. It does not need a line chart's ordered samples. `LinesSeries` instead accepts a start point, an end point and one value for every connection.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, LineSegment, LinesSeries, Series};
+
+#[derive(Clone)]
+pub struct ServiceConnection {
+    pub id: String,
+    pub from: (f32, f32),
+    pub to: (f32, f32),
+    pub traffic: f32,
+}
+
+fission_component! {
+    pub ServiceConnections<()> {
+        props {
+            title: String,
+            connections_label: String,
+            explanation: TextContent,
+            connections: Vec<ServiceConnection>,
+            emphasize: bool,
+        }
+    }
+    view(report, _state, _cx) => Column(children: [
+        Text(report.explanation.clone()),
+        Chart(
+            title: Some(report.title.clone()),
+            series: vec![Series::Lines(LinesSeries::new(&report.connections_label)
+                .data(report.connections.iter().map(|connection|
+                    LineSegment::new(connection.from, connection.to, connection.traffic)
+                ).collect())
+                .effect(report.emphasize))],
+        ),
+    ])
+}
+```
+
+Put this in `widgets/service_connections.rs`. The parent supplies translated captions, finite coordinates and non-negative traffic measured over one common interval. Preserve connection IDs for details and exact values.
+
+The renderer fits the endpoint bounds to the plot and draws curved connections. Their apparent distance is not a measured route length, and width/intensity is a relative visual encoding. `effect(true)` enables an effect marker, not a telemetry subscription or a claim of real-time vehicle movement. Do not use this to navigate a driver.
+
+Map polygons use a different fitting operation, so this component cannot simply be overlaid on `MapSeries` with guaranteed geographic alignment. Test degenerate endpoints, no connections, duplicate IDs and changing report bounds. The gallery image is a separate example.
+
+[Geographic and route family overview](./overview)

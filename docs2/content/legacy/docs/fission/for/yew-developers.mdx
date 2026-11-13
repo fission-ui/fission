@@ -1,0 +1,200 @@
+---
+title: Fission for Yew developers
+description: Map Yew properties, hooks, callbacks, effects and routing to Fission Compose, reducers and target shells.
+---
+
+# Fission for Yew developers
+
+Typed props and Rust component composition carry over from Yew. The less
+obvious change is that Fission's widget tree is not an HTML tree. A shell can
+lower it to native graphics, a browser app, Terminal or document output, so
+DOM assumptions should not become the shared app architecture.
+
+The excerpts below show those boundaries. They are not files to concatenate
+into another incomplete checklist. For the runnable app and its module
+structure, use [Build a single-page Web app in Rust](/blog/build-a-single-page-web-app-in-rust/).
+
+## The state ownership rule
+
+A value which only controls one disclosure can stay local. Task records read
+by a list, detail screen and progress summary belong to the app.
+
+- `props` declares parent inputs.
+- Component `state` holds retained interface memory.
+- `GlobalState` owns shared product facts.
+- `reduce` changes state synchronously.
+- Effects/jobs/services/resources/capabilities perform outside work.
+
+Compose's `state` block generates the retained-state wiring. The lower-level
+`#[with_local_state]` and `#[local_state]` attributes remain available rather
+than become a second component model.
+
+## 1. Static UI
+
+Yew properties and Compose props both provide typed inputs. Compose uses
+ordinary Rust widget names instead of HTML tags:
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub TaskTitle<()> {
+        props { title: String }
+    }
+    view(task, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Text(task.title.clone()).size(tokens.typography.font_size_base)
+}
+```
+
+The parent owns the string and can translate it before passing it. Importing a
+custom widget is enough to use it in the tree; Compose does not require a
+separate widget registration step.
+
+## 2. Product state and interaction
+
+A `Callback` often closes over values needed by a later event. In Fission,
+separate the prop snapshot used for display from the current product record
+which the reducer should change:
+
+```rust
+fission_component! {
+    pub TaskRow<TaskState> {
+        props {
+            id: u64,
+            title: String,
+            done: bool,
+        }
+    }
+    view(row, state, _cx) =>
+    Checkbox(
+        label: Some(row.title.clone()),
+        checked: row.done,
+        key: "toggle-task",
+        on_toggle: reduce {
+            if let Some(task) = state.tasks.iter_mut().find(|task| task.id == row.id) {
+                task.done = !task.done;
+            }
+        },
+    )
+}
+```
+
+This excerpt assumes `TaskState` implements `GlobalState` and owns task records
+with `id` and `done` fields. Repeated calls use `TaskRow(..., key: task.id)`.
+An old event for a removed record does not recreate it.
+
+A simple text setter needs even less wiring:
+
+```rust
+TextInput(
+    label: Some(cx.tr("tasks.new").into()),
+    bind: composer.draft,
+)
+```
+
+Here `composer.draft` is a retained `state` field. The binding supplies its
+value and update action. A submission reducer validates the draft and creates
+a real task; it should not add an empty placeholder merely to change the UI.
+
+## 3. Outside work
+
+Do not reproduce `use_effect_with` by spawning a future in the Fission view.
+View conversion may run repeatedly and should describe the current interface.
+
+A component's explicit user operation can use `on_press: effect operation(...)`
+with `on_start`, `on_ok` and `on_err`. The function marked `#[fission_effect]`
+receives owned snapshots, not live state or a context handle. Both result
+paths are required; show `Spinner` while waiting and a usable failure state.
+
+For startup hydration or work which must survive a route change, use one
+startup action and app-owned jobs/resources instead. Component-owned
+completions are ignored after the component unmounts. See
+[Compose effects](/compose/) and
+[Resources and async](/docs/guides/resources-and-async/).
+
+If a response could overwrite a newer edit, disable that edit for the request
+or compare operation generations before applying the result. Merely disabling
+the button which started the request does not protect every other editor.
+
+## 4. Styling and theme
+
+CSS classes do not define native widget layout. Use Fission's generated design
+system, read `cx.view.env().theme.tokens` in setup and prefer the built-in
+widget which owns the required behaviour.
+
+A `Button` supplies activation semantics. A `FormControl` supplies field
+relationships. A `Modal` supplies a dialog boundary. Replacing these with
+painted boxes creates extra focus, accessibility and target work even when the
+first screenshot looks similar.
+
+Static site and SSR can generate HTML/CSS; Web hosts the interactive browser
+app. Decide which output the feature needs rather than assume every target is
+a hydrated DOM page.
+
+## 5. Routing
+
+Fission's native `Router` matches the app's current path. The shell's route
+handler keeps that state synchronized with navigation and history:
+
+```rust
+fission_component! {
+    pub TaskRoutes<TaskState>
+    view(_routes, state, _cx) =>
+    Router::<TaskState>::new()
+        .with_path(state.current_path.clone())
+        .route_component("/", TaskScreen)
+        .route_component("/tasks/:id", TaskDetailRoute)
+}
+```
+
+The named components are defined by the app. `TaskDetailRoute` reads
+`RouteParams` and validates the raw ID. Do not substitute record zero for
+malformed input. Use [ProtectedRoute](/reference/widgets/protected-route/) to
+defer protected component construction, and enforce authorization again in
+protected server operations.
+
+## 6. Testing
+
+A browser-driven Yew test and a native-shell Fission test do not inspect the
+same host. Choose the boundary which the assertion actually needs:
+
+| Requirement | Fission surface |
+| --- | --- |
+| State rule | Pure transition/reducer test |
+| Widget output, layout and semantics | `TestHarness` |
+| Typing, keyboard focus and pointer interaction | `LiveTestClient` and `/cmd` |
+| Permissions or target-specific behaviour | Live test on that host/device |
+
+Use stable semantic identifiers where a selector should survive translation.
+[Write a live UI test](/docs/cookbook/write-a-live-ui-test/) supplies complete
+launch, readiness and cleanup rather than undefined browser helper methods.
+
+## Vocabulary map
+
+| Yew concept | Closest Fission concept | Important difference |
+| --- | --- | --- |
+| `Html` | `Widget` | Widget intent can lower beyond the browser DOM. |
+| Properties | `props` fields | Ordinary typed parent inputs. |
+| `use_state` | Component `state` or `GlobalState` | Lifetime and readers determine ownership. |
+| Callback | Bound action | Reducers resolve current state when the event runs. |
+| `use_effect_with` | Effects/jobs/resources | Conversion itself does not start I/O. |
+| Yew Router | Native `Router` | Shells adapt history and route input. |
+
+## Common instincts to adjust
+
+Do not move every callback capture into a long-lived Rust handle. Build and view
+handles are build-scoped; selected owned values can cross an async boundary,
+but those handles cannot.
+
+Keep useful typed-Rust and semantic-testing practices. They matter more, not
+less, when the same app has to work in several shells.
+
+## What to read next
+
+- [Complete task app](/blog/build-a-single-page-web-app-in-rust/)
+- [Compose API](/compose/)
+- [State, handles and providers](/docs/guides/state-handles-and-providers/)
+- [Resources and async](/docs/guides/resources-and-async/)
+- [Testing Fission apps](/docs/learn/testing/)

@@ -1,0 +1,37 @@
+---
+title: Correlation heatmap
+sidebar_label: Correlation heatmap
+description: Display computed correlations without inventing values for undefined pairs.
+---
+
+# Correlation heatmap
+
+![Correlation heatmap screenshot](/img/charts/heatmap-correlation.png)
+
+Correlation compares paired observations. Two metrics recorded over unrelated windows do not become comparable merely because their values fit in a square matrix.
+
+Use `MetricMatrix` and `MetricCell` from [availability matrices](./heatmap-availability), placed in `widgets/metric_matrix.rs`. The data layer computes correlations over aligned observations; the widget only displays validated results.
+
+```rust
+use crate::widgets::metric_matrix::MetricCell;
+
+pub fn correlation_cell(
+    column: usize,
+    row: usize,
+    coefficient: Option<f32>,
+) -> Option<MetricCell> {
+    let value = coefficient?;
+    if !value.is_finite() || !(-1.0..=1.0).contains(&value) {
+        return None;
+    }
+    Some(MetricCell { column, row, value })
+}
+```
+
+Use the same translated metric labels on both axes and a fixed -1 to 1 diverging colour scale, chosen without relying on red/green discrimination. Undefined correlations, for example for constant-valued inputs, remain absent rather than becoming zero correlation.
+
+Validate sample alignment, minimum sample size and matrix dimensions before composition. The diagonal is only one when a metric's correlation is actually defined; symmetry should follow the chosen calculation. Keep coefficients and sample counts available as exact values.
+
+Test undefined pairs, reversed metric ordering and missing observations. Correlation does not establish causation, and the gallery image does not qualify the statistical calculation.
+
+[Heatmap and calendar family overview](./overview)

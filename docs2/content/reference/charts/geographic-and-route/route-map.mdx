@@ -1,0 +1,21 @@
+---
+title: Route map
+sidebar_label: Route map
+description: Choose a truthful map-and-route report rather than a navigation promise.
+---
+
+# Route map
+
+![Route map screenshot](/img/charts/route-map.png)
+
+A route report can show where service is offered and which depots exchanged deliveries. A navigation map would additionally need aligned geography, actual paths and a location model. Those should not be confused.
+
+Use the [paired route report](../geo-and-route/geo-route-map) for the supported composition: a GeoJSON regional map beside a schematic connection view. Its dispatch projection omits confirmed zero-volume routes whilst keeping IDs and original counts for details. Both views receive the same completed reporting snapshot from the parent.
+
+The [line component](./lines-basic) exposes emphasis through `LinesSeries.effect`. That draws a marker, not a moving vehicle or a request for asynchronous work. Load route data through normal effects and reducers before rendering. Failed loading needs an explicit state rather than a blank chart.
+
+A genuine geographical overlay remains unsupported by this composition because the map and line series fit different bounds. Keep that limitation visible if the product needs exact placement. Do not use curves to infer road distance, journey duration or safe driving directions.
+
+Translate titles, route captions and explanatory text. Test changes in route bounds, an empty report and a missing region join, and keep the exact route list available without relying on colour or arrow direction. The gallery uses its own fixtures.
+
+[Geographic and route family overview](./overview)

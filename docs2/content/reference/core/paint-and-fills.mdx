@@ -1,0 +1,51 @@
+---
+title: Paint and fills
+description: Color, Fill, Stroke, BoxShadow, and BackdropFilter primitives.
+---
+
+# Paint and fills
+
+The same layout can use a solid surface, gradient or shadow without changing
+its content. Fission represents those paint choices as typed data, then lowers
+them for the active renderer. Native renderers, Web, Static site and SSR share
+that description; Terminal uses a fallback where the effect can be represented.
+
+| Type | Purpose |
+| --- | --- |
+| `Color` | RGBA color with constants and helpers. |
+| `Fill` | Solid, linear-gradient, or radial-gradient fill. |
+| `Stroke` | Border or line paint with width, cap, join, and dash data. |
+| `BoxShadow` | Outer or inset shadow with offset, blur, spread, and color. |
+| `BackdropFilter` | Filter applied to already-painted content behind a widget. |
+
+Gradient geometry is normalized to the painted bounds. `(0.0, 0.0)` is the
+top-left, `(1.0, 1.0)` is the bottom-right, and stop offsets use `0.0..=1.0`.
+
+```rust
+fission_component! {
+    pub AccountBanner<()> {
+        props { title: String }
+    }
+    view(banner, _state, cx) {
+        let colors = &cx.view.env().theme.tokens.colors;
+    } =>
+    Container(Text(banner.title.clone()))
+        .bg_fill(Fill::LinearGradient {
+            start: (0.0, 0.0),
+            end: (1.0, 1.0),
+            stops: vec![
+                (0.0, colors.surface),
+                (1.0, colors.primary_subtle),
+            ],
+        })
+        .shadows(vec![BoxShadow {
+            offset: (0.0, 16.0),
+            blur_radius: 36.0,
+            spread_radius: -10.0,
+            color: colors.text_primary.with_alpha(40),
+            inset: false,
+        }])
+}
+```
+
+Prefer theme tokens for product colors. Use these primitives to express how those tokens are applied.

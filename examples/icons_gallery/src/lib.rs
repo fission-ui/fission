@@ -18,7 +18,7 @@ pub use model::{
 
 fission_component! {
     pub IconsApp<State>
-    |_app, state, cx| {
+    view(_app, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let results = filter_icons(state);
         let shown = results.visible.len();

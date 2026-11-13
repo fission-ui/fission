@@ -1,0 +1,58 @@
+---
+title: Risk rose
+sidebar_label: Risk rose
+description: Fission Charts reference for Risk rose.
+---
+
+# Risk rose
+
+![Risk rose screenshot](/img/charts/pie-risk-rose.png)
+
+A risk summary must not add unrelated severity scores as though they formed a meaningful total. One defensible composition is the count of open risk records grouped by a single primary category. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This rose shows where recorded risks are concentrated, not the likelihood or expected cost of an incident. One severe risk can matter more than many minor records, so retain severity and detail separately.
+
+## Data model
+
+Supply non-negative, mutually exclusive record counts. Radius-style rose rendering changes radius and angle together; its area does not define a risk metric. Define the “open” state and snapshot before aggregation.
+
+## Authoring from a Fission component
+
+The parent classifies risk records and supplies their localized category labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub OpenRiskCategoryRose<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            open_risks_by_category: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.open_risks_by_category.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .rose_type("radius")
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Check duplicated categories, resolved records and one dominant category. Provide exact counts and a list of high-severity risks outside the visual; do not interpret the largest segment as automatically the highest-priority risk.
+
+Tags: `rose`, `risk`.
+
+[Radial family overview](./overview)

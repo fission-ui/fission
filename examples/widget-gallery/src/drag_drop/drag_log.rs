@@ -8,7 +8,7 @@ const LOG_MIN_HEIGHT: f32 = 116.0;
 
 fission_component! {
     pub(super) DragLog<GalleryState> {}
-    |_log, state, cx| {
+    view(_log, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(VStack(

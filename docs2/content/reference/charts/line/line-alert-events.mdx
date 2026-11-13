@@ -1,0 +1,67 @@
+---
+title: Line with alert events
+sidebar_label: Line with alert events
+description: Fission Charts reference for Line with alert events.
+---
+
+# Line with alert events
+
+![Line with alert events screenshot](/img/charts/line-alert-events.png)
+
+A named event point puts an incident in the same time context as the metric under review. The name matters because two identical points can represent different operational events. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use this example to place an incident declaration on a response-time line. It is a recorded event, not an automatically detected anomaly. Domain code decides which incident and sample belong together.
+
+## Data model
+
+The event uses an x category index and a numeric y value in milliseconds. Chart construction receives those resolved coordinates alongside the samples; it does not fetch incident records during a build.
+
+## Authoring from a Fission component
+
+The example keeps four reporting buckets so the relationship between labels and samples is explicit. For a variable period, pass the matching labels with the values.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries, MarkPoint};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub LineWithAlertEventsChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            annotation_label: String,
+            category_labels: Vec<String>,
+            samples: Vec<f32>,
+            event_index: f32,
+            event_response_ms: f32,
+        }
+    }
+    view(report, _state, cx) {
+        let colors = &cx.view.env().theme.tokens.colors;
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                report.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            mark_points: vec![MarkPoint::xy(
+                &report.annotation_label, report.event_index, report.event_response_ms,
+            ).color(colors.primary)],
+            series: vec![LineSeries::new(&report.series_label)
+                .data(report.samples.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check events at both ends of the reporting window and several events in one bucket. Provide the event details outside the plot if labels overlap at a small chart size. Check the mark's label and contrast in both themes rather than relying on colour alone.
+
+Tags: `line`, `markPoint`.
+
+[Line family overview](./overview)

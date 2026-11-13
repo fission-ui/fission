@@ -1,0 +1,120 @@
+---
+title: Text
+description: Render plain or translated text when one block can share one style.
+slug: /widgets/text
+---
+# Text
+
+`Text` displays one block of text with a shared style. Use it for labels, body
+copy, values, helper text, headings, and translated strings. If one line needs
+mixed styles or inline widgets, use [`RichText`](/reference/widgets/rich-text).
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub ProfileHeading<()> {}
+
+    view(_heading, _state, cx) {
+        let typography = &cx.view.env().theme.tokens.typography;
+    } =>
+        Text(cx.tr("settings.profile_title"))
+            .size(typography.heading2_size)
+            .weight(typography.font_weight_bold)
+}
+```
+
+The positional `Text(...)` call uses the real `Text::new` constructor and
+therefore enables wrapping. The heading reads the current locale and design
+system; its reusable component does not hard-code English or a second font scale.
+
+## Content table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `content` | `TextContent` | The text source to render. | Use `Literal(...)` for direct strings, `Key(...)` for translated lookup, or `KeyWithFallback { .. }` when framework UI needs an English fallback. |
+| `semantics` | `Option<Semantics>` | Optional wrapper semantics for the text block. | Defaults to `None`. Builder helpers can also attach labels and actions. |
+
+## Typography table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `font_size` | `Option<f32>` | Font size override. | Falls back to the theme's body size. |
+| `color` | `Option<IrColor>` | Text color override. | Falls back to the theme's primary text color. |
+| `underline` | `bool` | Whether the text is underlined. | Defaults to `false`. |
+| `font_family` | `Option<String>` | Font family override. | Defaults to `None`. |
+| `font_weight` | `Option<u16>` | Font weight override. | Defaults to `400` when absent. |
+| `font_style` | `TextFontStyle` | Normal or italic posture. | Defaults to `Normal`. |
+| `line_height` | `Option<f32>` | Explicit line height. | Defaults to `None`. |
+| `letter_spacing` | `Option<f32>` | Extra letter spacing. | Defaults to `None`. |
+| `locale` | `Option<String>` | Locale override used during shaping. | Defaults to `None`. |
+| `text_scale` | `Option<f32>` | Text scale multiplier. | Defaults to `None`, which behaves like `1.0`. |
+| `text_scaler` | `Option<TextScaler>` | Explicit linear or nonlinear font-size scaling. | When absent, the widget uses `Env.text_scaler`, allowing the shell or app to supply accessibility scaling once for the whole tree. |
+| `typography` | `TextTypography` | Fallback families, word spacing, decoration, shadows, paints, OpenType features, variable axes, baseline, and leading policy. | Uses the same paragraph path as ordinary text rather than a separate advanced renderer. |
+| `typography.line_break` | `TextLineBreakPolicy` | Line-breaking strictness. | Passed through the shared paragraph contract; native behavior is limited by the shaping engine. |
+| `typography.hyphenation` | `TextHyphenation` | Whether language-aware hyphenation is requested. | Static/SSR lowers the applicable CSS; native behavior is limited by the shaping engine. |
+
+## Layout and interaction table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `width` / `height` | `Option<f32>` | Fixed layout size. | Defaults to `None`. |
+| `min_width` / `max_width` | `Option<f32>` | Width bounds. | Defaults to `None`. |
+| `min_height` / `max_height` | `Option<f32>` | Height bounds. | Defaults to `None`. |
+| `wrap` | `bool` | Whether text may wrap to multiple lines. | `Text::new(...)` sets this to `true`. Raw `Default` construction does not. |
+| `text_align` | `IrTextAlign` | Paragraph alignment. | Defaults to the intermediate representation (IR) default. |
+| `text_direction` | `IrTextDirection` | Paragraph direction. | Defaults to the IR default. |
+| `text_width_basis` | `IrTextWidthBasis` | Width calculation policy. | Defaults to the IR default. |
+| `max_lines` | `Option<usize>` | Maximum visible line count. | Defaults to `None`. |
+| `overflow` | `IrTextOverflow` | Overflow handling. | Defaults to visible overflow. |
+| `strut_line_height` | `Option<f32>` | Paragraph strut line height. | Defaults to `None`. |
+| `text_height_behavior` | `IrTextHeightBehavior` | Height trimming behavior. | Defaults to the IR default. |
+| `selection_range` | `Option<(usize, usize)>` | Highlighted selection range. | Defaults to `None`. |
+| `selection_color` | `Option<IrColor>` | Selection highlight override. | Defaults to `None`. |
+| `selection_text_color` | `Option<IrColor>` | Selected text color override. | Defaults to `None`. |
+| `selectable` | `bool` | Enables native pointer/keyboard selection for read-only text. | Defaults to `false`; provide a stable `id` when selection should survive rebuilds. |
+| `context_menu` | `TextContextMenuConfig` | Configures the built-in selected-text menu. | Defaults to Copy and Select All for read-only text. |
+| `flex_grow` / `flex_shrink` | `f32` | Flex behavior inside parent layout. | Defaults to `0.0`. |
+
+## Plain language behavior
+
+`TextContent::Literal` renders exactly the string you provide. `TextContent::Key` looks up the current locale in `Env.i18n`. In the checked-in implementation, a missing translation key renders visibly as `MISSING:key`, which is useful during development because it fails loudly instead of silently disappearing.
+
+`Text` can also carry semantics and actions through helper methods like `.semantics_label(...)` and `.on_tap(...)`. Set `.selectable(true)` for read-only paragraphs that users should be able to select and copy; Fission then exposes text selection in semantics and provides the standard Copy / Select All context menu. That is useful for interactive labels or annotated text, but if different parts of one sentence need different actions, `RichText` is the better model.
+
+Wrap several selectable paragraphs in `SelectionRegion` when selection must
+cross widget boundaries. Its `SelectionRegionController` can inspect, set,
+clear, or select all of the coordinated content. Double click selects a word,
+triple click selects a paragraph, touch long press selects a word, and dragging
+continues through participating descendants in retained document order.
+
+Fission retains one `ResolvedParagraphLayout` for the final constraint of each
+text node. Measurement, painting, cluster hit testing, caret stops, selection
+rectangles, inline placement, and input-method geometry consume that decision,
+so a viewport resize is not required to correct first-frame wrapping.
+
+The Vello backend currently approximates blurred text shadows and non-solid
+decoration patterns with its supported text primitives; Static site and SSR use
+the browser's CSS implementation. Ideographic baseline and leading policies are
+retained in the shared contract even where the active font/shaper cannot make a
+distinct adjustment.
+
+## Specific advice
+
+Prefer `Text(...)` in Compose for ordinary content. A named-only call initializes
+`Default` before assigning fields, so set `wrap` explicitly when that is the
+form you need. The difference comes from the existing constructor contract,
+not from a separate Compose text implementation.
+
+## Production checklist
+
+- Test long translations, bidi paragraphs, large text scale, and narrow constraints.
+- Keep selectable content and ids stable when selection must survive rebuilds.
+- Use semantic heading structure where the page needs navigable sections.
+
+## Related
+
+[`TextContent`](/reference/widgets/text-content), [`RichText`](/reference/widgets/rich-text), [`TextFontStyle`](/reference/widgets/text-font-style), and [`Link`](/reference/widgets/link).

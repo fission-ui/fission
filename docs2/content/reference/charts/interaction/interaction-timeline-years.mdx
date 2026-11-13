@@ -1,0 +1,96 @@
+---
+title: Timeline years
+sidebar_label: Timeline years
+description: Fission Charts reference for Timeline years.
+---
+
+# Timeline years
+
+![Timeline years screenshot](/img/charts/interaction-timeline-years.png)
+
+A year selector keeps the shape of a report stable whilst the period changes. In an orders report, the quarter categories can remain in place so the reader compares like with like. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+ChartTimeline displays the selected year but does not replace the series automatically. The component's reducer changes a local selection flag; the next build chooses the corresponding values and current_index together.
+
+## Data model
+
+Pass quarterly completed-order counts for both years. Use the same order-completion rule in each year and keep incomplete periods clearly identified in the surrounding report. A partial Q4 is not directly comparable with a completed Q4.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `ChartTimeline::new` | Labels | Defines the displayed periods. |
+| `ChartTimeline::current_index` | `usize` | Identifies the currently displayed period. |
+| `Chart::timeline` | `ChartTimeline` | Adds the visual period indicator. |
+
+`play_interval_ms` exists in the data type, but the current renderer does not run an automatic playback timer. Do not use it as a substitute for an application-controlled state transition.
+
+## Authoring from a Fission component
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, ChartTimeline};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub TimelineYearsChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            category_labels: Vec<String>,
+            period_labels: Vec<String>,
+            show_earlier_label: String,
+            show_later_label: String,
+            earlier: Vec<f32>,
+            later: Vec<f32>,
+        }
+        state { latest: bool = true }
+    }
+    view(period, _state, _cx) {
+        let index = if period.latest { 1 } else { 0 };
+        let values = if period.latest {
+            period.later.clone()
+        } else {
+            period.earlier.clone()
+        };
+    } =>
+        Column(
+            children: [
+                Button(
+                    key: "change-period",
+                    child: Text(if period.latest {
+                        period.show_earlier_label.clone()
+                    } else {
+                        period.show_later_label.clone()
+                    }),
+                    on_press: reduce { period.latest = !period.latest; },
+                ),
+                Chart(
+                    title: Some(period.chart_title.clone()),
+                    x_axis: Some(Axis::category(
+                        period.category_labels.iter().map(String::as_str).collect(),
+                    )),
+                    y_axis: Some(Axis::value()),
+                    timeline: Some(ChartTimeline::new(period.period_labels.iter().map(String::as_str).collect())
+                        .current_index(index)),
+                    series: vec![BarSeries::new(&period.series_label)
+                        .data(values)
+                        .into()],
+                ),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Exercise the toggle repeatedly and check that the indicator cannot disagree with the chosen values. Test an incomplete current year and expose its reporting cut-off rather than presenting missing quarters as zero orders.
+
+Use a normal semantic control for the period choice, as above, rather than treating painted timeline labels as buttons. Check the period names and values at both mobile and desktop widths.
+
+Tags: `timeline`, `years`.
+
+[Interaction family overview](./overview)

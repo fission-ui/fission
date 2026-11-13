@@ -1,0 +1,188 @@
+---
+title: Widget catalog
+description: The navigational map of Fission's widget surface, grouped by job and linked to dedicated widget pages.
+---
+
+# Widget catalog
+
+Choose the widget by the responsibility it should own. A menu, for example,
+needs selection, focus, dismissal, and accessible relationships, not merely a
+column of buttons. Starting with the specific control keeps those behaviours
+in Fission instead of recreating them in each application.
+
+The tables separate visible widgets from their configuration types. Both can
+appear inside a Compose component, but a configuration record such as
+`TableColumn` is not itself another retained widget. Open the dedicated page
+for required inputs, state ownership, and target or feature boundaries.
+
+## Layout and structure
+
+Use these widgets to size, position, and arrange the rest of your interface.
+
+| Widget | Dedicated page | Typical use |
+| --- | --- | --- |
+| `Container` | [Container](/reference/widgets/container) | Constraint, padding, size, and background wrapper for one child |
+| `Row` | [Row](/reference/widgets/row) | Horizontal arrangement of children |
+| `Column` | [Column](/reference/widgets/column) | Vertical arrangement of children |
+| `Scroll` | [Scroll](/reference/widgets/scroll) | Scrollable region when content may exceed the viewport |
+| `Spacer` | [Spacer](/reference/widgets/spacer) | Fixed or flexible empty space |
+| `Grid` | [Grid](/reference/widgets/grid) | Matrix-style layout container |
+| `GridItem` | [GridItem](/reference/widgets/grid-item) | Child placement and span control inside a grid |
+| `ZStack` | [ZStack](/reference/widgets/z-stack) | Layered children in the same visual region |
+| `Positioned` | [Positioned](/reference/widgets/positioned) | Explicit placement inside layered layouts |
+| `Align` | [Align](/reference/widgets/align) | Child alignment inside available space |
+| `Center` | [Center](/reference/widgets/center) | Simple centered layout helper |
+| `HStack` | [HStack](/reference/widgets/h-stack) | Higher-level horizontal stack helper |
+| `VStack` | [VStack](/reference/widgets/v-stack) | Higher-level vertical stack helper |
+| `Wrap` | [Wrap](/reference/widgets/wrap) | Multi-line wrapping layout for repeated content |
+| `SimpleGrid` | [SimpleGrid](/reference/widgets/simple-grid) | Higher-level grid helper |
+| `SplitView` | [SplitView](/reference/widgets/split-view) | Resizable split-pane layout |
+| `SplitDirection` | [SplitDirection](/reference/widgets/split-direction) | Split orientation support type |
+| `AspectRatio` | [AspectRatio](/reference/widgets/aspect-ratio) | Preserve width-to-height ratio |
+| `SafeArea` | [SafeArea](/reference/widgets/safe-area) | Respect window or device insets |
+| `LayoutBuilder` | [LayoutBuilder](/reference/widgets/layout-builder) | Build based on current layout constraints |
+| `Responsive` | [Responsive](/reference/widgets/responsive) | Select an independently built child tree from responsive predicates |
+| `absolute_fill(...)` | [absolute_fill](/reference/widgets/absolute-fill) | Fill the available stacked bounds |
+| `Clip` | [Clip](/reference/widgets/clip) | Clip child drawing to a shape or bounds |
+| `Transform` | [Transform](/reference/widgets/transform) | Visual transformation wrapper |
+| `Composite` | [Composite](/reference/widgets/composite) | Composition and repaint-boundary helper |
+| `FocusScope` | [FocusScope](/reference/widgets/focus-scope) | Focus-boundary grouping for keyboard traversal |
+| `InteractiveViewer` | [InteractiveViewer](/reference/widgets/interactive-viewer) | Pan and zoom one retained widget subtree |
+| `InfiniteCanvas` | [InfiniteCanvas](/reference/widgets/infinite-canvas) | Declarative node-and-edge editing surface |
+
+For a family-level overview, continue to [Layout widgets](/reference/widgets/layout).
+
+## Inputs and editing
+
+Use these widgets when people need to enter, change, or choose a value.
+
+| Widget | Dedicated page | Typical use |
+| --- | --- | --- |
+| `Button` | [Button](/reference/widgets/button) | Primary click or tap action |
+| `ButtonVariant` | [ButtonVariant](/reference/widgets/button-variant) | Button style selection support type |
+| `ButtonContentAlign` | [ButtonContentAlign](/reference/widgets/button-content-align) | Button content alignment support type |
+| `Checkbox` | [Checkbox](/reference/widgets/checkbox) | Boolean choice with visible checked state |
+| `Radio` | [Radio](/reference/widgets/radio) | Single selection inside a group |
+| `Switch` | [Switch](/reference/widgets/switch) | On or off toggle with switch affordance |
+| `Slider` | [Slider](/reference/widgets/slider) | Continuous value selection |
+| `RangeSlider` | [RangeSlider](/reference/widgets/range-slider) | Two-handle continuous range selection |
+| `TextInput` | [TextInput](/reference/widgets/text-input) | Single-line or multiline text entry surface |
+| `NumberInput` | [NumberInput](/reference/widgets/number-input) | Numeric entry with increment or decrement patterns |
+| `Select` | [Select](/reference/widgets/select) | Closed set choice control |
+| `SelectItem` | [SelectItem](/reference/widgets/select-item) | Option type for `Select` |
+| `Combobox` | [Combobox](/reference/widgets/combobox) | Text input plus suggestion selection |
+| `SegmentedControl` | [SegmentedControl](/reference/widgets/segmented-control) | Small mutually exclusive option group |
+| `DatePicker` | [DatePicker](/reference/widgets/date-picker) | Date selection surface |
+| `DateRangePicker` | [DateRangePicker](/reference/widgets/date-range-picker) | Date range selection surface |
+| `TimePicker` | [TimePicker](/reference/widgets/time-picker) | Time-of-day selection surface |
+| `Editable` | [Editable](/reference/widgets/editable) | Lower-level editable wrapper |
+| `GestureDetector` | [GestureDetector](/reference/widgets/gesture-detector) | Manual gesture-driven intent capture |
+| `Draggable` | [Draggable](/reference/widgets/draggable) | Draggable source surface |
+| `DragTarget` | [DragTarget](/reference/widgets/drag-target) | Drop acceptance target |
+| `Dropzone` | [Dropzone](/reference/widgets/dropzone) | File or payload drop region |
+| `FileUpload` | [FileUpload](/reference/widgets/file-upload) | Upload-oriented input wrapper |
+| `FormControl` | [FormControl](/reference/widgets/form-control) | Label, helper, and validation wrapper |
+| `DropDown` | [DropDown](/reference/widgets/drop-down) | Trigger only; use Select for a complete choice popup |
+
+For the family-level explanation, see [Input widgets](/reference/widgets/inputs).
+
+## Display and data
+
+Use these widgets to show text, status, media, and structured data.
+
+| Widget | Dedicated page | Typical use |
+| --- | --- | --- |
+| `Text` | [Text](/reference/widgets/text) | Basic text display |
+| `TextContent` | [TextContent](/reference/widgets/text-content) | Literal or keyed text content support type |
+| `RichText` | [RichText](/reference/widgets/rich-text) | Mixed-style text content |
+| `RichTextRun` | [RichTextRun](/reference/widgets/rich-text-run) | Segment inside rich text |
+| `TextRunStyle` | [TextRunStyle](/reference/widgets/text-run-style) | Rich-text style support type |
+| `TextFontStyle` | [TextFontStyle](/reference/widgets/text-font-style) | Text style support type |
+| `Icon` | [Icon](/reference/widgets/icon) | Iconographic display element |
+| `Avatar` | [Avatar](/reference/widgets/avatar) | User or entity identity surface |
+| `Badge` | [Badge](/reference/widgets/badge) | Small status indicator |
+| `Tag` | [Tag](/reference/widgets/tag) | Labeled categorical chip |
+| `Link` | [Link](/reference/widgets/link) | Hyperlink-style display and action surface |
+| `Code` | [Code](/reference/widgets/code) | Inline or block code presentation |
+| `Kbd` | [Kbd](/reference/widgets/kbd) | Keyboard shortcut presentation |
+| `Card` | [Card](/reference/widgets/card) | Framed information container |
+| `Divider` | [Divider](/reference/widgets/divider) | Visual separation line |
+| `Alert` | [Alert](/reference/widgets/alert) | Prominent inline message surface |
+| `AlertKind` | [AlertKind](/reference/widgets/alert-kind) | Alert style support type |
+| `EmptyState` | [EmptyState](/reference/widgets/empty-state) | "Nothing here yet" presentation |
+| `ProgressBar` | [ProgressBar](/reference/widgets/progress-bar) | Linear progress display |
+| `CircularProgress` | [CircularProgress](/reference/widgets/circular-progress) | Circular progress display |
+| `Spinner` | [Spinner](/reference/widgets/spinner) | Indeterminate loading motion |
+| `Skeleton` | [Skeleton](/reference/widgets/skeleton) | Placeholder loading layout |
+| `FutureBuilder` | [FutureBuilder](/reference/widgets/future-builder) | Async job-backed display builder |
+| `RefreshIndicator` | [RefreshIndicator](/reference/widgets/refresh-indicator) | Pull-to-refresh wrapper |
+| `Stat` | [Stat](/reference/widgets/stat) | Labeled metric display |
+| `Stepper` | [Stepper](/reference/widgets/stepper) | Step-by-step process indicator |
+| `Calendar` | [Calendar](/reference/widgets/calendar) | Calendar grid display |
+| `DataTable` | [DataTable](/reference/widgets/data-table) | Tabular data presentation |
+| `TableColumn` | [TableColumn](/reference/widgets/table-column) | Column definition for `DataTable` |
+| `TableRow` | [TableRow](/reference/widgets/table-row) | Row definition for `DataTable` |
+| `Timeline` | [Timeline](/reference/widgets/timeline) | Chronological sequence display |
+| `TimelineItem` | [TimelineItem](/reference/widgets/timeline-item) | Entry inside a timeline |
+| `TimelineLayout` | [Timeline](/reference/widgets/timeline) | Rich retained timeline layout with connector ownership |
+| `TimelineEntry` | [Timeline](/reference/widgets/timeline) | Stable interactive entry inside a rich timeline |
+| `TreeView` | [TreeView](/reference/widgets/tree-view) | Hierarchical data presentation |
+| `TreeItem` | [TreeItem](/reference/widgets/tree-item) | Entry inside a tree view |
+
+For the family-level explanation, see [Display and data widgets](/reference/widgets/display-and-data).
+
+## Overlays and navigation
+
+Use these widgets for navigation, menus, dialogs, and other content that sits above the page.
+
+| Widget | Dedicated page | Typical use |
+| --- | --- | --- |
+| `Modal` | [Modal](/reference/widgets/modal) | Blocking dialog overlay |
+| `ModalAction` | [ModalAction](/reference/widgets/modal-action) | Source-compatible primary-or-secondary action for compact `Modal` |
+| `ModalFooterAction` | [Modal](/reference/widgets/modal#named-anatomy) | Explicit-variant action for `ModalFooter` and `ModalLayout` |
+| `Popover` | [Popover](/reference/widgets/popover) | Anchored floating panel |
+| `Drawer` | [Drawer](/reference/widgets/drawer) | Sliding side panel |
+| `DrawerSide` | [DrawerSide](/reference/widgets/drawer-side) | Drawer side selection support type |
+| `Tooltip` | [Tooltip](/reference/widgets/tooltip) | Small explanatory overlay |
+| `Toast` | [Toast](/reference/widgets/toast) | Temporary notification overlay |
+| `ToastKind` | [ToastKind](/reference/widgets/toast-kind) | Toast style support type |
+| `Portal` | [Portal](/reference/widgets/portal) | Low-level portal registration widget |
+| `Spotlight` | [Spotlight](/reference/widgets/spotlight) | Five-region inverse overlay around an onboarding target |
+| `flyout(...)` | [flyout](/reference/widgets/flyout) | Flyout overlay helper |
+| `Menu` | [Menu](/reference/widgets/menu) | Menu surface |
+| `MenuButton` | [MenuButton](/reference/widgets/menu-button) | Button that opens a menu |
+| `MenuItem` | [MenuItem](/reference/widgets/menu-item) | Entry inside a menu |
+| `Tabs` | [Tabs](/reference/widgets/tabs) | Tabbed navigation surface |
+| `TabItem` | [TabItem](/reference/widgets/tab-item) | Tab definition |
+| `Accordion` | [Accordion](/reference/widgets/accordion) | Expandable section group |
+| `AccordionItem` | [AccordionItem](/reference/widgets/accordion-item) | One accordion entry |
+| `Breadcrumb` | [Breadcrumb](/reference/widgets/breadcrumb) | Hierarchical navigation trail |
+| `BreadcrumbItem` | [BreadcrumbItem](/reference/widgets/breadcrumb-item) | One breadcrumb entry |
+| `Pagination` | [Pagination](/reference/widgets/pagination) | Page-by-page navigation |
+| `Route` | [Route](/reference/widgets/route) | Route definition |
+| `RouteParams` | [RouteParams](/reference/widgets/route-params) | Route parameter access type |
+| `Router` | [Router](/reference/widgets/router) | Route selection widget |
+| `Hero` | [Hero](/reference/widgets/hero) | Shared-element transition surface |
+| `Motion` / `Presence` | [Transitions](/reference/widgets/transition) | Real retained motion and enter/exit wrappers; no public Transition type |
+
+For the family-level explanation, see [Overlays and navigation](/reference/widgets/overlays-and-navigation).
+
+## Media and custom surfaces
+
+Use these widgets when your interface needs images, video, embedded host content, a terminal, or custom drawing.
+
+| Widget or helper | Dedicated page | Typical use |
+| --- | --- | --- |
+| `Image` | [Image](/reference/widgets/image) | Static raster image display |
+| `Video` | [Video](/reference/widgets/video) | Video playback surface |
+| `WebView` | [WebView](/reference/widgets/web-view) | Embedded web content surface |
+| `TerminalView` | [TerminalView](/reference/widgets/terminal-view) | Interactive terminal surface |
+| `TerminalLaunchConfig` | [TerminalLaunchConfig](/reference/widgets/terminal-launch-config) | Terminal startup configuration |
+| `TerminalSession` | [TerminalSession](/reference/widgets/terminal-session) | Terminal session handle |
+| `Widget` | [Widget authoring boundary](/reference/core/widget-authoring-boundary) | The closed tree type produced by authored components |
+| `Builder` | [Builder](/reference/widgets/builder) | Inline closure-backed widget helper |
+| `canvas(...)` | [canvas](/reference/widgets/canvas) | Lightweight custom drawing helper |
+| `CanvasLowerer` | [CanvasLowerer](/reference/widgets/canvas-lowerer) | Lowering helper behind `canvas(...)` |
+| `CustomWidget` | [CustomWidget](/reference/widgets/custom-widget) | Custom authored widget with lowerer or render object |
+
+For the family-level explanation, see [Media](/reference/widgets/media).

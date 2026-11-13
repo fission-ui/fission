@@ -1,0 +1,69 @@
+---
+title: Monitoring error band
+sidebar_label: Monitoring error band
+description: Fission Charts reference for Monitoring error band.
+---
+
+# Monitoring error band
+
+![Monitoring error band screenshot](/img/charts/monitoring-error-band.png)
+
+An error-rate trend becomes more useful when the reader can see the service's agreed limit. A fixed band makes that policy visible without turning every small movement in the line into a separate alert. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here the measure is failed requests as a percentage of eligible requests in each reporting interval. The shaded range runs from zero to the configured limit; the line at its upper edge identifies that limit. This is a policy band, not a statistical error or confidence interval.
+
+## Data model
+
+Prepare ordered reporting labels and error percentages together. The numerator and denominator must cover the same eligible requests and interval. Decide what to show when no eligible requests were observed; replacing that interval with zero would claim success without evidence. `MarkArea::y_range` and `MarkLine::y` use the same units as the series.
+
+## Authoring from a Fission component
+
+The component receives the measured percentages and a validated policy limit. It draws the band explicitly; changing a colour does not create the alert policy or dispatch an incident.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries, MarkArea, MarkLine};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ServiceErrorBandChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            annotation_label: String,
+            secondary_annotation_label: String,
+            labels: Vec<String>,
+            error_percent: Vec<f32>,
+            limit_percent: f32,
+        }
+    }
+    view(report, _state, cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+        let colors = &cx.view.env().theme.tokens.colors;
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value().min(0.0).max(100.0)),
+            mark_areas: vec![MarkArea::y_range(&report.annotation_label, 0.0, report.limit_percent)
+                .color(colors.primary.with_alpha(24))],
+            mark_lines: vec![MarkLine::y(&report.secondary_annotation_label, report.limit_percent)
+                .color(colors.text_primary)],
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.error_percent.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test a value exactly at the limit and one on either side, an interval with no requests and a changed limit. Validate percentages and the limit within 0–100 before rendering. Include the current rate and limit in text, and check that the boundary remains distinguishable without colour.
+
+Tags: `monitoring`, `markLine`.
+
+[Monitoring family overview](./overview)

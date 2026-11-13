@@ -1870,6 +1870,7 @@ fn default_button_semantics() -> Semantics {
         role: Role::Button,
         label: None,
         identifier: None,
+        pointer_passthrough: Vec::new(),
         value: None,
         hyperlink: None,
         popover_target: None,

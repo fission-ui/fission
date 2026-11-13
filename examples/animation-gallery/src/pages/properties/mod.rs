@@ -14,7 +14,7 @@ use property_layout::PropertyLayout;
 
 fission_component! {
     pub PropertiesPage<AnimationGalleryState> { path: String }
-    |page, _state, cx| {
+    view(page, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let property = property_case(&page.path);
     } =>

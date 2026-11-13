@@ -1,0 +1,54 @@
+---
+title: Track progress bars
+sidebar_label: Track progress bars
+description: Compare validated completion percentages with full-range background tracks.
+---
+
+# Track progress bars
+
+![Track progress bars screenshot](/img/charts/bar-track-progress.png)
+
+A progress track should have a known endpoint. Letting the largest current value determine that endpoint would make the most advanced item look complete even when it is not.
+
+For a set of migration jobs, calculate completed work as a percentage of declared work, then use a fixed 0–100 range.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct MigrationProgress {
+    pub label: String,
+    pub completed_percent: f32,
+}
+
+fission_component! {
+    pub MigrationProgressTracks<()> {
+        props {
+            title: String,
+            completion_label: String,
+            jobs: Vec<MigrationProgress>,
+            track_colour: Color,
+        }
+    }
+    view(progress, _state, _cx) {
+        let labels = progress.jobs.iter().map(|job| job.label.as_str()).collect();
+        let values = progress.jobs.iter().map(|job| job.completed_percent).collect();
+    } => Chart(
+        title: Some(progress.title.clone()),
+        x_axis: Some(Axis::value().min(0.0).max(100.0)),
+        y_axis: Some(Axis::category(labels)),
+        series: vec![Series::Bar(
+            BarSeries::new(&progress.completion_label)
+                .horizontal().background(progress.track_colour).data(values),
+        )],
+    )
+}
+```
+
+The background spans the numeric plot range. Supply its colour from the active design system and validate finite percentages within 0–100. A job without a known total needs an indeterminate loading state, not a fabricated percentage.
+
+Keep completion separate from success: processing every record may still leave failures requiring attention. Show job status and completed/total counts beside the tracks. Test zero, complete, unknown-total and failed jobs; the gallery image is a different fixture.
+
+[Bar family overview](./overview)

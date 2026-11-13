@@ -1,0 +1,42 @@
+---
+title: Supply routes
+sidebar_label: Supply routes
+description: Compare measured shipment quantities without mixing incompatible units.
+---
+
+# Supply routes
+
+![Supply routes screenshot](/img/charts/lines-supply-routes.png)
+
+A supply network needs an explicit quantity before line widths can mean anything. Counting one shipment of parcels as equal to one shipment of bulk material can obscure the actual transport load.
+
+The following model uses kilograms for every route. It projects into `ServiceConnection` from [lines](../geographic-and-route/lines-basic), placed in `widgets/service_connections.rs`:
+
+```rust
+use crate::widgets::service_connections::ServiceConnection;
+
+pub struct SupplyRoute {
+    pub id: String,
+    pub origin: (f32, f32),
+    pub destination: (f32, f32),
+    pub delivered_kilograms: f32,
+}
+
+pub fn shipment_connection(route: &SupplyRoute) -> Option<ServiceConnection> {
+    if !route.delivered_kilograms.is_finite() || route.delivered_kilograms <= 0.0 {
+        return None;
+    }
+    Some(ServiceConnection {
+        id: route.id.clone(),
+        from: route.origin,
+        to: route.destination,
+        traffic: route.delivered_kilograms,
+    })
+}
+```
+
+Treat rejected negative/non-finite quantities as data errors; confirmed zero shipments may be omitted deliberately. Pass valid rows into the Compose component with translated captions stating the unit and reporting period. Keep the original shipment records for exact totals and audit.
+
+This is a directed schematic, not a road network or a route optimisation result. Line width is relative within the report and distance is not measured. Test reverse flows, invalid units and routes with missing endpoints. The gallery is separate.
+
+[Geo family overview](./overview)

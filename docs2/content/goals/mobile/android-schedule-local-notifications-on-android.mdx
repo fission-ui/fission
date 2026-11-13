@@ -1,0 +1,846 @@
+---
+layout: goal
+title: Schedule Android notifications for a trail follow-up
+description: "Schedule and cancel one trail follow-up without exposing its observation on the lock screen. Make the Android process timer's delivery limits explicit."
+goal: "Keep a trail draft usable without notification access and request or cancel one best-effort follow-up while the app process is alive."
+path: /blog/schedule-local-notifications-on-android/
+order: 40
+difficulty: Beginner
+duration: 40 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-schedule-local-notifications-on-android
+outcomes:
+  - "Request notification permission in context and recheck after the Android prompt"
+  - "Decode actual settings and receipts instead of binding placeholder results"
+  - "Schedule and cancel one reminder using the same stable notification ID"
+  - "Distinguish an accepted process timer from durable delivery or a notification being read"
+---
+
+## A reminder is not the report
+
+A trail crew may need to revisit a hazard after another team has brought equipment. A short reminder can help with that handover, but it cannot be the authority for whether the work is complete or the path is safe.
+
+Here, the inspector enters a trail segment and observation, requests notification access, and schedules one follow-up. The draft remains usable without that access. Notification text is deliberately generic: the observation and location need not appear on the lock screen. The app keeps the report in memory only; neither scheduling nor cancelling saves it.
+
+There is also a delivery boundary. Fission's Android delayed scheduler uses a cancellable timer in the app process, not a persistent Android alarm. If that process dies, the pending timer is lost. This is appropriate for demonstrating a best-effort session reminder, not for promising durable or precisely timed delivery.
+
+## Create the shared app
+
+Complete [Android project setup](/blog/set-up-rust-android-gui-development-with-fission/), then choose [an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [a phone](/blog/run-a-fission-app-on-a-physical-android-phone/).
+
+```sh
+cargo install cargo-fission
+fission init juniper-trail-follow-ups
+cd juniper-trail-follow-ups
+fission add-target android --project-dir .
+fission add-capability notifications --project-dir .
+cargo add serde_yaml
+```
+
+The capability configures the generated manifest. Keep the generated `src/main.rs`; native and Web both run the shared library below. Android 13/API 33 introduces the notification runtime prompt, and the Android host creates its default notification channel on API 26 and later.
+
+<!-- fission:step id="main-flow" -->
+## Store the receipt that the host actually returns
+
+The local fields are editable drafts. Permission settings, a pending request and its receipt belong to shared state because they outlive an individual input event. The callback actions carry only intentional request context, such as the segment being scheduled; settings, receipts and errors are decoded from the effect input, never supplied as default action payloads.
+
+All operations share one in-flight gate. This prevents a permission refresh from clearing a scheduling error or a second request from replacing the first callback's meaning. The single stable ID names this app's active follow-up slot. It does not support an arbitrary collection of reminders.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+const REMINDER_DELAY_MS: u64 = 15 * 60 * 1_000;
+const REMINDER_ID: &str = "trail-follow-up.active";
+
+#[derive(Debug, Default)]
+pub struct TrailReminderState {
+    pub locale: Locale,
+    pub settings: Option<NotificationSettings>,
+    pub requesting_permission: bool,
+    pub checking_settings: bool,
+    pub scheduling: bool,
+    pub cancelling: bool,
+    pub receipt: Option<NotificationReceipt>,
+    pub scheduled_segment: Option<String>,
+    pub notice: Option<ReminderNotice>,
+    pub error: Option<ReminderIssue>,
+}
+
+impl GlobalState for TrailReminderState {}
+impl TrailReminderState {
+    pub fn busy(&self) -> bool {
+        self.requesting_permission || self.checking_settings || self.scheduling || self.cancelling
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReminderNotice {
+    AwaitingSettingsRefresh,
+    SettingsRefreshed,
+    Scheduled { segment: String, scheduled: bool, delivered: bool },
+    Cancelled { segment: String },
+}
+
+impl ReminderNotice {
+    pub fn translation_key(&self) -> &'static str {
+        match self {
+            Self::AwaitingSettingsRefresh => "reminder.notice.refresh_after_prompt",
+            Self::SettingsRefreshed => "reminder.notice.settings_refreshed",
+            Self::Scheduled { scheduled: true, .. } => "reminder.notice.scheduled",
+            Self::Scheduled { delivered: true, .. } => "reminder.notice.delivered",
+            Self::Scheduled { .. } => "reminder.notice.accepted",
+            Self::Cancelled { .. } => "reminder.notice.cancelled",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReminderIssue {
+    PermissionDenied,
+    OperationFailed,
+    FormIncomplete,
+    SettingsRequired,
+}
+
+impl ReminderIssue {
+    pub fn translation_key(self) -> &'static str {
+        match self {
+            Self::PermissionDenied => "reminder.error.permission_denied",
+            Self::OperationFailed => "reminder.error.operation_failed",
+            Self::FormIncomplete => "reminder.error.form_incomplete",
+            Self::SettingsRequired => "reminder.error.settings_required",
+        }
+    }
+}
+
+#[fission_reducer(RequestTrailNotifications)]
+pub fn on_request_trail_notifications(
+    state: &mut TrailReminderState,
+    ctx: &mut ReducerContext<TrailReminderState>,
+) {
+    if state.busy() {
+        return;
+    }
+
+    state.requesting_permission = true;
+    state.notice = None;
+    state.error = None;
+    let on_ok = ctx.effects.bind(
+        TrailNotificationPermissionRequested,
+        reduce_with!(on_trail_notification_permission_requested),
+    );
+    let on_err = ctx.effects.bind(
+        TrailNotificationOperationFailed,
+        reduce_with!(on_trail_notification_operation_failed),
+    );
+    ctx.effects
+        .notifications()
+        .request_permission(NotificationPermissionRequest {
+            alerts: true,
+            badge: false,
+            sound: true,
+            provisional: false,
+        })
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+#[fission_reducer(TrailNotificationPermissionRequested)]
+pub fn on_trail_notification_permission_requested(
+    state: &mut TrailReminderState,
+    ctx: &mut ReducerContext<TrailReminderState>,
+) {
+    if ctx.input.capability_ok(REQUEST_NOTIFICATION_PERMISSION).is_none() {
+        state.requesting_permission = false;
+        state.error = Some(ReminderIssue::OperationFailed);
+        return;
+    }
+    state.requesting_permission = false;
+    state.settings = None;
+    state.notice = Some(ReminderNotice::AwaitingSettingsRefresh);
+}
+
+#[fission_reducer(RefreshTrailNotificationSettings)]
+pub fn on_refresh_trail_notification_settings(
+    state: &mut TrailReminderState,
+    ctx: &mut ReducerContext<TrailReminderState>,
+) {
+    if state.busy() {
+        return;
+    }
+
+    state.checking_settings = true;
+    state.notice = None;
+    state.error = None;
+    let on_ok = ctx.effects.bind(
+        TrailNotificationSettingsLoaded,
+        reduce_with!(on_trail_notification_settings_loaded),
+    );
+    let on_err = ctx.effects.bind(
+        TrailNotificationOperationFailed,
+        reduce_with!(on_trail_notification_operation_failed),
+    );
+    ctx.effects
+        .notifications()
+        .settings()
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+#[fission_reducer(TrailNotificationSettingsLoaded)]
+pub fn on_trail_notification_settings_loaded(
+    state: &mut TrailReminderState,
+    ctx: &mut ReducerContext<TrailReminderState>,
+) {
+    state.checking_settings = false;
+    let Some(settings) = ctx.input.capability_ok(GET_NOTIFICATION_SETTINGS) else {
+        state.settings = None;
+        state.error = Some(ReminderIssue::OperationFailed);
+        return;
+    };
+    state.settings = Some(settings);
+    state.notice = Some(ReminderNotice::SettingsRefreshed);
+    state.error = None;
+}
+
+#[fission_reducer(ScheduleTrailFollowUp)]
+pub fn on_schedule_trail_follow_up(
+    state: &mut TrailReminderState,
+    trail_segment: String,
+    observation: String,
+    title: String,
+    body: String,
+    ctx: &mut ReducerContext<TrailReminderState>,
+) {
+    if state.busy() || state.receipt.is_some() {
+        return;
+    }
+
+    let can_schedule = state
+        .settings
+        .as_ref()
+        .map(|settings| {
+            settings.permission == NotificationPermission::Granted
+                && settings.alerts
+                && settings.scheduling
+        })
+        .unwrap_or(false);
+
+    if !can_schedule {
+        state.error = Some(ReminderIssue::SettingsRequired);
+        return;
+    }
+    if trail_segment.trim().is_empty() || observation.trim().is_empty() {
+        state.error = Some(ReminderIssue::FormIncomplete);
+        return;
+    }
+
+    state.scheduling = true;
+    state.notice = None;
+    state.error = None;
+    let request = NotificationRequest {
+        id: NotificationId::new(REMINDER_ID),
+        title,
+        body,
+        schedule: NotificationSchedule::AfterMillis(REMINDER_DELAY_MS),
+        ..Default::default()
+    };
+    let on_ok = ctx.effects.bind(
+        TrailFollowUpScheduled(trail_segment.clone()),
+        reduce_with!(on_trail_follow_up_scheduled),
+    );
+    let on_err = ctx.effects.bind(
+        TrailNotificationOperationFailed,
+        reduce_with!(on_trail_notification_operation_failed),
+    );
+    ctx.effects
+        .notifications()
+        .schedule(request)
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+#[fission_reducer(TrailFollowUpScheduled)]
+pub fn on_trail_follow_up_scheduled(
+    state: &mut TrailReminderState,
+    trail_segment: String,
+    ctx: &mut ReducerContext<TrailReminderState>,
+) {
+    state.scheduling = false;
+    let Some(receipt) = ctx.input.capability_ok(SCHEDULE_NOTIFICATION) else {
+        state.error = Some(ReminderIssue::OperationFailed);
+        return;
+    };
+    if receipt.id != NotificationId::new(REMINDER_ID) || (!receipt.scheduled && !receipt.delivered) {
+        state.error = Some(ReminderIssue::OperationFailed);
+        return;
+    }
+    state.receipt = Some(receipt.clone());
+    state.scheduled_segment = Some(trail_segment.clone());
+    state.notice = Some(ReminderNotice::Scheduled {
+        segment: trail_segment,
+        scheduled: receipt.scheduled,
+        delivered: receipt.delivered,
+    });
+    state.error = None;
+}
+
+#[fission_reducer(CancelTrailFollowUp)]
+pub fn on_cancel_trail_follow_up(
+    state: &mut TrailReminderState,
+    ctx: &mut ReducerContext<TrailReminderState>,
+) {
+    if state.busy() {
+        return;
+    }
+    let (Some(_receipt), Some(trail_segment)) =
+        (state.receipt.as_ref(), state.scheduled_segment.clone())
+    else {
+        return;
+    };
+
+    state.cancelling = true;
+    state.notice = None;
+    state.error = None;
+    let on_ok = ctx.effects.bind(
+        TrailFollowUpCancelled(trail_segment),
+        reduce_with!(on_trail_follow_up_cancelled),
+    );
+    let on_err = ctx.effects.bind(
+        TrailNotificationOperationFailed,
+        reduce_with!(on_trail_notification_operation_failed),
+    );
+    ctx.effects
+        .notifications()
+        .cancel(CancelNotificationRequest {
+            id: NotificationId::new(REMINDER_ID),
+        })
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+#[fission_reducer(TrailFollowUpCancelled)]
+pub fn on_trail_follow_up_cancelled(
+    state: &mut TrailReminderState, trail_segment: String, ctx: &mut ReducerContext<TrailReminderState>,
+) {
+    state.cancelling = false;
+    if ctx.input.capability_ok(CANCEL_NOTIFICATION).is_none() {
+        state.error = Some(ReminderIssue::OperationFailed);
+        return;
+    }
+    state.receipt = None;
+    state.scheduled_segment = None;
+    state.notice = Some(ReminderNotice::Cancelled {
+        segment: trail_segment,
+    });
+    state.error = None;
+}
+
+#[fission_reducer(TrailNotificationOperationFailed)]
+pub fn on_trail_notification_operation_failed(
+    state: &mut TrailReminderState,
+    ctx: &mut ReducerContext<TrailReminderState>,
+) {
+    let error = ctx.input.capability_error(REQUEST_NOTIFICATION_PERMISSION)
+        .or_else(|| ctx.input.capability_error(GET_NOTIFICATION_SETTINGS))
+        .or_else(|| ctx.input.capability_error(SCHEDULE_NOTIFICATION))
+        .or_else(|| ctx.input.capability_error(CANCEL_NOTIFICATION));
+    let denied = error.as_ref().is_some_and(|error| error.code == "permission_denied");
+    state.requesting_permission = false;
+    state.checking_settings = false;
+    state.scheduling = false;
+    state.cancelling = false;
+    state.error = Some(if denied {
+        ReminderIssue::PermissionDenied
+    } else {
+        ReminderIssue::OperationFailed
+    });
+    if denied {
+        state.settings = None;
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn every_operation_prevents_overlapping_requests() {
+        let mut state = TrailReminderState::default();
+        assert!(!state.busy());
+        state.scheduling = true;
+        assert!(state.busy());
+        state.scheduling = false;
+        state.cancelling = true;
+        assert!(state.busy());
+    }
+}
+
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::*;
+
+fission_component! {
+    pub TrailFollowUpPlanner<TrailReminderState> {
+        state {
+            trail_segment: String = String::new(),
+            observation: String = String::new(),
+        }
+    }
+    view(planner, app, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let request_access = with_reducer!(
+            cx.build,
+            RequestTrailNotifications,
+            on_request_trail_notifications
+        );
+        let refresh_settings = with_reducer!(
+            cx.build,
+            RefreshTrailNotificationSettings,
+            on_refresh_trail_notification_settings
+        );
+        let schedule_follow_up = with_reducer!(
+            cx.build,
+            ScheduleTrailFollowUp(
+                planner.trail_segment.clone(),
+                planner.observation.clone(),
+                cx.tr("reminder.notification.title"),
+                cx.tr("reminder.notification.body"),
+            ),
+            on_schedule_trail_follow_up
+        );
+        let cancel_follow_up = with_reducer!(
+            cx.build,
+            CancelTrailFollowUp,
+            on_cancel_trail_follow_up
+        );
+        let settings = app.settings.as_ref();
+        let access_granted = settings
+            .map(|settings| {
+                settings.permission == NotificationPermission::Granted
+                    && settings.alerts
+                    && settings.scheduling
+            })
+            .unwrap_or(false);
+        let permission_message = match settings {
+            Some(settings) if !settings.scheduling => {
+                cx.tr("reminder.permission.unsupported_scheduling")
+            }
+            Some(settings) if settings.permission == NotificationPermission::Denied => {
+                cx.tr("reminder.permission.denied")
+            }
+            Some(settings) if settings.permission == NotificationPermission::Unsupported => {
+                cx.tr("reminder.permission.unsupported")
+            }
+            Some(settings)
+                if settings.permission == NotificationPermission::Granted && !settings.alerts =>
+            {
+                cx.tr("reminder.permission.alerts_off")
+            }
+            Some(settings)
+                if settings.permission == NotificationPermission::Granted && settings.alerts =>
+            {
+                cx.tr("reminder.permission.granted")
+            }
+            Some(settings) if settings.permission == NotificationPermission::Provisional => {
+                cx.tr("reminder.permission.provisional")
+            }
+            Some(_) => {
+                cx.tr("reminder.permission.not_granted")
+            }
+            None => {
+                cx.tr("reminder.permission.not_checked")
+            }
+        };
+        let (operation_message, operation_failed) = if let Some(error) = app.error {
+            (cx.tr(error.translation_key()), true)
+        } else if let Some(notice) = &app.notice {
+            let mut message = cx.tr(notice.translation_key());
+            match notice {
+                ReminderNotice::Scheduled { segment, .. }
+                | ReminderNotice::Cancelled { segment } => {
+                    message = message.replace("{segment}", segment);
+                }
+                _ => {}
+            }
+            (message, false)
+        } else if app.scheduling {
+            (cx.tr("reminder.operation.scheduling"), false)
+        } else if app.cancelling {
+            (cx.tr("reminder.operation.cancelling"), false)
+        } else {
+            (cx.tr("reminder.operation.none"), false)
+        };
+        let can_enable = !access_granted
+            && !app.busy();
+        let can_schedule = access_granted
+            && app.receipt.is_none()
+            && !app.busy()
+            && !planner.trail_segment.trim().is_empty()
+            && !planner.observation.trim().is_empty();
+    } =>
+    SafeArea(child: SemanticsRegion(
+        identifier: Some("juniper-trail-follow-up".to_string()),
+        label: Some(cx.tr("reminder.screen.label")),
+        child: Scroll(
+            flex_grow: 1.0,
+            child: Container(
+                Column(align_items: ir_op::AlignItems::Center, children: [
+                    Container(
+                        Column(gap: tokens.spacing.m, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text(cx.tr("reminder.brand"))
+                                    .weight(tokens.typography.font_weight_bold),
+                                Text(cx.tr("reminder.subtitle"))
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Row(gap: tokens.spacing.xs, children: [
+                                Button(
+                                    child: Text(cx.tr("locale.english")),
+                                    key: "locale-en-US",
+                                    variant: if app.locale == Locale::from("en-US") { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                                    on_press: reduce { app.locale = Locale::from("en-US"); },
+                                ).semantics_identifier("reminder.locale.en-US".to_string()),
+                                Button(
+                                    child: Text(cx.tr("locale.spanish")),
+                                    key: "locale-es-ES",
+                                    variant: if app.locale == Locale::from("es-ES") { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                                    on_press: reduce { app.locale = Locale::from("es-ES"); },
+                                ).semantics_identifier("reminder.locale.es-ES".to_string()),
+                            ]),
+                            Text(cx.tr("reminder.title"))
+                                .weight(tokens.typography.font_weight_bold),
+                            Text(cx.tr("reminder.description"))
+                                .color(tokens.colors.text_secondary),
+                            TextInput(
+                                label: Some(cx.tr("reminder.field.segment").into()),
+                                placeholder: Some(cx.tr("reminder.field.segment_placeholder").into()),
+                                bind: planner.trail_segment,
+                                required: true,
+                                helper_text: Some(cx.tr("reminder.field.segment_help").into()),
+                                semantics_identifier: "trail-follow-up.segment".to_string(),
+                            ),
+                            TextInput(
+                                label: Some(cx.tr("reminder.field.observation").into()),
+                                placeholder: Some(cx.tr("reminder.field.observation_placeholder").into()),
+                                bind: planner.observation,
+                                multiline: true,
+                                required: true,
+                                helper_text: Some(cx.tr("reminder.field.observation_help").into()),
+                                semantics_identifier: "trail-follow-up.observation".to_string(),
+                            ),
+                            Text(cx.tr("reminder.delay"))
+                                .color(tokens.colors.text_secondary),
+                            Text(permission_message)
+                                .color(if access_granted {
+                                    tokens.colors.success
+                                } else {
+                                    tokens.colors.text_secondary
+                                }),
+                            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                                Button(
+                                    child: Text(if app.requesting_permission {
+                                        cx.tr("reminder.action.waiting")
+                                    } else {
+                                        cx.tr("reminder.action.enable")
+                                    }),
+                                    key: "request-trail-notification-access",
+                                    variant: ButtonVariant::Outline,
+                                    disabled: !can_enable,
+                                    on_press: request_access,
+                                )
+                                .semantics_identifier("trail-follow-up.request-access".to_string()),
+                                Button(
+                                    child: Text(if app.checking_settings {
+                                        cx.tr("reminder.action.checking")
+                                    } else {
+                                        cx.tr("reminder.action.refresh")
+                                    }),
+                                    key: "refresh-trail-notification-settings",
+                                    variant: ButtonVariant::Outline,
+                                    disabled: app.busy(),
+                                    on_press: refresh_settings,
+                                )
+                                .semantics_identifier("trail-follow-up.refresh-access".to_string()),
+                            ]),
+                            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                                Button(
+                                    child: Text(if app.scheduling {
+                                        cx.tr("reminder.action.scheduling")
+                                    } else {
+                                        cx.tr("reminder.action.schedule")
+                                    }),
+                                    key: "schedule-trail-follow-up",
+                                    variant: ButtonVariant::Primary,
+                                    disabled: !can_schedule,
+                                    on_press: schedule_follow_up,
+                                )
+                                .semantics_identifier("trail-follow-up.schedule".to_string()),
+                                Button(
+                                    child: Text(if app.cancelling {
+                                        cx.tr("reminder.action.cancelling")
+                                    } else {
+                                        cx.tr("reminder.action.cancel")
+                                    }),
+                                    key: "cancel-trail-follow-up",
+                                    variant: ButtonVariant::Outline,
+                                    disabled: app.receipt.is_none() || app.busy(),
+                                    on_press: cancel_follow_up,
+                                )
+                                .semantics_identifier("trail-follow-up.cancel".to_string()),
+                            ]),
+                            if app.busy() {
+                                Spinner(motion: Some(SpinnerMotion::Default), label: cx.tr("reminder.action.waiting"))
+                            },
+                            Text(operation_message)
+                                .color(if operation_failed {
+                                    tokens.colors.error
+                                } else {
+                                    tokens.colors.text_secondary
+                                }),
+                            Text(cx.tr("reminder.limitation"))
+                                .color(tokens.colors.text_secondary),
+                        ])
+                    )
+                    .padding_all(tokens.spacing.l)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(680.0),
+                    ))
+                    .bg(tokens.colors.surface)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
+                ]),
+            )
+            .width_length(Length::percent(100.0))
+            .bg(tokens.colors.background),
+        ),
+    ))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+locale.english: "English"
+locale.spanish: "Spanish"
+reminder.screen.label: "Juniper County trail follow-up reminder"
+reminder.brand: "Juniper County Trail Service"
+reminder.subtitle: "Follow-up · Afternoon inspection"
+reminder.title: "Revisit an unresolved trail report"
+reminder.description: "Keep the observation in this session and request one follow-up reminder."
+reminder.field.segment: "Trail segment"
+reminder.field.segment_placeholder: "For example, North Ridge · Timber bridge"
+reminder.field.segment_help: "Name the place the crew needs to revisit."
+reminder.field.observation: "What needs a second look?"
+reminder.field.observation_placeholder: "Describe what the crew should check."
+reminder.field.observation_help: "This note stays in app memory. Notification text does not include it."
+reminder.delay: "Reminder time · about 15 minutes after scheduling"
+reminder.permission.unsupported_scheduling: "This host cannot schedule notifications. The report remains available."
+reminder.permission.denied: "Notifications are off. Enable them in Android settings, then refresh this status."
+reminder.permission.unsupported: "Notifications are not available on this host. The report remains available."
+reminder.permission.alerts_off: "Access is granted, but alerts are off. Turn alerts on in system settings, then refresh."
+reminder.permission.granted: "Notifications are on. You can schedule the follow-up below."
+reminder.permission.provisional: "The host granted provisional notification access."
+reminder.permission.not_granted: "Access has not been granted. Enable notifications, then refresh this status."
+reminder.permission.not_checked: "Access has not been checked. Refresh status before scheduling a reminder."
+reminder.notice.refresh_after_prompt: "After answering the system prompt, refresh access status to check the current setting."
+reminder.notice.settings_refreshed: "Notification settings have been refreshed."
+reminder.notice.scheduled: "The follow-up for {segment} is queued for about fifteen minutes from now."
+reminder.notice.delivered: "The follow-up notification for {segment} was delivered."
+reminder.notice.accepted: "The notification host accepted the follow-up for {segment}."
+reminder.notice.cancelled: "The reminder for {segment} has been cancelled."
+reminder.error.permission_denied: "Notifications are off. Enable them in Android settings, then refresh access status."
+reminder.error.operation_failed: "The notification host could not complete that action. Refresh status or try again."
+reminder.error.form_incomplete: "Enter a trail segment and observation before scheduling a reminder."
+reminder.error.settings_required: "Refresh notification access first. Schedule only when alerts and scheduling are available."
+reminder.operation.scheduling: "Scheduling the follow-up…"
+reminder.operation.cancelling: "Cancelling the follow-up…"
+reminder.operation.none: "No follow-up reminder is scheduled."
+reminder.notification.title: "Trail follow-up"
+reminder.notification.body: "Open the app to review your trail report."
+reminder.action.waiting: "Waiting for Android…"
+reminder.action.enable: "Enable notifications"
+reminder.action.checking: "Checking access…"
+reminder.action.refresh: "Refresh access status"
+reminder.action.scheduling: "Scheduling reminder…"
+reminder.action.schedule: "Remind me in 15 minutes"
+reminder.action.cancelling: "Cancelling…"
+reminder.action.cancel: "Cancel reminder"
+reminder.limitation: "This Android host uses a process timer. Delivery is best-effort while the app process remains alive."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+locale.english: "Inglés"
+locale.spanish: "Español"
+reminder.screen.label: "Recordatorio de seguimiento de Juniper County"
+reminder.brand: "Servicio de senderos de Juniper County"
+reminder.subtitle: "Seguimiento · Inspección de tarde"
+reminder.title: "Volver a revisar un informe pendiente"
+reminder.description: "Conserva la observación en esta sesión y solicita un recordatorio."
+reminder.field.segment: "Tramo del sendero"
+reminder.field.segment_placeholder: "Por ejemplo, North Ridge · Puente de madera"
+reminder.field.segment_help: "Indica el lugar que el equipo debe volver a visitar."
+reminder.field.observation: "¿Qué hay que revisar?"
+reminder.field.observation_placeholder: "Describe qué debe comprobar el equipo."
+reminder.field.observation_help: "La nota queda en la memoria de la aplicación. La notificación no la incluye."
+reminder.delay: "Hora del recordatorio · unos 15 minutos después de programarlo"
+reminder.permission.unsupported_scheduling: "Este host no puede programar notificaciones. El informe sigue disponible."
+reminder.permission.denied: "Las notificaciones están desactivadas. Actívalas en los ajustes de Android y actualiza el estado."
+reminder.permission.unsupported: "Las notificaciones no están disponibles en este host. El informe sigue disponible."
+reminder.permission.alerts_off: "El acceso está concedido, pero las alertas están desactivadas. Actívalas en los ajustes y actualiza el estado."
+reminder.permission.granted: "Las notificaciones están activadas. Puedes programar el seguimiento."
+reminder.permission.provisional: "El host concedió acceso provisional a las notificaciones."
+reminder.permission.not_granted: "No se concedió el acceso. Activa las notificaciones y actualiza el estado."
+reminder.permission.not_checked: "Aún no se comprobó el acceso. Actualiza el estado antes de programar un recordatorio."
+reminder.notice.refresh_after_prompt: "Después de responder al diálogo del sistema, actualiza el estado del acceso."
+reminder.notice.settings_refreshed: "Se actualizaron los ajustes de notificaciones."
+reminder.notice.scheduled: "El seguimiento de {segment} está programado para dentro de unos quince minutos."
+reminder.notice.delivered: "Se envió la notificación de seguimiento de {segment}."
+reminder.notice.accepted: "El host aceptó el seguimiento de {segment}."
+reminder.notice.cancelled: "Se canceló el recordatorio de {segment}."
+reminder.error.permission_denied: "Las notificaciones están desactivadas. Actívalas en Android y actualiza el estado."
+reminder.error.operation_failed: "El host de notificaciones no pudo completar la acción. Actualiza el estado o vuelve a intentarlo."
+reminder.error.form_incomplete: "Indica un tramo y una observación antes de programar el recordatorio."
+reminder.error.settings_required: "Actualiza el acceso. Programa el recordatorio solo si las alertas y la programación están disponibles."
+reminder.operation.scheduling: "Programando el seguimiento…"
+reminder.operation.cancelling: "Cancelando el seguimiento…"
+reminder.operation.none: "No hay ningún recordatorio programado."
+reminder.notification.title: "Seguimiento del sendero"
+reminder.notification.body: "Abre la aplicación para revisar el informe."
+reminder.action.waiting: "Esperando a Android…"
+reminder.action.enable: "Activar notificaciones"
+reminder.action.checking: "Comprobando el acceso…"
+reminder.action.refresh: "Actualizar el estado del acceso"
+reminder.action.scheduling: "Programando el recordatorio…"
+reminder.action.schedule: "Recordarme en 15 minutos"
+reminder.action.cancelling: "Cancelando…"
+reminder.action.cancel: "Cancelar recordatorio"
+reminder.limitation: "Este host Android usa un temporizador del proceso. La entrega es best-effort mientras la aplicación siga ejecutándose."
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+pub mod state;
+mod translations;
+
+use app::TrailFollowUpPlanner;
+use state::TrailReminderState;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<TrailReminderState, _>::new(TrailFollowUpPlanner::new())
+        .with_env(translations::create_env())
+        .with_sync_env(|state, env| env.locale = state.locale.clone())
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<TrailReminderState, TrailFollowUpPlanner> {
+    let app = MobileApp::<TrailReminderState, _>::new(TrailFollowUpPlanner::new())
+        .with_env(translations::create_env())
+        .with_sync_env(|state, env| env.locale = state.locale.clone());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<TrailReminderState, _>::new(TrailFollowUpPlanner::new())
+        .with_env(translations::create_env())
+        .with_sync_env(|state, env| env.locale = state.locale.clone())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+include!("../src/lib.rs");
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Enter the report before enabling notifications. Finish any permission prompt and explicitly refresh access; the Android request returns a snapshot before the user necessarily answers it. A queued receipt means the host accepted the timer, not that a notification appeared or was read. The preview uses the actual Web host and may correctly report scheduling unsupported.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="android-delivery-checks" -->
+## Separate scheduling, posting and attention
+
+```sh
+cargo test
+fission doctor android --project-dir .
+adb devices -l
+fission run --target android --device <adb-serial> --project-dir .
+fission test --target android --project-dir .
+fission build --target android --project-dir . --release
+```
+
+Check denial, grant and later settings changes on API 33 or newer. On earlier releases, there may be no runtime prompt. The current settings query checks app-level notification permission, not the individual channel's importance, so a reported grant does not prove the default channel will display an alert. Test that channel in Android Settings as well.
+
+For a short delivery check, temporarily set `REMINDER_DELAY_MS` to `10_000`, rebuild and keep the process alive. Schedule once and observe the notification. Schedule again and cancel before the delay; verify no new notification appears. Restore the fifteen-minute interval afterwards. Cancellation cannot undo a notification someone already saw.
+
+Force-stop the app in a separate run to establish the timer's boundary. The scheduler has no durable alarm record and discards a later posting failure; the earlier receipt will not become a delivery acknowledgment in this UI. Do not add an exact-alarm permission to make that timer look reliable. A delivery requirement that survives process death needs an actual Android scheduling integration, with its own policy and tests.
+
+The default native notification here does not attach report navigation to a tap. Open the app normally to review the draft, and remember that a process restart loses it. Editing the draft after scheduling also does not update an already queued request. Those behaviours should remain explicit rather than hidden behind a confirmation message.
+
+<!-- fission:checkpoint -->
+Record permission, channel settings, timer acceptance, actual posting and cancellation separately. None proves the hazard was resolved. A durable report and a durable reminder remain separate product decisions.
+<!-- /fission:checkpoint -->
+
+### References
+
+- [Notifications guide](/docs/capabilities/notifications/)
+- [Notifications capability reference](/reference/capabilities/notifications/)
+- [Android project setup](/blog/set-up-rust-android-gui-development-with-fission/)
+- [Android notification permission](https://developer.android.com/develop/ui/views/notifications/notification-permission)
+- [Android notification channels](https://developer.android.com/develop/ui/views/notifications/channels)
+- [Android alarm scheduling](https://developer.android.com/develop/background-work/services/alarms)
+<!-- /fission:step -->

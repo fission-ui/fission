@@ -1,0 +1,53 @@
+---
+title: Area line
+sidebar_label: Area line
+description: Add a theme-derived fill to an inventory trend without inventing a total.
+---
+
+# Area line
+
+![Area line screenshot](/img/charts/line-area.png)
+
+An area fill emphasises magnitude relative to a baseline. For inventory snapshots, that can make sustained low stock more apparent, but the filled area is not the number of items sold or received.
+
+Keep the distinction between a stock level and a flow through time.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, Chart, LineSeries, Series};
+
+#[derive(Clone)]
+pub struct InventorySample {
+    pub label: String,
+    pub available_units: u32,
+}
+
+fission_component! {
+    pub InventoryAreaTrend<()> {
+        props {
+            title: String,
+            units_label: String,
+            samples: Vec<InventorySample>,
+            area_colour: Color,
+        }
+    }
+    view(stock, _state, _cx) {
+        let labels = stock.samples.iter().map(|sample| sample.label.as_str()).collect();
+        let values = stock.samples.iter().map(|sample| sample.available_units as f32).collect();
+    } => Chart(
+        title: Some(stock.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        series: vec![Series::Line(
+            LineSeries::new(&stock.units_label).area_style(stock.area_colour).data(values),
+        )],
+    )
+}
+```
+
+The parent supplies a design-system colour and translated labels. `area_style(Color)` enables the fill; the renderer uses it in a gradient towards the baseline.
+
+Supply equally spaced, ordered snapshots and treat gaps explicitly. Do not sum stock levels and label the result total inventory movement. Test zero stock, a single observation and sharp changes, then inspect fill contrast without relying on colour alone. Keep actual quantities available outside the plot; the screenshot is a gallery fixture.
+
+[Cartesian family overview](./overview)

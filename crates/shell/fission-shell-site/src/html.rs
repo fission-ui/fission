@@ -1902,6 +1902,22 @@ impl HtmlRenderer<'_> {
         None
     }
 
+    fn has_ancestor_semantic_identifier(&self, node: &CoreNode, expected: &str) -> bool {
+        let mut parent_id = node.parent;
+        while let Some(id) = parent_id {
+            let Some(parent) = self.ir.nodes.get(&id) else {
+                return false;
+            };
+            if let Op::Semantics(semantics) = &parent.op {
+                if semantics.identifier.as_deref() == Some(expected) {
+                    return true;
+                }
+            }
+            parent_id = parent.parent;
+        }
+        false
+    }
+
     fn render_embed_fallback(
         &self,
         node: &CoreNode,
@@ -2125,6 +2141,25 @@ impl HtmlRenderer<'_> {
             ));
         }
         if let Some(identifier) = semantics.identifier.as_deref() {
+            if identifier.starts_with("site-disclosure:") {
+                let children = self.render_semantic_payload_children(node)?;
+                return Ok(format!(
+                    "<details class=\"fission-site-node fission-site-semantics fission-site-disclosure\" data-fission-semantics=\"{}\" data-fission-node=\"{}\">{children}</details>",
+                    escape_attr(identifier),
+                    node.id,
+                ));
+            }
+            if let Some(name) = identifier.strip_prefix("site-disclosure-summary:") {
+                let disclosure = format!("site-disclosure:{name}");
+                if self.has_ancestor_semantic_identifier(node, &disclosure) {
+                    let children = self.render_semantic_payload_children(node)?;
+                    return Ok(format!(
+                        "<summary class=\"fission-site-node fission-site-semantics fission-site-disclosure-summary\" data-fission-semantics=\"{}\" data-fission-node=\"{}\">{children}</summary>",
+                        escape_attr(identifier),
+                        node.id,
+                    ));
+                }
+            }
             if let Some(target) = identifier.strip_prefix("site-route:") {
                 return self.render_semantic_link(
                     node,
@@ -2184,8 +2219,13 @@ impl HtmlRenderer<'_> {
             }
             if identifier == "site-sidebar-toggle" {
                 let children = self.render_children(&node.children, &HashSet::new())?;
+                let label = semantics
+                    .label
+                    .as_deref()
+                    .unwrap_or("Open documentation navigation");
                 return Ok(format!(
-                    "<button class=\"fission-site-node fission-site-sidebar-toggle\" type=\"button\" aria-label=\"Open documentation navigation\" aria-expanded=\"false\" data-fission-sidebar-toggle data-fission-node=\"{}\">{children}</button>",
+                    "<button class=\"fission-site-node fission-site-sidebar-toggle\" type=\"button\" aria-label=\"{}\" aria-expanded=\"false\" data-fission-sidebar-toggle data-fission-node=\"{}\">{children}</button>",
+                    escape_attr(label),
                     node.id
                 ));
             }
@@ -5860,9 +5900,38 @@ mod tests {
         assert!(rendered
             .html
             .contains("data-fission-action-payload=\"dead\""));
-        assert!(rendered.css.contains(
-            "display:flex;width:100%;height:100%;align-items:center;justify-content:center"
-        ));
+        // The dot's own alignment element must fill the ring and center on
+        // both axes. Check its generated rule rather than declaration order:
+        // StyleRegistry canonicalizes CSS properties for deduplication.
+        let align_class = rendered
+            .html
+            .split_once("class=\"fission-site-node fission-site-align ")
+            .expect("the retained radio dot needs an alignment element")
+            .1
+            .split_once('"')
+            .unwrap()
+            .0;
+        let align_style = rendered
+            .css
+            .split_once(&format!(".{align_class}{{"))
+            .unwrap_or_else(|| panic!("missing alignment rule for {align_class}: {}", rendered.css))
+            .1
+            .split_once('}')
+            .unwrap()
+            .0;
+        let declarations = align_style.split(';').collect::<Vec<_>>();
+        for expected in [
+            "display:flex",
+            "width:100%",
+            "height:100%",
+            "align-items:center",
+            "justify-content:center",
+        ] {
+            assert!(
+                declarations.contains(&expected),
+                "radio dot alignment is missing {expected}: {align_style}"
+            );
+        }
     }
 
     #[test]
@@ -7063,6 +7132,34 @@ mod tests {
         assert!(rendered.body_html.contains(
             "<span aria-label=\"Read documentation\"><a class=\"fission-site-link fission-site-markdown-link\" href=\"docs\""
         ));
+    }
+
+    #[test]
+    fn disclosure_summary_is_native_only_inside_its_matching_disclosure() {
+        let rendered = render_test_widget(Column {
+            children: vec![
+                SemanticsRegion::new(Column {
+                    children: vec![
+                        SemanticsRegion::new(Text::new("Show source"))
+                            .identifier("site-disclosure-summary:source")
+                            .into(),
+                        Text::new("Source contents").into(),
+                    ],
+                    ..Default::default()
+                })
+                .identifier("site-disclosure:source")
+                .into(),
+                SemanticsRegion::new(Text::new("Not a disclosure trigger"))
+                    .identifier("site-disclosure-summary:other")
+                    .into(),
+            ],
+            ..Default::default()
+        });
+
+        assert_eq!(rendered.body_html.matches("<details ").count(), 1);
+        assert_eq!(rendered.body_html.matches("<summary ").count(), 1);
+        assert!(rendered.body_html.contains("Source contents"));
+        assert!(rendered.body_html.contains("Not a disclosure trigger"));
     }
 
     #[test]

@@ -1,0 +1,92 @@
+---
+title: Checkbox
+description: Represent an independent yes or no value, or one item in a multi-select set.
+slug: /widgets/checkbox
+---
+# Checkbox
+
+`Checkbox` represents an independent yes-or-no choice, including one item in
+a multi-select list.
+
+Use [`Radio`](/reference/widgets/radio) when the user must choose exactly one
+option from a group.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub NewsletterChoice<()> {
+        state { subscribed: bool = false }
+    }
+
+    view(choice, _state, cx) =>
+        Checkbox(
+            checked: choice.subscribed,
+            label: Some(cx.tr("preferences.product_updates")),
+            on_toggle: reduce {
+                choice.subscribed = !choice.subscribed;
+            },
+        )
+}
+```
+
+This component owns a pending form choice, not a persisted account preference.
+Its retained state follows the component identity. If other screens or a saved
+profile depend on the value, put it in `GlobalState` and update it through the
+parent's reducer instead.
+
+The checkbox does not flip its own `checked` field. It emits an action and the
+reducer changes the state that owns the choice. Here that is the component's
+retained `subscribed` value; a shared preference would instead belong to
+`GlobalState`. The next build supplies the updated value to the control.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `name` | `Option<String>` | Successful-control name for Static site and SSR forms. | Several checkboxes may share a repeated field name. |
+| `form_id` | `Option<String>` | Associates the checkbox with a server form. | Must match the form schema id. |
+| `form_value` | `Option<String>` | Machine value submitted when checked. | Leave unset for a Boolean field (`on`); set a distinct value for each repeated option. |
+| `checked` | `bool` | Whether the checkbox is currently selected. | Defaults to `false`. |
+| `on_toggle` | `Option<ActionEnvelope>` | Action dispatched when the user toggles the checkbox. | Defaults to `None`. |
+| `label` | `Option<String>` | Visible text shown next to the indicator. | Defaults to `None`, but most real checkboxes should have a label. |
+
+## Interaction and accessibility behavior
+
+`Checkbox` lowers a semantic checkbox role with the current checked state, so assistive technology can report it correctly and automated tests can find it by role. The label text is also used as the semantic label when present.
+
+Because the control is controlled by state, it is easy to test. Given a known `checked` value, the same build always produces the same visual and semantic result.
+
+## Specific advice
+
+Prefer a checkbox when the choice can stay pending until a later submit. If the control means an immediate app setting that turns behavior on or off right away, a [`Switch`](/reference/widgets/switch) often reads more naturally.
+
+For a repeated server-form field, give every option the same `name` and a
+distinct `form_value`:
+
+```rust
+// Inside a Compose view; region and selected_regions come from the parent model.
+Checkbox(
+    name: Some("regions".into()),
+    form_id: Some("connect".into()),
+    form_value: Some(region.code.clone()),
+    label: Some(region.display_name.clone()),
+    checked: selected_regions.contains(&region.code),
+)
+```
+
+Declare the matching schema field with `ServerFormField::repeated("regions")`
+and deserialize it into `#[serde(default)] regions: Vec<String>`.
+
+## Production checklist
+
+- Test the retained choice across parent rebuilds and submission.
+- For repeated controls, derive identity from the option's durable id.
+- Verify the label, checked state, and server-form field cardinality together.
+
+## Related
+
+[`Switch`](/reference/widgets/switch), [`Radio`](/reference/widgets/radio), [`FormControl`](/reference/widgets/form-control), and [`Button`](/reference/widgets/button).

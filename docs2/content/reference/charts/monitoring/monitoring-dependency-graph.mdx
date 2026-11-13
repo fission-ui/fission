@@ -1,0 +1,56 @@
+---
+title: Dependency graph
+sidebar_label: Dependency graph
+description: Fission Charts reference for Dependency graph.
+---
+
+# Dependency graph
+
+![Dependency graph screenshot](/img/charts/monitoring-dependency-graph.png)
+
+A dependency graph records which services rely on other services. This is useful when an incident in one service may affect several callers, provided the links have a consistent meaning. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Define an edge as caller to dependency and retain that convention throughout the view. Proximity in the force layout is not a latency measurement, deployment location or guarantee of shared failure. A topology view needs a different interpretation from a chart of observed traffic.
+
+## Data model
+
+`GraphNode` has a stable `id`, a display `name` and an `f32` value which influences marker size. Use equal values when the graph should show topology without implying service importance. `GraphEdge` names source and target IDs; validate that both exist, and keep distinct services distinct even when their display names match.
+
+## Authoring from a Fission component
+
+Prepare the nodes and dependency links from the current topology snapshot. The component only presents that model; discovery and refresh belong in the application's effect workflow.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GraphNode, GraphSeries};
+use fission::charts::series::graph::GraphEdge;
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ServiceDependencyGraph<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            services: Vec<GraphNode>,
+            dependencies: Vec<GraphEdge>,
+        }
+    }
+    view(topology, _state, _cx) => Chart(
+        title: Some(topology.chart_title.clone()),
+        series: vec![GraphSeries::new(&topology.series_label)
+            .nodes(topology.services.clone())
+            .edges(topology.dependencies.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test duplicate IDs, missing endpoints, an isolated service and a dependency cycle. Do not discard an isolated service solely because it has no edges. Inspect overlapping names and retain an accessible caller/dependency list; the drawing is not an execution trace and should not be the only way to inspect a service's dependencies.
+
+Tags: `monitoring`, `graph`.
+
+[Monitoring family overview](./overview)

@@ -1,0 +1,37 @@
+---
+title: Courier routes
+sidebar_label: Courier routes
+description: Build schematic courier legs from an ordered stop list.
+---
+
+# Courier routes
+
+![Courier routes screenshot](/img/charts/lines-courier-routes.png)
+
+A courier round is ordered. Drawing every depot-to-stop connection instead would imply a different journey and would hide the relationship between consecutive stops.
+
+Use `ServiceConnection` from [lines](../geographic-and-route/lines-basic), in `widgets/service_connections.rs`:
+
+```rust
+use crate::widgets::service_connections::ServiceConnection;
+
+pub struct DeliveryStop {
+    pub id: String,
+    pub position: (f32, f32),
+}
+
+pub fn courier_legs(stops: &[DeliveryStop]) -> Vec<ServiceConnection> {
+    stops.windows(2).map(|pair| ServiceConnection {
+        id: pair[1].id.clone(),
+        from: pair[0].position,
+        to: pair[1].position,
+        traffic: 1.0,
+    }).collect()
+}
+```
+
+This model assumes each stop ID appears once in a round; use durable leg IDs if repeat visits are allowed. Include the depot as the first stop when that leg belongs in the report. Zero or one stop correctly produces no legs.
+
+Pass the result to the Compose `ServiceConnections` component with translated captions explaining that every leg is shown equally. Validate finite positions and preserve the stop list for exact order and status. The curves are a schematic, not road geometry, route optimisation or navigation. Test an empty round, a cancelled stop and reordered visits. The gallery image is separate.
+
+[Geo family overview](./overview)

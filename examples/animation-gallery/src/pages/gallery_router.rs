@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 fission_component! {
     pub GalleryRouter<AnimationGalleryState> { current_path: String }
-    |router, _state, _cx| {} =>
+    view(router, _state, _cx) {} =>
         Router::<AnimationGalleryState>::new()
             .with_path(router.current_path.clone())
             .route("/overview", overview::OverviewPage::new)

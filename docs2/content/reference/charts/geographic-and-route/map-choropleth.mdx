@@ -1,0 +1,56 @@
+---
+title: Choropleth map
+sidebar_label: Choropleth map
+description: Join region measures to supplied GeoJSON boundaries.
+---
+
+# Choropleth map
+
+![Choropleth map screenshot](/img/charts/map-choropleth.png)
+
+A choropleth colours areas by a measure. Its useful question is geographical: where are service requests concentrated? For exact ordering or values, a ranked table remains easier to read.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, MapSeries, Series, VisualMap};
+
+#[derive(Clone)]
+pub struct RegionMeasure {
+    pub region_id: String,
+    pub value: f32,
+}
+
+fission_component! {
+    pub RegionalReportMap<()> {
+        props {
+            title: String,
+            measure_label: String,
+            explanation: TextContent,
+            boundaries: String,
+            regions: Vec<RegionMeasure>,
+            colour_scale: VisualMap,
+        }
+    }
+    view(report, _state, _cx) => Column(children: [
+        Text(report.explanation.clone()),
+        Chart(
+            title: Some(report.title.clone()),
+            visual_map: Some(report.colour_scale.clone()),
+            series: vec![Series::Map(MapSeries::new(&report.measure_label, "service-regions")
+                .geojson(&report.boundaries)
+                .name_property("region_id")
+                .data(report.regions.iter().map(|region|
+                    (region.region_id.as_str(), region.value)
+                ).collect()))],
+        ),
+    ])
+}
+```
+
+Put this in `widgets/regional_report_map.rs`. Supply a GeoJSON FeatureCollection with Polygon or MultiPolygon features and a string `properties.region_id` matching the report records. The map-type name is an internal identifier; it does not download geometry.
+
+Validate GeoJSON, unique region IDs, finite values and the join before rendering. Invalid geometry can yield an empty map without a useful application error. Missing measures remain absent, not confirmed zero; explain that distinction in translated supporting text.
+
+Keep a shared colour range for maps being compared, and use a palette readable without red/green discrimination. Large regions occupy more screen space regardless of their population, so choose rates or totals deliberately and provide exact values nearby. Map fitting is not a navigation-grade geographical projection and does not align automatically with route lines. The gallery fixture is separate from this component's inputs.
+
+[Geographic and route family overview](./overview)

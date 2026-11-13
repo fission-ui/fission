@@ -10,7 +10,7 @@ pub enum TitleScale {
 
 fission_component! {
     pub TitleText<FieldInspectorState> { text: String, scale: TitleScale }
-    |title, _state, cx| {
+    view(title, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
         let size = match title.scale {

@@ -1,0 +1,156 @@
+---
+title: Geolocation
+description: Request permission and current position through the host location service.
+---
+
+# Geolocation
+
+Location can reveal sensitive information. Explain why you need it, request it when the user chooses a location feature, and show a useful path when permission is denied. Do not ask at startup or request background access unless the product genuinely needs it.
+
+## 1. Start with the state the screen needs
+
+Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
+
+```rust
+#[derive(Debug, Default)]
+struct GeolocationState {
+    position: Option<GeolocationPosition>,
+    location_error: Option<String>,
+    locating: bool,
+}
+
+impl GlobalState for GeolocationState {}
+```
+
+Keep the result, loading state, and error in app state. Set them from the typed completion actions, not from an assumption that the host succeeded.
+
+## 2. Configure the target and host
+
+Run this once from the project root:
+
+```bash
+fission add-capability geolocation --project-dir .
+```
+
+That command records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+
+The CLI adds Android coarse and fine location permissions and iOS when-in-use usage text. Desktop and web providers map the same contract to OS location services, browser geolocation, portals, or a typed unsupported error.
+
+This is the difference between the Fission API, a provider, and packaging configuration:
+
+- The Fission API is the typed request your reducer makes; here it is `geolocation().current_position(...)`.
+- The provider is the shell-side Rust implementation that turns that typed request into the correct OS, browser, or hardware call.
+- Packaging configuration is the manifest, plist, entitlement, service-worker, protocol, domain, or store metadata that lets the platform permit that call in a real installed app.
+
+If the API exists but the provider is missing, the request returns a typed unsupported error. If the provider exists but packaging is missing, the operating system or browser may deny the request before the provider can complete it.
+
+## 3. Define reducers for success and failure
+
+The location request completes after its starting reducer returns. Handle both the position and error in completion reducers.
+
+```rust
+#[fission_reducer(PositionLoaded)]
+fn on_position_loaded(state: &mut GeolocationState, ctx: &mut ReducerContext<GeolocationState>) {
+    state.locating = false;
+    if let Some(position) = ctx.input.capability_ok(GET_CURRENT_POSITION) {
+        state.position = Some(position);
+        state.location_error = None;
+    } else {
+        state.location_error = Some("Location service returned no position".into());
+    }
+}
+
+#[fission_reducer(PositionFailed)]
+fn on_position_failed(state: &mut GeolocationState, ctx: &mut ReducerContext<GeolocationState>) {
+    state.locating = false;
+    state.location_error = Some(
+        ctx.input.capability_error(GET_CURRENT_POSITION)
+            .map(|error| error.message)
+            .or_else(|| ctx.input.capability_error_message(GET_CURRENT_POSITION).map(str::to_owned))
+            .unwrap_or_else(|| "Location is unavailable".into()),
+    );
+}
+```
+
+Permission denial, an unavailable location service, and an unsupported host are expected outcomes. Show the user what happened and what they can do next.
+
+## 4. Request the capability from a reducer
+
+Request the position from the reducer handling the user's action. Fission queues the host request and later dispatches a completion action.
+
+```rust
+#[fission_reducer(LocateMe)]
+fn on_locate_me(state: &mut GeolocationState, ctx: &mut ReducerContext<GeolocationState>) {
+    if state.locating { return; }
+    state.locating = true;
+    state.location_error = None;
+    let loaded = ctx.effects.bind(PositionLoaded, reduce_with!(on_position_loaded));
+    let failed = ctx.effects.bind(PositionFailed, reduce_with!(on_position_failed));
+    ctx.effects
+        .geolocation()
+        .current_position(GeolocationPositionRequest {
+            high_accuracy: false,
+            timeout_ms: Some(10_000),
+            maximum_age_ms: Some(60_000),
+        })
+        .on_ok(loaded)
+        .on_err(failed);
+}
+```
+
+For choosing a nearby pickup area, approximate location and a recent cached
+position may be enough. Request high accuracy only when the task needs it.
+This operation returns coordinates; it does not itself query a store catalogue
+or turn them into a postal address.
+
+## 5. Trigger the reducer from the UI
+
+Bind the button to the reducer that starts the request:
+
+```rust
+
+
+fission_component! {
+    pub CurrentLocationButton<GeolocationState>
+    view(_button, state, cx) {
+        let run = cx.bind(LocateMe, reduce!(on_locate_me));
+    } =>
+    Column(children: [
+        Button(child: Text(cx.tr("location.use_current")), disabled: state.locating, on_press: run),
+        if state.locating { Spinner(motion: SpinnerMotion::Default, label: cx.tr("location.locating")) },
+        if state.position.is_some() { Text(cx.tr("location.selected")) },
+        if let Some(error) = &state.location_error {
+            Alert(kind: AlertKind::Error, title: error.clone())
+        },
+    ])
+}
+```
+The button dispatches an action; the reducer requests the position, and a completion reducer updates state.
+
+## 6. Provide and test the host behavior
+
+Register a `GeolocationHost` with `.with_geolocation_host(...)`. Use `MemoryGeolocationHost` in tests. Providers should expose permission separately from current position so UI can explain blocked states before requesting again.
+
+Test cached and fresh positions, high-accuracy requests, timeout, denied permission, and unavailable services. Verify that loading clears on success and failure and that each path returns the expected position or error.
+
+## Platform expectations
+
+Web geolocation requires a secure origin and browser permission. Android and iOS have direct location APIs. Windows and macOS have OS location services. Linux support depends on portals, services, and distribution configuration.
+
+For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Geolocation reference](/reference/capabilities/geolocation/).
+
+## Finished capability flow
+
+A complete `Geolocation` integration has all of these pieces in place:
+
+| Piece | What should exist |
+| --- | --- |
+| Configuration | `fission.toml` declares the capability and generated platform files contain the permission text, manifest entry, entitlement, domain, or protocol metadata the target needs. |
+| State | App state records the in-flight flag, the successful value, and the user-facing error separately. |
+| Reducers | One reducer starts the host request, one handles success, and one handles denial, unsupported hosts, cancellation, or provider errors. |
+| Provider | The shell registers a real provider for production and a memory provider for tests. |
+| Tests | At least one test covers success and one covers permission denial or unsupported host behavior. |
+
+## Diagnose capability failures
+
+Capability failures should be safe to retry and easy to explain. Start by checking `fission.toml`, then run `fission doctor`, then inspect the generated target files. If the provider is missing, the request should return an unsupported error. If the provider exists but the platform configuration is wrong, the OS or browser will usually deny the request before the provider can complete it. Keep those cases distinct in the UI so users know whether they can retry, change settings, connect hardware, or choose another path.

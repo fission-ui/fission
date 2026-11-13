@@ -1,0 +1,69 @@
+---
+title: Breach mark area
+sidebar_label: Breach mark area
+description: Fission Charts reference for Breach mark area.
+---
+
+# Breach mark area
+
+![Breach mark area screenshot](/img/charts/interaction-mark-area-breach.png)
+
+A marked area makes a numeric range visible before a reader inspects individual samples. In a response-time report, the band can show the interval where the team has agreed to investigate a slowdown. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The threshold is a reporting rule supplied by the application, not a value calculated by the chart. A sample inside the band needs review; the band itself does not decide whether a service-level commitment was breached.
+
+## Data model
+
+MarkArea::y_range uses values in the same units as the vertical axis. Here those units are milliseconds. Pass an ordered lower and upper bound; a plot-relative ChartGraphic rectangle would not track those values when the axis range changes.
+
+## Authoring from a Fission component
+
+The response-time values and reporting rule arrive as props. Fetch measurements and resolve the rule before building the chart; changing a threshold must not start an implicit request during component conversion.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries, MarkArea};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub BreachMarkAreaChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            annotation_label: String,
+            category_labels: Vec<String>,
+            response_ms: Vec<f32>,
+            threshold_ms: f32,
+            range_top_ms: f32,
+        }
+    }
+    view(report, _state, cx) {
+        let colors = &cx.view.env().theme.tokens.colors;
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                report.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            mark_areas: vec![MarkArea::y_range(
+                &report.annotation_label, report.threshold_ms, report.range_top_ms,
+            ).color(colors.primary_subtle.with_alpha(80))],
+            series: vec![LineSeries::new(&report.series_label)
+                .data(report.response_ms.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test samples below, exactly on and above the review threshold. Include the range top in the visible scale and check whether higher observations need a larger band; a finite band does not mean every value above it is safe.
+
+Give the rule and important values in readable text as well as a coloured mark. Inspect labels and contrast at the actual chart size in both themes.
+
+Tags: `markArea`, `breach`.
+
+[Interaction family overview](./overview)

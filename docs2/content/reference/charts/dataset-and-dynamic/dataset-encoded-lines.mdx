@@ -1,0 +1,50 @@
+---
+title: Encoded lines dataset
+sidebar_label: Encoded lines dataset
+description: Reuse the validated job-flow dataset for actual encoded line series.
+---
+
+# Encoded lines dataset
+
+![Encoded lines dataset screenshot](/img/charts/dataset-encoded-lines.png)
+
+A different presentation should not require a different reporting authority. Use the same period rows and column keys for a line view, changing only the series geometry.
+
+The [encoded bars example](./dataset-encoded-bars) defines `job_flow_dataset` in `widgets/encoded_job_bars.rs`. Its row type comes from `widgets/encoded_job_flow.rs`.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, Encode, Legend, LineSeries, Series};
+use crate::widgets::encoded_job_bars::job_flow_dataset;
+use crate::widgets::encoded_job_flow::JobFlowPeriod;
+
+fission_component! {
+    pub EncodedJobLines<()> {
+        props {
+            title: String,
+            arrived_label: String,
+            completed_label: String,
+            periods: Vec<JobFlowPeriod>,
+        }
+    }
+    view(flow, _state, _cx) => Chart(
+        title: Some(flow.title.clone()),
+        dataset: Some(job_flow_dataset(&flow.periods)),
+        x_axis: Some(Axis::category(Vec::new())),
+        y_axis: Some(Axis::value().min(0.0)),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Line(LineSeries::new(&flow.arrived_label)
+                .encode(Encode::new().x("period").y("arrived"))),
+            Series::Line(LineSeries::new(&flow.completed_label)
+                .encode(Encode::new().x("period").y("completed"))),
+        ],
+    )
+}
+```
+
+Use complete, equally spaced periods because these are category-positioned lines. Encoding string labels does not introduce an irregular timestamp axis.
+
+Translate display labels while schema keys remain stable. Validate mappings rather than accepting a zero fallback for invalid records. Test the bar and line projections against the same source counts, including an empty report and missing period. Keep exact values available and do not treat the gap between lines as backlog without an opening balance. The gallery screenshot uses separate data.
+
+[Dataset and dynamic family overview](./overview)

@@ -1,0 +1,51 @@
+---
+title: 3D spiral path
+sidebar_label: 3D spiral path
+description: Preview a planned helical route with explicit dimensions and bounded sampling.
+---
+
+# 3D spiral path
+
+![3D spiral path screenshot](/img/charts/scene3d-line-spiral.png)
+
+A spiral route can describe a plan to inspect a cylindrical structure whilst moving upwards. Radius, height and turns each have a concrete meaning in that plan. They should not be inferred from a decorative curve after it has been drawn.
+
+This entry is a gallery variation of [3D spiral line](./line3d-spiral), whose `helical_path` helper generates the ordered samples. Keep that calculation with the planning model and handle its validation result before constructing the preview.
+
+## Render the validated plan
+
+Use the `InspectionTrajectory` component from [3D line](./line3d-basic), placed in `widgets/inspection_trajectory.rs`.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::inspection_trajectory::InspectionTrajectory;
+
+fission_component! {
+    pub PlannedSpiralRoute<()> {
+        props {
+            title: TextContent,
+            planned_positions: Vec<Point3D>,
+            route_color: Color,
+        }
+    }
+    view(plan, _state, _cx) => InspectionTrajectory {
+        title: plan.title.clone(),
+        sections: vec![plan.planned_positions.clone()],
+        route_color: plan.route_color,
+    }
+}
+```
+
+Enable Fission's `three-d` feature. The geometry helper and trajectory component build mesh segments and sphere samples in a native scene; no two-dimensional `LineSeries`, camera builder or chart interaction setting is involved.
+
+## Distinguish preview from evidence
+
+Label the result as a plan and show its dimensions in accessible text. A successfully rendered spiral does not establish that the route is physically reachable or that an inspection followed it; those checks belong to the planning and recording models.
+
+Test the sampling bound, start and end heights and invalid dimensions. Inspect angular segments, self-overlap and the smallest intended viewport. The screenshot is gallery sample geometry rather than a validated route plan.
+
+Tags: `3d`, `spiral`.
+
+[3D and GL family overview](./overview)

@@ -1,0 +1,67 @@
+---
+title: Crypto session candlestick
+sidebar_label: Crypto session candlestick
+description: Fission Charts reference for Crypto session candlestick.
+---
+
+# Crypto session candlestick
+
+![Crypto session candlestick screenshot](/img/charts/candlestick-crypto-session.png)
+
+A continuously traded instrument still needs explicit reporting intervals. A “session” in this report is a chosen time window, not necessarily an exchange opening and closing period. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use one instrument, venue, quote currency and bucket duration. Aggregating prices from different venues without stating the rule creates a different measure.
+
+## Data model
+
+Pass `[open, close, low, high]` rows with finite values and validated low/high bounds. Keep precise source prices in their financial types before conversion. The category axis spaces intervals evenly rather than interpreting timestamps.
+
+## Authoring from a Fission component
+
+The parent supplies prepared price intervals and distinguishable theme colours; no red/green-only assumption is required.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, CandlestickSeries, Chart};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ContinuousMarketPriceSession<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            interval_labels: Vec<String>,
+            open_close_low_high: Vec<[f32; 4]>,
+            rising_color: Color,
+            falling_color: Color,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.interval_labels.iter().map(String::as_str).collect();
+        let rows = report.open_close_low_high.iter().map(|row| row.to_vec()).collect();
+        let prices = CandlestickSeries {
+            data: rows,
+            color_up: report.rising_color,
+            color_down: report.falling_color,
+            ..CandlestickSeries::new(&report.series_label)
+        };
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(&report.axis_label)),
+        series: vec![prices.into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test missing trade buckets, midnight boundaries and an unfinished current bucket. Provide exact prices, venue and times outside the plot. The shape describes observations and does not forecast the next interval.
+
+Tags: `candlestick`, `finance`.
+
+[Statistical family overview](./overview)

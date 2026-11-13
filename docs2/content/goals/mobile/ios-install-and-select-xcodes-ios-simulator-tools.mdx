@@ -1,0 +1,423 @@
+---
+layout: goal
+title: Install and select Xcode’s iOS Simulator tools
+description: "Select the full Xcode developer directory and distinguish the Simulator SDK, runtime and Rust target needed by Fission."
+goal: "Repair the active toolchain selection and verify each prerequisite before attempting the shared app's simulator launch."
+path: /blog/install-and-select-xcodes-ios-simulator-tools/
+order: 67
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target ios --project-dir ."
+app: ios-install-and-select-xcodes-ios-simulator-tools
+outcomes:
+  - Inspect which developer directory command-line tools currently use
+  - Check the installed SDK and simulator runtime independently
+  - Make an intentional machine-wide Xcode selection and rerun Fission doctor
+---
+
+Installing Xcode and selecting it are different steps. A Mac can have the full app installed whilst command-line tools still resolve through the standalone Command Line Tools directory. In that case, reinstalling a Rust target will not make the missing simulator SDK appear.
+
+There is another distinction: the SDK supplies build inputs, whilst a simulator runtime supplies an OS environment in which to run the result. We will check both before using a real shared Compose app as the final launch candidate.
+
+## Check the Mac's selected developer directory
+
+Run these checks on the Mac that will build iOS, not in an unrelated Linux or Windows shell:
+
+```sh
+xcode-select -p
+xcodebuild -version
+xcodebuild -showsdks
+```
+
+iOS builds need the full Xcode installation. Open that installation and finish its first-launch setup. If the active path is the standalone `CommandLineTools` directory, select the installed Xcode app deliberately. The path below is the conventional location; use the actual path if yours differs.
+
+```sh
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+xcode-select -p
+```
+
+This changes the machine's selected developer directory, so consider other builds using it. It is not an app-local setting or a step to repeat whenever compilation fails.
+
+## Verify the SDK, runtime and Rust targets
+
+```sh
+xcrun --sdk iphonesimulator --show-sdk-path
+xcrun simctl list runtimes
+xcrun simctl list devices available
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+```
+
+If no usable iOS runtime appears, install one through Xcode's simulator/platform settings and repeat the listing. Do not treat an SDK directory as evidence that a bootable runtime exists. See [simulator selection](/blog/choose-boot-and-launch-an-ios-simulator-with-fission/) for creating or choosing the destination once these prerequisites are present.
+
+<!-- fission:step id="field-check-preview" -->
+## Give Fission a complete app to check
+
+Use an existing app or create this separate practice project. Do not initialize over an existing checkout:
+
+```sh
+cargo install cargo-fission
+fission init ios-install-and-select-xcodes-ios-simulator-tools
+cd ios-install-and-select-xcodes-ios-simulator-tools
+fission add-target ios --project-dir .
+cargo add serde_yaml
+fission doctor ios --project-dir .
+```
+
+The following journey editor is the same working app used in [the component tutorial](/blog/compose-an-ios-app-from-reusable-fission-widgets/). Keep the generated `src/main.rs`. Its normal native library launcher is included so a successful iOS run opens this task, not the starter counter behind an unrelated browser preview.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+mod fact;
+mod screen;
+pub mod state;
+mod summary;
+pub use screen::JourneyScreen;
+pub use state::JourneyState;
+```
+</TabItem>
+
+<TabItem label="src/app/state.rs">
+<!-- fission:file path="src/app/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Journey {
+    pub origin: String,
+    pub destination: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JourneyState {
+    pub prepared: Option<Journey>,
+    pub locale: Locale,
+}
+
+impl Default for JourneyState {
+    fn default() -> Self {
+        Self {
+            prepared: None,
+            locale: Locale::from("en-US"),
+        }
+    }
+}
+
+impl GlobalState for JourneyState {}
+```
+</TabItem>
+
+<TabItem label="src/app/fact.rs">
+<!-- fission:file path="src/app/fact.rs" -->
+```rust
+use super::state::JourneyState;
+use fission::prelude::*;
+
+fission_component! {
+    pub JourneyFact<JourneyState> {
+        props {
+            label: TextContent,
+            value: String,
+        }
+    }
+    view(fact, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } => Column(gap: tokens.spacing.xs, children: [
+        Text(fact.label.clone()).color(tokens.colors.text_secondary),
+        Text(fact.value.clone()).weight(tokens.typography.font_weight_semibold),
+    ])
+}
+```
+</TabItem>
+
+<TabItem label="src/app/summary.rs">
+<!-- fission:file path="src/app/summary.rs" -->
+```rust
+use super::{
+    fact::JourneyFact,
+    state::{Journey, JourneyState},
+};
+use fission::prelude::*;
+
+fission_component! {
+    pub JourneySummary<JourneyState> {
+        props { journey: Journey }
+        state { show_details: bool = false }
+    }
+    view(summary, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } => Container(
+        Column(gap: tokens.spacing.m, children: [
+            JourneyFact(
+                TextContent::Key("journey.origin".into()),
+                summary.journey.origin.clone(),
+                key: "origin",
+            ),
+            JourneyFact(
+                TextContent::Key("journey.destination".into()),
+                summary.journey.destination.clone(),
+                key: "destination",
+            ),
+            Button(
+                child: Text(if summary.show_details { cx.tr("journey.hide") } else { cx.tr("journey.details") }),
+                key: "toggle-details",
+                on_press: reduce { summary.show_details = !summary.show_details; },
+            ),
+            if summary.show_details { Text(cx.tr("journey.scope")) },
+        ]),
+    )
+    .padding_all(tokens.spacing.m)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+```
+</TabItem>
+
+<TabItem label="src/app/screen.rs">
+<!-- fission:file path="src/app/screen.rs" -->
+```rust
+use super::{
+    state::{Journey, JourneyState},
+    summary::JourneySummary,
+};
+use fission::prelude::*;
+
+fission_component! {
+    pub JourneyScreen<JourneyState> {
+        state {
+            origin: String = String::new(),
+            destination: String = String::new(),
+        }
+    }
+    view(screen, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } => SafeArea(
+        child: Scroll(
+            child: Container(Column(gap: tokens.spacing.m, children: [
+                Text(cx.tr("journey.heading")).size(tokens.typography.heading2_size),
+                Text(cx.tr("journey.explanation")),
+                Row(gap: tokens.spacing.s, children: [
+                    Button(
+                        child: Text(cx.tr("language.english")), key: "english",
+                        on_press: reduce { state.locale = Locale::from("en-US"); },
+                    ),
+                    Button(
+                        child: Text(cx.tr("language.spanish")), key: "spanish",
+                        on_press: reduce { state.locale = Locale::from("es-ES"); },
+                    ),
+                ]),
+                FormControl(
+                    label: Some(cx.tr("journey.origin")),
+                    required: true,
+                    child: TextInput(
+                        value: screen.origin.clone(),
+                        bind(on_input): to(screen.origin),
+                    ),
+                ),
+                FormControl(
+                    label: Some(cx.tr("journey.destination")),
+                    required: true,
+                    child: TextInput(
+                        value: screen.destination.clone(),
+                        bind(on_input): to(screen.destination),
+                    ),
+                ),
+                if !screen.origin.trim().is_empty() && !screen.destination.trim().is_empty() {
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("journey.draft")),
+                        JourneySummary(
+                            Journey {
+                                origin: screen.origin.trim().to_owned(),
+                                destination: screen.destination.trim().to_owned(),
+                            },
+                            key: "draft-summary",
+                        ),
+                    ])
+                },
+                Button(
+                    child: Text(cx.tr("journey.prepare")), key: "prepare-journey",
+                    disabled: screen.origin.trim().is_empty() || screen.destination.trim().is_empty(),
+                    on_press: reduce {
+                        state.prepared = Some(Journey {
+                            origin: screen.origin.trim().to_owned(),
+                            destination: screen.destination.trim().to_owned(),
+                        });
+                    },
+                ),
+                if let Some(journey) = &state.prepared {
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("journey.prepared")),
+                        JourneySummary(journey.clone(), key: "prepared-summary"),
+                    ])
+                },
+            ]))
+            .padding_all(tokens.spacing.l),
+        ),
+    )
+}
+```
+</TabItem>
+
+<TabItem label="src/i18n.rs">
+<!-- fission:file path="src/i18n.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid journey translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+
+pub fn sync_env(state: &crate::app::JourneyState, env: &mut Env) {
+    env.locale = state.locale.clone();
+}
+```
+</TabItem>
+
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod i18n;
+
+use app::{JourneyScreen, JourneyState};
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<JourneyState, _>::new(JourneyScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    MobileApp::<JourneyState, _>::new(JourneyScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = MobileApp::<JourneyState, _>::new(JourneyScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<JourneyState, _>::new(JourneyScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod i18n;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<app::JourneyState, _>::new(app::JourneyScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+journey.heading: "Prepare a journey plan"
+journey.explanation: "Enter the places you want to travel between. Review the draft, then keep a prepared copy for this session."
+journey.origin: "From"
+journey.destination: "To"
+journey.draft: "Current draft"
+journey.prepare: "Prepare journey"
+journey.prepared: "Prepared journey"
+journey.details: "Show plan details"
+journey.hide: "Hide plan details"
+journey.scope: "These are the places you entered, not a calculated route or a reservation. Nothing has been sent or saved to disk."
+language.english: "English"
+language.spanish: "Español"
+```
+</TabItem>
+
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+journey.heading: "Preparar un plan de viaje"
+journey.explanation: "Introduce los lugares entre los que quieres viajar. Revisa el borrador y conserva una copia preparada para esta sesión."
+journey.origin: "Desde"
+journey.destination: "Hasta"
+journey.draft: "Borrador actual"
+journey.prepare: "Preparar viaje"
+journey.prepared: "Viaje preparado"
+journey.details: "Mostrar detalles del plan"
+journey.hide: "Ocultar detalles del plan"
+journey.scope: "Son los lugares que has introducido, no una ruta calculada ni una reserva. No se ha enviado ni guardado nada en disco."
+language.english: "Inglés"
+language.spanish: "Español"
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Enter and prepare a journey, then edit the draft. This verifies the shared task only. The browser cannot inspect your selected Xcode, install a runtime or boot a simulator.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Use the tool output to choose the next check
+
+If `xcrun` cannot resolve the simulator SDK, return to Xcode selection and installation. If `simctl` lists runtimes but no suitable available device, follow the simulator guide. If Rust reports a missing standard library, confirm the requested target is the simulator or device target you intended before installing or changing anything.
+
+```sh
+fission doctor ios --project-dir .
+fission devices --project-dir .
+fission run --target ios --project-dir .
+fission test --target ios --project-dir .
+```
+
+The run command uses an iOS Simulator. Check the actual launch and repeat the journey task in its window, with the keyboard and both languages. A green setup check means the named prerequisites were found; it does not qualify every interaction, signing path or hardware capability.
+
+Keep the command and first useful diagnostic when a later stage fails. [The diagnosis guide](/blog/diagnose-ios-build-signing-and-launch-failures/) separates compilation, bundle assembly, installation and process failures. For a physical iPhone, follow [the device guide](/blog/install-a-fission-app-on-a-physical-iphone/) instead of treating simulator setup as device-signing evidence.
+
+<!-- fission:checkpoint -->
+Record the active developer path, Xcode version, resolved simulator SDK and selected runtime/device. Those terminal results are the evidence for this goal; a website screenshot is not.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->

@@ -1,0 +1,56 @@
+---
+title: Conversion funnel
+sidebar_label: Conversion funnel
+description: Render ordered checkout stages without confusing event totals with a conversion cohort.
+---
+
+# Conversion funnel
+
+![Conversion funnel screenshot](/img/charts/analytics-conversion-funnel.png)
+
+A conversion funnel asks how many members of the same starting group reach each successive stage. It is not a collection of unrelated event totals.
+
+For a checkout, the stages might be started, delivery details entered, payment authorised and order placed. Keep them in process order. Sorting by the largest value would destroy the sequence the reader is trying to understand.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, FunnelSeries, Series};
+
+#[derive(Clone)]
+pub struct CheckoutStage {
+    pub label: String,
+    pub reached: u32,
+}
+
+fission_component! {
+    pub CheckoutFunnel<()> {
+        props {
+            title: String,
+            cohort_label: String,
+            stages: Vec<CheckoutStage>,
+        }
+    }
+    view(funnel, _state, _cx) {
+        let values = funnel.stages.iter()
+            .map(|stage| (stage.label.as_str(), stage.reached as f32))
+            .collect();
+    } => Chart(
+        title: Some(funnel.title.clone()),
+        series: vec![Series::Funnel(
+            FunnelSeries::new(&funnel.cohort_label).data(values),
+        )],
+    )
+}
+```
+
+The parent supplies translated stage names and one completed cohort snapshot. No Cartesian axes are needed: the sequence and widths are carried by the funnel itself.
+
+## Establish the counting rules
+
+Count a checkout once at each stage even if it retries a payment. Decide whether the report follows checkouts started in a period or events observed in a period; only the former directly supports this cohort interpretation.
+
+Verify that later stages do not exceed earlier ones under the chosen rule. If a product allows skipping stages, explain that branch or use a journey graph instead. Display stage counts and conversion rates in nearby text or a table; the shape cannot replace those values. The screenshot above is a gallery fixture.
+
+[Analytics family overview](./overview)

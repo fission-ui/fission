@@ -1,0 +1,56 @@
+---
+title: Analytics
+sidebar_label: Overview
+description: Choose analytics charts from the reporting question, counting rules and current renderer capabilities.
+---
+
+# Analytics
+
+An analytics chart is a projection of a report, not the report's source of truth. Before choosing a shape, decide what is counted, which records are eligible, and what period the values describe. Those choices determine whether the parts can be added and whether two values can reasonably be compared.
+
+The twenty examples below use the ordinary chart widget through Compose. Their inputs come from application state; network requests and aggregation belong in the reporting layer and asynchronous effect flow, not component conversion.
+
+![Acquisition trend screenshot](/img/charts/analytics-acquisition-line.png)
+
+## Variants
+
+| Chart | Data shape | Question or boundary |
+| --- | --- | --- |
+| [Acquisition trend](./analytics-acquisition-line) | New accounts per equal reporting period. | Is activation growing? |
+| [Analytics score gauge](./analytics-gauge-score) | One defined 0–100 score. | How much of a declared target is complete? |
+| [Channel stack](./analytics-channel-stack) | Exclusive channel counts per period. | Which channels explain the total? |
+| [Cohort heatmap](./analytics-cohort-heatmap) | Observed cohort/age retention cells. | Do newer cohorts retain differently at the same age? |
+| [Conversion funnel](./analytics-conversion-funnel) | Ordered stage counts for one cohort. | Where do eligible checkouts stop progressing? |
+| [Device mix donut](./analytics-device-donut) | Exclusive device-session categories. | How are sessions distributed? |
+| [Engagement calendar](./analytics-calendar-engagement) | Complete daily account counts. | Is activity consistent across days? |
+| [Engagement routes](./analytics-route-engagement) | Schematic endpoint pairs and counts. | Which locations connect? Map and line fitting are independent. |
+| [Feature treemap](./analytics-treemap-features) | Additive top-level event counts. | Which feature areas account for activity? Nested children are not drawn. |
+| [Journey graph](./analytics-journey-graph) | Stable page nodes and connections. | Which loops and alternative paths exist? |
+| [Journey sankey](./analytics-journey-sankey) | Unweighted relationships. | Use the current two-column view for connections, not flow volumes. |
+| [Market share pie](./analytics-market-pie) | Exclusive categories of one market. | How is a clearly defined whole divided? |
+| [Portfolio sunburst](./analytics-sunburst-portfolio) | Additive parent/child amounts. | Where does each project sit in the portfolio? |
+| [Product radar](./analytics-radar-product) | Ordered 0–100 health measures. | What is the profile, rather than a single invented score? |
+| [Region sales map](./analytics-region-sales) | Sales keyed to supplied GeoJSON. | Does location explain the sales pattern? |
+| [Report toolbox chart](./analytics-toolbox-report) | Chart plus registered application commands. | Provide real buttons; built-in toolbox labels do not implement export. |
+| [Retention area](./analytics-retention-area) | One cohort's measured age percentages. | How does retention develop from a stable denominator? |
+| [Segment bubbles](./analytics-segment-bubbles) | Two rates plus cohort size. | Which segment outcomes differ, and how large are those segments? |
+| [Segment parallel](./analytics-parallel-segments) | Ordered comparable profile dimensions. | Which measures move together across selected segments? |
+| [Source theme river](./analytics-source-river) | Complete source/period counts. | How does composition change over time? |
+
+## Decide the comparison first
+
+Use a line for a trend over equal periods, bars for category comparisons, and a heatmap when two categorical dimensions matter. A pie or donut requires exclusive parts of one whole. A hierarchy requires the same additive measure at each level.
+
+A rate needs a denominator as well as a numerator. A retention cohort needs a declared age and enough time to reach it. An unknown observation is not automatically a zero. Resolve those distinctions before projecting records into `Vec<f32>`.
+
+## Compose and the application boundary
+
+Enable Fission's `charts` feature, then use the named components in the individual examples. Pass translated labels and a ready snapshot from the parent; keep report filters in the appropriate application state and use reducers to update them.
+
+The examples avoid a separate chart-authoring model. `Chart(...)` remains a normal Compose node, whilst typed series and axes are ordinary Rust values. A projection that needs validation should return a result in the reporting layer so the screen can show a meaningful loading, empty or error state.
+
+## Read the current boundaries
+
+The specific pages explain limits that affect interpretation: radar and parallel profiles use a fixed 0–100 scale; Sankey ribbons are unweighted; the treemap draws top-level nodes; geographic routes do not inherit a shared projection merely by appearing beside a map series. These are reasons to choose a suitable view, not details to conceal behind a convincing screenshot.
+
+The gallery images are reference fixtures. Test the application's aggregation and mapping independently, then use LiveTest to inspect its actual small and large layouts. Keep exact values, category names and important conclusions available in text or tables rather than requiring colour, hover or shape alone.

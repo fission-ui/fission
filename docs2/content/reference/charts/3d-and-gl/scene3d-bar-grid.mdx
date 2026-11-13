@@ -1,0 +1,50 @@
+---
+title: 3D grid bars
+sidebar_label: 3D grid bars
+description: Render a measurement grid without changing cell meaning when readings are unavailable.
+---
+
+# 3D grid bars
+
+![3D grid bars screenshot](/img/charts/scene3d-bar-grid.png)
+
+A grid makes position part of the measurement. For an inspection floor, a row and column can identify the location at which a reading was taken, whilst height represents its magnitude.
+
+Do not remove a cell just because its reading is unavailable. That shifts later cells and changes which position their bars appear to describe.
+
+## Compose the spatial projection
+
+The [3D bar](./bar3d-basic) reference defines `StorageReadings` and its mesh helper. Put them in `widgets/spatial_readings.rs`; this view reuses that component rather than inventing another grid renderer.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use crate::widgets::spatial_readings::StorageReadings;
+
+fission_component! {
+    pub InspectionReadingGrid<()> {
+        props {
+            title: TextContent,
+            cells: Vec<Vec<Option<f32>>>,
+            bar_color: Color,
+        }
+    }
+    view(grid, _state, _cx) => StorageReadings {
+        title: grid.title.clone(),
+        readings: grid.cells.clone(),
+        bar_color: grid.bar_color,
+    }
+}
+```
+
+Enable Fission's `three-d` feature. A `None` cell retains its place in the grid without claiming a measured zero. Validate finite, non-negative measurements and state their unit and scale outside the scene. The parent supplies localised text and a design-system colour.
+
+## What the renderer knows
+
+This is a collection of cuboid meshes in `Scene3D`, not a dedicated chart-series type. It does not infer row names, units, axes or individual cell interactions. Keep those facts in the source model and expose exact readings in an accessible table.
+
+Inspect perspective and occlusion with the largest expected grid, and test updates which insert an unavailable reading between known cells. The screenshot is from the gallery fixture rather than these inputs.
+
+Tags: `3d`, `grid`.
+
+[3D and GL family overview](./overview)

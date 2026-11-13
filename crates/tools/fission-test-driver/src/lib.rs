@@ -11,7 +11,7 @@
 //! in-page bridge driven through Chromium.
 
 #[cfg(not(target_arch = "wasm32"))]
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 #[cfg(not(target_arch = "wasm32"))]
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -440,6 +440,9 @@ pub enum TestEvent {
     /// commands that wait on a frame are still answered.
     #[doc(hidden)]
     HeadlessFrame,
+    /// Internal: the Web shell's requestAnimationFrame callback should render a frame.
+    #[doc(hidden)]
+    WebRedrawFrame,
     Quit,
     /// Internal: TapText resolves a text label to coordinates; the server
     /// injects this so the main loop can do the lookup with access to the IR.
@@ -569,6 +572,19 @@ pub struct SelectorQuery {
     pub index: Option<usize>,
     #[serde(default)]
     pub include_hidden: bool,
+    #[serde(
+        default = "default_include_candidates",
+        skip_serializing_if = "include_candidates_by_default"
+    )]
+    pub include_candidates: bool,
+}
+
+fn default_include_candidates() -> bool {
+    true
+}
+
+fn include_candidates_by_default(include_candidates: &bool) -> bool {
+    *include_candidates
 }
 
 impl SelectorQuery {
@@ -578,6 +594,7 @@ impl SelectorQuery {
             scope: None,
             index: None,
             include_hidden: false,
+            include_candidates: true,
         }
     }
 
@@ -617,6 +634,27 @@ impl SelectorQuery {
 
     pub fn include_hidden(mut self) -> Self {
         self.include_hidden = true;
+        self
+    }
+
+    /// Suppress broad diagnostic candidates while polling for a selector.
+    /// A final timeout response can issue one full query for actionable details.
+    pub fn without_candidates(mut self) -> Self {
+        self.include_candidates = false;
+        self.scope = self
+            .scope
+            .take()
+            .map(|scope| Box::new(scope.without_candidates()));
+        self
+    }
+
+    /// Include diagnostic candidates in a selector response.
+    pub fn with_candidates(mut self) -> Self {
+        self.include_candidates = true;
+        self.scope = self
+            .scope
+            .take()
+            .map(|scope| Box::new(scope.with_candidates()));
         self
     }
 }
@@ -1008,7 +1046,7 @@ impl LiveTestClient {
                 let response = request
                     .send_string(&body)
                     .map_err(|error| anyhow!("request failed: {error}"))?;
-                serde_json::from_str(&response.into_string()?)?
+                decode_http_response(response.into_reader())?
             }
             LiveTestTransport::Browser(controller) => controller
                 .lock()
@@ -1117,7 +1155,9 @@ impl LiveTestClient {
                 ))
             }
         };
-        self.pump()?;
+        if node.visibility != VisibilityState::FullyVisible {
+            self.pump()?;
+        }
         Ok(node)
     }
 
@@ -1171,12 +1211,15 @@ impl LiveTestClient {
     }
 
     pub fn fill_text_selector(&self, query: SelectorQuery, text: &str) -> Result<()> {
-        self.pump()?;
+        self.pump()
+            .context("pumping the browser before filling a text input")?;
         self.send(TestCommand::FillText {
             query: self.scoped_query(query),
             text: text.to_string(),
-        })?;
-        self.pump()?;
+        })
+        .context("dispatching a text fill to the browser")?;
+        self.pump()
+            .context("pumping the browser after filling a text input")?;
         Ok(())
     }
 
@@ -1647,6 +1690,8 @@ impl LiveTestClient {
         Ok(())
     }
 
+    /// Waits for pending app work to render. Returns immediately if the current frame is already up
+    /// to date.
     pub fn pump(&self) -> Result<()> {
         self.send(TestCommand::Pump {})?;
         Ok(())
@@ -1761,6 +1806,11 @@ impl LiveTestClient {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn decode_http_response(reader: impl std::io::Read) -> Result<TestResponse> {
+    serde_json::from_reader(reader).context("failed to decode LiveTest HTTP response")
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn screenshot_bytes(response: TestResponse) -> Result<Vec<u8>> {
     match response {
         TestResponse::Screenshot {
@@ -1784,9 +1834,32 @@ fn rectangles_intersect(left: Bounds, right: Bounds) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        Bounds, SemanticNode, TestCommand, TestPointerKind, TestPointerPhase, TestScrollDeltaMode,
-        VisibilityState,
+        decode_http_response, Bounds, SelectorQuery, SemanticNode, TestCommand, TestPointerKind,
+        TestPointerPhase, TestResponse, TestScrollDeltaMode, VisibilityState,
     };
+
+    #[test]
+    fn selector_candidate_suppression_is_opt_in_and_recursive() {
+        let default = SelectorQuery::label("Save");
+        let default_wire = serde_json::to_value(&default).unwrap();
+        assert!(default_wire.get("include_candidates").is_none());
+
+        let quiet = SelectorQuery::label("Save")
+            .scoped(SelectorQuery::semantic_identifier("dialog"))
+            .without_candidates();
+        let quiet_wire = serde_json::to_value(&quiet).unwrap();
+        assert_eq!(quiet_wire["include_candidates"], false);
+        assert_eq!(quiet_wire["scope"]["include_candidates"], false);
+
+        let diagnostic = quiet.with_candidates();
+        let diagnostic_wire = serde_json::to_value(&diagnostic).unwrap();
+        assert!(diagnostic_wire.get("include_candidates").is_none());
+        assert!(diagnostic_wire["scope"].get("include_candidates").is_none());
+
+        let older_wire = serde_json::to_value(default).unwrap();
+        let decoded: SelectorQuery = serde_json::from_value(older_wire).unwrap();
+        assert!(decoded.include_candidates);
+    }
 
     fn populated_semantic_node() -> SemanticNode {
         SemanticNode {
@@ -1839,6 +1912,24 @@ mod tests {
             width: 100.0,
             height: 40.0,
         }
+    }
+
+    #[test]
+    fn large_semantic_tree_response_decodes_without_string_size_limit() {
+        let mut node = populated_semantic_node();
+        node.label = Some("x".repeat(11 * 1024 * 1024));
+        let encoded = serde_json::to_vec(&TestResponse::Tree { nodes: vec![node] }).unwrap();
+        assert!(encoded.len() > 10 * 1024 * 1024);
+
+        let decoded = decode_http_response(std::io::Cursor::new(encoded)).unwrap();
+        let TestResponse::Tree { nodes } = decoded else {
+            panic!("expected tree response");
+        };
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(
+            nodes[0].label.as_deref().map(str::len),
+            Some(11 * 1024 * 1024)
+        );
     }
 
     #[test]

@@ -36,7 +36,7 @@ const SOURCE: &str = r#"AppSidebar(expanded: state.sidebar_expanded)
 
 fission_component! {
     pub AppSidebar<()> { expanded: bool }
-    |sidebar, _state, _cx| {} =>
+    view(sidebar, _state, _cx) {} =>
         Motion(
             id: WidgetId::explicit("app_sidebar.width"),
             tracks: vec![width_track(sidebar.expanded)],

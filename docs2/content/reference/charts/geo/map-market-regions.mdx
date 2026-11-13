@@ -1,0 +1,37 @@
+---
+title: Market regions map
+sidebar_label: Market regions map
+description: Compare adoption across a defined eligible market.
+---
+
+# Market regions map
+
+![Market regions map screenshot](/img/charts/map-market-regions.png)
+
+A region's customer count says how many customers it has, not how much of its market it has reached. Use a rate when regional populations differ and adoption is the question.
+
+```rust
+use crate::widgets::regional_report_map::RegionMeasure;
+
+pub fn market_adoption(
+    region_id: String,
+    active_accounts: u32,
+    eligible_accounts: u32,
+) -> Option<RegionMeasure> {
+    if eligible_accounts == 0 || active_accounts > eligible_accounts {
+        return None;
+    }
+    Some(RegionMeasure {
+        region_id,
+        value: 100.0 * active_accounts as f32 / eligible_accounts as f32,
+    })
+}
+```
+
+The shared type and Compose component are in [choropleth maps](../geographic-and-route/map-choropleth), placed in `widgets/regional_report_map.rs`. Supply these values with validated GeoJSON and a fixed 0–100 colour scale. Translate labels explaining what active and eligible mean during the reporting period.
+
+Do not combine customer accounts with a population denominator measured in people. Keep original counts and survey provenance so the rate remains interpretable. Regions without an eligible-market estimate should remain unknown, not zero adoption.
+
+Test denominator changes, invalid counts and missing geometry IDs. Pair the map with exact values because large geographical area is not market size. The gallery uses separate records and is not a market forecast.
+
+[Geo family overview](./overview)

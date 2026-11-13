@@ -1,0 +1,91 @@
+---
+title: Grid
+description: Lay out children on explicit rows and columns with cascading style sheets (CSS)-grid-style tracks.
+slug: /widgets/grid
+---
+# Grid
+
+`Grid` lays out children across explicit rows and columns. Use
+[`GridItem`](/reference/widgets/grid-item) to place a child in those tracks.
+It fits dashboards, inspector panels, data-heavy cards, or editorial layouts
+where both axes matter.
+
+For a simple vertical stack, horizontal row, or responsive card wrap, use
+[`Column`](/reference/widgets/column), [`Row`](/reference/widgets/row), or
+[`SimpleGrid`](/reference/widgets/simple-grid) instead.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub OperationsGrid<()> {
+        props {
+            summary: Widget,
+            activity: Widget,
+        }
+    }
+
+    view(dashboard, _state, cx) {
+        let spacing = &cx.view.env().theme.tokens.spacing;
+    } =>
+        Grid(
+            columns: vec![GridTrack::Fr(2.0), GridTrack::Fr(1.0)],
+            rows: vec![GridTrack::Auto],
+            column_gap: spacing.l,
+            row_gap: spacing.l,
+            children: [
+                GridItem(dashboard.summary.clone()).cell(1, 1),
+                GridItem(dashboard.activity.clone()).cell(1, 2),
+            ],
+        )
+}
+```
+
+The parent supplies the real summary and activity components. This two-column
+layout is for a wide workspace. Select a separately constructed compact layout
+with `Responsive` when the available width no longer leaves either region
+readable; fractional tracks do not choose a breakpoint for you.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `children` | `Vec<Widget>` | Grid children, usually `GridItem` nodes. | Defaults to an empty list. |
+| `columns` | `Vec<GridTrack>` | Column track definitions. | Defaults to an empty list, so define these explicitly in real layouts. |
+| `rows` | `Vec<GridTrack>` | Row track definitions. | Defaults to an empty list. |
+| `column_gap` | `Option<f32>` | Horizontal gap between columns. | Defaults to `None`. |
+| `row_gap` | `Option<f32>` | Vertical gap between rows. | Defaults to `None`. |
+| `padding` | `[f32; 4]` | Inner padding in `[left, right, top, bottom]` order. | Defaults to `[0.0; 4]`. |
+
+## Track types you will encounter
+
+| Track type | Meaning | When to use it |
+| --- | --- | --- |
+| `GridTrack::Points(x)` | Fixed track size in layout points. | Use for known fixed rails such as headers or side gutters. |
+| `GridTrack::Percent(x)` | Track as a percentage. | Use when the design is explicitly percentage-based. |
+| `GridTrack::Fr(x)` | Fractional remaining space. | Use for most flexible dashboard-style layouts. |
+| `GridTrack::Auto` | Size from content and constraints. | Good for content-driven tracks. |
+| `GridTrack::MinContent` / `MaxContent` | Content-based intrinsic sizing. | Use only when you intentionally want intrinsic track behavior. |
+| `GridTrack::minmax(min, max)` | Track constrained between two track definitions. | Use for responsive cards that should never shrink below a readable size. |
+| `GridTrack::repeat(count, tracks)` | Fixed repeated track list. | Use for regular grids with a known number of columns or rows. |
+| `GridTrack::auto_fit(track)` | Repeat a track up to the available space and collapse empty tracks. | Use for responsive product or card grids. |
+| `GridTrack::auto_fill(track)` | Repeat a track up to the available space and keep empty tracks. | Use when empty slots should still reserve grid space. |
+
+## Specific advice
+
+Choose `Grid` because it matches the structure of the problem, not because it feels more powerful. If the layout is really one-dimensional, using `Grid` often makes the code harder to read.
+
+When you do use it, define tracks intentionally. A grid with clear `Fr`, `Points`, or `Auto` choices is easier to maintain than a grid that tries to guess everything.
+
+## Production checklist
+
+- Check the smallest width that can support both meaningful regions.
+- Verify reading order and layout order agree after responsive branching.
+- Use explicit GridItem placement only when both row and column structure matter.
+
+## Related
+
+[`GridItem`](/reference/widgets/grid-item), [`SimpleGrid`](/reference/widgets/simple-grid), [`Row`](/reference/widgets/row), and [`Column`](/reference/widgets/column).

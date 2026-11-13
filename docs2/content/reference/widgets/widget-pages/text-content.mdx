@@ -1,0 +1,40 @@
+---
+title: TextContent
+description: Choose whether text comes from a literal string or an internationalized lookup key.
+slug: /widgets/text-content
+---
+# TextContent
+
+`TextContent` tells [`Text`](/reference/widgets/text) where its text comes
+from: a literal value, a translation key, or a key with fallback text.
+
+## Example
+
+```rust
+use fission::prelude::*;
+// Inside a Compose view: key, literal data, and library fallback differ.
+Column(children: [
+    Text(TextContent::Key("settings.title".into())),
+    Text(TextContent::Literal(app_version.clone())),
+    Text(TextContent::KeyWithFallback {
+        key: "menu.copy".into(),
+        fallback: "Copy".into(),
+    }),
+])
+```
+
+## Choice table
+
+| Choice | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `Literal(String)` | `TextContent` | Render this exact string. | Good for dynamic values, ids, or already-translated text. |
+| `Key(String)` | `TextContent` | Look up the string through the current locale in `Env.i18n`. | Missing keys render as `MISSING:key` in the checked-in implementation. |
+| `KeyWithFallback { key, fallback }` | `TextContent` | Look up a translation key, falling back to a supplied string when no translation exists. | Use for framework-provided UI such as default context menu labels where a missing app bundle should not render `MISSING:key`. |
+
+## Specific advice
+
+Use `Key` for product copy that should participate in internationalization. Use `KeyWithFallback` for built-in or library-provided UI where the component should be localizable but must remain readable if the host app has not supplied a translation. Use `Literal` for values that are already data, such as file names, counts, or user input.
+
+## Related
+
+[`Text`](/reference/widgets/text), [`RichText`](/reference/widgets/rich-text), [`Theming and internationalization`](/docs/guides/theming-and-i18n), and [`Env`](/reference/core/environment-input-and-ime).

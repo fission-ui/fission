@@ -1,0 +1,37 @@
+---
+title: Introducing Fission
+authors:
+  - fission
+tags:
+  - announcement
+  - architecture
+categories:
+  - Project
+---
+
+Building a user interface is only one part of building an application. You also need state that stays understandable, predictable ways to handle user actions, target-specific setup, and tests that follow the same path as a real user. Fission brings those pieces together in Rust for macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR.
+
+Most application bugs do not come from a missing button. They come from state being spread across too many places, work starting at the wrong time, platform code leaking into product code, or tests that cannot reproduce what the user did. Fission is built to make those parts explicit, so they are easier to reason about and test.
+
+
+The model is direct: app data lives in state, user intent is carried by typed actions, and reducers make the changes. Widgets describe what should be on screen from the current state. Fission then turns that description into layout, accessibility semantics, rendering, and the platform output. The same app model can run through different shells without moving product behaviour into each one.
+
+That is why Fission is more than a widget library. The widgets matter, but so does the path around them: start a project, build features, test the app, package it, and prepare a release. You should not have to assemble a pile of unrelated tools before you can find out whether your app works.
+
+The first milestone was about proving that foundation works:
+
+- a constraint-based layout engine with deterministic widget identity,
+- a GPU-backed desktop rendering path,
+- rich text and text input improvements,
+- reusable widgets and examples,
+- a live end-to-end test driver,
+- diagnostics for layout, rendering, and interaction,
+- a facade crate so application authors can start with one dependency.
+
+Fission is still young, and there is plenty left to build. The direction is clear, though: keep product logic explicit, make host integration typed, keep rendering predictable, and test the same runtime path the app uses.
+
+If you are new to Fission, start with the guided documentation at [fission.rs](https://fission.rs). It follows the work of building and shipping an app: set up, learn the model, build, test, and publish.
+
+## What this means for developers
+
+The useful question is whether Fission makes the app you need easier to build and safer to change. Try it with a small feature that matters to your project. Follow the documented setup, inspect what the CLI generated, and test the behaviour you care about. If that path is hard to follow, that is a problem for us to fix in the framework or its documentation.

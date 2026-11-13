@@ -20,7 +20,7 @@ fission_component! {
 /// keeps these controls to one row on a wide window. When a narrow window has no
 /// room for them, they wrap rather than hide.
     #[derive(Clone, Debug)] pub(crate) PreviewToolbar<ShowcaseState> {}
-    |_component, state, cx| {
+    view(_component, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let viewport_actions: Vec<ActionEnvelope> = VIEWPORTS
             .iter()
@@ -104,7 +104,7 @@ fission_component! {
         label: String,
         identifier: &'static str,
     }
-    |choice, _state, _cx| {
+    view(choice, _state, _cx) {
         let actions = choice.actions.clone();
     } =>
         SemanticsRegion(SegmentedControl(

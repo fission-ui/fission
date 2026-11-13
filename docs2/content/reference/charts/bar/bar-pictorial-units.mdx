@@ -1,0 +1,63 @@
+---
+title: Pictorial units
+sidebar_label: Pictorial units
+description: Use repeated shapes for coarse category comparisons without presenting them as an exact tally.
+---
+
+# Pictorial units
+
+![Pictorial units screenshot](/img/charts/bar-pictorial-units.png)
+
+Repeated shapes can make a category comparison distinctive, but the meaning of one shape has to be clear. If a reader assumes that each square means one item, a chart which repeats one square for roughly twenty items will communicate the wrong quantity.
+
+Fission's current pictorial renderer calculates shape count as `ceil(abs(value) / 20)`, with a minimum of one. Zero therefore does not mean an empty column of shapes. Use ordinary bars or a table when exact unit counting matters.
+
+## Compose example
+
+For a shipment overview, the following component compares parcel counts by collection location. It uses actual `PictorialBarSeries` values rather than substituting an ordinary bar series.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, PictorialBarSeries, Series};
+
+#[derive(Clone)]
+pub struct CollectionCount {
+    pub location: String,
+    pub parcels: f32,
+}
+
+fission_component! {
+    pub CollectionVolumesChart<()> {
+        props {
+            title: String,
+            parcels_label: String,
+            rows: Vec<CollectionCount>,
+        }
+    }
+    view(collections, _state, _cx) {
+        let labels = collections.rows.iter().map(|row| row.location.as_str()).collect();
+        let counts = collections.rows.iter().map(|row| row.parcels).collect();
+    } => Chart(
+        title: Some(collections.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        series: vec![
+            Series::PictorialBar(PictorialBarSeries::new(&collections.parcels_label)
+                .symbol("rect")
+                .data(counts)),
+        ],
+    )
+}
+```
+
+Enable the `charts` feature. `PictorialBarSeries::data` accepts `Vec<f32>`, whilst `symbol("rect")` selects repeated squares in the renderer. The API's symbol string should not be taken as a promise that every arbitrary path or named icon is supported.
+
+## Choose the presentation deliberately
+
+Keep exact parcel counts in a labelled list or accessible table and explain that the shapes are a coarse visual encoding. The parent supplies translated names and validates finite, non-negative counts; unavailable counts are not zero parcels.
+
+Test values around each twenty-item boundary and the largest expected value. More items produce more drawing primitives, so avoid using this presentation for unbounded totals. Check the result in a rendered target, not just the number of shapes calculated in a test. The screenshot is the gallery fixture.
+
+Tags: `bar`, `pictorial`.
+
+[Bar family overview](./overview)

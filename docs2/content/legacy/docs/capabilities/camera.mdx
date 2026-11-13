@@ -1,0 +1,165 @@
+---
+title: Camera and flashlight
+description: Query cameras, request permission, capture photos, and control flashlight through the host.
+---
+
+# Camera and flashlight
+
+The camera capability keeps sensitive camera work inside the shell. Shared app code asks for availability or capture, while the host owns permissions, preview UI, image capture, camera identifiers, torch control, and platform-specific failure modes.
+
+For a profile photo, request the front camera without flash. A document scanner
+would normally choose the back camera instead. Ask for access after the user
+chooses the task, not merely because the profile screen opened.
+
+Do not ask for camera access before the user understands why. Build the explanation in normal Fission UI first, then trigger the capability from a clear action such as Take photo.
+
+## 1. Start with the state the screen needs
+
+Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
+
+```rust
+#[derive(Debug, Default)]
+struct CameraDemoState {
+    profile_photo_stream: Option<DataStreamId>,
+    camera_error: Option<String>,
+    capturing: bool,
+}
+
+impl GlobalState for CameraDemoState {}
+```
+
+Keep the captured stream, loading state, and error in app state. Update them from the typed completion actions.
+
+## 2. Configure the target and host
+
+Run this once from the project root:
+
+```bash
+fission add-capability camera --project-dir .
+```
+
+That command records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+
+The CLI adds Android camera permission and optional camera/front/flash features. iOS receives `NSCameraUsageDescription`. Desktop targets need a provider and packaged apps may need macOS camera usage text or Windows webcam capability metadata.
+
+This is the difference between the Fission API, a provider, and packaging configuration:
+
+- The Fission API is the typed request your reducer makes; here it is `camera().capture_photo(...)`.
+- The provider is the shell-side Rust implementation that turns that typed request into the correct OS, browser, or hardware call.
+- Packaging configuration is the manifest, plist, entitlement, service-worker, protocol, domain, or store metadata that lets the platform permit that call in a real installed app.
+
+If the API exists but the provider is missing, the request returns a typed unsupported error. If the provider exists but packaging is missing, the operating system or browser may deny the request before the provider can complete it.
+
+## 3. Define reducers for success and failure
+
+Capture completes after the starting reducer returns. Handle both the capture and error in completion reducers.
+
+```rust
+#[fission_reducer(PhotoCaptured)]
+fn on_photo_captured(state: &mut CameraDemoState, ctx: &mut ReducerContext<CameraDemoState>) {
+    state.capturing = false;
+    if let Some(capture) = ctx.input.capability_ok(CAPTURE_PHOTO) {
+        state.profile_photo_stream = Some(capture.stream);
+        state.camera_error = None;
+    } else {
+        state.camera_error = Some("Camera returned no photo result".into());
+    }
+}
+
+#[fission_reducer(PhotoCaptureFailed)]
+fn on_photo_capture_failed(state: &mut CameraDemoState, ctx: &mut ReducerContext<CameraDemoState>) {
+    state.capturing = false;
+    state.camera_error = Some(
+        ctx.input.capability_error(CAPTURE_PHOTO)
+            .map(|error| error.message)
+            .or_else(|| ctx.input.capability_error_message(CAPTURE_PHOTO).map(str::to_owned))
+            .unwrap_or_else(|| "Camera capture failed".into()),
+    );
+}
+```
+
+Permission denial, missing hardware, cancellation, and unsupported hosts are expected outcomes. Show a useful message and leave the user a way to retry or choose another path.
+
+## 4. Request the capability from a reducer
+
+Request capture from the reducer handling the user's action. Fission queues the host request and later dispatches a completion action.
+
+```rust
+#[fission_reducer(CaptureProfilePhoto)]
+fn on_capture_profile_photo(state: &mut CameraDemoState, ctx: &mut ReducerContext<CameraDemoState>) {
+    if state.capturing { return; }
+    state.capturing = true;
+    state.camera_error = None;
+    let captured = ctx.effects.bind(PhotoCaptured, reduce_with!(on_photo_captured));
+    let failed = ctx.effects.bind(PhotoCaptureFailed, reduce_with!(on_photo_capture_failed));
+    ctx.effects
+        .camera()
+        .capture_photo(CameraCaptureRequest {
+            facing: CameraFacing::Front,
+            resolution: Some(CameraResolution { width: 1280, height: 720 }),
+            format: CameraImageFormat::Jpeg,
+            flash: CameraFlashMode::Off,
+            quality: Some(90),
+            ..Default::default()
+        })
+        .on_ok(captured)
+        .on_err(failed);
+}
+```
+
+The callback action names the outcome path. The actual capture arrives through
+`ctx.input.capability_ok(CAPTURE_PHOTO)`; an authored default `CameraCapture`
+would not contain the host's stream. A stream handle is runtime-local, so a
+follow-up job/service must consume it before storing or uploading the image.
+
+## 5. Trigger the reducer from the UI
+
+Bind the button to the reducer that starts capture:
+
+```rust
+
+
+fission_component! {
+    pub CaptureProfilePhotoButton<CameraDemoState>
+    view(_button, state, cx) {
+        let run = cx.bind(CaptureProfilePhoto, reduce!(on_capture_profile_photo));
+    } =>
+    Column(children: [
+        Button(child: Text(cx.tr("profile.take_photo")), disabled: state.capturing, on_press: run),
+        if state.capturing { Spinner(motion: SpinnerMotion::Default, label: cx.tr("profile.capturing_photo")) },
+        if state.profile_photo_stream.is_some() { Text(cx.tr("profile.photo_captured")) },
+        if let Some(error) = &state.camera_error {
+            Alert(kind: AlertKind::Error, title: error.clone())
+        },
+    ])
+}
+```
+The button dispatches an action; a reducer requests capture, and a completion reducer updates the screen.
+
+## 6. Provide and test the host behavior
+
+Register a `CameraHost` with `.with_camera_host(...)`. Use `MemoryCameraHost` in tests. A provider should expose availability, permission, capture, flashlight, and cancellation separately so apps can degrade gracefully.
+
+Test no-camera devices, permission denial, successful capture, cancellation, and missing flashlight support. Memory-host tests should assert returned metadata, stream handles, and recorded flashlight requests. If the app previews or uploads the image, test the follow-up job or service that consumes the stream separately.
+
+## Platform expectations
+
+Android, iOS, web, Windows, and macOS all have camera APIs, but permission prompts and device labels differ. Linux depends on cameras, portals, and media stack setup. Flashlight is common on phones and rare on desktops.
+
+For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Camera and flashlight reference](/reference/capabilities/camera/).
+
+## Finished capability flow
+
+A complete `Camera and flashlight` integration has all of these pieces in place:
+
+| Piece | What should exist |
+| --- | --- |
+| Configuration | `fission.toml` declares the capability and generated platform files contain the permission text, manifest entry, entitlement, domain, or protocol metadata the target needs. |
+| State | App state records the in-flight flag, the successful value, and the user-facing error separately. |
+| Reducers | One reducer starts the host request, one handles success, and one handles denial, unsupported hosts, cancellation, or provider errors. |
+| Provider | The shell registers a real provider for production and a memory provider for tests. |
+| Tests | At least one test covers success and one covers permission denial or unsupported host behavior. |
+
+## Diagnose capability failures
+
+Capability failures should be safe to retry and easy to explain. Start by checking `fission.toml`, then run `fission doctor`, then inspect the generated target files. If the provider is missing, the request should return an unsupported error. If the provider exists but the platform configuration is wrong, the OS or browser will usually deny the request before the provider can complete it. Keep those cases distinct in the UI so users know whether they can retry, change settings, connect hardware, or choose another path.

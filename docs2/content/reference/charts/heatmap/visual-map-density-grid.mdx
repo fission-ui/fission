@@ -1,0 +1,94 @@
+---
+title: Density visual map
+sidebar_label: Density visual map
+description: Fission Charts reference for Density visual map.
+---
+
+# Density visual map
+
+![Density visual map screenshot](/img/charts/visual-map-density-grid.png)
+
+A density grid helps locate crowded parts of a shared space. Normalising by capacity matters: forty occupied desks mean something different in a forty-desk zone and a hundred-desk zone. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The fixed zero-to-100 range makes zones comparable. This is an occupancy measure, not a heatmap of raw observations. If zones differ in area or capacity, plotting unnormalised counts would answer a different question.
+
+## Data model
+
+Each value is occupied desks divided by available desks, expressed as a percentage, for one zone and time bucket. Compute that ratio before constructing the series. A zone with no available desks has no valid occupancy percentage and needs a separate explanation.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `Chart::x_axis` | `Axis` | Supplies the column categories. |
+| `Chart::y_axis` | `Axis` | Supplies the row categories, not the cell-value range. |
+| `HeatmapSeries::data` | `Vec<(usize, usize, f32)>` | Supplies the indexed cells and their values. |
+| `Chart::visual_map` | `VisualMap` | Sets the numeric range used for colour. |
+
+## Example
+
+```rust
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+let chart = Chart::new()
+    .title("Desk occupancy by zone and hour (%)")
+    .x_axis(Axis::category(vec!["09:00", "10:00", "11:00"]))
+    .y_axis(Axis::category(vec!["North", "South"]))
+    .visual_map(VisualMap::new().min(0.0).max(100.0))
+    .series(vec![HeatmapSeries::new("Occupancy (%)")
+        .data(vec![
+            (0, 0, 32.0),
+            (1, 0, 81.0),
+            (2, 0, 93.0),
+            (0, 1, 27.0),
+            (1, 1, 58.0),
+            (2, 1, 66.0),
+        ])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+Pass the prepared samples into the component. Fetching, aggregation and failure handling stay outside the build; the component presents values already available to its parent.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DensityVisualMapChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            column_labels: Vec<String>,
+            row_labels: Vec<String>,
+            samples: Vec<(usize, usize, f32)>,
+        }
+    }
+    view(chart, _state, _cx) =>
+        Chart(
+            title: Some(chart.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                chart.column_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::category(
+                chart.row_labels.iter().map(String::as_str).collect(),
+            )),
+            visual_map: Some(VisualMap::new().min(0.0).max(100.0)),
+            series: vec![HeatmapSeries::new(&chart.series_label)
+                .data(chart.samples.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test zero occupancy, full occupancy and a capacity change. Keep the sampling time aligned between zones and distinguish an unavailable sensor from an empty zone. Provide readable values beside the visual, and check the category labels at the actual dashboard width.
+
+Tags: `visualMap`, `density`.
+
+[Heatmap family overview](./overview)

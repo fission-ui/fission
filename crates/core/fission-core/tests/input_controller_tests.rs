@@ -2156,6 +2156,66 @@ fn test_single_line_auto_scroll_with_rich_text_uses_local_coordinates() {
 }
 
 #[test]
+fn test_single_line_replacement_scrolls_using_the_new_text_value() {
+    let input_id = WidgetId::derived(212, &[0]);
+    let scroll_id = WidgetId::derived(212, &[1]);
+    let text_id = WidgetId::derived(212, &[2]);
+    let previous_value = "x";
+    let replacement = "A long document title replaced through LiveTest";
+    let ir = create_rich_text_input_tree(input_id, scroll_id, text_id, previous_value, false);
+
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
+    layout.nodes.insert(
+        scroll_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(240.0, 64.0, 100.0, 24.0),
+            content_size: LayoutSize::new(100.0, 24.0),
+        },
+    );
+
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+    interaction.set_focused(Some(input_id));
+    text_edit.sync_from_runtime(input_id, previous_value, None, None, false);
+
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+
+    assert!(TextInputController.handle_event(
+        &mut ctx,
+        &InputEvent::TextEdit(fission_core::TextEditCommand::SetValue {
+            value: fission_core::TextEditingValue::from_text(replacement),
+            source: fission_core::TextEditSource::Programmatic,
+            phase: fission_core::TextValuePhase::Committed,
+        }),
+    ));
+
+    assert_eq!(
+        ctx.text_edit
+            .get(input_id)
+            .expect("text input state")
+            .committed_text(),
+        replacement
+    );
+    assert!(
+        ctx.scroll.get_offset(scroll_id) > 0.0,
+        "single-line replacement should scroll using the new text width before the next layout"
+    );
+}
+
+#[test]
 fn test_single_line_auto_scroll_respects_scroll_padding() {
     let input_id = WidgetId::derived(210, &[0]);
     let scroll_id = WidgetId::derived(210, &[1]);

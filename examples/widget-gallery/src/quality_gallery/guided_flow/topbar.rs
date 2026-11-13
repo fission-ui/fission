@@ -3,7 +3,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) GuidedTopbar<()> {}
-    |_topbar, _state, _cx| {} => Container(Row(
+    view(_topbar, _state, _cx) {} => Container(Row(
             gap: 16.0_f32,
             align_items: fission::op::AlignItems::Center,
             children: [

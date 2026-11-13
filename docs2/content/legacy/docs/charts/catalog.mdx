@@ -1,0 +1,54 @@
+---
+title: Chart catalog
+sidebar_label: Catalog
+description: Browse implemented Fission Charts families and variants with real chart screenshots.
+---
+
+# Chart catalog
+
+Choose a chart by the question its reader needs to answer, then inspect a
+variant's actual data shape and example. A familiar-looking screenshot is
+useful evidence of presentation; it is not evidence of interaction support or
+performance at your dataset size.
+
+## How to use the catalog
+
+Start from the question the user needs to answer.
+
+If the question is about change over time, start with line, area, step line, or large-line variants. If the question is about comparing categories, start with bar or horizontal bar. If the question is about proportions, consider stacked bars, stacked areas, pie, donut, treemap, sunburst, sankey, or theme river depending on whether the structure is linear, radial, hierarchical, or flow-based. If the question is about spatial position, use geographic maps, route lines, globe views, or scatter/heatmap variants. If the question is about operational state, gauges, funnels, radar charts, status cards, or dense dashboard charts may fit better.
+
+Open a variant page when a screenshot looks close. Each variant page explains the data shape, when to use it, the Rust model, interaction behavior, animation notes, and testing guidance.
+
+## What each card tells you
+
+| Card detail | Why it matters |
+| --- | --- |
+| Screenshot | Shows actual Fission renderer output without the surrounding gallery shell. |
+| Family | Helps you move from one variant to related variants quickly. |
+| Data shape | Tells you what Rust data structure the chart expects. |
+| Use case | Explains the product situation where the visual form is useful. |
+| Tags | Helps search and filtering find related charts by purpose or interaction style. |
+
+Do not choose a chart only because it looks impressive. A production chart should reduce the user's work. If a simpler bar, line, or table answers the question faster, choose the simpler form.
+
+Browse the current families:
+
+- [Lines and trends](/reference/charts/line/overview/)
+- [Bars and category comparisons](/reference/charts/bar/overview/)
+- [Scatter and statistical charts](/reference/charts/scatter-and-statistical/overview/)
+- [Pie and radial charts](/reference/charts/pie-and-radial/overview/)
+- [Hierarchy and flow](/reference/charts/hierarchy-and-flow/overview/)
+- [Geography and routes](/reference/charts/geo-and-route/overview/)
+- [Datasets and dynamic data](/reference/charts/dataset-and-dynamic/overview/)
+- [3D geometry examples](/reference/charts/3d-and-gl/overview/)
+
+## After choosing a chart
+
+Once you have a candidate chart, read [Series and datasets](/docs/charts/series-and-datasets/) to decide whether your data should be passed directly into series or shared through a dataset. Then read [Data and interaction](/docs/charts/data-and-interaction/) if the screen needs tooltips, brushing, zoom, event dispatch, or reducer-driven selection.
+
+## Lifecycle fit and verification
+
+Before copying a variant, check its units, missing-data policy, and callback
+contract. Review the same model at a phone width and with the app's translated
+labels. A chart that compiles but hides a long label or compares different
+units still fails the reader's task.

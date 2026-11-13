@@ -1,0 +1,65 @@
+---
+title: Point cloud
+sidebar_label: Point cloud
+description: Display independent spatial observations without implying connections or continuous surfaces.
+---
+
+# Point cloud
+
+![Point cloud screenshot](/img/charts/point-cloud.png)
+
+A point cloud records where observations were made. Unlike a trajectory, it does not join them in order; unlike a surface, it does not claim that the space between them was measured.
+
+This makes it useful for an inspection scan or spatial sample set. Keep all three coordinates meaningful. If the third coordinate is only a visual flourish, a two-dimensional scatter plot is usually easier to interpret.
+
+## Compose example
+
+The component receives validated positions in one coordinate system and renders a small sphere at each one. Keep observation identifiers and metadata in the source model; the scene positions are only its display projection.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::{Point3D, Primitive3D, Scene3D};
+
+fission_component! {
+    pub PointCloudScene<()> {
+        props {
+            title: TextContent,
+            positions: Vec<Point3D>,
+            point_radius: f32,
+            point_color: Color,
+        }
+    }
+    view(cloud, _state, _cx) {
+        let mut scene = Scene3D::new().height(320.0);
+        for position in &cloud.positions {
+            scene = scene.add_primitive(Primitive3D::Sphere {
+                center: position.clone(),
+                radius: cloud.point_radius,
+                color: cloud.point_color,
+            });
+        }
+    } => Column(children: [
+        Text(cloud.title.clone()),
+        scene,
+    ])
+}
+```
+
+Place this component in `widgets/point_cloud.rs` and enable the `three-d` feature. `Scene3D` stores `Vec<Primitive3D>`; a sphere has a `Point3D` centre, `f32` radius and colour. The radius must be finite and positive, and all positions finite.
+
+A constant radius means one observation has one visual weight. If radius encodes uncertainty or another quantity, explain that relationship explicitly; a large sphere otherwise suggests a larger physical object.
+
+## Interaction and accessibility
+
+This scene API does not retain per-observation IDs for picking or emit `ChartInteractionEvent` values for spheres. Preserve those IDs in the model and provide a labelled observation list, or choose a scene interface with an explicit picking contract.
+
+Provide the sample count, coordinate units, bounds and important findings outside the image. The title identifies the subject, but cannot describe every point to a reader who cannot see it.
+
+## Checks
+
+Test the coordinate projection and any filters or sampling before rendering. Inspect sparse and dense inputs: overlap can conceal observations even when every coordinate is correct. A sphere-per-point construction is not a promise of large-scale scan rendering; measure representative input sizes and retain the original samples if simplifying the view. The screenshot is a gallery fixture.
+
+Tags: `3d`, `point-cloud`.
+
+[3D and GL family overview](./overview)

@@ -1,0 +1,102 @@
+---
+title: Brush outliers
+sidebar_label: Brush outliers
+description: Fission Charts reference for Brush outliers.
+---
+
+# Brush outliers
+
+![Brush outliers screenshot](/img/charts/interaction-brush-outliers.png)
+
+A brush lets a user select a cluster of observations before inspecting their records. In a job dashboard, that can make unusually slow jobs easier to investigate without pretending that every selected point is an outlier. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The horizontal value is payload size in MiB and the vertical value is duration in seconds. The selection identifies points in a region; deciding that they are abnormal belongs to the application's analysis, not to the rectangle itself.
+
+## Data model
+
+`ScatterSeries::data` takes numeric `(x, y)` pairs. `ChartBrush::rect()` enables the gesture; a preview rectangle, when supplied, uses fractions of the plot rather than data coordinates. It shows an initial region, not the result of an analysis.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `ChartInteraction::brush` | `ChartBrush` | Enables a rectangular, horizontal or vertical brush. |
+| `ChartBrush::preview_rect` | Four `f32` values | Sets an initial x, y, width and height in plot fractions. |
+| `Chart::on_brush` | `ActionEnvelope` | Handles the completed brush through the reducer flow. |
+| `ChartBrushSelection::from_action_input` | Decoder | Reads the brush region and matching items from reducer input. |
+
+## Example
+
+```rust
+use fission::charts::{Axis, Chart, ChartBrush, ChartInteraction, ScatterSeries};
+
+let chart = Chart::new()
+    .title("Job duration against payload size")
+    .x_axis(Axis::value())
+    .y_axis(Axis::value())
+    .interaction(ChartInteraction::new().brush(ChartBrush::rect().preview_rect(0.55, 0.1, 0.3, 0.35)))
+    .series(vec![ScatterSeries::new("Jobs")
+        .data(vec![(2.0, 0.4), (8.0, 1.2), (12.0, 1.8), (10.0, 8.4)])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The chart owns the gesture. The component uses retained local state only for the selection summary, and reads the typed completion input in a generated reducer.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{
+    Axis, Chart, ChartBrush, ChartBrushSelection, ChartInteraction, ScatterSeries,
+};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub BrushOutliersChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            summary_pattern: String, // Contains the {value} placeholder.
+            samples: Vec<(f32, f32)>,
+        }
+        state { selected_count: usize = 0 }
+    }
+    view(selection, _state, cx) =>
+        Column(
+            children: [
+                Chart(
+                    key: "sample-brush",
+                    title: Some(selection.chart_title.clone()),
+                    x_axis: Some(Axis::value()),
+                    y_axis: Some(Axis::value()),
+                    interaction: ChartInteraction::new().brush(ChartBrush::rect().preview_rect(0.55, 0.1, 0.3, 0.35)),
+                    series: vec![ScatterSeries::new(&selection.series_label)
+                        .data(selection.samples.clone())
+                        .into()],
+                    on_brush: reduce {
+                        if let Some((_source, brushed)) =
+                            ChartBrushSelection::from_action_input(&cx.input)
+                        {
+                            selection.selected_count = brushed.items.len();
+                        }
+                    },
+                ),
+                Text(
+                    selection.summary_pattern.replace("{value}", &format!("{}", selection.selected_count)),
+                ),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check a drag containing several points, an empty drag and clearing the brush. Reconcile selection indices with the same sample snapshot before opening job records; a reordered dataset can otherwise point to the wrong job.
+
+Provide an equivalent list or numeric filters when users cannot drag a region. A pointer-only selection must not be the only route to the records being investigated.
+
+Tags: `brush`, `outlier`.
+
+[Interaction family overview](./overview)

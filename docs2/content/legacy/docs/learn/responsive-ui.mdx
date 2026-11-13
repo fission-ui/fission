@@ -1,0 +1,112 @@
+---
+title: Responsive UI
+description: Build mobile and desktop layouts with Responsive, Length, container queries, and measured escape hatches.
+---
+
+# Responsive UI
+
+Responsive Fission screens should describe the layout rule directly instead of scattering viewport arithmetic through every component.
+
+Use `Responsive` when the branch is driven by available width. Use `Length` when a dimension should be fixed, percentage-based, viewport-based, intrinsic, or clamped. Use `ViewHandle::viewport_size()` only when the rule needs product state, environment values, previous geometry, or another input that cannot be expressed as a layout query.
+
+## The default shape
+
+Most production screens should start with a named responsive shell.
+
+```rust
+use fission::prelude::*;
+
+const PHONE_BREAKPOINT: f32 = 760.0;
+const TABLET_BREAKPOINT: f32 = 1_120.0;
+
+
+
+fission_component! {
+    pub DashboardScreen<DashboardState>
+    view(_screen, _state, _cx) =>
+    SafeArea(
+        child: Responsive::new_with_id(
+            WidgetId::explicit("dashboard.responsive"),
+            || DashboardDesktop,
+        )
+        .case_max_width_with(PHONE_BREAKPOINT, || DashboardPhone)
+        .case_between_with(PHONE_BREAKPOINT, TABLET_BREAKPOINT, || DashboardTablet),
+    )
+}
+```
+Here the three named layouts are app components sharing `DashboardState`.
+The desktop layout is the fallback. Ordered cases replace it when the query
+width matches. Identity-aware constructors give each independently built
+branch its own retained scope; do not clone one retained widget into several
+cases.
+
+## Declarative and imperative responsive choices
+
+<Tabs>
+<TabItem value="declarative" label="Declarative">
+
+```rust
+const REPORT_LIST_MIN_WIDTH: f32 = 280.0;
+const REPORT_LIST_MAX_WIDTH: f32 = 420.0;
+
+Container(ReportList())
+    .width_length(Length::clamp(
+        Length::points(REPORT_LIST_MIN_WIDTH),
+        Length::percent(34.0),
+        Length::points(REPORT_LIST_MAX_WIDTH),
+    ))
+    .flex_shrink(0.0)
+```
+
+This is a component-view excerpt. The runtime can inspect and lower the sizing
+rule without manual viewport arithmetic. Its minimum remains a constraint; a
+parent narrower than that minimum needs a compact composition.
+
+</TabItem>
+<TabItem value="imperative" label="Imperative">
+
+```rust
+const INSPECTOR_BREAKPOINT: f32 = 1_120.0;
+
+fission_component! {
+    pub ReportsScreen<ReportsState>
+    view(_screen, state, cx) {
+        let viewport = cx.view.viewport_size();
+        let show_inspector = viewport.width >= INSPECTOR_BREAKPOINT && state.inspector_open;
+    } =>
+    if show_inspector {
+        ReportsWithInspector()
+    } else {
+        ReportsSingleColumn()
+    }
+}
+```
+
+Use this when the breakpoint is not the only decision. This remains valid Fission code, but the branch is ordinary Rust and cannot be lowered as a declarative responsive case.
+
+</TabItem>
+</Tabs>
+
+## Container queries
+
+Use a container query when a reusable widget should adapt to its parent instead of the whole viewport.
+
+```rust
+const WIDE_CARD_BREAKPOINT: f32 = 520.0;
+
+Responsive::new_with_id(WidgetId::explicit("report-card.layout"), || CompactCard)
+    .container_query()
+    .case_min_width_with(WIDE_CARD_BREAKPOINT, || WideCard)
+```
+
+This is useful for cards, inspectors, embedded panels, and generated app surfaces that may be mounted inside another host.
+
+## Production checklist
+
+| Question | Recommended answer |
+| --- | --- |
+| Is the branch only width-based? | Use `Responsive`. |
+| Is the width clamped or proportional? | Use `Length::clamp`, `Length::percent`, `Length::vw`, or `Length::vh`. |
+| Is the branch driven by app state too? | Use ordinary Rust in the component's `view(component, state, cx)` block. |
+| Is this a reusable child component? | Prefer `.container_query()`. |
+| Does the layout need to be tested? | Add LiveTest resize scenarios and screenshots. |

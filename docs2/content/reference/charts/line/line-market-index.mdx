@@ -1,0 +1,61 @@
+---
+title: Market index line
+sidebar_label: Market index line
+description: Fission Charts reference for Market index line.
+---
+
+# Market index line
+
+![Market index line screenshot](/img/charts/line-market-index.png)
+
+An index line shows movement relative to a declared base. That makes a sequence comparable without presenting the index level as a currency amount. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example starts from a benchmark rebased to 100 outside the widget. The index definition determines how prices, distributions and weighting are handled; the chart neither selects that definition nor calculates investment performance.
+
+## Data model
+
+Supply ordered index levels and matching reporting labels. Keep any exact source prices and index calculation in the data layer, using the chart's f32 values only for display. Do not put differently rebased series on one chart without explaining the bases.
+
+## Authoring from a Fission component
+
+Prepare the reporting values before building the view, then pass them with their labels as props.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub MarketIndexLineChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            index_values: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.index_values.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check the base-period value and corrections to historical data. Keep the visible numeric range clear; a truncated range emphasises movement and must not be confused with the full scale of the index.
+
+Tags: `line`, `finance`.
+
+[Line family overview](./overview)

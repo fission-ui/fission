@@ -1,0 +1,51 @@
+---
+title: Tooltip item component
+sidebar_label: Tooltip item component
+description: Enable actual item hover for individual service observations.
+---
+
+# Tooltip item component
+
+![Tooltip item component screenshot](/img/charts/component-tooltip-item.png)
+
+An item tooltip describes the point under inspection rather than every series at the same category. That fits a service scatter plot where x is payload size and y is response time.
+
+The data must already be available. Revealing a tooltip is presentation state, not a reason to start a request on every pointer move.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{
+    Axis, Chart, ChartInteraction, ChartTooltipTrigger,
+    ScatterSeries, Series, Tooltip as ChartTooltip,
+};
+
+fission_component! {
+    pub ServiceItemTooltip<()> {
+        props {
+            chart_id: WidgetId,
+            title: String,
+            requests_label: String,
+            payload_label: String,
+            response_label: String,
+            observations: Vec<(f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        id: Some(report.chart_id),
+        title: Some(report.title.clone()),
+        x_axis: Some(Axis::value().name(report.payload_label.clone())),
+        y_axis: Some(Axis::value().name(report.response_label.clone())),
+        tooltip: Some(ChartTooltip::item_trigger()),
+        interaction: ChartInteraction::tooltips(ChartTooltipTrigger::Item),
+        series: vec![Series::Scatter(
+            ScatterSeries::new(&report.requests_label).data(report.observations.clone()),
+        )],
+    )
+}
+```
+
+Supply finite coordinates with declared units, translated labels and a stable chart identity. Qualify the chart's tooltip configuration; it is not the UI `Tooltip` widget.
+
+Test hover over a point, empty plot space and the plot edge. Keep an accessible observation list for keyboard, touch and screen-reader use; an item tooltip cannot be the only route to the data. If pressing a point later opens a record, bind a reducer and resolve the hit through its matching snapshot and durable ID. Hover coordinates alone are not record identity. The image is a gallery fixture.
+
+[Components and interaction family overview](./overview)

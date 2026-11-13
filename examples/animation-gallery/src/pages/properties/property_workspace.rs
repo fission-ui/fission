@@ -8,7 +8,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) PropertyWorkspace<AnimationGalleryState> { property: PropertyCase }
-    |workspace, state, cx| {
+    view(workspace, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(

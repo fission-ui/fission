@@ -1,0 +1,50 @@
+---
+title: Visual map
+sidebar_label: Visual map
+description: Give numeric heatmap colours an explicit, stable meaning through VisualMap.
+---
+
+# Visual map
+
+![Visual map screenshot](/img/charts/visual-map.png)
+
+A visual map turns a numeric range into a colour range. Without declared endpoints, the same colour can suggest the same workload while representing a different count in each report.
+
+For a team/hour workload matrix, reuse `TeamHourWorkload` from the [visual map component](../components-and-interaction/component-visual-map), placed in `widgets/team_hour_workload.rs`:
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use crate::widgets::team_hour_workload::TeamHourWorkload;
+
+fission_component! {
+    pub SupportLoadMatrix<()> {
+        props {
+            title: String,
+            tickets_label: String,
+            hours: Vec<String>,
+            teams: Vec<String>,
+            counts: Vec<Vec<Option<u32>>>,
+            scale_max: f32,
+            scale_colours: Vec<Color>,
+        }
+    }
+    view(matrix, _state, _cx) => TeamHourWorkload {
+        title: matrix.title.clone(),
+        tickets_label: matrix.tickets_label.clone(),
+        hours: matrix.hours.clone(),
+        teams: matrix.teams.clone(),
+        counts: matrix.counts.clone(),
+        scale_max: matrix.scale_max,
+        scale_colours: matrix.scale_colours.clone(),
+    }
+}
+```
+
+The reused component actually sets `visual_map: Some(VisualMap::new()...)` and a `HeatmapSeries`. A titled empty chart would demonstrate neither.
+
+Keep scale endpoints stable across views intended for comparison, and supply a design-system colour sequence whose contrast remains usable without a red/green distinction. `None` cells remain missing observations rather than becoming zero.
+
+Validate matrix dimensions and range policy, then test the exact minimum, maximum, zero and missing values. Provide numeric counts and a scale explanation outside the coloured cells. The gallery screenshot is illustrative, not proof of a particular accessible palette.
+
+[Data pipeline and interaction family overview](./overview)

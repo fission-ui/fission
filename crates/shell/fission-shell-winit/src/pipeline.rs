@@ -108,6 +108,15 @@ impl InvalidationSet {
     }
 }
 
+pub(crate) fn software_frame_needs_raster(
+    frame_valid: bool,
+    invalidations: InvalidationSet,
+    paint_misses: usize,
+    has_dynamic_surfaces: bool,
+) -> bool {
+    !frame_valid || invalidations.any() || paint_misses > 0 || has_dynamic_surfaces
+}
+
 #[derive(Debug, Clone)]
 struct BoundaryCacheEntry {
     hash: u64,
@@ -346,7 +355,6 @@ impl Pipeline {
         };
         let (snapshot, full_rebuild) = if needs_full {
             self.layout_full_rebuild_count = self.layout_full_rebuild_count.saturating_add(1);
-            layout_engine.update(&self.layout_input_nodes);
             let root_id = self
                 .prev_ir
                 .as_ref()
@@ -362,7 +370,6 @@ impl Pipeline {
                 true,
             )
         } else {
-            layout_engine.update(&self.layout_input_nodes);
             let root_id = self
                 .prev_ir
                 .as_ref()

@@ -17,7 +17,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub GalleryApp<GalleryState>
-    |_app, state, cx| {
+    view(_app, state, cx) {
         let doc_capture = std::env::var("FISSION_CHART_DOC_SLUG").ok();
 
         let select_chart_id = with_reducer!(cx.build, SelectChart(0, 0), select_chart).id;

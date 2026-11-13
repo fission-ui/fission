@@ -1,0 +1,68 @@
+---
+title: Marked SLO chart
+sidebar_label: Marked SLO chart
+description: Fission Charts reference for Marked SLO chart.
+---
+
+# Marked SLO chart
+
+![Marked SLO chart screenshot](/img/charts/interaction-marked-slo.png)
+
+A marked objective gives a reader a stable reference for the values in a chart. It is easier to compare a response-time sample with a visible target than with a threshold described elsewhere in the report. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example draws a response-time objective in milliseconds. A line at that value is not a complete SLO calculation: the service's actual objective may also specify a percentile, population and reporting window. Keep those rules in the application model.
+
+## Data model
+
+MarkLine::y takes a value in vertical-axis units. Pass the objective with the prepared response-time samples and keep both in milliseconds. The line stays tied to its data value when the vertical range changes.
+
+## Authoring from a Fission component
+
+The response-time values and reporting rule arrive as props. Fetch measurements and resolve the rule before building the chart; changing a threshold must not start an implicit request during component conversion.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries, MarkLine};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub MarkedSLOChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            annotation_label: String,
+            category_labels: Vec<String>,
+            response_ms: Vec<f32>,
+            objective_ms: f32,
+        }
+    }
+    view(report, _state, cx) {
+        let colors = &cx.view.env().theme.tokens.colors;
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                report.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            mark_lines: vec![MarkLine::y(
+                &report.annotation_label, report.objective_ms,
+            ).color(colors.primary)],
+            series: vec![LineSeries::new(&report.series_label)
+                .data(report.response_ms.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test samples on both sides of the line and a range where all observations are below the objective. Ensure the objective remains visible, and do not infer compliance from averages if the actual SLO is defined on a percentile.
+
+Give the rule and important values in readable text as well as a coloured mark. Inspect labels and contrast at the actual chart size in both themes.
+
+Tags: `markLine`, `slo`.
+
+[Interaction family overview](./overview)

@@ -179,15 +179,52 @@ impl Default for Popover {
     }
 }
 
+/// A popover whose dismissal backdrop lets pointer input reach extra anchors.
+#[derive(Clone, Debug)]
+pub struct PopoverWithAdditionalAnchors {
+    popover: Popover,
+    anchors: Vec<WidgetId>,
+}
+
+impl Popover {
+    /// Keeps the listed sibling controls interactive while this popover is
+    /// open. Give each sibling a stable `WidgetId` and keep its action on that
+    /// control; a tap passes through the backdrop and does not also dismiss it.
+    pub fn with_additional_anchors(
+        self,
+        anchors: impl IntoIterator<Item = WidgetId>,
+    ) -> PopoverWithAdditionalAnchors {
+        PopoverWithAdditionalAnchors {
+            popover: self,
+            anchors: anchors.into_iter().collect(),
+        }
+    }
+}
+
 impl From<Popover> for Widget {
     fn from(component: Popover) -> Self {
         popover_with_options(component, FlyoutOptions::default())
     }
 }
 
-pub(crate) fn popover_with_options(
+impl From<PopoverWithAdditionalAnchors> for Widget {
+    fn from(component: PopoverWithAdditionalAnchors) -> Self {
+        popover_with_passthrough_anchors(
+            component.popover,
+            FlyoutOptions::default(),
+            component.anchors,
+        )
+    }
+}
+
+pub(crate) fn popover_with_options(component: Popover, flyout_options: FlyoutOptions) -> Widget {
+    popover_with_passthrough_anchors(component, flyout_options, Vec::new())
+}
+
+fn popover_with_passthrough_anchors(
     mut component: Popover,
     flyout_options: FlyoutOptions,
+    additional_anchors: Vec<WidgetId>,
 ) -> Widget {
     let (ctx, view) = fission_core::build::current::<()>();
     if let Some(id) = fission_core::build::current_widget_id() {
@@ -197,6 +234,12 @@ pub(crate) fn popover_with_options(
 
     // Derive stable anchor ID
     let anchor_id = WidgetId::derived(this.id.as_u128(), &[0]);
+    let mut passthrough_anchors = vec![anchor_id];
+    for anchor in additional_anchors {
+        if !passthrough_anchors.contains(&anchor) {
+            passthrough_anchors.push(anchor);
+        }
+    }
 
     // The anchor may be stretched by its parent; the trigger keeps its own size at the start of
     // it instead of being stretched or centred.
@@ -248,6 +291,7 @@ pub(crate) fn popover_with_options(
                 },
                 focusable: Some(false),
                 sequential_focusable: false,
+                pointer_passthrough: passthrough_anchors,
                 child: Some(
                     Container::new(fission_core::ui::widgets::Spacer::default())
                         .bg(Color {

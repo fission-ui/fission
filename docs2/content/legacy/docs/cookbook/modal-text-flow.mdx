@@ -1,0 +1,261 @@
+---
+title: Build a modal text flow
+description: Build a dialog with text entry, explicit modal state, and predictable action flow.
+---
+
+# Build a modal text flow
+
+A message dialog needs more than an overlay: the draft must survive the
+intended transitions, dismissal must not submit it, and keyboard users need the
+same controls as pointer users. Those concerns belong in the normal app model,
+not in a separate modal-specific event system.
+
+This recipe prepares a message for review. It does not send email. Making that
+boundary explicit keeps a successful local edit from being reported as a
+successful network operation.
+
+## The problem we are solving
+
+Compose opens a dialog containing recipient, subject, and body fields.
+Cancel closes it without discarding the draft. Prepare copies a complete draft
+into a review snapshot and closes the dialog. A later send operation would use
+an owned snapshot and an effect with explicit success and error handling.
+
+## Step 1: keep modal state and text state in `GlobalState`
+
+The draft belongs to this app because the user can close the dialog, reopen it,
+and review the prepared message elsewhere. An isolated dialog whose draft may
+be discarded with its identity could use component-local state instead.
+
+```rust
+use fission::prelude::*;
+
+#[derive(Debug, Default, Clone)]
+pub struct MessageDraft {
+    pub to: String,
+    pub subject: String,
+    pub body: String,
+}
+
+impl MessageDraft {
+    fn is_complete(&self) -> bool {
+        !self.to.trim().is_empty()
+            && !self.subject.trim().is_empty()
+            && !self.body.trim().is_empty()
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct ComposeState {
+    pub show_compose_modal: bool,
+    pub draft: MessageDraft,
+    pub prepared: Option<MessageDraft>,
+}
+
+impl GlobalState for ComposeState {}
+```
+
+`draft` is editable; `prepared` is the last accepted review snapshot. They have
+different jobs. Reading a prepared value must not silently track later edits.
+
+## Step 2: define actions for opening, closing, and editing
+
+Ordinary field editing uses Compose bindings, and opening the dialog is one
+inline reducer. Dismissal and preparation are shared with the modal's footer,
+so give those two transitions reusable actions:
+
+```rust
+#[fission_reducer(CloseCompose)]
+fn close_compose(state: &mut ComposeState) {
+    state.show_compose_modal = false;
+}
+
+#[fission_reducer(PrepareCompose)]
+fn prepare_compose(state: &mut ComposeState) {
+    if !state.draft.is_complete() { return; }
+    let mut prepared = state.draft.clone();
+    prepared.to = prepared.to.trim().to_owned();
+    prepared.subject = prepared.subject.trim().to_owned();
+    state.prepared = Some(prepared);
+    state.show_compose_modal = false;
+}
+```
+
+The close action is used by Cancel, Escape, and the dismissal affordances. None
+of them call Prepare. That is a useful invariant to test directly.
+
+## Step 3: write plain reducers for the form fields
+
+A setter function for each field would repeat the same text-input decoding.
+Use `bind(on_input): to(state.draft.to)` and the corresponding bindings below.
+Compose generates the synchronous update reducer; it does not turn the input
+into a private source of application truth.
+
+The preparation reducer checks current state again even when the button is
+disabled. Its required-text rule is deliberately small. It is not a complete
+email-address validator, and preparation is not proof that a mail service will
+accept the recipient.
+
+## Step 4: bind open and close actions in the main screen
+
+Keep the outer screen focused on the user flow:
+
+```rust
+fission_component! {
+    pub ComposeScreen<ComposeState> {}
+    view(_screen, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.m, children: [
+        Button(
+            child: Text(cx.tr("message.compose")),
+            key: "open-compose",
+            on_press: reduce { state.show_compose_modal = true; },
+        ).semantics_identifier("message.compose"),
+        if let Some(message) = &state.prepared {
+            Column(children: [
+                Text(cx.tr("message.prepared_not_sent")),
+                Text(message.to.clone()),
+                Text(message.subject.clone()),
+            ])
+        },
+        ComposeDialog(),
+    ])
+}
+```
+
+Put this screen in `screens` and the reusable dialog and fields in their own
+widget files. Shared state and reducers belong in the app's model module, not
+inside the shell entrypoint.
+
+## Step 5: wire text input fields back into state
+
+```rust
+const MESSAGE_BODY_HEIGHT: f32 = 180.0;
+
+fission_component! {
+    pub ComposeFields<ComposeState> {}
+    view(_fields, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.m, children: [
+        TextInput(
+            value: state.draft.to.clone(),
+            label: cx.tr("message.to"),
+            required: true,
+            autofocus: true,
+            bind(on_input): to(state.draft.to),
+        ).semantics_identifier("message.to"),
+        TextInput(
+            value: state.draft.subject.clone(),
+            label: cx.tr("message.subject"),
+            required: true,
+            bind(on_input): to(state.draft.subject),
+        ).semantics_identifier("message.subject"),
+        TextInput(
+            value: state.draft.body.clone(),
+            label: cx.tr("message.body"),
+            multiline: true,
+            height: MESSAGE_BODY_HEIGHT,
+            bind(on_input): to(state.draft.body),
+        ).semantics_identifier("message.body"),
+    ])
+}
+```
+
+The fields read the draft and dispatch updates through their bindings. A
+rebuild reflects current state; it does not submit or clear the draft. Labels
+remain visible after typing, unlike placeholder-only instructions.
+
+## Step 6: show the modal with explicit actions
+
+`ModalAction` is a typed footer configuration value, not a widget, so construct
+it in the setup block with ordinary Rust. The modal and its content remain
+Compose:
+
+```rust
+const COMPOSE_DIALOG_WIDTH: f32 = 640.0;
+
+fission_component! {
+    pub ComposeDialog<ComposeState> {}
+    view(_dialog, state, cx) {
+        let close = cx.bind(CloseCompose, reduce!(close_compose));
+        let prepare = cx.bind(PrepareCompose, reduce!(prepare_compose));
+        let actions = vec![
+            ModalAction {
+                label: cx.tr("message.cancel"),
+                on_press: Some(close.clone()),
+                is_primary: false,
+                semantics_identifier: Some("message.cancel".into()),
+            },
+            ModalAction {
+                label: cx.tr("message.prepare"),
+                on_press: if state.draft.is_complete() { Some(prepare) } else { None },
+                is_primary: true,
+                semantics_identifier: Some("message.prepare".into()),
+            },
+        ];
+    } =>
+    Modal(
+        id: WidgetId::explicit("message.compose-dialog"),
+        title: cx.tr("message.compose_title"),
+        is_open: state.show_compose_modal,
+        on_dismiss: close,
+        content: ComposeFields(),
+        actions: actions,
+        width: COMPOSE_DIALOG_WIDTH,
+        backdrop_semantics_identifier: Some("message.backdrop".into()),
+        close_semantics_identifier: Some("message.close".into()),
+        surface_semantics_identifier: Some("message.dialog".into()),
+    )
+}
+```
+
+Define the `message.*` labels in the app's translation bundles. The preferred
+width is a dialog constraint and is clamped by the modal to the viewport. Body
+scrolling belongs to the modal; do not imitate the dialog with a positioned
+card or add a second focus trap around its fields.
+
+## Step 7: verify the built-in focus and accessibility contract
+
+`Modal` creates a modal Dialog semantic region and an open-state focus barrier.
+An explicit autofocus descendant wins; otherwise focus enters the first
+eligible control. Tab and reverse Tab remain inside the open dialog.
+Escape, the generated close button, and an outside pointer press dispatch
+`on_dismiss`. After controlled state closes it, focus returns to the previous
+valid target.
+
+The title supplies the dialog's accessible name, and each input has its own
+label. The generated close control resolves `fission.modal.close`, falling
+back to Close. Use `ModalLayout` when a dialog needs a more specific close
+label, a supporting description relationship, or explicit body-scrollbar
+configuration.
+
+Verify those behaviors on an actual target. A screenshot of the overlay cannot
+prove focus traversal, dismissal, or return-to-origin behavior.
+
+## What to avoid
+
+Do not choose global state merely because a value is visible. Match its
+lifetime and consumers. This draft is shared because review and reopen behavior
+need it; an isolated temporary disclosure flag would normally remain local.
+
+Do not send a message during conversion or label a prepared draft Sent. A
+network send must receive an owned snapshot, maintain its own pending state,
+and handle both outcomes before reporting success.
+
+Do not make cancellation silently destructive. If the product deliberately
+discards a draft, communicate that consequence rather than treating it as a
+side effect of hiding the modal.
+
+## Check the flow
+
+Open the dialog, edit all fields, Cancel, and reopen it: the draft should remain.
+Prepare a complete draft and inspect the copied recipient, subject, and body.
+Change the draft afterwards and verify the prepared snapshot does not change.
+Check that incomplete input cannot prepare through either the footer or a
+directly dispatched action.
+
+Then test keyboard traversal, Escape, backdrop dismissal, narrow-screen body
+scrolling, and focus return. Use [LiveTest](/docs/cookbook/write-a-live-ui-test)
+for the real interaction path rather than testing only the visibility flag.

@@ -1,0 +1,60 @@
+---
+title: SLA breach delta
+sidebar_label: SLA breach delta
+description: Compare observed service times against their agreed limits using signed minute deltas.
+---
+
+# SLA breach delta
+
+![SLA breach delta screenshot](/img/charts/bar-sla-breach-delta.png)
+
+An SLA breach is a failure to meet a particular service-level commitment. This example compares an observed response time with its agreed limit, so the signed difference has a straightforward meaning: above zero is late, below zero is within the limit.
+
+Keep the unit visible. A difference of ten minutes is not a ten-percent breach rate and should not be labelled as one.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct ResponseTimeCheck {
+    pub label: String,
+    pub observed_minutes: f32,
+    pub allowed_minutes: f32,
+}
+
+fission_component! {
+    pub ResponseTimeExceptions<()> {
+        props {
+            title: String,
+            difference_label: String,
+            minutes_label: String,
+            checks: Vec<ResponseTimeCheck>,
+        }
+    }
+    view(exceptions, _state, _cx) {
+        let labels = exceptions.checks.iter().map(|check| check.label.as_str()).collect();
+        let deltas = exceptions.checks.iter()
+            .map(|check| check.observed_minutes - check.allowed_minutes).collect();
+    } => Chart(
+        title: Some(exceptions.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(exceptions.minutes_label.clone())),
+        series: vec![Series::Bar(
+            BarSeries::new(&exceptions.difference_label).data(deltas),
+        )],
+    )
+}
+```
+
+Validate finite, non-negative source times and a consistent definition of elapsed time. Business-hours commitments and wall-clock commitments cannot be mixed merely because both can be converted to minutes.
+
+## Retain the commitment details
+
+Averages can conceal individual breaches, so do not present an average delta as proof that every request met its SLA. Keep request counts, exclusions and the contractual measurement rule in the source report.
+
+Test early, exactly-on-limit and late cases. State the sign convention in text and provide exact deltas without relying on red/green status colours. The gallery screenshot is a separate fixture, not a compliance assessment.
+
+[Bar family overview](./overview)

@@ -1,0 +1,44 @@
+---
+title: Stacked revenue dataset
+sidebar_label: Stacked revenue dataset
+description: Encode exclusive revenue channels from the same reporting rows.
+---
+
+# Stacked revenue dataset
+
+![Stacked revenue dataset screenshot](/img/charts/dataset-stacked-revenue.png)
+
+A revenue stack should explain a total. Direct and partner sales can be added when each sale belongs to one channel; recognised revenue and cash received cannot, because they describe overlapping events.
+
+Use one row per reporting period and store money in minor units in the authoritative model:
+
+```rust
+use fission::charts::{BarSeries, DataValue, Dataset, Encode, Series};
+
+pub fn revenue_projection(
+    rows: &[(String, u64, u64)],
+    direct_label: &str,
+    partner_label: &str,
+) -> (Dataset, Vec<Series>) {
+    let dataset = Dataset::new()
+        .dimensions(vec!["period".into(), "direct".into(), "partner".into()])
+        .source(rows.iter().map(|(period, direct_minor, partner_minor)| vec![
+            DataValue::from(period.clone()),
+            DataValue::from(*direct_minor as f32 / 100.0),
+            DataValue::from(*partner_minor as f32 / 100.0),
+        ]).collect());
+    let series = vec![
+        Series::Bar(BarSeries::new(direct_label).stack("revenue")
+            .encode(Encode::new().x("period").y("direct"))),
+        Series::Bar(BarSeries::new(partner_label).stack("revenue")
+            .encode(Encode::new().x("period").y("partner"))),
+    ];
+    (dataset, series)
+}
+```
+
+Install these values on `Chart.dataset` and `Chart.series` in the [encoded bars Compose pattern](../dataset-and-dynamic/dataset-encoded-bars), with an empty category axis and a zero-based value axis. Translate the chart, currency-unit and channel labels; `revenue` is only the internal stack identifier.
+
+This projection assumes a currency with 100 minor units per major unit and a single currency per report. Change that explicit rule for currencies with different units; never add amounts across currencies without a stated conversion policy. Floating-point chart coordinates are not an accounting ledger. Test the integer channel totals before projection, retain exact formatted amounts, and distinguish missing data from a period confirmed to have no sales. The gallery uses separate data.
+
+[Dataset family overview](./overview)

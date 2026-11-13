@@ -1,0 +1,139 @@
+---
+title: Deep links
+description: Route incoming URLs and notification responses into typed app actions.
+---
+
+# Deep links
+
+An installed app can receive a URL from the operating system while it is closed or already running. That arrival is a `DeepLinkReceived` action. Ordinary browser navigation is different: the shell supplies `Env.current_route` and dispatches `ShellRouteChanged` for pathname, hash, Back, and Forward changes.
+
+Both events should select the same native `Router`, not a second collection of pathname checks inside screens. The shell owns delivery, the reducer validates external input, and the route table owns component selection.
+
+For Web, `WebRouteStrategy::Auto` accepts path and hash routes and preserves the representation used to launch the app. Choose `Path` when the host rewrites extensionless routes to `index.html`, or `Hash` when it cannot. `fission run web` includes a safe SPA fallback while preserving missing-asset 404s. Configure `WebNavigationConfig::base_path(...)` when deploying below the origin root.
+
+Use `Link::to(...)` for ordinary navigation. It produces genuine hyperlink metadata on Web, Static site, and SSR; an external launch callback is not needed for every link.
+
+## 1. Start with the state the screen needs
+
+This document app keeps one current location. A malformed external link leaves that location unchanged and records an error:
+
+```rust
+use fission::prelude::*;
+use fission::core::env::RouteLocation;
+use fission::core::action::ShellRouteChanged;
+
+#[derive(Debug, Default)]
+struct DeepLinkState {
+    current_route: RouteLocation,
+    route_error: Option<String>,
+}
+
+impl GlobalState for DeepLinkState {}
+```
+
+`RouteLocation::default()` selects `/`. If the application already has route state, add the error field there instead of creating another route owner.
+
+## 2. Configure the target and host
+
+There is no `fission add-capability` command for deep links. Register the product's URL scheme or associated domain in its platform packaging. Android uses intent filters, Apple platforms use URL schemes or associated domains, and Windows uses protocol activation. Web routes need a host that serves the app at the requested path.
+
+This example accepts `fission:///documents/42`. The three slashes are intentional: there is no URL host, and the path is `/documents/42`. `fission://documents/42` instead has host `documents` and path `/42`, which would not match the path-prefix rule below.
+
+## 3. Handle the incoming link in a reducer
+
+Accept only the identifier shape the app actually supports. This example uses a bounded ASCII document key, not an arbitrary path, query string, or redirect destination:
+
+```rust
+fn document_path(url: &str) -> Option<String> {
+    let id = url.strip_prefix("fission:///documents/")?;
+    if id.is_empty()
+        || id.len() > 64
+        || !id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        return None;
+    }
+    Some(format!("/documents/{id}"))
+}
+
+fn on_deep_link(
+    state: &mut DeepLinkState,
+    action: DeepLinkReceived,
+    ctx: &mut ReducerContext<DeepLinkState>,
+) {
+    match document_path(&action.link.url) {
+        Some(path) => {
+            state.current_route = RouteLocation::new(path.clone());
+            state.route_error = None;
+            ctx.effects.navigate(path);
+        }
+        None => state.route_error = Some("Unsupported document link".into()),
+    }
+}
+
+fn on_route_changed(
+    state: &mut DeepLinkState,
+    action: ShellRouteChanged,
+    _ctx: &mut ReducerContext<DeepLinkState>,
+) {
+    state.current_route = action.location;
+}
+```
+
+The first reducer selects the document immediately and asks the shell to navigate to its logical route. The route handler then mirrors normal navigation into that same field. It does not trigger another navigation effect, so the two events cannot form a redirect loop.
+
+A syntactically valid key is not permission to read a document. Resolve ownership and access in the protected route and server API. For associated HTTPS links, use an approved URL parser and validate the origin as well as the path; do not extend this small custom-scheme parser with string substitutions.
+
+## 4. Configure the shell
+
+Install both handlers on the thin shell entrypoint:
+
+```rust
+fn main() -> anyhow::Result<()> {
+    DesktopApp::<DeepLinkState, _>::new(App)
+        .with_deep_link_config(
+            DeepLinkConfig::new()
+                .scheme("fission")
+                .path_prefix("/documents"),
+        )
+        .on_deep_link(reduce_with!(on_deep_link))
+        .with_route_handler(reduce_with!(on_route_changed))
+        .run()
+}
+```
+
+`App` is the Compose root shown next. The runtime filter is useful for rejecting unrelated launches, but it does not replace the reducer's exact path validation. A prefix is not a document identifier parser.
+
+## 5. Render from the routed state
+
+The route components below are app-owned Compose components. `DocumentRoute` reads `RouteParams` and validates the key before loading a document; see the [Router reference](/reference/widgets/router/) for that component pattern.
+
+```rust
+fission_component! {
+    pub App<DeepLinkState> {}
+    view(_app, state, cx) =>
+        Column(children: [
+            if state.route_error.is_some() {
+                Alert(title: cx.tr("routes.invalid_document_link"), kind: AlertKind::Error)
+            },
+            Router::<DeepLinkState>::new()
+                .with_path(state.current_route.pathname.clone())
+                .route_component("/", HomeScreen)
+                .route_component("/documents/:document_id", DocumentRoute)
+                .not_found(|| NotFoundScreen),
+        ])
+}
+```
+
+`Router` has a route-registration API, so it remains an ordinary Rust expression inside Compose. The surrounding layout and conditional notice use Compose directly; neither needs a `rust {}` wrapper. Define the error label in the app's translation bundles.
+
+## 6. Provide and test the host behavior
+
+Deep links are inbound events, not an asynchronous capability with a provider trait. Use `.with_startup_deep_link(DeepLink::new("fission:///documents/42"))` to exercise a cold start. Also send an inbound event while the app is running.
+
+Test a valid id, an empty id, an extra path segment, query text, unknown schemes, and an overlong id. An invalid link should leave the current document unchanged. Confirm the route table and its access prerequisite still apply after a valid external launch.
+
+## Platform expectations
+
+The native platform must register the same scheme and route shape the app accepts. Metadata alone does not prove that launch delivery works: exercise the packaged app on the intended target. Ordinary browser routes continue through the route handler, without being converted into custom-scheme deep links.
+
+For the public configuration types and lifecycle hooks, see the [Deep links reference](/reference/capabilities/deep-links/).

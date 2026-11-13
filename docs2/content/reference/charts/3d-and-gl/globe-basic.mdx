@@ -1,0 +1,104 @@
+---
+title: Globe
+sidebar_label: Globe
+description: Place geographic locations on a spherical scene without mistaking geometry for a complete map.
+---
+
+# Globe
+
+![Globe screenshot](/img/charts/globe-basic.png)
+
+A globe preserves the relationship between locations on a sphere. That can be useful for showing the reach of a service across regions, but it comes with an immediate limitation: half the surface faces away from the reader. A flat map or labelled location list is a better choice when every location must be visible at once.
+
+The gallery image is built from sphere primitives. It is not a geographical map engine and does not include country boundaries, a map projection, place names or an automatically configured camera.
+
+## From coordinates to geometry
+
+Latitude and longitude describe a location, whilst `Point3D` describes a position in the scene. The conversion between the two is application code. Keep it separate so its coordinate convention can be tested without constructing a widget.
+
+This convention puts north on positive Y and longitude zero on positive X. The markers sit slightly outside a unit sphere so they do not disappear into its surface.
+
+```rust
+use fission::three_d::Point3D;
+
+fn globe_position(latitude_degrees: f32, longitude_degrees: f32) -> Option<Point3D> {
+    if !latitude_degrees.is_finite()
+        || !longitude_degrees.is_finite()
+        || !(-90.0..=90.0).contains(&latitude_degrees)
+        || !(-180.0..=180.0).contains(&longitude_degrees)
+    {
+        return None;
+    }
+
+    let latitude = latitude_degrees.to_radians();
+    let longitude = longitude_degrees.to_radians();
+    let radius = 1.04;
+    Some(Point3D::new(
+        radius * latitude.cos() * longitude.cos(),
+        radius * latitude.sin(),
+        radius * latitude.cos() * longitude.sin(),
+    ))
+}
+```
+
+Do not turn a rejected coordinate into `Point3D::new(0.0, 0.0, 0.0)`. That places it at the centre of the sphere rather than expressing that the location is unknown. Retain the error or unavailable state in the location model and explain it in the accompanying list.
+
+## Compose example
+
+Enable Fission's `three-d` feature. The parent converts validated coordinates with `globe_position`, supplies localised text and chooses colours from the active design system.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::{Primitive3D, Scene3D};
+
+fission_component! {
+    pub ServiceLocationsGlobe<()> {
+        props {
+            title: TextContent,
+            locations: Vec<Point3D>,
+            globe_color: Color,
+            marker_color: Color,
+        }
+    }
+    view(globe, _state, _cx) {
+        let mut scene = Scene3D::new()
+            .height(320.0)
+            .add_primitive(Primitive3D::Sphere {
+                center: Point3D::new(0.0, 0.0, 0.0),
+                radius: 1.0,
+                color: globe.globe_color,
+            });
+        for location in &globe.locations {
+            scene = scene.add_primitive(Primitive3D::Sphere {
+                center: location.clone(),
+                radius: 0.06,
+                color: globe.marker_color,
+            });
+        }
+    } => Column(
+        children: [
+            Text(globe.title.clone()),
+            scene,
+        ],
+    )
+}
+```
+
+The two radii describe geometry, not a visual token scale. Keep marker size constant when each marker means one location. Scaling it by a measurement creates a different encoding which must be explained and checked for overlap.
+
+## API boundaries
+
+`fission::three_d::Scene3D` stores `primitives: Vec<Primitive3D>`, with optional `width` and `height` viewport dimensions. `Primitive3D::Sphere` supplies its centre, radius and colour. This scene does not expose chart axes or geographic overlays.
+
+It also does not emit `ChartInteractionEvent` for individual markers. If selecting a location is required, provide a labelled list using ordinary actions and reducers, or choose a scene API with a picking contract. Adding a globe is not itself an interaction implementation.
+
+## Accessibility and testing
+
+A colour and a point on a sphere cannot communicate a location's name to someone who cannot see it. Provide names, service status and any unavailable coordinates outside the scene. Do not rely on colour alone to distinguish operational status.
+
+Test the coordinate convention at the equator, poles and opposite longitudes, then inspect a real rendering. The conversion may be numerically correct whilst placing an important location on the hidden side of the globe. The screenshot above uses gallery fixtures, not data from this component.
+
+Tags: `3d`, `globe`.
+
+[3D and GL family overview](./overview)

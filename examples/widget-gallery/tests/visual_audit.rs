@@ -26,7 +26,7 @@ impl GlobalState for GS {}
 
 fission_component! {
     TestSection<GS> { title: &'static str, children: Vec<Widget> }
-    |section, _state, _cx| {
+    view(section, _state, _cx) {
         let mut children = widgets![Text::new(section.title).size(20.0)];
         children.extend(section.children.clone());
     } =>
@@ -38,7 +38,7 @@ fission_component! {
 
 fission_component! {
     #[derive(Clone)] AllWidgets<GS> {}
-    |_widgets, _state, _cx| {
+    view(_widgets, _state, _cx) {
         let _noop = ActionEnvelope {
             id: fission::core::ActionId::from_u128(9999),
             payload: vec![],

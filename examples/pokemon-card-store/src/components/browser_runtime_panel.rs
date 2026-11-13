@@ -6,7 +6,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub BrowserRuntimePanel<StoreState> {}
-    |_panel, _state, cx| {
+    view(_panel, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
     } =>

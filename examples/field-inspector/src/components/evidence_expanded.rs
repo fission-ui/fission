@@ -5,7 +5,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub EvidenceExpanded<FieldInspectorState> {}
-    |_c, _state, cx| {
+    view(_c, _state, cx) {
         let gap = cx.view.env().theme.tokens.spacing.s;
     } =>
         Grid(

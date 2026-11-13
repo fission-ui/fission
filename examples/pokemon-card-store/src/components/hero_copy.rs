@@ -4,7 +4,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub HeroCopy<StoreState> {}
-    |_copy, _state, cx| {
+    view(_copy, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
     } =>

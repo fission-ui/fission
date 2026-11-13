@@ -1,0 +1,55 @@
+---
+title: Icon
+description: Render a vector icon from path data, scalable vector graphics (SVG) content, or an SVG file.
+slug: /widgets/icon
+---
+# Icon
+
+`Icon` renders a small vector graphic. Use it for toolbar actions, status
+marks, and navigation hints, but pair unfamiliar icons with text. An icon alone
+is not always enough to tell someone what an action does.
+
+## Example
+
+```rust
+use fission::prelude::*;
+// In view setup; the icon is decorative inside an already-labelled control.
+let tokens = &cx.view.env().theme.tokens;
+let chevron = Icon::svg_directional(
+    material::navigation::chevron_left::regular(),
+    material::navigation::chevron_right::regular(),
+)
+    .size(tokens.sizing.icon_sm)
+    .color(tokens.colors.text_secondary);
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `source` | `IconSource` | Where the icon graphic comes from. | Use path data, inline scalable vector graphics (SVG) content, or a filesystem SVG file. This is the first form you should read when you see SVG on this page. |
+| `color` | `Option<Color>` | Fill color override. | Defaults to the theme's primary text color. |
+| `size` | `Option<f32>` | Square layout size in points. | Defaults to `24.0`. |
+| `stroke` | `Option<Stroke>` | Optional stroke style. | When present, fill is suppressed in the checked-in renderer. |
+| `semantic_label` | `Option<String>` | Accessible name for an independently meaningful icon. | Leave absent for decoration or inside a control already carrying the name. |
+
+## Source choices
+
+`IconSource::Path` is a plain scalable vector graphics (SVG) path string. `IconSource::SvgContent` is full inline SVG markup. `IconSource::File` reads an SVG file from the host filesystem at render time.
+
+That last option is convenient in desktop tooling, but it is less portable than inline or generated SVG content because filesystem access and asset packaging differ across targets. For cross-platform app code, inline or bundled SVG content is often the safer choice.
+
+## Accessibility and responsive notes
+
+Use `semantic_label` when the icon carries meaning on its own. An icon inside
+an already-labelled button should remain decorative; naming both can make
+the screen reader announce the action twice. The directional helper chooses
+the reading-order-appropriate glyph, rather than hard-coding a right chevron
+for every locale. Icon size is not touch-target size: the surrounding control
+still needs sufficient hit area.
+
+
+## Related
+
+[`Image`](/reference/widgets/image), [`Button`](/reference/widgets/button), [`Badge`](/reference/widgets/badge), and [`Text`](/reference/widgets/text).

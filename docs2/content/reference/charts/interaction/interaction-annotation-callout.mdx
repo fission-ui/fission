@@ -1,0 +1,80 @@
+---
+title: Annotation callout
+sidebar_label: Annotation callout
+description: Fission Charts reference for Annotation callout.
+---
+
+# Annotation callout
+
+![Annotation callout screenshot](/img/charts/interaction-annotation-callout.png)
+
+An annotation callout puts an explanation next to the chart rather than expecting the reader to reconstruct it from a change in the line. The note should add context that the values alone cannot provide. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use this for a short report note such as a change in fulfilment hours. ChartGraphic positions are fractions of the plot, not sample coordinates, so this is not a mark that automatically follows a particular data point when the range changes.
+
+## Data model
+
+The component takes the ordered counts and note as props. Resolve the note through the application's i18n setup before passing it in. Width and height are explicitly set as plot fractions, as are the note position and callout line.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `ChartGraphic::text` | Constructor | Creates a text graphic from a position, string and colour. |
+| `ChartGraphic::rect` | Constructor | Creates a plot-relative rectangular graphic. |
+| `ChartGraphic::line` | Constructor | Creates a line from a plot-relative position and extent. |
+| `Chart::graphics` field | `Vec<ChartGraphic>` | Supplies the overlay graphics. |
+
+## Authoring from a Fission component
+
+This component receives prepared data and a note. The short series has a fixed reporting week; change the labels alongside the values when the period changes.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, ChartGraphic, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub AnnotationCalloutChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            category_labels: Vec<String>,
+            values: Vec<f32>,
+            note: String,
+        }
+    }
+    view(report, _state, cx) {
+        let colors = &cx.view.env().theme.tokens.colors;
+        let note = ChartGraphic {
+            width: 0.45,
+            height: 0.12,
+            ..ChartGraphic::text(0.05, 0.06, report.note.clone(), colors.text_primary)
+        };
+        let graphics = vec![note,
+            ChartGraphic::line(0.28, 0.20, 0.12, 0.18, colors.primary),
+        ];
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                report.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            graphics: graphics,
+            series: vec![LineSeries::new(&report.series_label)
+                .data(report.values.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test the longest translated note and the narrowest chart size. If the callout is meant to refer to a specific sample, check it after changing the visible range or use a data-coordinate mark instead.
+
+Tags: `graphic`, `callout`.
+
+[Interaction family overview](./overview)

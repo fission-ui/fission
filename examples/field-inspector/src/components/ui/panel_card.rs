@@ -3,7 +3,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub PanelCard<FieldInspectorState> { child: Widget }
-    |panel, _state, cx| {
+    view(panel, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let mut container = Container::new(panel.child.clone())
             .bg(tokens.colors.surface)

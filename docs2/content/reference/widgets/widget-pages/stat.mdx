@@ -1,0 +1,42 @@
+---
+title: Stat
+description: Present one labeled value as a compact metric block.
+slug: /widgets/stat
+---
+# Stat
+
+`Stat` gives one value a clear label and, optionally, a short explanation.
+Use it for dashboard metrics, billing summaries, or health indicators.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+// In view: derive the count from authoritative records, not the current page.
+Stat(
+    label: cx.tr("issues.open"),
+    value: state.open_issue_count.to_string(),
+)
+```
+
+Add a freshness label only when the app knows when the records were loaded.
+A fixed “updated two minutes ago” string would become false while the screen
+remains open. Format that timestamp upstream if the metric needs it.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `label` | `String` | Small explanatory label above the value. | Required. |
+| `value` | `String` | Main emphasized value. | Required. Format numbers, currency, or percentages upstream. |
+| `help_text` | `Option<String>` | Extra context below the value. | Defaults to `None`. |
+
+## Specific advice
+
+Keep the value itself clean and short. If the user must parse a whole sentence to understand the metric, a stat is probably the wrong presentation.
+
+
+## Related
+
+[`Badge`](/reference/widgets/badge), [`Card`](/reference/widgets/card), [`Text`](/reference/widgets/text), and [`CircularProgress`](/reference/widgets/circular-progress).

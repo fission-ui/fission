@@ -1,0 +1,33 @@
+---
+title: Incident calendar
+sidebar_label: Incident calendar
+description: Count incident starts by date without confusing them with unresolved backlog.
+---
+
+# Incident calendar
+
+![Incident calendar screenshot](/img/charts/calendar-incidents.png)
+
+An incident calendar needs a rule for which date owns an incident. Counting the start date shows when new incidents arose; counting every day an incident remained open shows a different measure.
+
+Use the actual `CalendarHeatmapSeries` composition in [build calendars](./calendar-builds), adapting its typed daily record to incident counts. Aggregate start timestamps once in the reporting timezone, then supply one confirmed total for each date in the range.
+
+```rust
+use std::collections::BTreeMap;
+
+pub fn incident_start_totals(reporting_dates: &[String]) -> BTreeMap<String, u32> {
+    let mut totals = BTreeMap::new();
+    for date in reporting_dates {
+        *totals.entry(date.clone()).or_insert(0) += 1;
+    }
+    totals
+}
+```
+
+The input here is already-normalised dates from validated incident records, not raw timestamps. Deduplicate incident IDs before counting retries or repeated events. Fill confirmed no-incident dates from a complete source, not from failed fetches.
+
+Missing calendar values render as zero, so completeness is an application guarantee rather than a renderer check. Supply translated captions naming the date rule and window, and keep severity and unresolved status in an accessible incident list. Fixed English weekday captions remain a renderer limit.
+
+Test an incident spanning midnight, repeated delivery of the same record, an empty complete window and an unavailable day. Volume is not a reliability rate without a service exposure denominator. The gallery uses separate inputs.
+
+[Heatmap and calendar family overview](./overview)

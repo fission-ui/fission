@@ -302,7 +302,7 @@ pub use pagination::Pagination;
 
 /// Anchored popup content and visibility motion.
 pub mod popover;
-pub use popover::{Popover, PopoverMotion};
+pub use popover::{Popover, PopoverMotion, PopoverWithAdditionalAnchors};
 
 /// Ordered declarative path routing and route-parameter capture.
 pub mod router;

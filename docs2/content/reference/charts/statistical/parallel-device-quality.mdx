@@ -1,0 +1,57 @@
+---
+title: Device quality parallel
+sidebar_label: Device quality parallel
+description: Fission Charts reference for Device quality parallel.
+---
+
+# Device quality parallel
+
+![Device quality parallel screenshot](/img/charts/parallel-device-quality.png)
+
+A device evaluation may combine battery endurance, responsiveness, durability and repairability. Their raw units differ, so a common profile requires a documented scoring rule. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use four 0–100 scores with a consistent direction and assessment conditions. Keep measured hours, latency and test counts available separately so the scores remain explainable.
+
+## Data model
+
+`ParallelSeries` maps all dimensions to 0–100 and takes axis count from its first row. It does not draw named dimension labels or identify rows by device name. Fixed-length arrays preserve shape; the surrounding report supplies names.
+
+## Authoring from a Fission component
+
+The parent calculates validated device scores and provides a localized dimension explanation.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, ParallelSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DeviceAssessmentParallel<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            scores: Vec<[f32; 4]>,
+            dimension_description: TextContent,
+        }
+    }
+    view(report, _state, _cx) {
+        let rows = report.scores.iter().map(|row| row.to_vec()).collect();
+    } => Column(children: [
+        Text(report.dimension_description.clone()),
+        Chart(
+            title: Some(report.chart_title.clone()),
+            series: vec![ParallelSeries::new(&report.series_label).data(rows).into()],
+        ),
+    ])
+}
+```
+
+## Testing and accessibility
+
+Test an unmeasured dimension and differing test conditions. Provide exact source measurements and a named device table. A relative score change does not prove the physical device improved.
+
+Tags: `parallel`, `quality`.
+
+[Statistical family overview](./overview)

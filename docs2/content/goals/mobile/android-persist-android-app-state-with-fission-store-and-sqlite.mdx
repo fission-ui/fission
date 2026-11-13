@@ -1,0 +1,600 @@
+---
+layout: goal
+title: Persist Android app state with Fission Store and SQLite
+description: "Load preferences once at startup, edit a separate draft and confirm SQLite writes before treating the new settings as saved."
+goal: "Hydrate and save typed preferences through Fission Store while keeping absent data, pending work and storage errors distinct."
+path: /blog/persist-android-app-state-with-fission-store-and-sqlite/
+order: 55
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-persist-android-app-state-with-fission-store-and-sqlite
+outcomes:
+  - "Install storage through the capability CLI so Web assets and native provider features agree"
+  - "Register the startup reducer before requesting contains and get"
+  - "Decode typed Store results and handle immediate serialization failure"
+  - "Keep the editable draft separate from the last acknowledged saved snapshot"
+---
+
+A default preference and a saved preference can contain the same value, but they do not mean the same thing. Before storage responds, the app does not know what was saved. After an error, it still does not know. Treating either case as a successful load risks overwriting the user's choice.
+
+Here, an engineer chooses whether inspection fields show explanatory guidance. We load that choice once at startup, let the user change a draft, and only say **Saved** after Store acknowledges the write. The screen uses the same reducers on Android and Web; neither entrypoint installs an in-memory provider.
+
+## Create the project and enable storage
+
+Complete [Android SDK and NDK setup](/blog/set-up-rust-android-gui-development-with-fission/) and either [create an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [connect a phone](/blog/run-a-fission-app-on-a-physical-android-phone/) first.
+
+```sh
+fission init android-persist-android-app-state-with-fission-store-and-sqlite
+cd android-persist-android-app-state-with-fission-store-and-sqlite
+fission add-target android --project-dir .
+fission add-capability storage --project-dir .
+cargo add serde --features derive
+cargo add serde_yaml
+```
+
+Use the capability command rather than adding only a Cargo feature. It configures the native SQLite provider and the Web worker, bridge and SQLite WASM assets. Web also requires `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`. Without those assets and headers, the correct result is a visible storage error, not a fabricated successful load.
+
+Keep the generated `src/main.rs`. The replacement `src/lib.rs` starts the real preferences screen and dispatches its hydration action after reducer registration.
+
+<!-- fission:step id="start-screen" -->
+## Load once and distinguish absence from failure
+
+The typed `StoreKey<Preferences>` has an intentional namespace. We first ask whether it exists because absence is normal on the first run. Only a successful **not present** result selects the default. A decode failure, provider error or missing completion remains an error.
+
+Editing stays unavailable whilst hydration is pending or failed. That prevents an apparently editable default from replacing a preference we have not successfully loaded.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Preferences { pub show_help: bool }
+impl Default for Preferences {
+    fn default() -> Self { Self { show_help: true } }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Phase { #[default] Idle, Loading, Ready, Saving, Failed }
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PreferencesState {
+    pub draft: Preferences,
+    pub saved: Option<Preferences>,
+    pub phase: Phase,
+    pub error: Option<String>,
+    pending: Option<Preferences>,
+}
+impl GlobalState for PreferencesState {}
+
+fn preferences_key() -> StoreKey<Preferences> {
+    StoreKey::new("tutorial.android.inspection", "preferences")
+}
+
+#[fission_reducer(HydratePreferences)]
+pub fn hydrate_preferences(
+    state: &mut PreferencesState,
+    cx: &mut ReducerContext<PreferencesState>,
+) {
+    if !matches!(state.phase, Phase::Idle | Phase::Failed) { return; }
+    state.phase = Phase::Loading;
+    state.error = None;
+    let ok = cx.effects.bind(PreferencesExist, reduce_with!(preferences_exist));
+    let err = cx.effects.bind(PreferencesLoadFailed, reduce_with!(preferences_load_failed));
+    cx.effects.store().contains(preferences_key()).on_ok(ok).on_err(err);
+}
+
+#[fission_reducer(PreferencesExist)]
+fn preferences_exist(state: &mut PreferencesState, cx: &mut ReducerContext<PreferencesState>) {
+    match cx.input.store_contains() {
+        Some(false) => {
+            state.draft = Preferences::default();
+            state.saved = None;
+            state.phase = Phase::Ready;
+        }
+        Some(true) => {
+            let ok = cx.effects.bind(PreferencesLoaded, reduce_with!(preferences_loaded));
+            let err = cx.effects.bind(PreferencesLoadFailed, reduce_with!(preferences_load_failed));
+            cx.effects.store().get(preferences_key()).on_ok(ok).on_err(err);
+        }
+        None => {
+            state.phase = Phase::Failed;
+            state.error = Some("Store returned no contains result".into());
+        }
+    }
+}
+
+#[fission_reducer(PreferencesLoaded)]
+fn preferences_loaded(state: &mut PreferencesState, cx: &mut ReducerContext<PreferencesState>) {
+    match cx.input.store_value::<Preferences>() {
+        Some(Ok(preferences)) => {
+            state.draft = preferences.clone();
+            state.saved = Some(preferences);
+            state.phase = Phase::Ready;
+        }
+        Some(Err(error)) => {
+            state.phase = Phase::Failed;
+            state.error = Some(error.to_string());
+        }
+        None => {
+            state.phase = Phase::Failed;
+            state.error = Some("Store returned no preference value".into());
+        }
+    }
+}
+
+#[fission_reducer(PreferencesLoadFailed)]
+fn preferences_load_failed(state: &mut PreferencesState, cx: &mut ReducerContext<PreferencesState>) {
+    state.phase = Phase::Failed;
+    state.error = Some(cx.input.store_error()
+        .map(|error| error.to_string())
+        .unwrap_or_else(|| "Store returned no failure details".into()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn startup_does_not_claim_the_default_was_loaded_or_saved() {
+        let state = PreferencesState::default();
+        assert_eq!(state.phase, Phase::Idle);
+        assert!(state.saved.is_none());
+    }
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::{
+    PreferencesState, Phase, HydratePreferences, hydrate_preferences,
+
+};
+
+fission_component! {
+    pub InspectionPreferences<PreferencesState> {}
+    view(_settings, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let hydrate = with_reducer!(cx.build, HydratePreferences, hydrate_preferences);
+    } =>
+    Container(SafeArea(child: Scroll(child:
+        Container(Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("preferences.title")).size(tokens.typography.heading1_size),
+            if matches!(state.phase, Phase::Idle | Phase::Loading) {
+                Row(gap: tokens.spacing.s, children: [
+                    Spinner(motion: Some(SpinnerMotion::Default), label: cx.tr("preferences.loading")),
+                    Text(cx.tr("preferences.loading")),
+                ])
+            } else if state.phase == Phase::Failed {
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("preferences.load_failed")),
+                    Button(
+                        child: Text(cx.tr("preferences.retry")),
+                        key: "retry-hydration",
+                        on_press: hydrate,
+                    ).semantics_identifier("preferences.retry"),
+                ])
+            } else {
+                Column(gap: tokens.spacing.m, children: [
+                    FormControl(
+                        label: Some(cx.tr("preferences.show_help")),
+                        child: Switch(
+                            checked: state.draft.show_help,
+                            disabled: state.phase == Phase::Saving,
+                            bind(on_toggle): to(state.draft.show_help),
+                        ),
+                    ),
+                    if state.draft.show_help { Text(cx.tr("preferences.help")) },
+                    Text(cx.tr(if state.saved.as_ref() == Some(&state.draft) {
+                        "preferences.saved"
+                    } else {
+                        "preferences.unsaved"
+                    })),
+
+                ])
+            },
+            if let Some(error) = &state.error {
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("preferences.error")).color(tokens.colors.error),
+                    Code(text: error.clone()),
+                ])
+            },
+        ]))
+        .padding_all(tokens.spacing.l)
+        .width_length(Length::percent(100.0))
+        .max_width(720.0),
+    )))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod state;
+mod translations;
+
+use app::InspectionPreferences;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::PreferencesState, _>::new(InspectionPreferences)
+        .with_env(translations::create_env())
+        .with_startup_action(state::HydratePreferences)
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<state::PreferencesState, InspectionPreferences> {
+    let app = MobileApp::<state::PreferencesState, _>::new(InspectionPreferences)
+        .with_env(translations::create_env())
+        .with_startup_action(state::HydratePreferences);
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::PreferencesState, _>::new(InspectionPreferences)
+        .with_env(translations::create_env())
+        .with_startup_action(state::HydratePreferences)
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+preferences.title: "Inspection guidance"
+preferences.loading: "Loading saved preferences…"
+preferences.load_failed: "Saved preferences could not be loaded. Retry before changing them."
+preferences.retry: "Retry loading"
+preferences.show_help: "Show guidance beside inspection fields"
+preferences.help: "Record the observation itself, including its location and any conditions that affect the reading."
+preferences.saved: "This preference is saved on this device."
+preferences.unsaved: "This choice has not been saved."
+preferences.save: "Save preference"
+preferences.saving: "Saving the preference…"
+preferences.error: "Storage could not complete the operation. Details:"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+preferences.title: "Ayuda para inspecciones"
+preferences.loading: "Cargando preferencias guardadas…"
+preferences.load_failed: "No se pudieron cargar las preferencias. Vuelve a intentarlo antes de cambiarlas."
+preferences.retry: "Volver a cargar"
+preferences.show_help: "Mostrar ayuda junto a los campos de inspección"
+preferences.help: "Registra la observación, su ubicación y cualquier condición que afecte a la lectura."
+preferences.saved: "Esta preferencia está guardada en este dispositivo."
+preferences.unsaved: "Este cambio no se ha guardado."
+preferences.save: "Guardar preferencia"
+preferences.saving: "Guardando la preferencia…"
+preferences.error: "El almacenamiento no pudo completar la operación. Detalles:"
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod state;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::PreferencesState, _>::new(app::InspectionPreferences)
+        .with_env(translations::create_env())
+        .with_startup_action(state::HydratePreferences)
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Wait for hydration. On a first run the default guidance is visible, but the screen must not claim that default was saved. Changing the switch changes the draft only in this stage. A failed provider should show an error and a retry action rather than leaving an endless loading indicator.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Save an owned snapshot and wait for acknowledgement
+
+The write serialises a snapshot of the current draft. The pending snapshot is separate from the last acknowledged value, so an error cannot turn an unsaved edit into **Saved**. The switch is disabled while this small operation is pending; callbacks still record the exact snapshot that was sent.
+
+Serialization can fail before the request is queued. The reducer handles that result as well as the asynchronous provider error. Completion actions are unit routing actions: the reducers decode the actual Store result from `cx.input`, not a placeholder action payload.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+use fission::core::STORE_SET;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Preferences { pub show_help: bool }
+impl Default for Preferences {
+    fn default() -> Self { Self { show_help: true } }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Phase { #[default] Idle, Loading, Ready, Saving, Failed }
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PreferencesState {
+    pub draft: Preferences,
+    pub saved: Option<Preferences>,
+    pub phase: Phase,
+    pub error: Option<String>,
+    pending: Option<Preferences>,
+}
+impl GlobalState for PreferencesState {}
+
+fn preferences_key() -> StoreKey<Preferences> {
+    StoreKey::new("tutorial.android.inspection", "preferences")
+}
+
+#[fission_reducer(HydratePreferences)]
+pub fn hydrate_preferences(
+    state: &mut PreferencesState,
+    cx: &mut ReducerContext<PreferencesState>,
+) {
+    if !matches!(state.phase, Phase::Idle | Phase::Failed) { return; }
+    state.phase = Phase::Loading;
+    state.error = None;
+    let ok = cx.effects.bind(PreferencesExist, reduce_with!(preferences_exist));
+    let err = cx.effects.bind(PreferencesLoadFailed, reduce_with!(preferences_load_failed));
+    cx.effects.store().contains(preferences_key()).on_ok(ok).on_err(err);
+}
+
+#[fission_reducer(PreferencesExist)]
+fn preferences_exist(state: &mut PreferencesState, cx: &mut ReducerContext<PreferencesState>) {
+    match cx.input.store_contains() {
+        Some(false) => {
+            state.draft = Preferences::default();
+            state.saved = None;
+            state.phase = Phase::Ready;
+        }
+        Some(true) => {
+            let ok = cx.effects.bind(PreferencesLoaded, reduce_with!(preferences_loaded));
+            let err = cx.effects.bind(PreferencesLoadFailed, reduce_with!(preferences_load_failed));
+            cx.effects.store().get(preferences_key()).on_ok(ok).on_err(err);
+        }
+        None => {
+            state.phase = Phase::Failed;
+            state.error = Some("Store returned no contains result".into());
+        }
+    }
+}
+
+#[fission_reducer(PreferencesLoaded)]
+fn preferences_loaded(state: &mut PreferencesState, cx: &mut ReducerContext<PreferencesState>) {
+    match cx.input.store_value::<Preferences>() {
+        Some(Ok(preferences)) => {
+            state.draft = preferences.clone();
+            state.saved = Some(preferences);
+            state.phase = Phase::Ready;
+        }
+        Some(Err(error)) => {
+            state.phase = Phase::Failed;
+            state.error = Some(error.to_string());
+        }
+        None => {
+            state.phase = Phase::Failed;
+            state.error = Some("Store returned no preference value".into());
+        }
+    }
+}
+
+#[fission_reducer(PreferencesLoadFailed)]
+fn preferences_load_failed(state: &mut PreferencesState, cx: &mut ReducerContext<PreferencesState>) {
+    state.phase = Phase::Failed;
+    state.error = Some(cx.input.store_error()
+        .map(|error| error.to_string())
+        .unwrap_or_else(|| "Store returned no failure details".into()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn startup_does_not_claim_the_default_was_loaded_or_saved() {
+        let state = PreferencesState::default();
+        assert_eq!(state.phase, Phase::Idle);
+        assert!(state.saved.is_none());
+    }
+}
+
+pub fn save_preferences(state: &mut PreferencesState, cx: &mut ReducerContext<PreferencesState>) {
+    if state.phase != Phase::Ready { return; }
+    let snapshot = state.draft.clone();
+    state.pending = Some(snapshot.clone());
+    state.phase = Phase::Saving;
+    state.error = None;
+    let ok = cx.effects.bind(PreferencesSaved, reduce_with!(preferences_saved));
+    let err = cx.effects.bind(PreferencesSaveFailed, reduce_with!(preferences_save_failed));
+    match cx.effects.store().set(preferences_key(), &snapshot) {
+        Ok(effect) => { effect.on_ok(ok).on_err(err); }
+        Err(error) => {
+            state.pending = None;
+            state.phase = Phase::Ready;
+            state.error = Some(error.to_string());
+        }
+    }
+}
+
+#[fission_reducer(PreferencesSaved)]
+fn preferences_saved(state: &mut PreferencesState, cx: &mut ReducerContext<PreferencesState>) {
+    state.phase = Phase::Ready;
+    if cx.input.capability_ok(STORE_SET).is_some() {
+        if let Some(saved) = state.pending.take() { state.saved = Some(saved); }
+    } else {
+        state.pending = None;
+        state.error = Some("Store returned no save acknowledgement".into());
+    }
+}
+
+#[fission_reducer(PreferencesSaveFailed)]
+fn preferences_save_failed(state: &mut PreferencesState, cx: &mut ReducerContext<PreferencesState>) {
+    state.phase = Phase::Ready;
+    state.pending = None;
+    state.error = Some(cx.input.store_error()
+        .map(|error| error.to_string())
+        .unwrap_or_else(|| "Store returned no failure details".into()));
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::{
+    PreferencesState, Phase, HydratePreferences, hydrate_preferences,
+    save_preferences,
+};
+
+fission_component! {
+    pub InspectionPreferences<PreferencesState> {}
+    view(_settings, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let hydrate = with_reducer!(cx.build, HydratePreferences, hydrate_preferences);
+    } =>
+    Container(SafeArea(child: Scroll(child:
+        Container(Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("preferences.title")).size(tokens.typography.heading1_size),
+            if matches!(state.phase, Phase::Idle | Phase::Loading) {
+                Row(gap: tokens.spacing.s, children: [
+                    Spinner(motion: Some(SpinnerMotion::Default), label: cx.tr("preferences.loading")),
+                    Text(cx.tr("preferences.loading")),
+                ])
+            } else if state.phase == Phase::Failed {
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("preferences.load_failed")),
+                    Button(
+                        child: Text(cx.tr("preferences.retry")),
+                        key: "retry-hydration",
+                        on_press: hydrate,
+                    ).semantics_identifier("preferences.retry"),
+                ])
+            } else {
+                Column(gap: tokens.spacing.m, children: [
+                    FormControl(
+                        label: Some(cx.tr("preferences.show_help")),
+                        child: Switch(
+                            checked: state.draft.show_help,
+                            disabled: state.phase == Phase::Saving,
+                            bind(on_toggle): to(state.draft.show_help),
+                        ),
+                    ),
+                    if state.draft.show_help { Text(cx.tr("preferences.help")) },
+                    Text(cx.tr(if state.saved.as_ref() == Some(&state.draft) {
+                        "preferences.saved"
+                    } else {
+                        "preferences.unsaved"
+                    })),
+                    Button(
+                        child: Text(cx.tr("preferences.save")),
+                        key: "save-preferences",
+                        disabled: state.phase != Phase::Ready || state.saved.as_ref() == Some(&state.draft),
+                        on_press: reduce { save_preferences(state, cx); },
+                    ).semantics_identifier("preferences.save"),
+                    if state.phase == Phase::Saving {
+                        Spinner(motion: Some(SpinnerMotion::Default), label: cx.tr("preferences.saving"))
+                    },
+                ])
+            },
+            if let Some(error) = &state.error {
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("preferences.error")).color(tokens.colors.error),
+                    Code(text: error.clone()),
+                ])
+            },
+        ]))
+        .padding_all(tokens.spacing.l)
+        .width_length(Length::percent(100.0))
+        .max_width(720.0),
+    )))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Change the switch, save, and wait for **Saved**. Reload the preview and check that the same value is loaded from that browser origin's real storage. Android uses its own SQLite database; saving in the browser does not alter the phone's preference.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Verify persistence on Android
+
+Run the app, save a change and close it completely. Reopen it without a network connection. The loading state should resolve to the acknowledged value, not briefly present the default as current.
+
+```sh
+cargo test
+fission doctor android --project-dir .
+fission devices --project-dir .
+fission run --target android --device <device-id> --project-dir .
+fission test --target android --project-dir .
+fission build --target android --project-dir . --release
+```
+
+Check a fresh database and a storage failure separately. During a failed save, the last acknowledged value must stay unchanged and the draft must remain available for retry. During a failed load, editing must stay blocked until the stored value or its absence is known.
+
+The default scope is application-wide, which is appropriate for this device preference. Use a typed user or session scope when ownership changes rather than hiding that ownership in a string prefix. A value-store preference does not need an application SQL migration; relational schemas and transactions are separate APIs.
+
+This example serialises its own operations. An app allowing concurrent loads or edits needs an operation or generation ID so a stale completion cannot replace newer state. Adding that machinery to this single-operation screen would not make it more correct.
+
+### Current references
+
+- [Fission storage and SQLite guide](/docs/guides/storage-and-sqlite/)
+- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
+- [Fission component and widget reference](/reference/widgets/catalog/)
+
+<!-- /fission:step -->

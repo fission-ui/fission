@@ -1,0 +1,59 @@
+---
+title: Acquisition trend
+sidebar_label: Acquisition trend
+description: Compare newly activated accounts over equal reporting periods with a Compose line chart.
+---
+
+# Acquisition trend
+
+![Acquisition trend screenshot](/img/charts/analytics-acquisition-line.png)
+
+An acquisition trend should answer a fairly specific question: are more people reaching the point at which the product becomes useful? Counting page visits instead would answer a different question, even if the resulting line looked much the same.
+
+Here the measure is newly activated accounts per week. Each account belongs to one acquisition period; these are not cumulative totals.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries, Series};
+
+#[derive(Clone)]
+pub struct AcquisitionWeek {
+    pub label: String,
+    pub activated_accounts: u32,
+}
+
+fission_component! {
+    pub AcquisitionTrend<()> {
+        props {
+            title: String,
+            metric_label: String,
+            weeks: Vec<AcquisitionWeek>,
+        }
+    }
+    view(trend, _state, _cx) {
+        let labels = trend.weeks.iter().map(|week| week.label.as_str()).collect();
+        let values = trend.weeks.iter()
+            .map(|week| week.activated_accounts as f32)
+            .collect();
+    } => Chart(
+        title: Some(trend.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        series: vec![
+            Series::Line(LineSeries::new(&trend.metric_label).data(values)),
+        ],
+    )
+}
+```
+
+Pass an ordered, complete reporting window from application state. Resolve the title and labels through the application's translations before supplying them. The component projects that snapshot; it does not fetch data during a build.
+
+## Reading the result
+
+Category positions are equally spaced, so use equal-length weeks and identify an incomplete current week. A missing report is not a week with no activations. Handle missing data before constructing this continuous line rather than inserting a misleading zero.
+
+Test period ordering and the activation rule separately from rendering. Keep the actual counts available alongside the chart, particularly when a reader needs to compare two nearby values. The gallery image above illustrates the chart family, not this application's data.
+
+[Analytics family overview](./overview)

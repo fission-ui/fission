@@ -1,0 +1,67 @@
+---
+title: Capacity forecast band
+sidebar_label: Capacity forecast band
+description: Fission Charts reference for Capacity forecast band.
+---
+
+# Capacity forecast band
+
+![Capacity forecast band screenshot](/img/charts/line-capacity-forecast.png)
+
+A capacity forecast is easier to interpret when its planning range is visible beside the predicted demand. The range gives context, but only if the report explains what it represents. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The shaded interval here is a constant planning range in worker counts. It is not a confidence interval and is not calculated by the chart. A forecast model with time-varying uncertainty needs to supply that separate data rather than relabel this fixed band.
+
+## Data model
+
+Pass the forecast values and ordered range bounds into the component. MarkArea::y_range uses the same worker-count units as the y-axis. Keep observed measurements separate from future estimates when preparing the source model.
+
+## Authoring from a Fission component
+
+The example keeps four reporting buckets so the relationship between labels and samples is explicit. For a variable period, pass the matching labels with the values.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries, MarkArea};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub CapacityForecastBandChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            annotation_label: String,
+            category_labels: Vec<String>,
+            forecast_workers: Vec<f32>,
+            range_min: f32,
+            range_max: f32,
+        }
+    }
+    view(report, _state, cx) {
+        let colors = &cx.view.env().theme.tokens.colors;
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                report.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            mark_areas: vec![MarkArea::y_range(
+                &report.annotation_label, report.range_min, report.range_max,
+            ).color(colors.primary_subtle.with_alpha(80))],
+            series: vec![LineSeries::new(&report.series_label)
+                .data(report.forecast_workers.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check a forecast inside and outside the range, invalid bounds and missing estimates. Validate the forecasting method independently; drawing a smooth-looking line does not validate its predictions. Check the mark's label and contrast in both themes rather than relying on colour alone.
+
+Tags: `line`, `forecast`.
+
+[Line family overview](./overview)

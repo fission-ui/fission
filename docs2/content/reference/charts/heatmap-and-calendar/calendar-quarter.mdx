@@ -1,0 +1,48 @@
+---
+title: Quarter calendar heatmap
+sidebar_label: Quarter calendar heatmap
+description: Keep a quarter's calendar range and data cutoff consistent.
+---
+
+# Quarter calendar heatmap
+
+![Quarter calendar heatmap screenshot](/img/charts/calendar-quarter.png)
+
+A quarter view is a reporting window, not a different chart type. Its first and last dates should be explicit so the reader can distinguish a complete quarter from one still in progress.
+
+Use `BuildActivityCalendar` from [build calendars](./calendar-builds), in `widgets/build_activity_calendar.rs`, for confirmed daily build volume:
+
+```rust
+use fission::prelude::*;
+use fission::charts::VisualMap;
+use crate::widgets::build_activity_calendar::{BuildActivityCalendar, DailyBuildTotal};
+
+fission_component! {
+    pub QuarterBuildActivity<()> {
+        props {
+            title: String,
+            builds_label: String,
+            summary: TextContent,
+            first_date: String,
+            last_confirmed_date: String,
+            days: Vec<DailyBuildTotal>,
+            colour_scale: VisualMap,
+        }
+    }
+    view(report, _state, _cx) => BuildActivityCalendar {
+        title: report.title.clone(),
+        builds_label: report.builds_label.clone(),
+        summary: report.summary.clone(),
+        start_date: report.first_date.clone(),
+        end_date: report.last_confirmed_date.clone(),
+        days: report.days.clone(),
+        colour_scale: report.colour_scale.clone(),
+    }
+}
+```
+
+The report builder validates that dates belong to the selected quarter and that every day through the cutoff is confirmed. Do not extend the range into future dates and allow missing cells to appear as zero activity. Compare complete periods or explain the unequal coverage.
+
+Translate the quarter title and cutoff summary in the parent. Keep the colour bounds constant across quarters and retain exact counts. Test leap years, timezone boundaries and a quarter with missing telemetry; fixed English weekday captions are currently a renderer limit. The gallery is separate.
+
+[Heatmap and calendar family overview](./overview)

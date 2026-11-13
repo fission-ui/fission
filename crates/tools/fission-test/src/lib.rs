@@ -502,6 +502,9 @@ impl<S: GlobalState> TestHarness<S> {
                 (cx.into_ir(), root_id)
             };
             self.runtime.reconcile_focus(&ir)?;
+            // Match shell lifecycle: discard runtime state from widget IDs whose meaning changed
+            // before laying out the newly lowered tree.
+            self.runtime.reconcile_ir(&ir);
 
             let layout_input_nodes = build_layout_tree(&ir, &self.env);
             self.last_ir = Some(ir);
@@ -515,7 +518,6 @@ impl<S: GlobalState> TestHarness<S> {
             }
             self.layout_engine
                 .set_layout_direction(self.env.layout_direction);
-            self.layout_engine.update(&layout_input_nodes);
             self.layout_engine
                 .verify_post_update(&layout_input_nodes, root_id)?;
             let snapshot = self.layout_engine.compute_layout(
@@ -525,6 +527,9 @@ impl<S: GlobalState> TestHarness<S> {
                 &|id| self.runtime.runtime_state.scroll.get_offset(id),
             )?;
             self.last_snapshot = Some(snapshot);
+            if let (Some(ir), Some(layout)) = (&self.last_ir, &self.last_snapshot) {
+                self.runtime.reconcile_focus_with_layout(ir, layout)?;
+            }
             if trace {
                 eprintln!("[test-trace] layout done");
             }

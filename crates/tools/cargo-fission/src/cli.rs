@@ -469,7 +469,12 @@ pub(crate) struct ServingArgs {
     #[arg(long, default_value = "/")]
     pub mount: String,
     /// Bound the complete build and local-asset readiness sequence.
-    #[arg(long, default_value_t = 300, value_parser = clap::value_parser!(u64).range(1..=3600))]
+    #[arg(
+        long,
+        env = "FISSION_SERVING_STARTUP_TIMEOUT_SECONDS",
+        default_value_t = 900,
+        value_parser = clap::value_parser!(u64).range(1..=3600)
+    )]
     pub startup_timeout_seconds: u64,
     /// Stop on stdin `stop` + newline or EOF, including during startup.
     #[arg(long)]

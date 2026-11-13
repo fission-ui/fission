@@ -1063,6 +1063,12 @@ pub struct Semantics {
     pub label: Option<String>,
     /// Stable semantic identifier for tooling and automation.
     pub identifier: Option<String>,
+    /// Widget regions that should receive pointer input through this overlay.
+    ///
+    /// This is used by dismissal surfaces that cover the screen while keeping
+    /// selected anchors interactive. It affects hit testing, not accessibility.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pointer_passthrough: Vec<WidgetId>,
     /// The current value as a string (e.g., the text in an input field).
     pub value: Option<String>,
     /// Optional hyperlink destination for this semantic region.
@@ -1360,6 +1366,7 @@ impl Default for Semantics {
             role: Role::Generic,
             label: None,
             identifier: None,
+            pointer_passthrough: Vec::new(),
             value: None,
             hyperlink: None,
             popover_target: None,

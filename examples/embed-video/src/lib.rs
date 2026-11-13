@@ -7,7 +7,7 @@ impl GlobalState for VideoEmbedState {}
 
 fission_component! {
     pub VideoEmbedApp<VideoEmbedState>
-    |_app, _state, cx| {
+    view(_app, _state, cx) {
         let colours = &cx.view.env().theme.tokens.colors;
         let video = video_file!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/demo.mp4"))
             .id(WidgetId::explicit("embed-video.demo"))

@@ -4,14 +4,14 @@ use fission::prelude::*;
 
 fission_component! {
     #[derive(Clone, Debug)] pub(super) Brand<ShowcaseState> {}
-    |_component, _state, cx| {
+    view(_component, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let navigate = with_reducer!(cx.build, Navigate("/".into()), on_navigate);
     } =>
         Pressable(Row(
             children: [
                 Icon::svg(include_str!(
-                    "../../../../documentation/static/img/fission-mark.svg"
+                    "../../../../docs2/site/assets/img/fission-mark.svg"
                 ))
                 .size(tokens.sizing.icon_lg),
                 Text::new(TextContent::Key("showcase.app.title".into()))

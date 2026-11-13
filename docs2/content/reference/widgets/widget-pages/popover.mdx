@@ -1,0 +1,79 @@
+---
+title: Popover
+description: Anchor interactive overlay content to an inline trigger while keeping open state explicit.
+slug: /widgets/popover
+---
+# Popover
+
+`Popover` keeps its trigger in the normal layout and places its open content
+next to it in the flyout portal layer.
+
+Use it for filter menus, formatting pickers, account menus, or compact
+inspectors. It has more room than a tooltip but interrupts less than a modal.
+
+Your app owns `is_open`. The widget keeps the trigger in layout, uses its
+stable anchor ID, and positions the popup when state says it is open.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub FormattingPopover<()> {
+        props { formatting_controls: Widget }
+        state { open: bool = false }
+    }
+
+    view(panel, _state, cx) =>
+        Popover(
+            id: WidgetId::explicit("editor.formatting"),
+            is_open: panel.open,
+            trigger: Button(
+                child: Text(cx.tr("editor.formatting")),
+                on_press: reduce { panel.open = !panel.open; },
+            ),
+            content: panel.formatting_controls.clone(),
+            on_close: reduce { panel.open = false; },
+        )
+}
+```
+
+The trigger is the only activation owner. Backdrop dismissal sets `open = false`;
+it does not reuse the trigger's toggle and accidentally reopen a closed panel.
+Formatting values stay in the parent editor model while the open flag is local.
+
+Notice that the trigger's own button handles the open and close action. That keeps the event flow explicit.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetId` | Stable identity for the anchor and portal entry. | Required. The widget derives an internal anchor id from this value. |
+| `is_open` | `bool` | Whether the popup content should be visible. | When `false`, only the trigger is rendered. |
+| `on_close` | `Option<ActionEnvelope>` | Action dispatched when the optional backdrop is tapped. | If set, the widget adds a transparent full-screen backdrop behind the popup. |
+| `motion` | `Option<PopoverMotion>` | Surface entry/exit policy. | `None` follows standard widget motion; choose `Some(PopoverMotion::None)` to opt out. |
+| `trigger` | `Widget` | Inline anchor and activation owner. | Supply an actionable semantic widget such as `Button` or `Pressable`; Popover never wraps or replaces its action. |
+| `content` | `Widget` | Popup body shown in the flyout layer when open. | Positioned relative to the trigger and clamped within the viewport. |
+
+## Overlay behavior
+
+`Popover` uses the same `flyout` layout machinery as menus and tooltips. That means the popup is measured normally, then positioned next to the trigger after layout. Because the popup is portaled, it is not clipped by parent scroll containers or stacking contexts in the way an inline child would be.
+
+This is why popovers are a good fit for controls inside toolbars, tables, and dense panels. The trigger stays exactly where the layout puts it, while the overlay content gets room to escape.
+
+## Specific advice
+
+Keep a popover focused on one local task. If it grows into a long workflow, a modal or routed page is usually clearer. Also do not hide essential instructions inside a popover that only appears after an extra click.
+
+The trigger owns opening and closing the popover. Use a button, pressable, or another semantic interaction widget inside `trigger` and dispatch the controlled-state action from that widget. Keeping one activation owner avoids nested controls and duplicate dispatch for custom triggers.
+
+## Production checklist
+
+- Check trigger activation, outside close, Escape policy, and focus return.
+- Test constrained viewport placement and reduced-motion exit.
+- Keep the trigger and close action idempotent where a dismissal can be delivered twice.
+
+## Related
+
+[`flyout`](/reference/widgets/flyout), [`Tooltip`](/reference/widgets/tooltip), [`MenuButton`](/reference/widgets/menu-button), [`Select`](/reference/widgets/select), and [`Combobox`](/reference/widgets/combobox).

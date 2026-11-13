@@ -1,0 +1,242 @@
+---
+title: Layout and widgets
+description: Compose responsive Fission screens from reading order, constraints and widgets which own the required behaviour.
+---
+
+# Layout and widgets
+
+A responsive screen is not a collection of boxes which happen to fit one
+screenshot. It presents product information in an order, makes some regions
+scroll and changes which context remains useful when space is limited.
+
+Start from those decisions. Then choose widgets which already own the required
+layout, interaction and semantics. Compose reduces construction ceremony; it
+does not choose a usable reading order or a safe minimum width for the product.
+
+## Start with the screen's reading order
+
+For a mail screen, the questions are concrete: is the user choosing a thread
+or reading one, must the list remain visible, and which region should scroll?
+The selected thread belongs to app state; available width determines whether
+both regions can remain usable beside each other.
+
+Keep those inputs separate. A resize should not change which thread the app
+considers selected or trigger a new network request merely because another
+layout branch is built.
+
+## Responsive decisions can be declarative or imperative
+
+Use `Responsive` for ordered width-based cases and a fallback. Its query can
+use the viewport or the parent container. Use `Length` constraints when the
+structure stays the same but a pane's width should grow within bounds.
+
+Read `cx.view.viewport_size()` for a rule which genuinely depends on height or
+combines geometry with product state. Read previous layout through the view
+handle when a feature needs measured geometry. These are build-time reads,
+not a reason to retain that handle for a later event.
+
+Build handles wire reducers, resources and other runtime registrations. They
+do not replace the view handle as the source of layout information.
+
+## A concrete responsive example
+
+On a narrow mail screen, show either the list or its selected thread. On a
+wider screen, retain both. These excerpts assume an app `MailState` with
+`selected_thread: Option<u64>` and named app widgets `ThreadList`,
+`ThreadDetail` and `EmptyThreadState`.
+
+```rust
+use fission::prelude::*;
+
+const PHONE_BREAKPOINT: f32 = 900.0;
+const LIST_PANE_MIN_WIDTH: f32 = 280.0;
+const LIST_PANE_MAX_WIDTH: f32 = 360.0;
+
+fission_component! {
+    pub MailScreen<MailState>
+    view(_screen, _state, _cx) =>
+    SafeArea(
+        child: Responsive::new_with_id(
+            WidgetId::explicit("mail.layout"),
+            || MailDesktopLayout,
+        )
+        .case_max_width_with(PHONE_BREAKPOINT, || MailPhoneLayout),
+    )
+}
+
+fission_component! {
+    pub MailPhoneLayout<MailState>
+    view(_layout, state, cx) =>
+    Scroll(
+        semantic_label: Some(cx.tr("mail.content")),
+        child: if let Some(thread_id) = state.selected_thread {
+            ThreadDetail(thread_id)
+        } else {
+            ThreadList()
+        },
+    )
+}
+
+fission_component! {
+    pub MailDesktopLayout<MailState>
+    view(_layout, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Row(
+        gap: tokens.spacing.m,
+        children: [
+            Container(
+                Scroll(
+                    semantic_label: Some(cx.tr("mail.thread_list")),
+                    child: ThreadList(),
+                ),
+            )
+            .width_length(Length::clamp(
+                Length::points(LIST_PANE_MIN_WIDTH),
+                Length::percent(32.0),
+                Length::points(LIST_PANE_MAX_WIDTH),
+            ))
+            .flex_shrink(0.0),
+            Container(
+                Scroll(
+                    semantic_label: Some(cx.tr("mail.thread_content")),
+                    child: if let Some(thread_id) = state.selected_thread {
+                        ThreadDetail(thread_id)
+                    } else {
+                        EmptyThreadState()
+                    },
+                ),
+            )
+            .flex_grow(1.0),
+        ],
+    )
+}
+```
+
+The fallback is the desktop layout; the first matching narrow case overrides
+it. Identity-aware responsive constructors build each branch inside its own
+retained scope. Do not clone one retained `Widget` value into several cases.
+Both branches can be lowered even though only one is displayed, so layout
+selection is not an access-control boundary.
+
+The list pane prefers 32% of its parent row, bounded by 280 and 360 points.
+That is a content constraint, not 32% of the entire screen. Use `Length::vw`
+only when the viewport is genuinely the intended reference.
+
+The desktop list and thread each own a scroll region. The phone has one
+primary scroll region. A single scroll around the entire desktop row would
+couple two different reading tasks.
+
+For a combined geometry/product rule, the view can choose between the same
+named layouts with ordinary control flow:
+
+```rust
+fission_component! {
+    pub MailScreen<MailState>
+    view(_screen, state, cx) {
+        let viewport = cx.view.viewport_size();
+        let use_compact = viewport.width < PHONE_BREAKPOINT
+            || (state.reading_mode && viewport.height < 600.0);
+    } =>
+    SafeArea(
+        child: if use_compact {
+            MailPhoneLayout()
+        } else {
+            MailDesktopLayout()
+        },
+    )
+}
+```
+
+This is an alternative `MailScreen` definition, not an additional declaration
+to paste beside the first. It assumes an app-owned `reading_mode` preference.
+Keep simple width selection in `Responsive`; use a manual condition when the
+extra inputs explain a real product rule.
+
+## What changes between phone, tablet, desktop, and web layouts
+
+More space should reveal useful context, not just produce longer text lines.
+A phone often needs one primary surface and safe-area protection. A tablet may
+support list/detail while still lack room for a permanent inspector. A desktop
+can retain more context, but forms and paragraphs still need readable bounds.
+
+A narrow browser window can need the same compact composition as a phone.
+Choose from actual available space, not only the operating-system name.
+
+## When to use rows, columns, grids, stacks, and scroll regions
+
+| Layout | Use it when |
+| --- | --- |
+| `Row` / `Column` | Content has a horizontal or vertical reading order. |
+| `SimpleGrid` / `Grid` | Repeated content needs cells or explicit track placement. |
+| `ZStack` / `Overlay` | Layers genuinely share the same area. |
+| `Scroll` | A region can exceed its available bounds. |
+| `LazyColumn` | A long list needs virtualization rather than every row built at once. |
+| `SplitView` | Users need a resizable two-pane workflow. |
+| `LayoutBuilder` | Composition depends on actual local constraints rather than viewport alone. |
+
+Use `Modal`, `Drawer`, `Popover`, `Menu` or `Tooltip` for their corresponding
+interaction, instead of manually positioning boxes and attempting to recreate
+focus, dismissal and semantics.
+
+## Core primitives first, then higher-level widgets
+
+That describes the API's dependency layers, not a requirement to rebuild a
+higher-level control from primitives. Prefer the most specific built-in widget
+which owns the task.
+
+A labelled field usually wants `FormControl`, a standard content surface wants
+`Card`, and a real table wants `DataTable`. Use `Container` for a genuinely
+custom box. Understanding rows and constraints remains useful, but it is not
+a reason to hand-build every card, dialog or input relationship.
+
+## Width constraints matter more than people expect
+
+A breakpoint changes structure. A constraint decides how much space a piece
+may occupy within that structure. They solve different problems.
+
+The mail list has a fixed minimum because its rows need usable room. Below
+that minimum a different composition is required; fractional sizing does not
+make the minimum disappear. The detail region can grow, but paragraphs and
+forms inside it may still need their own maximum width.
+
+Use `Length::clamp` and parent-relative sizing for these constraints rather
+than repeatedly calculate pixels from the viewport.
+
+## Safe areas and viewport size are different things
+
+The viewport describes the complete surface. Insets identify parts occupied by
+system UI, cutouts or similar host restrictions. Use `SafeArea` near the screen
+boundary rather than subtracting those values independently in each child.
+
+Local content constraints still apply inside the safe area. A protected edge
+does not make an over-wide row fit a phone.
+
+## Common responsive mistakes
+
+- Constructing both cases from one cloned retained widget.
+- Giving a row's local state the list index as its identity.
+- Hiding controls with clipping instead of fixing constraints.
+- Nesting scroll regions without deciding which task each scrolls.
+- Starting I/O because a viewport branch rebuilt.
+- Treating a hidden responsive branch as though its resources cannot exist.
+
+For an access prerequisite use `ProtectedRoute`. For layout choose the
+structure and constraints; these are not interchangeable boundaries.
+
+## A practical workflow for new screens
+
+First make the narrow reading order and state flow work. Then add wider context
+where it helps the task. Check both in a real rendered target with long
+translations, keyboard navigation, focus and loading/error states.
+
+Use LiveTest and manual `/cmd` requests to resize, interact and capture the
+actual screen. A successful compile establishes type compatibility, not that
+a control fits, is reachable or remains usable while a request is pending.
+
+## Where to go next
+
+- [Responsive reference](/reference/widgets/responsive/)
+- [Input, text and environment](/docs/guides/input-events-text-and-env/)
+- [State and runtime model](/docs/learn/runtime-model/)
+- [The complete task app](/blog/build-a-single-page-web-app-in-rust/)

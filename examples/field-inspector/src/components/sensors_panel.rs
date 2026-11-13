@@ -10,7 +10,7 @@ use crate::model::{
 use fission::prelude::*;
 fission_component! {
     pub SensorsPanel<FieldInspectorState> {}
-    |_panel, state, cx| {
+    view(_panel, state, cx) {
         let scan = with_reducer!(cx.build, ScanSensors, on_scan_sensors);
         let connect = state.bluetooth_devices.first().map(|device| with_reducer!(cx.build, ConnectSensor(device.id.clone()), on_connect_sensor));
         let spacing = &cx.view.env().theme.tokens.spacing;

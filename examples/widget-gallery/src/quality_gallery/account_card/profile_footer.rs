@@ -4,7 +4,7 @@ use crate::GalleryState;
 
 fission_component! {
     pub(super) ProfileFooter<GalleryState> { action: ActionEnvelope }
-    |footer, _state, _cx| {} =>
+    view(footer, _state, _cx) {} =>
         Row(children: [
             Button(
                 variant: ButtonVariant::TertiaryGray,

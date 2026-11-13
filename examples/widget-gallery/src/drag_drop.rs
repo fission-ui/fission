@@ -63,7 +63,7 @@ fn push_drag_log(state: &mut GalleryState, message: String) {
 
 fission_component! {
     pub(crate) DragDropSection<GalleryState> {}
-    |_section, state, cx| {
+    view(_section, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         VStack(

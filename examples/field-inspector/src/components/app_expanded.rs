@@ -6,7 +6,7 @@ const WORK_ORDER_RAIL_MIN_WIDTH: f32 = 280.0;
 const WORK_ORDER_RAIL_MAX_WIDTH: f32 = 330.0;
 fission_component! {
     #[derive(Clone)] pub FieldInspectorExpanded<FieldInspectorState> {}
-    |_app, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(_app, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         Container(
             SafeArea(
                 id: WidgetId::explicit("field-inspector.expanded.safe-area"),

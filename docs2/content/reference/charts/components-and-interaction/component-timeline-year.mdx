@@ -1,0 +1,47 @@
+---
+title: Timeline years
+sidebar_label: Timeline years
+description: Browse comparable annual report snapshots with real controls and a shared selection authority.
+---
+
+# Timeline years
+
+![Timeline years screenshot](/img/charts/component-timeline-year.png)
+
+A year selector should change the report, not just its highlighted label. Keep one selection authority and derive both the series and the timeline indicator from it.
+
+The [release timeline example](./component-timeline-release) defines `ReportSnapshot` and `SnapshotBrowser`. Put them in `widgets/snapshot_browser.rs` and reuse the same mechanism for annual snapshots:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::snapshot_browser::{ReportSnapshot, SnapshotBrowser};
+
+fission_component! {
+    pub AnnualOrdersBrowser<()> {
+        props {
+            heading: TextContent,
+            previous_year_label: TextContent,
+            next_year_label: TextContent,
+            empty_label: TextContent,
+            orders_label: String,
+            years: Vec<ReportSnapshot>,
+        }
+    }
+    view(annual, _state, _cx) => SnapshotBrowser {
+        heading: annual.heading.clone(),
+        previous_label: annual.previous_year_label.clone(),
+        next_label: annual.next_year_label.clone(),
+        empty_label: annual.empty_label.clone(),
+        measure_label: annual.orders_label.clone(),
+        snapshots: annual.years.clone(),
+    }
+}
+```
+
+Build the snapshots in chronological order with translated month labels and year titles. The year label is display text, not an identifier or an implicit query instruction.
+
+Decide whether the current year is complete enough to compare with previous years. Use the same order-counting rule and expose partial reporting periods. For direct visual magnitude comparisons, also choose a shared numeric range rather than independently scaling every selected report.
+
+`ChartTimeline` remains a visual indicator; its labels do not provide working year selection or timed playback. Test the actual buttons and data changes, including no available years and a changed year list. Keep exact annual values accessible outside the chart. The screenshot is a gallery fixture.
+
+[Components and interaction family overview](./overview)

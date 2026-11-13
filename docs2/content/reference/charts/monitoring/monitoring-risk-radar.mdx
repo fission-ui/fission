@@ -1,0 +1,59 @@
+---
+title: Monitoring risk radar
+sidebar_label: Monitoring risk radar
+description: Fission Charts reference for Monitoring risk radar.
+---
+
+# Monitoring risk radar
+
+![Monitoring risk radar screenshot](/img/charts/monitoring-risk-radar.png)
+
+A risk summary combines several observations which may have different units. Before placing them on one radar, define a common scale and what a larger value means. Otherwise a larger polygon has no coherent interpretation. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here four policy scores describe capacity, error-rate, latency and recovery risk. Each runs from 0 to 100, with larger values meaning greater risk. These are application-defined scores, not probabilities calculated by Fission or measurements which become comparable merely by sharing a chart.
+
+## Data model
+
+`RadarSeries::data` takes a vector of value vectors. The first vector determines the number of spokes, and the renderer maps every value onto a fixed 0–100 radius. It does not draw named spoke labels. Keep the dimension order fixed and explain it in normal text.
+
+## Authoring from a Fission component
+
+An array enforces four supplied scores at the component boundary. The parent calculates and validates the policy scores; the component presents their shape and names the dimensions outside the plot.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, RadarSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ServiceRiskProfile<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            dimension_description: String,
+            scale_description: String,
+            scores: [f32; 4],
+        }
+    }
+    view(risk, _state, _cx) => Column(children: [
+        Text(risk.dimension_description.clone()),
+        Text(risk.scale_description.clone()),
+        Chart(
+            title: Some(risk.chart_title.clone()),
+            series: vec![RadarSeries::new(&risk.series_label)
+                .data(vec![risk.scores.to_vec()])
+                .into()],
+        ),
+    ])
+}
+```
+
+## Testing and accessibility
+
+Test every score boundary and invalid or unavailable inputs before rendering; values outside 0–100 are visually clamped. Provide the four named values and the scoring policy in accessible content. Do not rank overall service risk by polygon area: changing the spoke order changes that area without changing any score.
+
+Tags: `monitoring`, `radar`.
+
+[Monitoring family overview](./overview)

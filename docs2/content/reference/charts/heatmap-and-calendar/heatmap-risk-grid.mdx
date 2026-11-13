@@ -1,0 +1,40 @@
+---
+title: Risk grid heatmap
+sidebar_label: Risk grid heatmap
+description: Count risks by explicit likelihood and impact categories.
+---
+
+# Risk grid heatmap
+
+![Risk grid heatmap screenshot](/img/charts/heatmap-risk-grid.png)
+
+A risk matrix has two categorical axes: likelihood and impact. The colour can represent how many risks occupy a category pair, but it should not silently multiply arbitrary category codes into a new risk score.
+
+Use `MetricCell` and the Compose `MetricMatrix` from [availability matrices](./heatmap-availability), in `widgets/metric_matrix.rs`:
+
+```rust
+use std::collections::BTreeMap;
+use crate::widgets::metric_matrix::MetricCell;
+
+pub fn risk_category_counts(
+    categories: &[(usize, usize)],
+) -> Vec<MetricCell> {
+    let mut counts: BTreeMap<(usize, usize), u32> = BTreeMap::new();
+    for &(likelihood, impact) in categories {
+        *counts.entry((likelihood, impact)).or_insert(0) += 1;
+    }
+    counts.into_iter().map(|((column, row), count)| MetricCell {
+        column,
+        row,
+        value: count as f32,
+    }).collect()
+}
+```
+
+Validate each category against the corresponding translated axis labels and deduplicate risk IDs before counting. The input is one likelihood/impact pair per current risk, not an event log that counts every edit.
+
+Use a count scale and a summary stating the classification policy. If confirmed empty categories should appear as zero, explicitly materialise those cells; omitted cells otherwise remain undrawn. Keep the underlying risk list with owners and evidence, because a dense cell does not identify the most consequential individual risk.
+
+Test category changes, no risks, invalid indices and reclassification. Colour is not the only priority signal and no formula here predicts losses. The gallery uses its own fixture.
+
+[Heatmap and calendar family overview](./overview)

@@ -1,0 +1,53 @@
+---
+title: Mark line component
+sidebar_label: Mark line component
+description: Add a real numeric response-time threshold without pretending it triggers an alert.
+---
+
+# Mark line component
+
+![Mark line component screenshot](/img/charts/component-mark-line.png)
+
+A threshold line gives observations a reference point. A response-time budget, for example, can remain visible even when all current readings are comfortably below it.
+
+Drawing that line does not implement an alert. Alert decisions belong to the application's measurement and effect flow.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, Chart, LineSeries, MarkLine, Series};
+
+fission_component! {
+    pub ResponseBudgetTrend<()> {
+        props {
+            title: String,
+            response_label: String,
+            budget_label: String,
+            intervals: Vec<String>,
+            response_ms: Vec<f32>,
+            budget_ms: f32,
+            budget_colour: Color,
+        }
+    }
+    view(response, _state, _cx) {
+        let labels = response.intervals.iter().map(String::as_str).collect();
+        let top = response.response_ms.iter().copied()
+            .fold(response.budget_ms.max(1.0), f32::max);
+    } => Chart(
+        title: Some(response.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0).max(top)),
+        series: vec![Series::Line(
+            LineSeries::new(&response.response_label).data(response.response_ms.clone()),
+        )],
+        mark_lines: vec![MarkLine::y(response.budget_label.clone(), response.budget_ms)
+            .color(response.budget_colour)],
+    )
+}
+```
+
+The axis explicitly includes the threshold as well as the observations. Require a finite positive budget and finite non-negative timings, with labels aligned to one reporting interval. Translate the displayed names and provide the colour from the design system.
+
+State whether each timing is a mean, percentile or individual observation. Those are not interchangeable SLA measures. Test all readings below the budget, one above it and exact equality, and provide the budget and values in text. The screenshot is a separate gallery fixture.
+
+[Components and interaction family overview](./overview)

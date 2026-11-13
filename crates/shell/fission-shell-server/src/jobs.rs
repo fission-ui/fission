@@ -60,7 +60,8 @@ impl ServerJobCtx {
 
     /// Opens a runtime-owned data stream for this server job.
     ///
-    /// Streams are one-shot by default; opening consumes the stream handle.
+    /// Streams are one-shot by default. The stream's registry entry is released
+    /// when the returned stream is dropped.
     pub fn open_data_stream(
         &self,
         id: DataStreamId,
@@ -78,7 +79,7 @@ impl ServerJobCtx {
         block_on_stream(collect_data_stream(stream))
     }
 
-    /// Releases a stream without consuming it.
+    /// Releases a stream that will not be opened.
     pub fn release_data_stream(&self, id: DataStreamId) -> bool {
         self.data_streams.release(id)
     }
@@ -137,7 +138,8 @@ impl ServerJobRegistry {
         self.data_streams.register(stream)
     }
 
-    /// Opens and consumes a registered stream handle.
+    /// Opens and consumes a registered stream handle. Its registry entry is
+    /// released when the returned stream is dropped.
     pub fn open_data_stream(
         &self,
         id: DataStreamId,
@@ -145,7 +147,7 @@ impl ServerJobRegistry {
         self.data_streams.open(id)
     }
 
-    /// Releases a stream without opening it.
+    /// Releases a stream that will not be opened.
     pub fn release_data_stream(&self, id: DataStreamId) -> bool {
         self.data_streams.release(id)
     }
@@ -345,8 +347,8 @@ mod tests {
 
         assert_eq!(ctx.collect_data_stream(stream).unwrap().as_ref(), b"once");
         match ctx.open_data_stream(stream) {
-            Ok(_) => panic!("stream should be consumed"),
-            Err(error) => assert_eq!(error.kind, FissionDataStreamErrorKind::AlreadyConsumed),
+            Ok(_) => panic!("dropped stream should be removed"),
+            Err(error) => assert_eq!(error.kind, FissionDataStreamErrorKind::NotFound),
         }
     }
 }

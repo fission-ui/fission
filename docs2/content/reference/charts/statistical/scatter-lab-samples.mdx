@@ -1,0 +1,57 @@
+---
+title: Lab sample scatter
+sidebar_label: Lab sample scatter
+description: Fission Charts reference for Lab sample scatter.
+---
+
+# Lab sample scatter
+
+![Lab sample scatter screenshot](/img/charts/scatter-lab-samples.png)
+
+Laboratory comparisons depend on paired observations under known conditions. For material testing, curing temperature and measured tensile strength can be inspected together without reducing all samples to one average. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Each point represents one tested material sample. Keep composition, curing duration and measurement conditions available before attributing a strength difference to temperature.
+
+## Data model
+
+`ScatterSeries` takes finite `(x, y)` values. Temperature and strength must refer to the same sample with consistent units. The chart does not perform regression, detect clusters or assess measurement uncertainty.
+
+## Authoring from a Fission component
+
+The parent supplies validated temperature/strength pairs and localized labels, retaining sample IDs and experimental conditions separately.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, ScatterSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub MaterialSampleScatter<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            axis_label_2: String,
+            observations: Vec<(f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::value().name(&report.axis_label)),
+        y_axis: Some(Axis::value().name(&report.axis_label_2)),
+        series: vec![ScatterSeries::new(&report.series_label)
+            .data(report.observations.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test repeated measurements, missing strength results and overlapping samples. Provide sample counts, exact values and the testing conditions outside the chart. A visible association is not proof of a controlled causal effect.
+
+Tags: `scatter`, `samples`.
+
+[Statistical family overview](./overview)

@@ -1,0 +1,38 @@
+---
+title: Coordinates
+sidebar_label: Overview
+description: Choose calendar, polar and single-axis layouts only when their coordinates preserve the data's meaning.
+---
+
+# Coordinates
+
+A coordinate system should explain a relationship, not conceal it behind an unusual shape. Calendar position carries weekday and week information. Polar angle can carry direction or cyclic order. A single numeric axis is enough when no second measured dimension is needed.
+
+These four examples use actual series through Compose, with ready snapshots supplied by the parent.
+
+![Calendar heatmap screenshot](/img/charts/calendar-heatmap.png)
+
+## Variants
+
+| Chart | Data shape | What the position means |
+| --- | --- | --- |
+| [Calendar heatmap](./calendar-heatmap) | Valid ISO dates and daily values. | A day in a declared reporting calendar. |
+| [Polar bar](./polar-bar) | Ordered labels and non-negative values. | An equal slot in a repeating cycle, not arbitrary numeric angle. |
+| [Polar line](./polar-line) | Numeric angle/radius pairs. | A measured direction and its radial value. |
+| [Single axis](./single-axis) | Numeric position/size pairs. | One measured dimension; vertical lanes are only presentation. |
+
+## Preserve the source meaning
+
+Calendar reporting needs a timezone and a completeness policy. The current renderer fills absent dates with zero, so unknown days must be handled before they become a successful report.
+
+Polar radius is normalised against the displayed series maximum. Independent charts do not therefore share a fixed radial scale. Use ordinary bars when exact differences or comparisons across windows matter more than cyclic or directional structure.
+
+Single-axis marker sizes also have a minimum radius and relative scaling. They are not a literal area-proportional count, and their visual lanes do not add a second data field.
+
+## Authoring and verification
+
+Enable Fission's `charts` feature, then use the named components on the individual pages. Built-in `Chart(...)` composition accepts explicit series values; required-prop component reuse uses fully specified Rust struct literals. No extra chart-authoring runtime or `rust { ... }` blocks are needed.
+
+Keep translated labels and design-system settings in parent inputs. Calendar internal weekday captions are currently fixed English, which is a renderer limitation rather than something a translated title solves.
+
+Test the projection's dates, directions, units and boundaries separately. Use LiveTest to inspect actual small and large layouts, and retain values in accessible text or tables. The gallery images are fixtures, not correctness or performance evidence for application data.

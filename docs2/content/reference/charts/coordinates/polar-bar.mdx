@@ -1,0 +1,48 @@
+---
+title: Polar bar
+sidebar_label: Polar bar
+description: Show an ordered monthly energy cycle with actual PolarBarSeries values.
+---
+
+# Polar bar
+
+![Polar bar screenshot](/img/charts/polar-bar.png)
+
+A circular arrangement can make a repeating cycle recognisable. Monthly energy use is one such case: the period after December returns to January rather than continuing indefinitely along a line.
+
+It is still harder to compare radial lengths precisely than ordinary bars. Use the circular form because the cycle matters, not merely to decorate a dashboard.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PolarBarSeries, Series};
+
+fission_component! {
+    pub MonthlyEnergyCycle<()> {
+        props {
+            title: String,
+            energy_label: String,
+            month_labels: [String; 12],
+            kilowatt_hours: [f32; 12],
+            inner_radius: f32,
+        }
+    }
+    view(energy, _state, _cx) {
+        let values = energy.month_labels.iter().zip(energy.kilowatt_hours.iter())
+            .map(|(label, value)| (label.as_str(), *value)).collect();
+    } => Chart(
+        title: Some(energy.title.clone()),
+        series: vec![Series::PolarBar(
+            PolarBarSeries::new(&energy.energy_label)
+                .inner_radius(energy.inner_radius).data(values),
+        )],
+    )
+}
+```
+
+Keep the twelve positions in a declared month order and supply translated names. Validate finite non-negative readings and a finite non-negative inner radius supplied by the parent's presentation settings.
+
+The current renderer scales radial extent against the series maximum and places equal angular slots in input order. It is not a fixed numeric radial axis, so independently rendered periods cannot be compared by apparent radius alone.
+
+Test a zero-use month, a missing meter reading and long translated labels. Do not use zero for unavailable readings; wait for a complete window or explain a different presentation. Provide exact kWh values outside the circle. The screenshot uses gallery categories rather than this monthly dataset.
+
+[Coordinates family overview](./overview)

@@ -1,0 +1,88 @@
+---
+title: Data zoom overview
+sidebar_label: Data zoom overview
+description: Fission Charts reference for Data zoom overview.
+---
+
+# Data zoom overview
+
+![Data zoom overview screenshot](/img/charts/interaction-datazoom-overview.png)
+
+A data window lets a user inspect part of a longer series without treating that part as a new dataset. The full ordered data remains available, whilst the chart displays the selected percentage range. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example starts with the middle of a week's completed-order counts. The range is a percentage of the ordered series, not a pair of dates. Keep that distinction clear when a product offers date-based filtering as well.
+
+## Data model
+
+Keep category labels and values in the same order. DataZoom holds start_percent and end_percent, each between zero and 100; set an ordered range. The chart's built-in zoom interaction updates its retained view rather than fetching more records.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `Chart::data_zoom` | `DataZoom` | Adds the initial visible range. |
+| `DataZoom::start_percent` | `f32` | Sets the start of the ordered window. |
+| `DataZoom::end_percent` | `f32` | Sets the end of the ordered window. |
+| `DataZoom::zoom_type` | `DataZoomType` | Chooses slider or inside-plot interaction. |
+
+## Example
+
+```rust
+use fission::charts::{Axis, Chart, DataZoom, LineSeries};
+
+let chart = Chart::new()
+    .title("Daily completed orders")
+    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]))
+    .y_axis(Axis::value())
+    .data_zoom(DataZoom::new().start_percent(25.0).end_percent(75.0))
+    .series(vec![LineSeries::new("Completed orders")
+        .data(vec![42.0, 51.0, 47.0, 63.0, 71.0, 85.0, 68.0])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+Pass the prepared values to the chart and let its built-in retained interaction own the visible window. The example keeps its category list fixed; pass labels alongside values when the reporting period is variable.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, DataZoom, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DataZoomOverviewChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            category_labels: Vec<String>,
+            values: Vec<f32>,
+        }
+    }
+    view(history, _state, _cx) =>
+        Chart(
+            title: Some(history.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                history.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            data_zoom: Some(DataZoom::new()
+                .start_percent(25.0)
+                .end_percent(75.0)),
+            series: vec![LineSeries::new(&history.series_label)
+                .data(history.values.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test the first, last and complete ranges, and verify that each displayed order count retains its correct day label. A wider window cannot recover records omitted from the supplied data.
+
+Check the actual zoom gesture and offer a keyboard-accessible way to choose the reporting range where that choice is essential to the task.
+
+Tags: `dataZoom`, `line`.
+
+[Interaction family overview](./overview)

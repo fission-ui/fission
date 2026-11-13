@@ -1,0 +1,74 @@
+---
+title: Annotated line
+sidebar_label: Annotated line
+description: Fission Charts reference for Annotated line.
+---
+
+# Annotated line
+
+![Annotated line screenshot](/img/charts/line-annotation.png)
+
+An annotated line combines the values with the context a reader needs to interpret them. For an export dashboard, a note about changing the completion rule can be as important as the apparent rise in completed jobs. The screenshot is from Fission's chart gallery.
+
+## Data model
+
+The line receives daily completed-job counts and a short explanatory note. ChartGraphic places that note relative to the plot; its x and y values are fractions, not dates or data values. It therefore does not automatically stay attached to one sample when the reporting range changes.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `ChartGraphic::text` | Constructor | Creates a text graphic from a position, string and colour. |
+| `ChartGraphic::rect` | Constructor | Creates a plot-relative rectangular graphic. |
+| `ChartGraphic::line` | Constructor | Creates a line from a plot-relative position and extent. |
+| `Chart::graphics` field | `Vec<ChartGraphic>` | Supplies the overlay graphics. |
+
+## Authoring from a Fission component
+
+This component receives prepared data and a note. The short series has a fixed reporting week; change the labels alongside the values when the period changes.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, ChartGraphic, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub AnnotatedLineChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            category_labels: Vec<String>,
+            values: Vec<f32>,
+            note: String,
+        }
+    }
+    view(report, _state, cx) {
+        let colors = &cx.view.env().theme.tokens.colors;
+        let note = ChartGraphic {
+            width: 0.65,
+            height: 0.12,
+            ..ChartGraphic::text(0.05, 0.05, report.note.clone(), colors.text_primary)
+        };
+        let graphics = vec![note];
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                report.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            graphics: graphics,
+            series: vec![LineSeries::new(&report.series_label)
+                .data(report.values.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test a long translated note, a changed report range and mobile width. Keep the full explanation in normal text outside the chart so the painted note is not the only source of essential context.
+
+Tags: `line`, `graphic`.
+
+[Line family overview](./overview)

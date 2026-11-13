@@ -1,0 +1,56 @@
+---
+title: Single axis
+sidebar_label: Single axis
+description: Show departure positions and passenger weights on one declared numeric axis.
+---
+
+# Single axis
+
+![Single axis screenshot](/img/charts/single-axis.png)
+
+Sometimes the useful relationship is along one dimension. A departure overview can show when services leave and use marker size to indicate passenger load without inventing a meaningful second coordinate.
+
+The current renderer distributes points over several visual lanes. Those lanes reduce overlap; they do not represent platforms, routes or another data field.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, Series, SingleAxisSeries};
+
+#[derive(Clone)]
+pub struct DepartureLoad {
+    pub hours_after_service_start: f32,
+    pub passengers: u32,
+}
+
+fission_component! {
+    pub DepartureLoadStrip<()> {
+        props {
+            title: String,
+            passengers_label: String,
+            explanation: TextContent,
+            departures: Vec<DepartureLoad>,
+        }
+    }
+    view(service, _state, _cx) {
+        let values = service.departures.iter().map(|departure| (
+            departure.hours_after_service_start, departure.passengers as f32,
+        )).collect();
+    } => Column(children: [
+        Text(service.explanation.clone()),
+        Chart(
+            title: Some(service.title.clone()),
+            series: vec![Series::SingleAxis(
+                SingleAxisSeries::new(&service.passengers_label).data(values),
+            )],
+        ),
+    ])
+}
+```
+
+Use finite non-negative elapsed values and a declared service-day origin. This is a numeric offset, not automatic local-time parsing. Keep route and departure IDs in the source model and show translated departure details in an accompanying list.
+
+The renderer derives its horizontal domain from the data and normalises marker sizes with a minimum visible radius. Marker area is not an exact passenger-count scale, and a zero count can still draw a marker.
+
+Test coincident departures, a single departure and the service-day boundary. Provide exact times and loads outside the plot. The gallery screenshot is illustrative rather than this timetable.
+
+[Coordinates family overview](./overview)

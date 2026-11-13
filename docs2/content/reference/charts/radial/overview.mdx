@@ -1,0 +1,80 @@
+---
+title: Radial
+sidebar_label: Overview
+description: Fission Charts reference for the Radial family.
+---
+
+# Radial
+
+A radial view should preserve a meaningful relationship: parts of a total, position in a cycle, or dimensions assessed on a common scale. Similar geometry does not make these relationships interchangeable.
+
+Keep the observation, unit, denominator and scoring policy in the application model. Compose then receives prepared values and localized display labels, without owning data collection.
+
+![Availability gauge screenshot](/img/charts/gauge-availability.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Availability gauge](./gauge-availability) | One bounded value mapped to an arc. | Use it when a single current status dominates the screen. |
+| [Build confidence gauge](./gauge-build-confidence) | One required-check pass percentage on a gauge arc. | Summarise checks without implying a calibrated probability of success. |
+| [Capacity headroom gauge](./gauge-capacity-headroom) | Single capacity value in a bounded range. | Use it when headroom is the only number that matters. |
+| [Cycle polar line](./polar-cycle-line) | Angle/radius samples around a cycle. | Use it for circular process metrics. |
+| [Deploy health gauge](./gauge-deploy-health) | Single score value in a bounded range. | Use it for health and readiness summaries. |
+| [Device donut](./pie-device-donut) | Label/value pairs with an open center. | Show a flat device composition; add any total separately. |
+| [Expense donut](./pie-expense-donut) | Expense categories as a small whole. | Use it for budget composition. |
+| [Exposure area rose](./pie-exposure-rose) | Label/value pairs with area-oriented rose layout. | Use it when relative shape is more important than a precise angle. |
+| [Hourly load polar bars](./polar-hourly-load) | Label/value pairs around a circle. | Use it when cyclic position is meaningful. |
+| [Market rose](./pie-market-rose) | Label/value pairs with radius emphasis. | Use it when presentation value is high and categories are few. |
+| [Plan share pie](./pie-plan-share) | Label/value pairs for a small whole. | Use it when part-to-whole reading is the main task. |
+| [Platform readiness radar](./radar-platform-readiness) | Platform dimensions as comparable vectors. | Use it to summarize readiness across product areas. |
+| [Product fit radar](./radar-product-fit) | Several same-length dimensional vectors. | Use it to compare shapes across a few dimensions. |
+| [Revenue mix donut](./pie-revenue-mix) | Revenue categories as label/value pairs. | Use it when contribution to total revenue matters. |
+| [Risk rose](./pie-risk-rose) | Risk category values in radial form. | Use it for executive risk snapshots where visual emphasis helps. |
+| [Seasonality polar bars](./polar-seasonality-bars) | Cyclic label/value pairs. | Use it when the shape wraps around a repeated cycle. |
+| [Service health radar](./radar-service-health) | Health dimensions on a radial profile. | Use it for compact status summaries. |
+| [Source mix pie](./pie-source-mix) | Traffic or source categories with values. | Use it for small source distributions. |
+| [Team balance radar](./radar-team-balance) | Team capability vectors. | Use it when balance across dimensions is the main reading. |
+| [Wind speed polar line](./polar-wind-speed) | Angle/radius samples. | Use it for directional or cyclic measures. |
+
+## Choosing within this family
+
+A pie or donut needs non-negative, non-overlapping parts of a known total. Rose modes change radius as well as angle, so painted area is not an independently proportional quantity. Use a bar chart when close values need precise comparison.
+
+Polar bars preserve category order around a cycle; polar lines use explicit degree/magnitude pairs. Both scale radius against supplied data, unlike the fixed 0–100 scale used by gauges and radar profiles. State the scale before inviting comparisons across reports.
+
+## Authoring from a Fission component
+
+This account-plan breakdown keeps the reporting population explicit. Each active account contributes once to its current plan at the snapshot time.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub AccountPlanOverview<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            accounts_by_plan: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.accounts_by_plan.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .into()],
+    )
+}
+```
+
+## Checks
+
+Test the report preparation before inspecting the shape: attribution, exact currency arithmetic, unavailable measurements and scoring rules all remain application responsibilities. Source vectors and category names must stay aligned when the report updates.
+
+Then inspect real output for label overlap and ambiguous scales. Provide exact values and essential interpretation outside the plot. A gauge cannot enforce release policy, and a radar cannot make subjective assessments objective by drawing them together.

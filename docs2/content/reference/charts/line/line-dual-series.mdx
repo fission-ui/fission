@@ -1,0 +1,67 @@
+---
+title: Dual line comparison
+sidebar_label: Dual line comparison
+description: Fission Charts reference for Dual line comparison.
+---
+
+# Dual line comparison
+
+![Dual line comparison screenshot](/img/charts/line-dual-series.png)
+
+Two lines are useful when the measures share a unit and a reporting interval. Support arrivals and resolutions can then be compared without asking a reader to translate between unrelated scales. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example shows tickets opened and tickets resolved each day. Their difference is useful context, but is not automatically the change in backlog if tickets can reopen, move between queues or be merged.
+
+## Data model
+
+Both count vectors must align with the same ordered day labels. Keep them as separate series, with a legend identifying each one. A percentage and a count would not be suitable substitutes on this shared numeric axis.
+
+## Authoring from a Fission component
+
+The parent supplies prepared values and matching labels. This component does not start work or mutate application state while building.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, Legend, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DualLineComparisonChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            comparison_series_label: String,
+            labels: Vec<String>,
+            opened: Vec<f32>,
+            resolved: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            legend: Some(Legend::top_right()),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.opened.clone())
+                    .into(),
+                LineSeries::new(&report.comparison_series_label)
+                    .data(report.resolved.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check days where one series is zero and ensure the labels still line up after filtering. Provide exact counts or an axis tooltip when a user must compare a small difference rather than the broad trend.
+
+Tags: `line`, `comparison`.
+
+[Line family overview](./overview)

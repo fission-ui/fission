@@ -1,0 +1,67 @@
+---
+title: KPI background bars
+sidebar_label: KPI background bars
+description: Compare progress against declared targets without manufacturing a percentage.
+---
+
+# KPI background bars
+
+![KPI background bars screenshot](/img/charts/bar-kpi-background.png)
+
+A background track gives a progress bar a reference: the amount which would count as complete. For a rollout report, each measure might be completed sites divided by planned sites. A percentage is useful only if that denominator is known and meaningful.
+
+Do not combine unrelated measures merely because each can be expressed from zero to one hundred. The labels must still explain what completion means, and a failed or cancelled rollout is not the same state as zero progress.
+
+## Compose example
+
+These rows contain validated percentages for comparable rollout measures. Keep completed and planned counts in the source model for explanations and tests.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct RolloutProgress {
+    pub milestone: String,
+    pub percent: f32,
+}
+
+fission_component! {
+    pub RolloutProgressChart<()> {
+        props {
+            title: String,
+            progress_label: String,
+            percent_label: String,
+            track_color: Color,
+            rows: Vec<RolloutProgress>,
+        }
+    }
+    view(rollout, _state, _cx) {
+        let labels = rollout.rows.iter().map(|row| row.milestone.as_str()).collect();
+        let progress = rollout.rows.iter().map(|row| row.percent).collect();
+    } => Chart(
+        title: Some(rollout.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0).max(100.0)
+            .name(rollout.percent_label.clone())),
+        series: vec![
+            Series::Bar(BarSeries::new(&rollout.progress_label)
+                .background(rollout.track_color)
+                .data(progress)),
+        ],
+    )
+}
+```
+
+Enable Fission's `charts` feature. `BarSeries::background(Color)` fills the plot range behind each bar, so the explicit maximum of one hundred is what makes that track represent completion. The parent supplies translated text and a design-system colour for the track.
+
+## Keep progress truthful
+
+A zero target makes the ratio undefined, not automatically complete. A target change can alter a percentage without any additional work being done, so retain enough context to explain that change. Reject invalid percentages rather than clamping them into a healthy-looking track.
+
+Provide the completed and planned counts in accessible text. Test zero, exact completion, unavailable targets and values outside the expected range. Inspect the result at narrow widths and with long milestone names; the screenshot is the gallery fixture.
+
+Tags: `bar`, `kpi`.
+
+[Bar family overview](./overview)

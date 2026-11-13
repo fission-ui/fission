@@ -1,0 +1,63 @@
+---
+title: Scatter outliers
+sidebar_label: Scatter outliers
+description: Fission Charts reference for Scatter outliers.
+---
+
+# Scatter outliers
+
+![Scatter outliers screenshot](/img/charts/scatter-outliers.png)
+
+Highlighting an observation is a presentation choice; deciding that it is an outlier requires a rule. For order fulfilment, an unusually long dispatch delay should be identified against an explicit service policy. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Show ordinary and flagged orders together so exceptions retain context. A large halo does not establish a statistical anomaly or explain why the order was delayed.
+
+## Data model
+
+Use `ScatterSeries` for ordinary observations and `EffectScatterSeries` for the prepared exceptions. Both take `(x, y)` pairs. The effect renderer adds concentric emphasis marks; it does not detect outliers or create an asynchronous effect.
+
+## Authoring from a Fission component
+
+The parent partitions orders by policy before building the chart and retains their stable record IDs.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, EffectScatterSeries, Legend, ScatterSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DispatchDelayExceptions<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            series_label_2: String,
+            axis_label: String,
+            axis_label_2: String,
+            ordinary_orders: Vec<(f32, f32)>,
+            flagged_orders: Vec<(f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::value().name(&report.axis_label)),
+        y_axis: Some(Axis::value().name(&report.axis_label_2)),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            ScatterSeries::new(&report.series_label)
+                .data(report.ordinary_orders.clone()).into(),
+            EffectScatterSeries::new(&report.series_label_2)
+                .data(report.flagged_orders.clone()).into(),
+        ],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test a value exactly at the policy limit, no exceptions and overlapping points. Provide a labelled exception list and the rule outside the chart, so a halo or colour is not the only indication.
+
+Tags: `scatter`, `outlier`.
+
+[Scatter and statistical family overview](./overview)

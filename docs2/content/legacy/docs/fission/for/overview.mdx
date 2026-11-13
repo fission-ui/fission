@@ -1,0 +1,92 @@
+---
+title: Fission for framework developers
+description: A bridge into Fission for developers coming from React, Flutter, SwiftUI, Compose, Electron, Tauri, Rust web UI, and terminal UI frameworks.
+---
+
+# Fission for framework developers
+
+If you already build user interfaces with another framework, you do not need a
+primer on components or state. These pages show where Fission puts those
+responsibilities and which familiar ideas carry over.
+
+Whether you use React, Flutter, SwiftUI, Compose, Electron, Tauri, Leptos, Yew,
+Dioxus, Ratatui, Bubble Tea, or something else, you already know the work a UI
+framework needs to handle. The useful comparison is how Fission handles it.
+These pages start from a familiar feature and show its Fission equivalent in
+Rust. They are not benchmark pages, and they are not arguments that one
+framework is universally better than another.
+
+## The series
+
+The series is organized around developer backgrounds rather than platform targets.
+
+| Background | What the page focuses on |
+| --- | --- |
+| [React developers](/docs/fission/for/react-developers/) | Hooks, component state, context, effects, CSS, routing, and tests translated into Fission state, reducers, widgets, environment, resources, theme tokens, routers, and target tests. |
+| [Flutter developers](/docs/fission/for/flutter-developers/) | Widget trees, `setState`, inherited data, platform channels, layout constraints, routing, theme, and widget tests translated into Fission widgets, reducers, providers, shells, routers, tokens, and LiveTest. |
+| [SwiftUI developers](/docs/fission/for/swiftui-developers/) | `View`, `@State`, `ObservableObject`, environment, `.task`, `NavigationStack`, modifiers, and XCTest translated into Fission's shared app model. |
+| [Compose developers](/docs/fission/for/compose-developers/) | Composables, `remember`, ViewModels, `LaunchedEffect`, `MaterialTheme`, `NavHost`, and Compose tests translated into Fission state, reducers, jobs, theme tokens, routers, and LiveTest. |
+| [Electron developers](/docs/fission/for/electron-developers/) | Renderer state, browser windows, IPC, native packaging, filesystem access, and web UI tests translated into Fission's native shell and typed runtime boundary. |
+| [Tauri developers](/docs/fission/for/tauri-developers/) | Web frontend state, Rust commands, plugins, windows, packaging, and tests translated into Fission's Rust-first shared UI model and targets. |
+| [Leptos developers](/docs/fission/for/leptos-developers/) | Signals, resources, components, routers, SSR instincts, and Rust browser UI tests translated into Fission's multi-target runtime. |
+| [Yew developers](/docs/fission/for/yew-developers/) | Function components, hooks, properties, callbacks, browser routing, and browser tests translated into Fission widgets, reducers, resources, routers, and LiveTest. |
+| [Dioxus developers](/docs/fission/for/dioxus-developers/) | RSX components, signals, resources, routers, desktop/mobile runners, and tests translated into Fission widgets, app state, reducers, shells, and package targets. |
+| [Terminal UI developers](/docs/fission/for/terminal-ui-developers/) | Cell layout, keyboard-first interaction, command workflows, logs, scrollback, and snapshot testing translated into Fission's Terminal shell and shared app architecture. |
+
+## The shared pattern
+
+Each page follows the same path: build a real feature, explain where its state,
+events, outside work, and UI live in Fission, then map the important terms. It
+also explains Rust syntax when that syntax matters; it is not a separate Rust
+textbook.
+
+## The Fission spine
+
+No matter which framework you come from, the Fission shape is the same.
+
+| Fission idea | Meaning |
+| --- | --- |
+| `GlobalState` | The durable product data for the app. |
+| Action | A typed description of user intent or completed outside work. |
+| Reducer | The place where app state changes in response to an action. |
+| Widget | A pure description of what the interface should be for the current state and environment. |
+| `ViewHandle` | Read-only access to state, environment, viewport, and runtime-owned inputs during component conversion. |
+| `BuildCtxHandle` | Wiring for actions, resources, portals, motion, and other runtime registrations during component conversion. |
+| Env | Host-provided context such as theme, locale, route, capabilities, and other environment data. |
+| Shell | The platform adapter around the shared app: desktop, web, Android, iOS, Terminal, Static site, or SSR. |
+| Target | The packaging and runtime path used to run or ship the app on a platform. |
+
+The examples start from different places, but they all arrive at the same
+Fission flow: actions reach reducers, reducers update state, widgets render
+from state and environment, and a shell hosts the result for its target.
+
+## What Fission is not trying to copy
+
+Fission deliberately avoids some common framework patterns.
+
+It does not make component-local mutable state the default place for product data. Important app data belongs in explicit app state so reducers and tests can inspect it.
+
+It does not treat render or component conversion as the right place to perform outside work. Fetching data, opening files, reading hardware, and calling platform APIs should be requested through explicit runtime paths.
+
+It does not assume a browser DOM is the native substrate. The same app model can reach desktop windows, web, Android, iOS, Terminal, Static site, and SSR, so Fission's core model stays above any one host.
+
+It does not hide platform boundaries. Shells and providers are explicit because native capabilities, web permissions, terminal constraints, static output, and SSR cache behavior are real product boundaries.
+
+That makes some boundaries more explicit than in other frameworks. It also
+means state changes, host work, and platform behavior have clear places to go
+as the app grows.
+
+## How to read the pages
+
+Start with the framework you know best. Follow the code by responsibility:
+where state lives, how an action is created, where the reducer handles it, and
+how the widget renders the result. Then look at the Rust notes for syntax you
+have not seen before.
+
+When a page says "this maps loosely," take that seriously. Some concepts are cousins, not exact equivalents. For example, React context and Fission `Env` both carry cross-cutting inputs, but Fission also uses explicit providers and shell-owned capabilities. Flutter platform channels and Fission providers both cross a host boundary, but Fission keeps those requests typed and reducer-driven.
+
+## Start here
+
+Start with [Fission for React developers](/docs/fission/for/react-developers/)
+if you build web interfaces or work with component-based frontends. The other
+pages use the same comparison approach.

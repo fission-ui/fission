@@ -4,7 +4,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub ProductBrowserHeader<ProductBrowserState> { on_search: ActionEnvelope }
-    |header, state, cx| {
+    view(header, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let summary = match state.products.data() {
             Some(page) if page.total > page.products.len() as u32 => cx

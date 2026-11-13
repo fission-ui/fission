@@ -1,0 +1,107 @@
+---
+title: RangeSlider
+description: Show a lower and upper bound on one track, with two visible thumbs.
+slug: /widgets/range-slider
+---
+# RangeSlider
+
+`RangeSlider` draws a range between `start` and `end` inside a
+`[min, max]` domain, which fits filters, budget bands, and size windows.
+
+It is a controlled interactive control. Pointer, keyboard, accessibility, and
+semantic test input dispatch `on_change` with proposed lower and upper values
+in `cx.input.range_slider_change()`; the bound action payload remains intact.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub WeeklyHoursFilter<()> {
+        state {
+            minimum: f32 = 8.0,
+            maximum: f32 = 24.0,
+        }
+    }
+
+    view(filter, _state, cx) =>
+        Column(
+            children: [
+                Text(cx.tr("schedule.weekly_hours")),
+                RangeSlider(
+                    id: WidgetId::explicit("schedule.weekly-hours"),
+                    semantics_identifier: Some("schedule.weekly-hours".into()),
+                    start: filter.minimum,
+                    end: filter.maximum,
+                    min: 0.0,
+                    max: 40.0,
+                    step: 1.0,
+                    on_change: reduce {
+                        if let Some(change) = cx.input.range_slider_change() {
+                            if change.start.is_finite() && change.end.is_finite()
+                                && change.start >= 0.0 && change.end <= 40.0
+                                && change.start <= change.end
+                            {
+                                filter.minimum = change.start;
+                                filter.maximum = change.end;
+                            }
+                        }
+                    },
+                ),
+                Text(format!(
+                    "{}–{} {}",
+                    filter.minimum,
+                    filter.maximum,
+                    cx.tr("duration.hours"),
+                )),
+            ],
+        )
+}
+```
+
+The filter is a draft, measured in hours rather than money. Pointer and keyboard
+input propose a pair; the reducer validates it before updating retained state.
+Move the values into the shared search model when they drive a query across
+screens, and debounce expensive remote filtering rather than fetching on every
+pointer movement.
+
+Each thumb has its own retained identity and slider semantics. The complete
+control's semantic identifier is extended with `.start` and `.end` so tests can
+address either thumb without coordinates.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable identity for focus and pointer capture. | Defaults to `None`. |
+| `start` | `f32` | Lower bound of the displayed range. | Required. Expected to be within `[min, max]`. |
+| `end` | `f32` | Upper bound of the displayed range. | Required. Expected to be within `[min, max]`. |
+| `min` | `f32` | Minimum domain value. | Required. |
+| `max` | `f32` | Maximum domain value. | Required. |
+| `step` | `Option<f32>` | Positive increment for snapping and key adjustment. | Without one, pointer movement is continuous and keys use one percent of the domain. |
+| `semantics_identifier` | `Option<String>` | Stable control/test identifier. | Thumbs add `.start` and `.end` suffixes. |
+| `on_change` | `Option<ActionEnvelope>` | Proposed-range notification. | Read `start`, `end`, `active_thumb`, and `source` from contextual input. |
+
+## Current behavior
+
+A proposal does not mutate the controlled values. Both pointer capture and
+keyboard adjustment use the same range-change input contract. Keep the same
+identity while a drag is in progress and validate `min <= start <= end <= max`
+in the application's transition rather than trusting a view field as authority.
+
+## Specific advice
+
+Keep exact numeric inputs nearby when the task requires precise values or a
+large domain makes dragging cumbersome. The slider is an interaction shortcut,
+not the only way a user should be able to specify a constrained interval.
+
+## Production checklist
+
+- Test both thumbs by pointer, keyboard, accessibility, and semantic identifiers.
+- Check equal endpoints, reversed/invalid domains, step snapping, and an interrupted drag.
+- Keep controlled values and ids stable while the pointer remains captured.
+
+## Related
+
+[`Slider`](/reference/widgets/slider), [`NumberInput`](/reference/widgets/number-input), [`DateRangePicker`](/reference/widgets/date-range-picker), and [`TextInput`](/reference/widgets/text-input).

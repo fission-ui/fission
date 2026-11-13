@@ -1,0 +1,67 @@
+---
+title: Intraday candlestick
+sidebar_label: Intraday candlestick
+description: Fission Charts reference for Intraday candlestick.
+---
+
+# Intraday candlestick
+
+![Intraday candlestick screenshot](/img/charts/candlestick-intraday.png)
+
+An intraday candle summarises price movement within a fixed trading interval. It preserves the opening and closing prices alongside the lowest and highest observed prices, without pretending to show every trade. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use intervals of the same duration under one trading-session timezone. An interval with no trades needs an explicit policy rather than a fabricated candle.
+
+## Data model
+
+Fission's row order is `[open, close, low, high]`, not a generic OHLC ordering. Validate `low ≤ open, close ≤ high` and finite values before conversion. Category positions are evenly spaced; gaps in labels do not create elapsed-time gaps.
+
+## Authoring from a Fission component
+
+The parent supplies exact-source price projections and two distinguishable theme colours; it should not rely on default red/green encoding.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, CandlestickSeries, Chart};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub IntradayPriceCandles<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            interval_labels: Vec<String>,
+            open_close_low_high: Vec<[f32; 4]>,
+            rising_color: Color,
+            falling_color: Color,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.interval_labels.iter().map(String::as_str).collect();
+        let rows = report.open_close_low_high.iter().map(|row| row.to_vec()).collect();
+        let prices = CandlestickSeries {
+            data: rows,
+            color_up: report.rising_color,
+            color_down: report.falling_color,
+            ..CandlestickSeries::new(&report.series_label)
+        };
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(&report.axis_label)),
+        series: vec![prices.into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test unchanged prices, missing intervals and session boundaries. Provide open/close values and direction as text so colour is not the only distinction. Keep exact financial values and timestamps authoritative outside the f32 chart.
+
+Tags: `candlestick`, `finance`.
+
+[Scatter and statistical family overview](./overview)

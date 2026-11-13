@@ -1,0 +1,64 @@
+---
+title: Support volume area
+sidebar_label: Support volume area
+description: Fission Charts reference for Support volume area.
+---
+
+# Support volume area
+
+![Support volume area screenshot](/img/charts/line-support-volume.png)
+
+A support-volume area makes incoming work visible over time. The filled area adds emphasis to the size of the daily count, whilst the line preserves when the rises and falls occurred. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example counts new tickets, not all open tickets. A high arrival count does not necessarily mean a growing backlog if the team resolves work at the same rate. Keep those measures separate when discussing capacity.
+
+## Data model
+
+Prepare one arrival count per reporting day and matching labels. Use a zero baseline because the filled area represents magnitude. The chart does not deduplicate ticket events or decide how reopened tickets count; that rule belongs in the aggregate.
+
+## Authoring from a Fission component
+
+The component receives the reporting values and labels. Fetch, aggregate and validate those inputs before constructing the chart.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub SupportVolumeAreaChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            new_tickets: Vec<f32>,
+        }
+    }
+    view(report, _state, cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+        let colors = &cx.view.env().theme.tokens.colors;
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value().min(0.0)),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.new_tickets.clone())
+                    .color(colors.primary)
+                    .area_style(colors.primary.with_alpha(100))
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test duplicate creation events, a known zero-arrival day and a failed import. Keep the latest count and reporting period readable outside the area, and verify contrast in both themes.
+
+Tags: `area`, `support`.
+
+[Line family overview](./overview)

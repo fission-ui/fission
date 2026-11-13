@@ -1,0 +1,103 @@
+---
+title: Scroll
+description: Clip one child to a scrollable viewport and track scroll offset by node id.
+slug: /widgets/scroll
+---
+# Scroll
+
+`Scroll` gives one child a scrollable, clipped viewport and tracks its offset.
+Use it for long forms, article content, settings, or horizontal strips when
+building the whole subtree is acceptable.
+
+Do not use it for very large uniform-height lists where virtualization matters. That is the job of [`LazyColumn`](/reference/widgets/lazy-column).
+
+## Example
+
+```rust
+use fission::prelude::*;
+use fission::op::FlexDirection;
+
+fission_component! {
+    pub DocumentViewport<()> {
+        props { document: Widget }
+    }
+
+    view(viewport, _state, _cx) =>
+        Scroll(
+            id: WidgetId::explicit("document.canvas.scroll"),
+            direction: FlexDirection::Column,
+            flex_grow: 1.0,
+            child: viewport.document.clone(),
+        )
+}
+```
+
+The parent supplies the document's real, variable-height content. The explicit
+viewport id is also used by programmatic reveal below; it must not be rebuilt
+with a different id when the selected page changes.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity used for scroll offset tracking. | Defaults to `None`. |
+| `child` | `Option<Widget>` | The scrollable content. | Defaults to `None`. |
+| `direction` | `FlexDirection` | Scroll axis. | Defaults to `FlexDirection::Column`, which means vertical scrolling. |
+| `width` | `Option<f32>` | Fixed viewport width. | Defaults to `None`. |
+| `height` | `Option<f32>` | Fixed viewport height. | Defaults to `None`. |
+| `show_scrollbar` | `bool` | Whether to render a scrollbar indicator. | Defaults to `true`. |
+| `flex_grow` | `f32` | Extra space the scroll viewport may absorb. | Defaults to `0.0`. Set this when the scroll area should fill a panel. |
+| `flex_shrink` | `f32` | How much the scroll viewport may shrink. | Defaults to `0.0`. |
+
+## How it differs from `LazyColumn`
+
+`Scroll` still builds its entire child subtree. It simply makes that subtree scrollable. A `LazyColumn` goes further by virtualizing which items are lowered.
+
+That means `Scroll` is the right default for normal content screens, especially when item heights vary or the subtree is not list-like. `LazyColumn` is the optimization path for large, uniform-height lists.
+
+## Specific advice
+
+Give the scroll area room to exist. In many screen layouts, that means setting `flex_grow: 1.0` so the viewport can expand to fill the panel rather than collapsing to the child's natural height.
+
+Also avoid nesting two vertical scroll containers unless you are deliberately designing nested scroll behavior. It is usually harder to use and harder to test.
+
+## Programmatic reveal
+
+Use `ctx.effects.scroll_into_view(...)` when a reducer needs to reveal a widget after state changes. The reducer only records the request. The runtime applies it after the next layout pass, when both the scroll container and target rectangles are known.
+
+```rust
+use fission::prelude::*;
+
+#[fission_reducer(SelectPage)]
+fn select_page(state: &mut DocumentState, page: u32, ctx: &mut ReducerContext<DocumentState>) {
+    state.selected_page = page;
+
+    ctx.effects.scroll_into_view(ScrollIntoViewRequest {
+        container: Some(WidgetId::explicit("document.canvas.scroll")),
+        target: WidgetId::explicit(&format!("document.page.{}", page)),
+        axis: ScrollAxis::Vertical,
+        alignment: ScrollAlignment::Start,
+        padding: [0.0; 4],
+        behavior: ScrollBehavior::Instant,
+        if_needed: false,
+    });
+}
+```
+
+This reducer excerpt assumes the app's `DocumentState` owns `selected_page`
+and the document creates matching `document.page.<id>` children. The macro
+generates `SelectPage(page)` from the payload parameter; do not recursively take
+`SelectPage` as its own payload. Zero reveal padding is intentional here; pass
+a known layout inset when the document requires it.
+
+Keep the scroll container and reveal targets on stable explicit IDs. If `container` is `None`, Fission uses the nearest matching scroll ancestor. `ScrollAlignment::Nearest` uses the smallest offset change that makes the target visible; `Start`, `Center`, `End`, and `Fraction(_)` place it deliberately inside the viewport.
+
+## Production checklist
+
+- Check bounded viewport height, variable content heights, and revealed targets.
+- Preserve scroll and child identities across selection and data updates.
+- Test deliberate nested scroll interactions rather than adding a second vertical viewport accidentally.
+
+## Related
+
+[`LazyColumn`](/reference/widgets/lazy-column), [`Column`](/reference/widgets/column), [`Row`](/reference/widgets/row), and [`SafeArea`](/reference/widgets/safe-area).

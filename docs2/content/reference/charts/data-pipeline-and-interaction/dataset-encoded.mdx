@@ -1,0 +1,68 @@
+---
+title: Encoded dataset
+sidebar_label: Encoded dataset
+description: Bind related job measures to one validated dataset with real Encode mappings.
+---
+
+# Encoded dataset
+
+![Encoded dataset screenshot](/img/charts/dataset-encoded.png)
+
+A dataset keeps related observations in rows, whilst an encoding names the columns a series should use. This avoids maintaining several unrelated arrays for the same report.
+
+It does not replace validation. Dimension names are runtime strings, so a misspelled name is not a Rust field-access error.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{
+    Axis, BarSeries, Chart, DataValue, Dataset, Encode, Legend, LineSeries, Series,
+};
+
+#[derive(Clone)]
+pub struct JobFlowPeriod {
+    pub label: String,
+    pub arrived: u32,
+    pub completed: u32,
+}
+
+fission_component! {
+    pub EncodedJobFlow<()> {
+        props {
+            title: String,
+            arrived_label: String,
+            completed_label: String,
+            periods: Vec<JobFlowPeriod>,
+        }
+    }
+    view(flow, _state, _cx) {
+        let rows = flow.periods.iter().map(|period| vec![
+            DataValue::String(period.label.clone()),
+            DataValue::Number(period.arrived as f32),
+            DataValue::Number(period.completed as f32),
+        ]).collect();
+        let dataset = Dataset::new()
+            .dimensions(vec!["period".into(), "arrived".into(), "completed".into()])
+            .source(rows);
+    } => Chart(
+        title: Some(flow.title.clone()),
+        dataset: Some(dataset),
+        x_axis: Some(Axis::category(Vec::new())),
+        y_axis: Some(Axis::value().min(0.0)),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Bar(BarSeries::new(&flow.arrived_label)
+                .encode(Encode::new().x("period").y("arrived"))),
+            Series::Line(LineSeries::new(&flow.completed_label)
+                .encode(Encode::new().x("period").y("completed"))),
+        ],
+    )
+}
+```
+
+Put these definitions in `widgets/encoded_job_flow.rs`. Internal dimension names remain stable; the parent translates visible period and measure labels. The empty category axis lets the encoded period column supply its labels.
+
+Line and bar series resolve their encode mappings against `Chart.dataset`. Do not infer that every series supports this same encoded-data path.
+
+The current numeric extraction converts null, absent or unparseable numeric cells to zero. This typed projection deliberately supplies complete numeric cells instead. Test dimension names, row widths and reporting order before rendering, and retain exact source counts outside the chart. The screenshot is a gallery fixture.
+
+[Data pipeline and interaction family overview](./overview)

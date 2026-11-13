@@ -4,7 +4,7 @@ use crate::model::{CapabilityState, FieldInspectorState};
 use fission::prelude::*;
 fission_component! {
     pub CapabilityOverview<FieldInspectorState> {}
-    |_overview, state, cx| {
+    view(_overview, state, cx) {
         let lines = state.capability_lines();
         let complete = lines.iter().filter(|line| matches!(line.state, CapabilityState::Complete | CapabilityState::Ready)).count();
         let gap = cx.view.env().theme.tokens.spacing.s;

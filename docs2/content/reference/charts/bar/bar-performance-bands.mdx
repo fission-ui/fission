@@ -1,0 +1,70 @@
+---
+title: Performance bands
+sidebar_label: Performance bands
+description: Compare measured percentages with an explicitly defined acceptable range.
+---
+
+# Performance bands
+
+![Performance bands screenshot](/img/charts/bar-performance-bands.png)
+
+A score needs a reference before it can be judged. For a quality dashboard, a pass rate of ninety percent may fall inside an agreed range, whilst another process may require a higher result. Draw the range explicitly rather than letting a colour suggest that an unspecified target was met.
+
+A background capacity track and a performance band are different. The track fills the whole numeric range; a band marks only a particular interval. Fission represents the latter with `MarkArea`.
+
+## Compose example
+
+The example receives finite percentages and an acceptable range within zero to one hundred. Those limits are application policy, not values the chart should infer from the current results.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, BarSeries, Chart, MarkArea, Series};
+
+#[derive(Clone)]
+pub struct ProcessPassRate {
+    pub process: String,
+    pub percent: f32,
+}
+
+fission_component! {
+    pub QualityRangeChart<()> {
+        props {
+            title: String,
+            pass_rate_label: String,
+            range_label: String,
+            range_min: f32,
+            range_max: f32,
+            range_color: Color,
+            rows: Vec<ProcessPassRate>,
+        }
+    }
+    view(quality, _state, _cx) {
+        let labels = quality.rows.iter().map(|row| row.process.as_str()).collect();
+        let rates = quality.rows.iter().map(|row| row.percent).collect();
+    } => Chart(
+        title: Some(quality.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0).max(100.0)),
+        mark_areas: vec![
+            MarkArea::y_range(&quality.range_label, quality.range_min, quality.range_max)
+                .color(quality.range_color),
+        ],
+        series: vec![
+            Series::Bar(BarSeries::new(&quality.pass_rate_label).data(rates)),
+        ],
+    )
+}
+```
+
+Enable Fission's `charts` feature. `MarkArea::y_range` takes a name and two `f32` bounds; the chart's `mark_areas` field holds a `Vec<MarkArea>`. Supply a suitably translucent design-system colour so the region does not hide the measurements.
+
+## Explain the policy outside the picture
+
+State the acceptable interval in accessible text as well as drawing it. A coloured region cannot carry that policy alone, and a pass-rate percentage should be accompanied by its sample count where small samples affect interpretation.
+
+Validate the range ordering and percentage bounds. Test measurements on both boundaries and just outside them, then inspect the rendered overlay for legibility. The gallery screenshot uses a sample scorecard and is not output from these props.
+
+Tags: `bar`, `band`.
+
+[Bar family overview](./overview)

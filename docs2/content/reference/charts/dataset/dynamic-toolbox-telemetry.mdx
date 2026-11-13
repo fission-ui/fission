@@ -1,0 +1,51 @@
+---
+title: Telemetry toolbox
+sidebar_label: Telemetry toolbox
+description: Use real application actions for telemetry export and reset.
+---
+
+# Telemetry toolbox
+
+![Telemetry toolbox screenshot](/img/charts/dynamic-toolbox-telemetry.png)
+
+An export control should export the report the operator is looking at. A reset should state what it resets: a zoom window is not the underlying telemetry history.
+
+The [report commands component](../analytics/analytics-toolbox-report), stored in `widgets/report_with_commands.rs`, uses normal buttons rather than promising functionality from chart toolbox captions:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::report_with_commands::ReportWithCommands;
+
+fission_component! {
+    pub TelemetryReportCommands<()> {
+        props {
+            title: String,
+            measure_label: String,
+            periods: Vec<String>,
+            values: Vec<f32>,
+            export_label: TextContent,
+            reset_label: TextContent,
+            export_action: ActionEnvelope,
+            reset_action: ActionEnvelope,
+            exporting: bool,
+        }
+    }
+    view(report, _state, _cx) => ReportWithCommands {
+        title: report.title.clone(),
+        measure_label: report.measure_label.clone(),
+        periods: report.periods.clone(),
+        values: report.values.clone(),
+        export_label: report.export_label.clone(),
+        reset_label: report.reset_label.clone(),
+        export_action: report.export_action.clone(),
+        reset_action: report.reset_action.clone(),
+        exporting: report.exporting,
+    }
+}
+```
+
+Bind these actions in the parent. Export should capture the selected report generation, queue the asynchronous file operation and expose success or failure through state. Reset should update the relevant filter or zoom state without deleting telemetry unless deletion is a separate explicit operation.
+
+The current `ChartToolAction` labels do not provide a complete save/export workflow by themselves. Keep button labels translated, explain the export format and selection scope, and test cancellation as well as failure. The gallery screenshot is not evidence that those operations work.
+
+[Dataset family overview](./overview)

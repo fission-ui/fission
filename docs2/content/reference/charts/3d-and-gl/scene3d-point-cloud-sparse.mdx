@@ -1,0 +1,53 @@
+---
+title: Sparse 3D point cloud
+sidebar_label: Sparse 3D point cloud
+description: Keep individual survey observations separate and make unobserved space explicit.
+---
+
+# Sparse 3D point cloud
+
+![Sparse 3D point cloud screenshot](/img/charts/scene3d-point-cloud-sparse.png)
+
+A sparse survey leaves substantial space unobserved. Connecting those observations or enlarging their markers until they overlap can imply coverage which was never measured.
+
+Use separate points when each observation matters independently. This gallery entry is a variant of [Sparse point cloud](./point-cloud-sparse), using the shared sphere-per-observation component from [Point cloud](./point-cloud).
+
+## Compose the observation set
+
+Place `PointCloudScene` in `widgets/point_cloud.rs`.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::point_cloud::PointCloudScene;
+
+fission_component! {
+    pub SurveyObservationSet<()> {
+        props {
+            title: TextContent,
+            positions: Vec<Point3D>,
+            marker_radius: f32,
+            marker_color: Color,
+        }
+    }
+    view(survey, _state, _cx) => PointCloudScene {
+        title: survey.title.clone(),
+        positions: survey.positions.clone(),
+        point_radius: survey.marker_radius,
+        point_color: survey.marker_color,
+    }
+}
+```
+
+Enable Fission's `three-d` feature. Supply translated text, a design-system colour, finite coordinates and a finite positive radius. Retain observation names, identifiers and measurements in the source model instead of attempting to recover them from the spheres.
+
+## Checks
+
+Test single samples, widely separated groups and points aligned along the viewing direction. Even a sparse scene can hide one point behind another.
+
+Keep a labelled observation list available for accessible inspection and selection; the legacy sphere API does not emit per-point chart events. Distinguish no observations from a failed load. The screenshot comes from gallery fixtures.
+
+Tags: `3d`, `pointCloud`.
+
+[3D and GL family overview](./overview)

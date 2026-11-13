@@ -1,0 +1,80 @@
+---
+title: 3D trajectory
+sidebar_label: 3D trajectory
+description: Separate continuous recorded movement from missing or out-of-order location samples.
+---
+
+# 3D trajectory
+
+![3D trajectory screenshot](/img/charts/line3d-trajectory.png)
+
+A recorded path is only as continuous as its observations. If a tracking device stops reporting while an operator changes floors, joining the last sample before the gap to the first sample afterwards invents a route through the building.
+
+Preserve timestamps and missing observations in the model. The geometry should be a projection of those facts, not a replacement for them.
+
+## Split continuous sections
+
+This helper requires strictly increasing timestamps in one consistent unit and rejects invalid coordinates. A missing position or a gap beyond the permitted interval ends the current section.
+
+```rust
+use fission::three_d::Point3D;
+
+pub struct PositionSample {
+    pub elapsed_ms: u64,
+    pub position: Option<Point3D>,
+}
+
+pub fn continuous_sections(
+    samples: &[PositionSample],
+    maximum_gap_ms: u64,
+) -> Result<Vec<Vec<Point3D>>, &'static str> {
+    if maximum_gap_ms == 0 {
+        return Err("maximum sample gap must be positive");
+    }
+    let mut sections = Vec::new();
+    let mut current = Vec::new();
+    let mut previous_time = None;
+
+    for sample in samples {
+        if let Some(previous) = previous_time {
+            if sample.elapsed_ms <= previous {
+                return Err("sample timestamps must increase");
+            }
+            if sample.elapsed_ms - previous > maximum_gap_ms && !current.is_empty() {
+                sections.push(std::mem::take(&mut current));
+            }
+        }
+        previous_time = Some(sample.elapsed_ms);
+        match &sample.position {
+            Some(point) => {
+                if !point.x.is_finite() || !point.y.is_finite() || !point.z.is_finite() {
+                    return Err("sample coordinates must be finite");
+                }
+                current.push(point.clone());
+            }
+            None if !current.is_empty() => sections.push(std::mem::take(&mut current)),
+            None => {}
+        }
+    }
+    if !current.is_empty() {
+        sections.push(current);
+    }
+    Ok(sections)
+}
+```
+
+Use those sections with the `InspectionTrajectory` Compose component from [3D line](./line3d-basic), which never joins different sections. Keep the projection helper beside the recorded-route model. A projection error needs an explicit failure state; sorting silently inside the view could hide a source-ordering defect.
+
+## Presentation and API
+
+Enable the `three-d` feature. The view builds mesh segments and sphere samples in `fission::three_d::Scene3D`; it does not use `ChartInteractionEvent`, chart axes or a separate trajectory-series type.
+
+Provide units, route duration and missing sections in accessible text. A line alone does not show when movement occurred or which direction it followed. Use the original observations for a sample table or inspection details.
+
+## Checks
+
+Test a normal sequence, a missing position, an excessive gap and out-of-order or duplicate timestamps. Inspect the rendered path around gaps and overlapping segments. The gallery screenshot is illustrative geometry, not a verified movement record.
+
+Tags: `3d`, `line`.
+
+[3D and GL family overview](./overview)

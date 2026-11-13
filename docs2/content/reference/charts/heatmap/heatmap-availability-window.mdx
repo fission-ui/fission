@@ -1,0 +1,98 @@
+---
+title: Availability window
+sidebar_label: Availability window
+description: Fission Charts reference for Availability window.
+---
+
+# Availability window
+
+![Availability window screenshot](/img/charts/heatmap-availability-window.png)
+
+An availability heatmap compares services over the same time windows. A short outage can disappear into a daily average, whilst hourly cells keep its position visible. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use the same time windows and zero-to-100 scale for every service. Keep exact outage durations or failed-check counts beside the chart when an operations decision depends on them.
+
+## Data model
+
+Each triple contains an hour index, service index and percentage of valid checks that succeeded in that window. The percentage needs a declared sampling rule. A service with no checks has unknown availability, not 100 per cent availability.
+
+`HeatmapSeries::data` takes `Vec<(usize, usize, f32)>`. The first two values are category indices; they must refer to the same ordered labels used by the axes.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `Chart::x_axis` | `Axis` | Supplies the column categories. |
+| `Chart::y_axis` | `Axis` | Supplies the row categories, not the cell-value range. |
+| `HeatmapSeries::data` | `Vec<(usize, usize, f32)>` | Supplies the indexed cells and their values. |
+| `Chart::visual_map` | `VisualMap` | Sets the numeric range used for colour. |
+
+## Example
+
+```rust
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+let chart = Chart::new()
+    .title("Availability by service and hour (%)")
+    .x_axis(Axis::category(vec!["09:00", "10:00", "11:00"]))
+    .y_axis(Axis::category(vec!["API", "Worker"]))
+    .visual_map(VisualMap::new().min(0.0).max(100.0))
+    .series(vec![HeatmapSeries::new("Availability (%)")
+        .data(vec![
+            (0, 0, 100.0),
+            (1, 0, 92.0),
+            (2, 0, 100.0),
+            (0, 1, 100.0),
+            (1, 1, 100.0),
+            (2, 1, 98.0),
+        ])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+Pass the prepared samples into the component. Fetching, aggregation and failure handling stay outside the build; the component presents values already available to its parent.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub AvailabilityWindowChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            column_labels: Vec<String>,
+            row_labels: Vec<String>,
+            samples: Vec<(usize, usize, f32)>,
+        }
+    }
+    view(chart, _state, _cx) =>
+        Chart(
+            title: Some(chart.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                chart.column_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::category(
+                chart.row_labels.iter().map(String::as_str).collect(),
+            )),
+            visual_map: Some(VisualMap::new().min(0.0).max(100.0)),
+            series: vec![HeatmapSeries::new(&chart.series_label)
+                .data(chart.samples.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test a fully available window, a failed window and missing telemetry. Check that daylight-saving changes and timezone conversion do not put different real intervals under the same hour label.
+
+Give the matrix a text summary and an exact-value view when decisions depend on its cells. Inspect the actual rendered width and label lengths; a correctly indexed matrix is still unusable if its category names cannot be read.
+
+Tags: `heatmap`, `availability`.
+
+[Heatmap family overview](./overview)

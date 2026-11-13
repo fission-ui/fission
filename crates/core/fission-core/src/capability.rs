@@ -28,7 +28,8 @@ impl CapabilityCtx {
     }
 
     /// Opens a runtime-owned data stream for capability implementations that
-    /// need to consume stream handles supplied by app code.
+    /// need to consume stream handles supplied by app code. The stream's
+    /// registry entry is released when the returned stream is dropped.
     pub fn open_data_stream(
         &self,
         id: DataStreamId,
@@ -36,7 +37,7 @@ impl CapabilityCtx {
         self.data_streams.open(id)
     }
 
-    /// Releases a previously registered stream without consuming it.
+    /// Releases a previously registered stream that will not be opened.
     pub fn release_data_stream(&self, id: DataStreamId) -> bool {
         self.data_streams.release(id)
     }
@@ -153,6 +154,10 @@ pub struct PickedFile {
 }
 
 /// Result payload for a file picker operation.
+///
+/// User cancellation is represented as an empty `files` list. Host and I/O
+/// failures use [`PickOpenFilesError`] so callers can distinguish them from a
+/// dismissed picker.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PickOpenFilesResult {
     pub files: Vec<PickedFile>,

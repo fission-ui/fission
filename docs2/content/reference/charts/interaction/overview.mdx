@@ -1,0 +1,87 @@
+---
+title: Interaction
+sidebar_label: Overview
+description: Fission Charts reference for the Interaction family.
+---
+
+# Interaction
+
+Chart interaction should help the user inspect a value, choose a subset or compare a reporting period. Those are different state transitions. A tooltip can remain inside the chart's retained state, whilst opening a record or changing an application filter belongs in a reducer.
+
+Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
+
+![Analysis toolbox screenshot](/img/charts/interaction-toolbox-analysis.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Analysis toolbox](./interaction-toolbox-analysis) | Chart data with explicit utility actions. | Use it when analysis actions belong close to the chart. |
+| [Annotation callout](./interaction-annotation-callout) | Chart data with a typed text callout. | Use it for guided dashboards and reports. |
+| [Axis tooltip](./interaction-tooltip-axis) | Series data with axis-oriented tooltip intent. | Use it when the whole axis position is the hover target. |
+| [Breach mark area](./interaction-mark-area-breach) | Line values with highlighted breach band. | Use it when unsafe ranges need visible boundaries. |
+| [Brush outliers](./interaction-brush-outliers) | Point data with visible brush preview. | Use it for exploratory selection. |
+| [Brush region](./interaction-brush-region) | Scatter points plus brush rectangle configuration. | Use it when users select data before drilling in. |
+| [Capacity timeline](./interaction-timeline-capacity) | Period labels with changing chart state. | Use it for capacity changes across time. |
+| [Data zoom overview](./interaction-datazoom-overview) | Ordered data with a selected zoom range. | Use it for long series where one window is active. |
+| [Deployment marks](./interaction-marked-deploy) | Trend data with event mark points. | Use it when specific moments explain the data. |
+| [Export toolbox](./interaction-toolbox-export) | Chart data with restore, brush, zoom, and save actions. | Use it when chart controls need a consistent built-in place. |
+| [Graphic band](./interaction-graphic-band) | Chart plus typed rect, text, and line graphics. | Use it for callouts and shaded product ranges. |
+| [Graphic note](./interaction-graphic-note) | Trend line with typed graphic overlay. | Use it to add explanations without leaving the chart model. |
+| [Grouped tooltip](./interaction-tooltip-grouped) | Grouped series with tooltip intent. | Use it when comparison needs hover detail. |
+| [Item tooltip](./interaction-tooltip-item) | Series data with item-level tooltip intent. | Use it when individual marks carry detail. |
+| [Marked SLO chart](./interaction-marked-slo) | Trend data plus mark lines and shaded bands. | Use it to keep thresholds in the chart instead of external notes. |
+| [Restore toolbox](./interaction-toolbox-restore) | Chart data with reset action included. | Use it when user exploration needs a safe reset. |
+| [Selectable scatter](./interaction-select-scatter) | Scatter points with selection configuration. | Use it when users inspect clusters interactively. |
+| [Telemetry zoom](./interaction-datazoom-telemetry) | Long ordered telemetry values with zoom. | Use it for monitoring and investigation. |
+| [Timeline releases](./interaction-timeline-releases) | Chart data with release timeline options. | Use it for versioned or period-based views. |
+| [Timeline years](./interaction-timeline-years) | Chart data with a timeline control. | Use it when the same view switches between periods. |
+
+## Choosing within this family
+
+Start with the intended action. Use built-in tooltips, brushing or zoom for chart exploration, and decode typed event input when that exploration affects the app. Timeline labels and toolbox labels are currently drawn indicators, not fully wired controls; the linked recipes show ordinary Compose Buttons for the actual period, export and reset workflows.
+
+## Authoring from a Fission component
+
+Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, ChartInteraction, ChartTooltipTrigger, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub InteractionChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            category_labels: Vec<String>,
+            completed_orders: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                report.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            interaction: ChartInteraction::tooltips(ChartTooltipTrigger::Axis)
+                .keyboard_focus(true),
+            series: vec![LineSeries::new(&report.series_label)
+                .data(report.completed_orders.clone())
+                .into()],
+        )
+}
+```
+Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
+
+## Options, accessibility, and diagnostics
+
+| Area | What to decide | How to check it |
+| --- | --- | --- |
+| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
+| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
+| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
+| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
+| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |

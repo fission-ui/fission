@@ -1,0 +1,53 @@
+---
+title: 3D wave surface
+sidebar_label: 3D wave surface
+description: Present a periodic model without confusing generated geometry with measured observations.
+---
+
+# 3D wave surface
+
+![3D wave surface screenshot](/img/charts/surface3d-wave.png)
+
+A periodic surface can preview a modelled response, such as an expected vibration pattern across a test grid. Its smooth shape is a consequence of the model; it is not evidence that every point on that surface was measured.
+
+Keep model output distinct from observed measurements. If both are shown in the same product, label them so a reader cannot mistake a prediction for a completed test.
+
+## Compose the model projection
+
+The [3D surface](./surface3d-basic) reference converts a complete regular height grid into mesh geometry. Supply a validated model grid to that helper, handle its result, then use `SurveySurface` from [Mesh surface](./mesh-surface).
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::survey_surface::SurveySurface;
+
+fission_component! {
+    pub PredictedVibrationSurface<()> {
+        props {
+            title: TextContent,
+            model_vertices: Vec<Point3D>,
+            triangles: Vec<u32>,
+            surface_color: Color,
+        }
+    }
+    view(model, _state, _cx) => SurveySurface {
+        title: model.title.clone(),
+        vertices: model.model_vertices.clone(),
+        indices: model.triangles.clone(),
+        surface_color: model.surface_color,
+    }
+}
+```
+
+Place the shared component in `widgets/survey_surface.rs` and enable the `three-d` feature. Keep the equation, parameters, coordinate units and model version in the data layer rather than trying to recover them from vertices.
+
+## Check sampling, not just appearance
+
+A grid which is too coarse can miss peaks or suggest a different wave pattern. Test sampling against the expected wavelength and retain the model parameters in accessible text alongside the preview.
+
+Inspect the mesh for angular transitions and misleading vertical scaling. The scene does not infer chart axes or animate a simulation merely because its geometry resembles a wave. The screenshot is the gallery fixture.
+
+Tags: `3d`, `surface`.
+
+[3D and GL family overview](./overview)

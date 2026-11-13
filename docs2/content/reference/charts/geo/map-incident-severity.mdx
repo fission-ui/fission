@@ -1,0 +1,35 @@
+---
+title: Incident severity map
+sidebar_label: Incident severity map
+description: Make regional incident aggregation explicit instead of averaging arbitrary severity codes.
+---
+
+# Incident severity map
+
+![Incident severity map screenshot](/img/charts/map-incident-severity.png)
+
+Severity categories usually express an order, not an arithmetic scale. Averaging codes such as low=1 and critical=4 would invent an interpretation of the distance between categories.
+
+For a regional command report, one concrete measure is the number of unresolved critical incidents. Use `RegionMeasure` from [choropleth maps](../geographic-and-route/map-choropleth), in `widgets/regional_report_map.rs`:
+
+```rust
+use crate::widgets::regional_report_map::RegionMeasure;
+
+pub struct RegionalCriticalIncidents {
+    pub region_id: String,
+    pub unresolved_critical: u32,
+}
+
+pub fn critical_incident_values(rows: &[RegionalCriticalIncidents]) -> Vec<RegionMeasure> {
+    rows.iter().map(|row| RegionMeasure {
+        region_id: row.region_id.clone(),
+        value: row.unresolved_critical as f32,
+    }).collect()
+}
+```
+
+Compose the actual `RegionalReportMap` with validated geometry, translated captions and a shared count scale. If showing worst severity instead is the requirement, define its categories and legend explicitly; do not label a continuous incident-count scale as severity.
+
+Keep incident IDs, priority and status in an accessible list. Unknown reporting coverage is not evidence of no incidents. Test reclassified and resolved incidents, missing regions and out-of-order report completions. This report does not provide emergency navigation, and the gallery fixture is independent.
+
+[Geo family overview](./overview)

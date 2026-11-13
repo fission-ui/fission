@@ -1,0 +1,510 @@
+---
+layout: goal
+title: Build a localised mobile settings app with a design system
+description: "Change the actual app appearance and language through one generated design system and checked-in translation bundles."
+goal: "Apply session-local settings across the shared app without pretending they change system settings or survive relaunch."
+path: /blog/build-a-localised-mobile-settings-app-with-a-design-system/
+order: 113
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target android --project-dir ."
+app: mobile-build-a-localised-mobile-settings-app-with-a-design-system
+outcomes:
+  - Generate the app design-system type from checked-in DSP inputs
+  - Synchronize app-owned locale and theme choices into Env
+  - Label the actual switch and check longer translated actions at narrow widths
+---
+A settings screen should change the application, not merely change the text describing a choice. Selecting Spanish whilst the rest of the interface stays English would demonstrate a toggle, not localization.
+
+We will keep appearance and locale in shared app state, then mirror them into Fission's environment. Every component reads the same active tokens and translation bundles. The choices apply immediately for this session; there is no misleading Save button or claim that they survive relaunch.
+
+## Create the shared app and design source
+
+Complete [Android SDK/NDK setup](/blog/set-up-rust-android-gui-development-with-fission/) and [iOS setup](/blog/set-up-rust-ios-development-with-fission/) first.
+
+```sh
+cargo install cargo-fission
+fission init mobile-build-a-localised-mobile-settings-app-with-a-design-system
+cd mobile-build-a-localised-mobile-settings-app-with-a-design-system
+fission add-target android ios --project-dir .
+cargo add serde_yaml
+cargo add --build fission-design-system-codegen@0.16.0
+```
+
+The build dependency is Fission's design-system generator, version-aligned with this app's runtime. The JSON files are checked-in design inputs; generated Rust belongs under Cargo's `OUT_DIR`, not in handwritten source.
+
+This small package supplies its palette and a button recipe and inherits the remaining component recipes from Fission's default design system. For a larger branded system, start from the complete [default DSP and tokens](/docs/guides/design-system/) and keep your app-local copies. Do not read files from Fission's repository at runtime.
+
+<!-- fission:step id="start-screen" -->
+## Install the generated system on every entrypoint
+
+Keep the generated `src/main.rs`. The shared files below install the same root, generated design system and translation bundles for normal Android, iOS and Web launches. The preview does not bypass that setup.
+
+The appearance switch is wrapped in `FormControl` so its accessible label is associated with the actual control. A heading beside an unlabelled switch would not provide the same relationship. The language buttons wrap on narrow widths, whilst the sample description makes longer translated content visible.
+
+<Tabs>
+<TabItem label="build.rs">
+<!-- fission:file path="build.rs" -->
+```rust
+use std::path::PathBuf;
+
+fn main() {
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let dsp_path = manifest_dir.join("design/dsp.json");
+
+    fission_design_system_codegen::generate(
+        fission_design_system_codegen::Config::new(dsp_path)
+            .out_file("mobile_settings_design_system.rs")
+            .type_name("MobileSettingsDesignSystem")
+            .crate_path("fission::theme"),
+    )
+    .expect("failed to generate the settings design system");
+}
+```
+</TabItem>
+<TabItem label="design/dsp.json">
+<!-- fission:file path="design/dsp.json" -->
+```json
+{
+  "$package": {
+    "name": "fieldwork-settings",
+    "version": "1.0.0"
+  },
+  "tokens": {
+    "$ref": "tokens.json"
+  },
+  "components": {
+    "button": {
+      "radius": "12px"
+    }
+  }
+}
+```
+</TabItem>
+<TabItem label="design/tokens.json">
+<!-- fission:file path="design/tokens.json" -->
+```json
+{
+  "color": {
+    "light": {
+      "primary": {
+        "value": "#1D4ED8",
+        "type": "color"
+      },
+      "on_primary": {
+        "value": "#FFFFFF",
+        "type": "color"
+      },
+      "secondary": {
+        "value": "#334155",
+        "type": "color"
+      },
+      "on_secondary": {
+        "value": "#FFFFFF",
+        "type": "color"
+      },
+      "surface": {
+        "value": "#FFFFFF",
+        "type": "color"
+      },
+      "background": {
+        "value": "#F8FAFC",
+        "type": "color"
+      },
+      "error": {
+        "value": "#B42318",
+        "type": "color"
+      },
+      "border": {
+        "value": "#CBD5E1",
+        "type": "color"
+      },
+      "text_primary": {
+        "value": "#0F172A",
+        "type": "color"
+      },
+      "text_secondary": {
+        "value": "#334155",
+        "type": "color"
+      }
+    },
+    "dark": {
+      "primary": {
+        "value": "#93C5FD",
+        "type": "color"
+      },
+      "on_primary": {
+        "value": "#172554",
+        "type": "color"
+      },
+      "secondary": {
+        "value": "#CBD5E1",
+        "type": "color"
+      },
+      "on_secondary": {
+        "value": "#0F172A",
+        "type": "color"
+      },
+      "surface": {
+        "value": "#0F172A",
+        "type": "color"
+      },
+      "background": {
+        "value": "#020617",
+        "type": "color"
+      },
+      "error": {
+        "value": "#FDA29B",
+        "type": "color"
+      },
+      "border": {
+        "value": "#475569",
+        "type": "color"
+      },
+      "text_primary": {
+        "value": "#F8FAFC",
+        "type": "color"
+      },
+      "text_secondary": {
+        "value": "#CBD5E1",
+        "type": "color"
+      }
+    }
+  },
+  "spacing": {
+    "none": {
+      "value": "0px",
+      "type": "dimension"
+    },
+    "xs": {
+      "value": "4px",
+      "type": "dimension"
+    },
+    "s": {
+      "value": "8px",
+      "type": "dimension"
+    },
+    "m": {
+      "value": "16px",
+      "type": "dimension"
+    },
+    "l": {
+      "value": "24px",
+      "type": "dimension"
+    },
+    "xl": {
+      "value": "32px",
+      "type": "dimension"
+    }
+  },
+  "typography": {
+    "font_size": {
+      "label_large": {
+        "value": "14px",
+        "type": "dimension"
+      },
+      "body": {
+        "value": "16px",
+        "type": "dimension"
+      },
+      "body_large": {
+        "value": "18px",
+        "type": "dimension"
+      },
+      "h3": {
+        "value": "24px",
+        "type": "dimension"
+      }
+    }
+  },
+  "radius": {
+    "small": {
+      "value": "4px",
+      "type": "dimension"
+    },
+    "medium": {
+      "value": "8px",
+      "type": "dimension"
+    },
+    "large": {
+      "value": "12px",
+      "type": "dimension"
+    },
+    "full": {
+      "value": "9999px",
+      "type": "dimension"
+    }
+  }
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+mod screen;
+pub mod state;
+pub use screen::SettingsScreen;
+pub use state::SettingsState;
+```
+</TabItem>
+<TabItem label="src/app/state.rs">
+<!-- fission:file path="src/app/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SettingsState {
+    pub locale: Locale,
+    pub theme_mode: DesignMode,
+}
+impl Default for SettingsState {
+    fn default() -> Self {
+        Self {
+            locale: Locale::from("en-US"),
+            theme_mode: DesignMode::Light,
+        }
+    }
+}
+impl GlobalState for SettingsState {}
+```
+</TabItem>
+<TabItem label="src/app/screen.rs">
+<!-- fission:file path="src/app/screen.rs" -->
+```rust
+use super::state::SettingsState;
+use fission::prelude::*;
+
+fission_component! {
+    pub SettingsScreen<SettingsState> {}
+    view(_settings, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } => SafeArea(child: Scroll(child: Container(Column(gap: tokens.spacing.m, children: [
+        Text(cx.tr("settings.title")).size(tokens.typography.heading2_size),
+        Text(cx.tr("settings.explanation")),
+        FormControl(
+            label: Some(cx.tr("settings.dark_mode")),
+            helper: Some(cx.tr(if state.theme_mode == DesignMode::Dark {
+                "settings.dark_selected"
+            } else { "settings.light_selected" })),
+            child: Switch(
+                checked: state.theme_mode == DesignMode::Dark,
+                semantics_identifier: Some("settings.dark_mode".into()),
+                on_toggle: reduce {
+                    state.theme_mode = if state.theme_mode == DesignMode::Dark {
+                        DesignMode::Light
+                    } else { DesignMode::Dark };
+                },
+            ),
+        ),
+        Text(cx.tr("settings.language")).weight(tokens.typography.font_weight_semibold),
+        Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+            Button(child: Text(cx.tr("settings.english")), key: "english",
+                variant: if state.locale == Locale::from("en-US") { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                on_press: reduce { state.locale = Locale::from("en-US"); }),
+            Button(child: Text(cx.tr("settings.spanish")), key: "spanish",
+                variant: if state.locale == Locale::from("es-ES") { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                on_press: reduce { state.locale = Locale::from("es-ES"); }),
+        ]),
+        Text(cx.tr("settings.example")).weight(tokens.typography.font_weight_semibold),
+        Text(cx.tr("settings.long_description")),
+        Button(child: Text(cx.tr("settings.reset")), key: "reset",
+            on_press: reduce {
+                state.locale = Locale::from("en-US");
+                state.theme_mode = DesignMode::Light;
+            }),
+        Text(cx.tr("settings.scope")).color(tokens.colors.text_secondary),
+    ])).padding_all(tokens.spacing.l).bg(tokens.colors.surface)))
+}
+```
+</TabItem>
+<TabItem label="src/design.rs">
+<!-- fission:file path="src/design.rs" -->
+```rust
+include!(concat!(
+    env!("OUT_DIR"),
+    "/mobile_settings_design_system.rs"
+));
+```
+</TabItem>
+<TabItem label="src/i18n.rs">
+<!-- fission:file path="src/i18n.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid task translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+
+pub fn sync_env(state: &crate::app::SettingsState, env: &mut Env) {
+    env.locale = state.locale.clone();
+    env.theme = crate::design::MobileSettingsDesignSystem::theme(state.theme_mode);
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod design;
+mod i18n;
+
+use app::{SettingsScreen, SettingsState};
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<SettingsState, _>::new(SettingsScreen)
+        .with_env(i18n::create_env())
+        .with_design_system::<design::MobileSettingsDesignSystem>(DesignMode::Light)
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    MobileApp::<SettingsState, _>::new(SettingsScreen)
+        .with_env(i18n::create_env())
+        .with_design_system::<design::MobileSettingsDesignSystem>(DesignMode::Light)
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = MobileApp::<SettingsState, _>::new(SettingsScreen)
+        .with_env(i18n::create_env())
+        .with_design_system::<design::MobileSettingsDesignSystem>(DesignMode::Light)
+        .with_sync_env(i18n::sync_env)
+        .run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<SettingsState, _>::new(SettingsScreen)
+        .with_env(i18n::create_env())
+        .with_design_system::<design::MobileSettingsDesignSystem>(DesignMode::Light)
+        .with_sync_env(i18n::sync_env)
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod design;
+mod i18n;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<app::SettingsState, _>::new(app::SettingsScreen)
+        .with_env(i18n::create_env())
+        .with_design_system::<design::MobileSettingsDesignSystem>(DesignMode::Light)
+        .with_sync_env(i18n::sync_env)
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+settings.title: "Appearance and language"
+settings.explanation: "Choose how the app looks and reads. Each change applies immediately."
+settings.dark_mode: "Use dark appearance"
+settings.dark_selected: "Dark appearance is currently selected."
+settings.light_selected: "Light appearance is currently selected."
+settings.language: "Interface language"
+settings.english: "English"
+settings.spanish: "Español"
+settings.example: "Example content"
+settings.long_description: "The interface follows your selected language and appearance. Longer descriptions and actions must remain readable when text grows or the window becomes narrow."
+settings.reset: "Restore English and light appearance"
+settings.scope: "These choices apply to this app session only. They are not saved between launches and do not change the device's system settings."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+settings.title: "Apariencia e idioma"
+settings.explanation: "Elige cómo se ve y se lee la aplicación. Los cambios se aplican inmediatamente."
+settings.dark_mode: "Usar apariencia oscura"
+settings.dark_selected: "La apariencia oscura está seleccionada."
+settings.light_selected: "La apariencia clara está seleccionada."
+settings.language: "Idioma de la interfaz"
+settings.english: "Inglés"
+settings.spanish: "Español"
+settings.example: "Contenido de ejemplo"
+settings.long_description: "La interfaz sigue el idioma y la apariencia elegidos. Las descripciones y acciones largas deben seguir siendo legibles al aumentar el texto o estrechar la ventana."
+settings.reset: "Restablecer inglés y apariencia clara"
+settings.scope: "Estas opciones solo afectan a esta sesión. No se guardan al cerrar la aplicación ni cambian los ajustes del dispositivo."
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Switch appearance and language. The whole screen, including its example paragraph and reset action, must follow the selected settings. Reset restores the documented English/light defaults.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Keep presentation synchronization in one place
+
+The reducers update only `SettingsState`. The shared `sync_env` function applies those choices to `Env`: locale selects the bundle and the generated design-system type creates the corresponding theme. Individual widgets do not reach into another widget's settings or assemble their own palettes.
+
+Use `with_sync_env` for these application-wide presentation inputs, not for persistence or network work. If preferences later become durable, hydrate them once through a registered startup action and Store effects. A theme rebuild is not an appropriate place to read a database.
+
+The Rust bundles localize the app's interface. They do not translate user data or automatically change native permission-purpose strings. Similarly, choosing dark appearance here changes this app, not the operating system's appearance setting.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Keep Spanish selected whilst toggling appearance. Neither setting should reset the other. Reloading resets both because the example deliberately has no persistence.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Check the actual mobile controls
+
+Run on the configured Android emulator, then on macOS with an installed iOS simulator:
+
+```sh
+fission doctor android --project-dir .
+fission run --target android --project-dir .
+fission test --target android --project-dir .
+fission doctor ios --project-dir .
+fission run --target ios --project-dir .
+fission test --target ios --project-dir .
+```
+
+Check both languages at narrow and wide widths with larger text. The long Spanish reset action must remain readable, and VoiceOver/TalkBack must announce the appearance switch's label and checked state. Inspect focus, wrapping and colour contrast in both modes; a palette declaration alone does not establish accessible rendering.
+
+Follow [Android phone installation](/blog/run-a-fission-app-on-a-physical-android-phone/) and [iPhone installation](/blog/install-a-fission-app-on-a-physical-iphone/) for physical checks. Keep browser, simulator and phone results distinct.
+
+- [Design systems](/docs/guides/design-system/)
+- [Theming and i18n](/docs/guides/theming-and-i18n/)
+<!-- /fission:step -->

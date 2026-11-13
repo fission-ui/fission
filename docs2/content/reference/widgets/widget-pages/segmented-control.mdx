@@ -1,0 +1,95 @@
+---
+title: SegmentedControl
+description: Choose exactly one option from a short horizontal set of segments.
+slug: /widgets/segmented-control
+---
+# SegmentedControl
+
+`SegmentedControl` keeps a small set of mutually exclusive choices visible.
+Use it when people should compare the options at a glance, such as display
+modes or filters. For a large or changing set, use a dropdown or select.
+
+## Example
+
+```rust
+use fission::prelude::*;
+use std::sync::Arc;
+
+fission_component! {
+    pub MessageFilter<()> {
+        props {
+            selected_index: usize,
+            choose_filter: Arc<dyn Fn(usize) -> ActionEnvelope + Send + Sync>,
+        }
+    }
+
+    view(filter, _state, cx) =>
+        SegmentedControl(
+            options: vec![
+                cx.tr("message.filter.all"),
+                cx.tr("message.filter.unread"),
+                cx.tr("message.filter.flagged"),
+            ],
+            selected_index: filter.selected_index,
+            on_change: filter.choose_filter.clone(),
+        )
+}
+```
+
+The parent's callback maps these three stable positions to its filter enum and
+creates its registered action. Keep that mapping explicit and validate the index;
+a translated label is not the filter's identity.
+
+Each segment retains radio semantics and keyboard navigation. The selected segment is derived from state on every build.
+
+## Design-system styling
+
+The track and selected segment use the component-specific recipe at
+`theme.components.segmented_control`. This lets an application brand a
+segmented control without changing shared surface colours used by Cards and
+other components.
+
+```rust
+// In a custom design-system environment factory, after installing its theme:
+let active_bg = env.theme.tokens.colors.primary;
+let active_text = env.theme.tokens.colors.text_primary;
+let recipe = &mut env.theme.components_mut().segmented_control;
+recipe.active_bg = active_bg;
+recipe.active_text = active_text;
+```
+
+Choose a tested foreground/background pair in the DSP; this excerpt only shows
+where the recipe lives. Token names alone do not prove sufficient contrast.
+
+Install that environment on the application shell in the same way as any other
+custom design system. The control continues to provide one radio group, one
+radio per segment, and arrow-key navigation; visual customisation does not
+require rebuilding it from lower-level widgets.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `options` | `Vec<String>` | Labels for each segment. | Required. Keep the set short. |
+| `selected_index` | `usize` | Which option is currently active. | Controlled by app state. |
+| `on_change` | `Option<Arc<dyn Fn(usize) -> ActionEnvelope + Send + Sync>>` | Closure that creates the action for a newly chosen index. | Called once per segment during build to prepare that segment's action. |
+
+## How it fits the state loop
+
+The closure returns an `ActionEnvelope` for the chosen index. When the user presses a segment, that action is dispatched, the reducer updates the selected index in `GlobalState`, and the next build re-renders the control with the new active segment.
+
+Because the closure runs during component conversion to prepare per-segment actions, keep it cheap and deterministic. It should package data, not do work.
+
+## Specific advice
+
+Use segmented controls for short, peer-level choices. If labels start wrapping, if there are more than a handful of options, or if options may disappear behind scrolling, you probably want [`Select`](/reference/widgets/select) or [`Radio`](/reference/widgets/radio) instead.
+
+## Production checklist
+
+- Validate the index against the stable enum mapping when options change.
+- Test radio-group keyboard navigation and long translations.
+- Verify contrast and selected-state meaning in the actual design system.
+
+## Related
+
+[`Radio`](/reference/widgets/radio), [`Select`](/reference/widgets/select), [`Button`](/reference/widgets/button), and [`Tabs`](/reference/widgets/tabs).

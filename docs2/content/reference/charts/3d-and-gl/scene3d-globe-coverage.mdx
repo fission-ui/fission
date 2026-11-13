@@ -1,0 +1,52 @@
+---
+title: 3D globe coverage
+sidebar_label: 3D globe coverage
+description: Present active service locations without implying that markers define an area of coverage.
+---
+
+# 3D globe coverage
+
+![3D globe coverage screenshot](/img/charts/scene3d-globe-coverage.png)
+
+A globe gives locations global context. It does not establish which addresses a service covers. That distinction matters for a deployment screen: a marker may identify a regional site, whilst actual coverage depends on separate service rules and geographic data.
+
+This gallery entry is a visual variant of the [Globe coverage](./globe-coverage) example. It uses the same sphere-and-marker scene construction rather than another chart-series type.
+
+## Reuse the coverage model and view
+
+The linked reference defines `CoverageSite` and `ActiveCoverage`. Keep them in a shared widget module, alongside the `ServiceLocationsGlobe` component from [Globe](./globe-basic). The view filters active sites but retains the full site records in the application model.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use crate::widgets::active_coverage::{ActiveCoverage, CoverageSite};
+
+fission_component! {
+    pub DeploymentCoverage<()> {
+        props {
+            title: TextContent,
+            sites: Vec<CoverageSite>,
+            globe_color: Color,
+            site_color: Color,
+        }
+    }
+    view(deployment, _state, _cx) => ActiveCoverage {
+        title: deployment.title.clone(),
+        sites: deployment.sites.clone(),
+        globe_color: deployment.globe_color,
+        marker_color: deployment.site_color,
+    }
+}
+```
+
+Enable the `three-d` feature. Positions must follow the documented latitude/longitude conversion; colours and translated title come from the parent.
+
+## Keep the unavailable and hidden cases visible
+
+A site on the far side of the sphere may not be visible, and a failed status load is not evidence that a site is inactive. Preserve both facts in an accessible site list rather than treating the picture as the complete status record.
+
+The legacy `Scene3D` has optional viewport dimensions and explicit primitives, not geographic coverage, camera builders or per-site chart events. Test active-site filtering and inspect hidden markers in a rendered target. The screenshot is the gallery fixture.
+
+Tags: `3d`, `globe`.
+
+[3D and GL family overview](./overview)

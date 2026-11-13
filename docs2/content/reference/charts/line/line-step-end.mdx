@@ -1,0 +1,62 @@
+---
+title: Step end line
+sidebar_label: Step end line
+description: Fission Charts reference for Step end line.
+---
+
+# Step end line
+
+![Step end line screenshot](/img/charts/line-step-end.png)
+
+An end-step line is useful when a value remains unchanged until the next recorded transition. Allocated seats can increase or decrease at a reporting boundary without taking every intermediate value. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example shows the seat count known at each boundary. The previous count holds until the next label, where the new count takes effect. A straight diagonal would imply a gradual allocation that the records do not support.
+
+## Data model
+
+LineSeries::step("end") chooses this drawn transition; it does not change the samples. Supply the allocation history in order and keep a consistent rule for transactions that occur exactly at a reporting boundary.
+
+## Authoring from a Fission component
+
+Prepare the source aggregate before building the chart. The component receives labels and values as props, with no asynchronous work hidden in the view.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub StepEndLineChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            allocated_seats: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.allocated_seats.clone())
+                    .step("end")
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test one increase, one decrease and equal adjacent counts. Check the transition side visually and provide exact counts and effective times in normal text when the history is used for an administrative decision.
+
+Tags: `line`, `step`.
+
+[Line family overview](./overview)

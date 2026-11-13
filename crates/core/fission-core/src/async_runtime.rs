@@ -273,9 +273,19 @@ impl JobCtx {
         }
     }
 
+    /// Registers a one-shot stream produced by this job.
+    ///
+    /// Return the resulting [`DataStreamId`] from the job, then pass it to a
+    /// capability or another job that consumes the stream. This keeps large
+    /// generated outputs out of serialized job results and action payloads.
+    pub fn register_data_stream(&self, stream: BoxFissionDataStream) -> DataStreamId {
+        self.data_streams.register(stream)
+    }
+
     /// Opens a runtime-owned data stream for this job.
     ///
-    /// Streams are one-shot by default; opening consumes the stream handle.
+    /// Streams are one-shot by default. The stream's registry entry is released
+    /// when the returned stream is dropped.
     pub fn open_data_stream(
         &self,
         id: DataStreamId,
@@ -283,9 +293,26 @@ impl JobCtx {
         self.data_streams.open(id)
     }
 
-    /// Releases a stream without consuming it.
+    /// Releases a stream that will not be opened.
     pub fn release_data_stream(&self, id: DataStreamId) -> bool {
         self.data_streams.release(id)
+    }
+}
+
+#[cfg(test)]
+mod job_context_tests {
+    use super::JobCtx;
+    use crate::data_stream::{empty_data_stream, DataStreamRegistry};
+
+    #[test]
+    fn job_can_register_a_stream_for_a_later_capability() {
+        let streams = DataStreamRegistry::new();
+        let job = JobCtx::new_runtime(1, streams.clone());
+        let stream_id = job.register_data_stream(empty_data_stream());
+
+        let capability = JobCtx::new_runtime(2, streams);
+        assert!(capability.open_data_stream(stream_id).is_ok());
+        assert!(capability.open_data_stream(stream_id).is_err());
     }
 }
 
@@ -365,7 +392,8 @@ impl<S: ServiceSpec> ServiceCtx<S> {
 
     /// Opens a runtime-owned data stream for this service.
     ///
-    /// Streams are one-shot by default; opening consumes the stream handle.
+    /// Streams are one-shot by default. The stream's registry entry is released
+    /// when the returned stream is dropped.
     pub fn open_data_stream(
         &self,
         id: DataStreamId,
@@ -373,7 +401,7 @@ impl<S: ServiceSpec> ServiceCtx<S> {
         self.inner.data_streams.open(id)
     }
 
-    /// Releases a stream without consuming it.
+    /// Releases a stream that will not be opened.
     pub fn release_data_stream(&self, id: DataStreamId) -> bool {
         self.inner.data_streams.release(id)
     }

@@ -1,0 +1,659 @@
+---
+layout: goal
+title: Add Android navigation and handle the system Back action
+description: "Create a maintenance report, open its typed detail route and resolve it without losing the shared queue when Android Back returns to it."
+goal: "Navigate from a user-entered maintenance queue to one identified repair and return with the same updated record and route history."
+path: /blog/add-android-navigation-and-handle-the-system-back-action/
+order: 31
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-add-android-navigation-and-handle-the-system-back-action
+outcomes:
+  - "Create real reports with stable IDs instead of preview-only fixtures"
+  - "Use Router and validate captured RouteParams before selecting a record"
+  - "Update a repair through a reducer, not by hiding its card"
+  - "Keep the visible route and Android Back under the shell's navigation authority"
+---
+
+A maintenance queue is useful because the queue and its detail screens describe the same repairs. If resolving a job only changes the detail screen's local state, returning to the queue shows an old result. Navigation makes that mistake visible; it does not cause it.
+
+Here, we keep work orders in shared app state and use Fission's `Router` to select a queue or a detail route. Android Back changes the shell's route history. A single route handler mirrors those changes into app state, including changes that did not start in a Compose button.
+
+The app starts empty. Enter your own reports rather than relying on preview fixtures. Records last for this run; [persistent Android storage](/blog/persist-android-app-state-with-fission-store-and-sqlite/) is a separate step, and this guide does not claim to save repairs across restarts.
+
+## Create the Android project
+
+Complete the [Android development setup guide](/blog/set-up-rust-android-gui-development-with-fission/) and [create an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [connect a phone](/blog/run-a-fission-app-on-a-physical-android-phone/) first.
+
+```sh
+fission init riverside-work-orders
+cd riverside-work-orders
+fission add-target android --project-dir .
+cargo add serde_yaml
+```
+
+Keep the generated `src/main.rs`. The replacement `src/lib.rs` below selects the shell whilst the app module owns routes, screens and work-order state:
+
+```text
+src/
+├── main.rs
+├── lib.rs
+├── translations.rs
+├── app.rs
+└── app/
+    ├── state.rs
+    ├── new_order.rs
+    ├── card.rs
+    ├── queue.rs
+    ├── actions.rs      # added in step two
+    └── detail.rs       # added in step two
+i18n/
+├── en-US.yaml
+└── es-ES.yaml
+```
+
+<!-- fission:step id="start-screen" -->
+## Build a queue from reports the user enters
+
+A report needs a recognisable problem, a location and enough detail for the technician. The form owns its draft locally. Adding a valid report creates a record in `GlobalState` and clears the draft; an incomplete report leaves the input intact.
+
+The record ID is allocated once when the record is created. It is not the row position. We use it for the route and the row's retained widget identity, so changing the list cannot attach an old row to a different repair. This in-memory sequence is sufficient for one app run; a shared service would supply its own durable IDs.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+pub mod state;
+mod card;
+mod new_order;
+mod queue;
+
+pub use state::{route_changed, WorkOrderState};
+
+use fission::prelude::*;
+
+fission_component! {
+    pub WorkOrdersApp<WorkOrderState> {}
+    view(_app, _state, _cx) =>
+        queue::WorkOrderQueue
+}
+```
+</TabItem>
+<TabItem label="src/app/state.rs">
+<!-- fission:file path="src/app/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkOrder {
+    pub id: u64,
+    pub title: String,
+    pub location: String,
+    pub report: String,
+    pub resolved: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkOrderState {
+    pub current_path: String,
+    pub orders: Vec<WorkOrder>,
+    next_id: u64,
+}
+
+impl Default for WorkOrderState {
+    fn default() -> Self {
+        Self { current_path: "/".into(), orders: Vec::new(), next_id: 1 }
+    }
+}
+impl GlobalState for WorkOrderState {}
+
+impl WorkOrderState {
+    pub fn add(&mut self, title: String, location: String, report: String) -> bool {
+        if title.trim().is_empty() || location.trim().is_empty() || report.trim().is_empty() {
+            return false;
+        }
+        let Some(next_id) = self.next_id.checked_add(1) else { return false };
+        self.orders.push(WorkOrder {
+            id: self.next_id,
+            title: title.trim().to_owned(),
+            location: location.trim().to_owned(),
+            report: report.trim().to_owned(),
+            resolved: false,
+        });
+        self.next_id = next_id;
+        true
+    }
+
+    pub fn resolve(&mut self, id: u64) {
+        if let Some(order) = self.orders.iter_mut().find(|order| order.id == id) {
+            order.resolved = true;
+        }
+    }
+}
+
+pub fn route_changed(
+    state: &mut WorkOrderState,
+    action: fission::core::action::ShellRouteChanged,
+    _cx: &mut ReducerContext<WorkOrderState>,
+) {
+    state.current_path = action.location.pathname;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_report_does_not_allocate_an_id() {
+        let mut state = WorkOrderState::default();
+        assert!(!state.add("Boiler".into(), "Basement".into(), " ".into()));
+        assert!(state.add("Boiler".into(), "Basement".into(), "Pressure is dropping".into()));
+        assert_eq!(state.orders[0].id, 1);
+    }
+
+    #[test]
+    fn resolving_only_changes_the_matching_record() {
+        let mut state = WorkOrderState::default();
+        state.add("Boiler".into(), "Basement".into(), "Pressure is dropping".into());
+        state.add("Window".into(), "Flat 2A".into(), "Latch will not close".into());
+        state.resolve(1);
+        assert!(state.orders[0].resolved);
+        assert!(!state.orders[1].resolved);
+        let before = state.clone();
+        state.resolve(9999);
+        assert_eq!(state, before);
+    }
+}
+```
+</TabItem>
+<TabItem label="src/app/new_order.rs">
+<!-- fission:file path="src/app/new_order.rs" -->
+```rust
+use fission::prelude::*;
+
+use super::state::WorkOrderState;
+
+fission_component! {
+    pub NewWorkOrder<WorkOrderState> {
+        state {
+            title: String = String::new(),
+            location: String = String::new(),
+            report: String = String::new(),
+            invalid: bool = false,
+        }
+    }
+    view(draft, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.s, children: [
+        Text(cx.tr("orders.new")).size(tokens.typography.heading2_size),
+        TextInput(
+            label: Some(cx.tr("orders.title").into()),
+            bind: draft.title,
+            required: true,
+            semantics_identifier: "orders.draft.title".to_string(),
+        ),
+        TextInput(
+            label: Some(cx.tr("orders.location").into()),
+            bind: draft.location,
+            required: true,
+            semantics_identifier: "orders.draft.location".to_string(),
+        ),
+        TextInput(
+            label: Some(cx.tr("orders.report").into()),
+            bind: draft.report,
+            required: true,
+            multiline: true,
+            semantics_identifier: "orders.draft.report".to_string(),
+        ),
+        Button(
+            child: Text(cx.tr("orders.add")),
+            key: "add-work-order",
+            on_press: reduce {
+                if state.add(draft.title.clone(), draft.location.clone(), draft.report.clone()) {
+                    draft.title.clear();
+                    draft.location.clear();
+                    draft.report.clear();
+                    draft.invalid = false;
+                } else {
+                    draft.invalid = true;
+                }
+            },
+        ).semantics_identifier("orders.add"),
+        if draft.invalid { Text(cx.tr("orders.invalid")).color(tokens.colors.error) },
+    ])
+}
+```
+</TabItem>
+<TabItem label="src/app/card.rs">
+<!-- fission:file path="src/app/card.rs" -->
+```rust
+use fission::prelude::*;
+
+use super::state::{WorkOrder, WorkOrderState};
+
+fission_component! {
+    pub WorkOrderCard<WorkOrderState> {
+        props {
+            order: WorkOrder,
+            open_action: Option<ActionEnvelope>,
+        }
+    }
+    view(card, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.s, children: [
+        Text(format!("#{}", card.order.id)).color(tokens.colors.text_secondary),
+        Text(card.order.title.clone()).weight(tokens.typography.font_weight_semibold),
+        Text(card.order.location.clone()),
+        Text(cx.tr(if card.order.resolved { "orders.resolved" } else { "orders.open" })),
+        if let Some(action) = card.open_action.clone() {
+            Button(
+                child: Text(cx.tr("orders.details")),
+                key: "open-work-order",
+                on_press: action,
+            ).semantics_identifier(format!("orders.open.{}", card.order.id))
+        },
+    ]))
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+```
+</TabItem>
+<TabItem label="src/app/queue.rs">
+<!-- fission:file path="src/app/queue.rs" -->
+```rust
+use fission::prelude::*;
+
+use super::card::WorkOrderCard;
+use super::new_order::NewWorkOrder;
+use super::state::WorkOrderState;
+
+
+fission_component! {
+    pub WorkOrderQueue<WorkOrderState> {}
+    view(_queue, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let open = state.orders.iter().filter(|order| !order.resolved).count();
+    } =>
+    Container(SafeArea(child: Scroll(child:
+        Container(Column(gap: tokens.spacing.l, children: [
+            Text(cx.tr("orders.queue")).size(tokens.typography.heading1_size),
+            Text(cx.tr("orders.open_count").replace("{count}", &open.to_string())),
+            NewWorkOrder(),
+            Divider(),
+            if state.orders.is_empty() {
+                EmptyState(
+                    title: cx.tr("orders.empty"),
+                    description: Some(cx.tr("orders.empty_help")),
+                )
+            } else {
+                Column(gap: tokens.spacing.s, children: [
+                    for order in &state.orders {
+                        WorkOrderCard(order.clone(), None, key: order.id)
+                            .id(WidgetId::explicit(&format!("work-order.{}", order.id)))
+                    },
+                ])
+            },
+        ]))
+        .padding_all(tokens.spacing.l)
+        .width_length(Length::percent(100.0))
+        .max_width(760.0),
+    )))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod translations;
+
+use app::WorkOrdersApp;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<app::WorkOrderState, _>::new(WorkOrdersApp)
+        .with_env(translations::create_env())
+        .with_route_handler(app::route_changed)
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<app::WorkOrderState, WorkOrdersApp> {
+    let app = MobileApp::<app::WorkOrderState, _>::new(WorkOrdersApp)
+        .with_env(translations::create_env())
+        .with_route_handler(app::route_changed);
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<app::WorkOrderState, _>::new(WorkOrdersApp)
+        .with_env(translations::create_env())
+        .with_route_handler(app::route_changed)
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+orders.queue: "Maintenance work orders"
+orders.open_count: "Open repairs: {count}"
+orders.new: "Report a repair"
+orders.title: "Problem"
+orders.location: "Property and location"
+orders.report: "What needs attention?"
+orders.add: "Add work order"
+orders.invalid: "Complete all three fields before adding a work order."
+orders.empty: "No repairs reported yet"
+orders.empty_help: "Enter a location and a description to create the first work order."
+orders.open: "Open"
+orders.resolved: "Resolved"
+orders.details: "View repair"
+orders.back: "Back to work orders"
+orders.resolve: "Mark repair resolved"
+orders.not_found: "Work order not found"
+orders.not_found_help: "The link may be wrong, or this app run does not contain that repair."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+orders.queue: "Órdenes de mantenimiento"
+orders.open_count: "Reparaciones abiertas: {count}"
+orders.new: "Informar de una reparación"
+orders.title: "Problema"
+orders.location: "Edificio y ubicación"
+orders.report: "¿Qué necesita atención?"
+orders.add: "Añadir orden de trabajo"
+orders.invalid: "Completa los tres campos antes de añadir una orden."
+orders.empty: "Aún no hay reparaciones"
+orders.empty_help: "Introduce una ubicación y una descripción para crear la primera orden."
+orders.open: "Abierta"
+orders.resolved: "Resuelta"
+orders.details: "Ver reparación"
+orders.back: "Volver a las órdenes"
+orders.resolve: "Marcar reparación como resuelta"
+orders.not_found: "No se encontró la orden"
+orders.not_found_help: "El enlace puede ser incorrecto o esta ejecución no contiene esa reparación."
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<app::WorkOrderState, _>::new(app::WorkOrdersApp)
+        .with_env(translations::create_env())
+        .with_navigation(WebNavigationConfig::new(WebRouteStrategy::Hash))
+        .with_route_handler(app::route_changed)
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Try adding an empty report first: the form must explain what is missing without creating a record. Then add “Boiler pressure is dropping”, location “Riverside House · basement”, and describe the pressure dropping every few minutes. Add a second repair at another location. Both should have distinct IDs and the open count should be two.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="route-to-work-order" -->
+## Open a repair and update the same record
+
+The detail route reads its ID from `RouteParams`, parses it, then looks up the record. A matching path alone is not proof that the work order exists. Missing and malformed IDs therefore show a not-found state rather than a default repair.
+
+Opening a repair requests navigation; it does not also assign `current_path`. The shell route handler is the one place that updates that field. Consequently, an app button, browser Back and Android Back feed the same route state.
+
+The record-specific actions below use explicit owned IDs. They do not capture a reference to a row from a completed build.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+pub mod state;
+mod actions;
+mod card;
+mod detail;
+mod new_order;
+mod queue;
+
+pub use state::{route_changed, WorkOrderState};
+
+use fission::prelude::*;
+
+fission_component! {
+    pub WorkOrdersApp<WorkOrderState> {}
+    view(_app, state, cx) {
+        let missing = cx.tr("orders.not_found");
+        let router = Router::<WorkOrderState>::new()
+            .with_path(state.current_path.clone())
+            .route_component("/", queue::WorkOrderQueue)
+            .route_component("/work-orders/:id", detail::WorkOrderDetail)
+            .not_found(move || Text::new(missing.clone()));
+    } =>
+        router
+}
+```
+</TabItem>
+<TabItem label="src/app/queue.rs">
+<!-- fission:file path="src/app/queue.rs" -->
+```rust
+use fission::prelude::*;
+
+use super::card::WorkOrderCard;
+use super::new_order::NewWorkOrder;
+use super::state::WorkOrderState;
+use super::actions::{OpenOrder, open_order};
+
+fission_component! {
+    pub WorkOrderQueue<WorkOrderState> {}
+    view(_queue, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let open = state.orders.iter().filter(|order| !order.resolved).count();
+    } =>
+    Container(SafeArea(child: Scroll(child:
+        Container(Column(gap: tokens.spacing.l, children: [
+            Text(cx.tr("orders.queue")).size(tokens.typography.heading1_size),
+            Text(cx.tr("orders.open_count").replace("{count}", &open.to_string())),
+            NewWorkOrder(),
+            Divider(),
+            if state.orders.is_empty() {
+                EmptyState(
+                    title: cx.tr("orders.empty"),
+                    description: Some(cx.tr("orders.empty_help")),
+                )
+            } else {
+                Column(gap: tokens.spacing.s, children: [
+                    for order in &state.orders {
+                        WorkOrderCard(
+                            order.clone(),
+                            Some(with_reducer!(cx.build, OpenOrder(order.id), open_order)),
+                            key: order.id,
+                        ).id(WidgetId::explicit(&format!("work-order.{}", order.id)))
+                    },
+                ])
+            },
+        ]))
+        .padding_all(tokens.spacing.l)
+        .width_length(Length::percent(100.0))
+        .max_width(760.0),
+    )))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/app/actions.rs">
+<!-- fission:file path="src/app/actions.rs" -->
+```rust
+use fission::prelude::*;
+
+use super::state::WorkOrderState;
+
+#[fission_reducer(OpenOrder)]
+pub fn open_order(state: &mut WorkOrderState, id: u64, cx: &mut ReducerContext<WorkOrderState>) {
+    if state.orders.iter().any(|order| order.id == id) {
+        cx.effects.navigate(format!("/work-orders/{id}"));
+    }
+}
+
+#[fission_reducer(ResolveOrder)]
+pub fn resolve_order(state: &mut WorkOrderState, id: u64) {
+    state.resolve(id);
+}
+```
+</TabItem>
+<TabItem label="src/app/detail.rs">
+<!-- fission:file path="src/app/detail.rs" -->
+```rust
+use fission::prelude::*;
+
+use super::actions::{ResolveOrder, resolve_order};
+use super::state::WorkOrderState;
+
+fission_component! {
+    pub WorkOrderDetail<WorkOrderState> {}
+    view(_detail, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let params = fission::build::read::<RouteParams>();
+        let order = params.get("id")
+            .and_then(|value| value.parse::<u64>().ok())
+            .and_then(|id| state.orders.iter().find(|order| order.id == id));
+    } =>
+    Container(SafeArea(child: Scroll(child:
+        Container(Column(gap: tokens.spacing.m, children: [
+            Button(
+                child: Text(cx.tr("orders.back")),
+                key: "back-to-queue",
+                variant: ButtonVariant::Outline,
+                on_press: reduce { cx.effects.navigation_back(); },
+            ).semantics_identifier("orders.back"),
+            if let Some(order) = order {
+                Column(gap: tokens.spacing.m, children: [
+                    Text(order.title.clone()).size(tokens.typography.heading1_size),
+                    Text(order.location.clone()),
+                    Text(order.report.clone()),
+                    Text(cx.tr(if order.resolved { "orders.resolved" } else { "orders.open" })),
+                    Button(
+                        child: Text(cx.tr("orders.resolve")),
+                        key: "resolve-order",
+                        disabled: order.resolved,
+                        on_press: with_reducer!(cx.build, ResolveOrder(order.id), resolve_order),
+                    ).semantics_identifier(format!("orders.resolve.{}", order.id)),
+                ])
+            } else {
+                EmptyState(
+                    title: cx.tr("orders.not_found"),
+                    description: Some(cx.tr("orders.not_found_help")),
+                )
+            },
+        ]))
+        .padding_all(tokens.spacing.l)
+        .width_length(Length::percent(100.0))
+        .max_width(760.0),
+    )))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Create two repairs in this stage's independent preview. Open the first, mark it resolved and choose **Back to work orders**. The same record should now show **Resolved** and the open count should decrease by one. Open the other repair and use browser Back. The queue should reflect that same route history, not a separately maintained screen stack.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="run-on-android" -->
+## Verify the system Back action on Android
+
+The native shell already installs `app::route_changed`; there is no additional Android-only copy of the route logic. Test the installed app now, because a working browser history does not establish that the Android host is connected correctly.
+
+```sh
+cargo test
+fission doctor android --project-dir .
+fission devices --project-dir .
+fission run --target android --project-dir .
+fission test --target android --project-dir .
+fission build --target android --project-dir . --release
+```
+
+To select a particular emulator or phone, use its ID from `fission devices`:
+
+```sh
+fission run --target android --device <device-id> --project-dir .
+```
+
+Add two reports, open one, resolve it and press the Android system Back action. You should return to the queue with the changed status. Repeat using the visible Back button. At the initial queue, Back belongs to the shell's normal root-history behaviour; the app does not manufacture another queue route to trap the user.
+
+Test `/work-orders/9999` and `/work-orders/not-a-number` as well. Both must show the not-found state, not a different report. A direct detail link has no preceding queue entry in history, so its Back behaviour can differ from opening that detail from the queue. Persistence and loading a repair by ID are separate requirements before promising that such links survive an app restart.
+
+The Rust tests exercise validation, ID allocation and updating only the matching record. `fission test` checks host startup; it does not replace the manual Android Back checks.
+
+<!-- /fission:step -->
+
+## Continue learning
+
+- [Router matching rules](/reference/widgets/router/)
+- [RouteParams](/reference/widgets/route-params/)
+- [Compose an Android app from reusable Fission components](/blog/compose-an-android-app-from-reusable-fission-widgets/)
+- [Build validated Android forms that work with the soft keyboard](/blog/build-validated-android-forms-that-work-with-the-soft-keyboard/)
+- [Persist Android app state with Fission Store and SQLite](/blog/persist-android-app-state-with-fission-store-and-sqlite/)

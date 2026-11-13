@@ -1,0 +1,53 @@
+---
+title: Sunburst
+sidebar_label: Sunburst
+description: Fission Charts reference for Sunburst.
+---
+
+# Sunburst
+
+![Sunburst screenshot](/img/charts/sunburst-basic.png)
+
+A sunburst preserves both a hierarchy and a quantity. In a storage report, an inner directory segment can be divided into the files or subdirectories which contribute to its total. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use it for genuine parent/child ownership and additive sizes. A dependency shared by several parents is not a tree and cannot be duplicated without changing the total.
+
+## Data model
+
+`SunburstSeries` accepts nested `TreemapNode` records with `name`, required `f32` value and children. Prepare parent totals consistent with their children, using one storage measure such as logical size in GiB.
+
+## Authoring from a Fission component
+
+The parent performs the storage scan and aggregation before rendering; node names and chart labels arrive already resolved.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, SunburstSeries, TreemapNode};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DirectorySizeSunburst<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            directory_sizes_gib: Vec<TreemapNode>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![SunburstSeries::new(&report.series_label)
+            .data(report.directory_sizes_gib.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test empty directories, deep nesting and shared data or hard links under the chosen counting rule. Retain exact sizes and a readable hierarchy outside the radial view; a small segment may be impossible to label legibly.
+
+Tags: `sunburst`, `hierarchy`.
+
+[Relationships and hierarchy family overview](./overview)

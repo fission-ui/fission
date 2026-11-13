@@ -1,0 +1,21 @@
+---
+title: Sales route map
+sidebar_label: Sales route map
+description: Separate sales territory performance from planned field visits.
+---
+
+# Sales route map
+
+![Sales route map screenshot](/img/charts/geo-sales-routes.png)
+
+A field team has two different facts to inspect: how a territory is performing and which visits are planned. Planned visits are not completed sales, so they should not share an unexplained measure or imply causation.
+
+Use the [regional sales projection](../geo-and-route/map-sales) for the map and [the connection component](../geographic-and-route/lines-basic) for visit relationships. The [network report](../geo-and-route/geo-network) shows how Compose can put both in a single report as separate panels.
+
+Give the sales side a completed reporting period and one currency. Give the visit side its own planned/completed status and schedule. Joining both through durable territory and account IDs is more reliable than inferring ownership from where a line appears on screen.
+
+The route panel is schematic. Current map and line fitting does not guarantee a geographical overlay, and the chart does not optimise a salesperson's itinerary. Do not present its curve as a drivable road or a computed journey time.
+
+Translate territory display names, units and status explanations in the parent. Keep a visit list with account, date and status, alongside exact sales totals. Test reassigned territories, cancelled visits and records whose region is missing. Gallery fixtures are not evidence that a planning workflow or aligned map has been implemented.
+
+[Geo family overview](./overview)

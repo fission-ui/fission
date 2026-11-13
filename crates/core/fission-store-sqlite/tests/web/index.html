@@ -8,28 +8,487 @@
 
     installFissionSqlite({ appId: "dev.fission.sqlite-web-test" });
 
-    const request = (operation, value) =>
-      globalThis.__fissionSqliteRequest({ operation, request: value });
-    const execute = (sql, parameters = "None") =>
-      request("sql_execute", { sql, parameters });
+    const request = (operation, value, databaseName) =>
+      globalThis.__fissionSqliteRequest({
+        operation,
+        request: value,
+        ...(databaseName === undefined ? {} : { databaseName }),
+      });
+    const execute = (sql, parameters = "None", databaseName) =>
+      request("sql_execute", { sql, parameters }, databaseName);
+    const transactionStatement = (transactionId, operation, sql, parameters = "None", databaseName) =>
+      request(operation, {
+        transaction_id: transactionId,
+        statement: { sql, parameters },
+      }, databaseName);
 
     try {
       const run = crypto.randomUUID();
-      if (new URL(location.href).searchParams.has("peer")) {
+      const search = new URL(location.href).searchParams;
+      if (search.has("lifetime_client")) {
+        const databaseName = search.get("database");
+        const marker = search.get("marker");
+        const held = await request("sql_tx_begin", {}, databaseName);
+        await transactionStatement(
+          held.transaction_id,
+          "sql_tx_execute",
+          "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
+          { Positional: [{ Text: marker }, { Text: "orphaned" }] },
+          databaseName,
+        );
+        addEventListener("message", (event) => {
+          if (event.origin === location.origin && event.source === parent &&
+              event.data?.type === "close-borrower" && event.data.marker === marker) {
+            if (!globalThis.__fissionSqliteCloseDatabase(databaseName)) {
+              throw new Error("borrower close did not find its database bridge");
+            }
+            parent.postMessage({ type: "borrower-closed", marker }, location.origin);
+          }
+        });
+        parent.postMessage({ type: "borrower-ready", marker }, location.origin);
+      } else if (search.has("peer")) {
         const peerRun = new URL(location.href).searchParams.get("run");
+        const transactionId = new URL(location.href).searchParams.get("transaction_id");
+        const workspaceA = new URL(location.href).searchParams.get("workspace_a");
+        const workspaceB = new URL(location.href).searchParams.get("workspace_b");
+        let ownerError;
+        try {
+          await transactionStatement(
+            transactionId,
+            "sql_tx_execute",
+            "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
+            { Positional: [{ Text: peerRun }, { Text: "intruder" }] },
+            workspaceA,
+          );
+        } catch (error) {
+          ownerError = error.code;
+        }
+        let busyError;
+        try {
+          await execute(
+            "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
+            { Positional: [{ Text: peerRun }, { Text: "busy" }] },
+            workspaceA,
+          );
+        } catch (error) {
+          busyError = error.code;
+        }
+        let beginError;
+        try {
+          await request("sql_tx_begin", {}, workspaceA);
+        } catch (error) {
+          beginError = error.code;
+        }
+        if (
+          ownerError !== "transaction_owner_mismatch" ||
+          busyError !== "busy" ||
+          beginError !== "busy"
+        ) {
+          throw new Error(
+            `wrong tab received owner=${ownerError}, busy=${busyError}, begin=${beginError}`,
+          );
+        }
+        await execute(
+          "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
+          { Positional: [{ Text: peerRun }, { Text: "peer-other" }] },
+          workspaceB,
+        );
+        parent.postMessage(
+          { type: "fission-sqlite-owner-check", run: peerRun },
+          location.origin,
+        );
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("transaction release timed out")), 15000);
+          addEventListener("message", (event) => {
+            if (event.origin === location.origin && event.data?.type === "fission-sqlite-release") {
+              clearTimeout(timeout);
+              resolve();
+            }
+          });
+        });
+        let expiredError;
+        try {
+          await transactionStatement(
+            transactionId,
+            "sql_tx_query",
+            "SELECT 1",
+            "None",
+            workspaceA,
+          );
+        } catch (error) {
+          expiredError = error.code;
+        }
+        if (expiredError !== "transaction_lost") {
+          throw new Error(`worker loss did not expire its transaction: ${expiredError}`);
+        }
+        const uncommitted = await request("sql_query", {
+          statement: {
+            sql: "SELECT count(*) AS count FROM browser_smoke WHERE run=?1 AND writer='uncommitted'",
+            parameters: { Positional: [{ Text: peerRun }] },
+          },
+        }, workspaceA);
+        if (uncommitted.rows[0]?.values[0]?.Integer !== 0) {
+          throw new Error("worker loss left uncommitted data visible");
+        }
         await execute(
           "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
           { Positional: [{ Text: peerRun }, { Text: "peer" }] },
+          workspaceA,
         );
-        parent.postMessage({ type: "fission-sqlite-peer-complete", run: peerRun }, location.origin);
+        const finalRows = await request("sql_query", {
+          statement: {
+            sql: "SELECT writer FROM browser_smoke WHERE run=?1 ORDER BY writer",
+            parameters: { Positional: [{ Text: peerRun }] },
+          },
+        }, workspaceA);
+        const writers = finalRows.rows.map((row) => row.values[0].Text).join(",");
+        const otherRows = await request("sql_query", {
+          statement: {
+            sql: "SELECT writer FROM browser_smoke WHERE run=?1 ORDER BY writer",
+            parameters: { Positional: [{ Text: peerRun }] },
+          },
+        }, workspaceB);
+        const otherWriters = otherRows.rows.map((row) => row.values[0].Text).join(",");
+        parent.postMessage(
+          { type: "fission-sqlite-peer-complete", run: peerRun, writers, otherWriters },
+          location.origin,
+        );
         globalThis.__FISSION_SQLITE_BRIDGE__.close();
       } else {
+        const { default: initializeRust, check_cancelled_begin } =
+          await import("./pkg/web_transaction_cancellation.js");
+        await initializeRust();
+        await check_cancelled_begin();
         await execute(
           "CREATE TABLE IF NOT EXISTS browser_smoke(run TEXT NOT NULL, writer TEXT NOT NULL)",
         );
         await execute(
           "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
           { Positional: [{ Text: run }, { Text: "parent" }] },
+        );
+
+        await execute(
+          "CREATE TABLE IF NOT EXISTS browser_transaction_smoke(run TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        );
+        // SQLite Session inspects this table with table_xinfo during the first
+        // tracked INSERT. Denial is retained by Session until changeset capture,
+        // even when the INSERT itself succeeds. Grant only that schema read.
+        const sessionSchemaRead = {
+          action: "Pragma",
+          decision: "Allow",
+          firstArgument: "table_xinfo",
+          secondArgument: "browser_transaction_smoke",
+          database: "main",
+        };
+        const transactionRun = crypto.randomUUID();
+        const transaction = await request("sql_tx_begin", {
+          operationContext: { operation_id: "browser-smoke-operation", next_op_seq: 1 },
+          authorizerPolicy: {
+            defaultDecision: "Deny",
+            rules: [
+              { action: "Read", decision: "Allow" },
+              sessionSchemaRead,
+              {
+                action: "Insert",
+                decision: "Allow",
+                firstArgument: "browser_transaction_smoke",
+              },
+            ],
+          },
+        });
+        const transactionId = transaction.transaction_id;
+        const session = await request("sql_tx_session_create", {
+          transaction_id: transactionId,
+          tables: ["browser_transaction_smoke"],
+        });
+        const job = await request("sql_tx_job", {
+          transaction_id: transactionId,
+          steps: [
+            {
+              Execute: {
+                sql: "INSERT INTO browser_transaction_smoke(run, value) VALUES (?1, ?2)",
+                parameters: {
+                  Positional: [{ Text: transactionRun }, { Text: "saved by a changeset" }],
+                },
+              },
+            },
+            {
+              Query: {
+                sql: "SELECT pdb_current_operation_id() AS operation_id, pdb_next_op_seq() AS sequence",
+                parameters: "None",
+              },
+            },
+          ],
+        });
+        if (job.length !== 2 || Number(job[0]?.Execute?.affected_rows) !== 1) {
+          throw new Error(
+            `SQLite transaction job did not return ordered execute results: ${JSON.stringify(job, (_key, value) => typeof value === "bigint" ? value.toString() : value)}`,
+          );
+        }
+        const contextValues = job[1]?.Query?.rows[0]?.values;
+        if (
+          contextValues?.[0]?.Text !== "browser-smoke-operation" ||
+          contextValues?.[1]?.Integer !== 1
+        ) {
+          throw new Error("transaction operation-context functions returned the wrong values");
+        }
+        const captured = await request("sql_tx_session_capture", {
+          transaction_id: transactionId,
+          session_id: session.session_id,
+        });
+        if (!captured.changeset.length) throw new Error("SQLite Session captured no changes");
+
+        let authorizerError;
+        try {
+          await request("sql_tx_job", {
+            transaction_id: transactionId,
+            steps: [
+              {
+                Execute: {
+                  sql: "INSERT INTO browser_transaction_smoke(run, value) VALUES (?1, ?2)",
+                  parameters: {
+                    Positional: [
+                      { Text: `${transactionRun}-job-rollback` },
+                      { Text: "must roll back with the failed job" },
+                    ],
+                  },
+                },
+              },
+              {
+                Execute: {
+                  sql: "DELETE FROM browser_smoke WHERE run=?1",
+                  parameters: { Positional: [{ Text: run }] },
+                },
+              },
+            ],
+          });
+        } catch (error) {
+          authorizerError = error.sqliteCode;
+        }
+        if (authorizerError !== 23) {
+          throw new Error("the transaction authorizer did not deny the batched write");
+        }
+        let expiredError;
+        try {
+          await transactionStatement(
+            transactionId,
+            "sql_tx_query",
+            "SELECT count(*) FROM browser_transaction_smoke",
+          );
+        } catch (error) {
+          expiredError = error.code;
+        }
+        if (expiredError !== "transaction_lost") {
+          throw new Error(`failed transaction handle was not expired: ${expiredError}`);
+        }
+        const rolledBack = await request("sql_query", {
+          statement: {
+            sql: "SELECT count(*) AS count FROM browser_transaction_smoke WHERE run=?1",
+            parameters: { Positional: [{ Text: transactionRun }] },
+          },
+        });
+        if (rolledBack.rows[0]?.values[0]?.Integer !== 0) {
+          throw new Error("authorizer failure did not roll back the open transaction");
+        }
+        const rolledBackJob = await request("sql_query", {
+          statement: {
+            sql: "SELECT count(*) AS count FROM browser_transaction_smoke WHERE run=?1",
+            parameters: { Positional: [{ Text: `${transactionRun}-job-rollback` }] },
+          },
+        });
+        if (rolledBackJob.rows[0]?.values[0]?.Integer !== 0) {
+          throw new Error("failed transaction job left an earlier step committed");
+        }
+        let rollbackContextExpired = false;
+        try {
+          await request("sql_query", {
+            statement: { sql: "SELECT pdb_current_operation_id()" },
+          });
+        } catch (error) {
+          rollbackContextExpired = error.sqliteCode === 1;
+        }
+        if (!rollbackContextExpired) throw new Error("rollback left operation functions installed");
+
+        const apply = await request("sql_tx_begin", {});
+        await request("sql_tx_changeset_apply", {
+          transaction_id: apply.transaction_id,
+          changeset: captured.changeset,
+          conflict_policy: "Abort",
+        });
+        await request("sql_tx_commit", { transaction_id: apply.transaction_id });
+        const applied = await request("sql_query", {
+          statement: {
+            sql: "SELECT value FROM browser_transaction_smoke WHERE run=?1",
+            parameters: { Positional: [{ Text: transactionRun }] },
+          },
+        });
+        if (applied.rows[0]?.values[0]?.Text !== "saved by a changeset") {
+          throw new Error("SQLite changeset was not applied and committed");
+        }
+
+        const committedContext = await request("sql_tx_begin", {
+          operationContext: { operation_id: "committed-operation", next_op_seq: 1 },
+        });
+        await request("sql_tx_commit", { transaction_id: committedContext.transaction_id });
+        let commitContextExpired = false;
+        try {
+          await request("sql_query", {
+            statement: { sql: "SELECT pdb_current_operation_id()" },
+          });
+        } catch (error) {
+          commitContextExpired = error.sqliteCode === 1;
+        }
+        if (!commitContextExpired) throw new Error("commit left operation functions installed");
+
+        const versionRows = await request("sql_query", {
+          statement: { sql: "PRAGMA user_version" },
+        });
+        const originalVersion = versionRows.rows[0].values[0].Integer;
+        const schemaOnly = await request("sql_tx_begin", {
+          authorizerPolicy: {
+            defaultDecision: "Deny",
+            rules: [{ action: "Read", decision: "Allow" }, sessionSchemaRead],
+          },
+        });
+        const schemaRows = await transactionStatement(
+          schemaOnly.transaction_id,
+          "sql_tx_query",
+          "PRAGMA main.table_xinfo(browser_transaction_smoke)",
+        );
+        if (schemaRows.rows.length !== 2) {
+          throw new Error("explicit table_xinfo permission did not expose the tracked table schema");
+        }
+        let otherTableDenied = false;
+        try {
+          await transactionStatement(schemaOnly.transaction_id, "sql_tx_query",
+            "PRAGMA main.table_xinfo(browser_smoke)");
+        } catch (error) {
+          otherTableDenied = error.sqliteCode === 23;
+        }
+        if (!otherTableDenied) throw new Error("table_xinfo permission exposed an unrelated table");
+        const readOnly = await request("sql_tx_begin", {
+          authorizerPolicy: {
+            defaultDecision: "Deny",
+            rules: [{ action: "Read", decision: "Allow" }, sessionSchemaRead],
+          },
+        });
+        let pragmaDenied = false;
+        try {
+          await transactionStatement(readOnly.transaction_id, "sql_tx_execute",
+            `PRAGMA user_version = ${originalVersion + 1}`);
+        } catch (error) {
+          pragmaDenied = error.sqliteCode === 23;
+        }
+        if (!pragmaDenied) throw new Error("Read policy with table_xinfo permission allowed a modifying PRAGMA");
+        const unchangedVersion = await request("sql_query", {
+          statement: { sql: "PRAGMA user_version" },
+        });
+        if (unchangedVersion.rows[0].values[0].Integer !== originalVersion) {
+          throw new Error("denied PRAGMA changed persistent database metadata");
+        }
+
+        const workspaceA = `workspace:${run}:a`;
+        const workspaceB = `workspace:${run}:b`;
+        const createWorkspaceTable =
+          "CREATE TABLE browser_smoke(run TEXT NOT NULL, writer TEXT NOT NULL)";
+        await execute(createWorkspaceTable, "None", workspaceA);
+        await execute(createWorkspaceTable, "None", workspaceB);
+        await execute(
+          "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
+          { Positional: [{ Text: run }, { Text: "parent" }] },
+          workspaceA,
+        );
+        await execute(
+          "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
+          { Positional: [{ Text: run }, { Text: "other-workspace" }] },
+          workspaceB,
+        );
+        const isolated = await request("sql_query", {
+          statement: {
+            sql: "SELECT writer FROM browser_smoke WHERE run=?1",
+            parameters: { Positional: [{ Text: run }] },
+          },
+        }, workspaceB);
+        if (isolated.rows[0]?.values[0]?.Text !== "other-workspace") {
+          throw new Error("same-schema workspace databases did not retain independent data");
+        }
+
+        const rollback = await request("sql_tx_begin", {}, workspaceA);
+        await transactionStatement(
+          rollback.transaction_id,
+          "sql_tx_execute",
+          "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
+          { Positional: [{ Text: run }, { Text: "rolled-back" }] },
+          workspaceA,
+        );
+        await request("sql_tx_rollback", { transaction_id: rollback.transaction_id }, workspaceA);
+        const rolledBackWorkspace = await request("sql_query", {
+          statement: {
+            sql: "SELECT count(*) AS count FROM browser_smoke WHERE run=?1 AND writer='rolled-back'",
+            parameters: { Positional: [{ Text: run }] },
+          },
+        }, workspaceA);
+        if (rolledBackWorkspace.rows[0]?.values[0]?.Integer !== 0) {
+          throw new Error("named database transaction rollback left data behind");
+        }
+
+        // The parent remains the actual worker owner. A borrower must be able
+        // to leave without a Rust Drop or unload callback stranding that worker.
+        for (const mode of ["close", "destroy"]) {
+          const marker = `${run}:${mode}`;
+          const borrower = document.createElement("iframe");
+          borrower.hidden = true;
+          const url = new URL(location.href);
+          url.search = new URLSearchParams({ lifetime_client: "1", database: workspaceA, marker });
+          borrower.src = url;
+          const message = (type) => new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              removeEventListener("message", listener);
+              reject(new Error(`borrower ${type} timed out`));
+            }, 15000);
+            function listener(event) {
+              if (event.origin === location.origin && event.source === borrower.contentWindow &&
+                  event.data?.type === type && event.data.marker === marker) {
+                clearTimeout(timeout);
+                removeEventListener("message", listener);
+                resolve();
+              }
+            }
+            addEventListener("message", listener);
+          });
+          const ready = message("borrower-ready");
+          document.body.append(borrower);
+          await ready;
+          if (mode === "close") {
+            const closed = message("borrower-closed");
+            borrower.contentWindow.postMessage({ type: "close-borrower", marker }, location.origin);
+            await closed;
+          } else {
+            borrower.remove();
+          }
+          const deadline = performance.now() + 15000;
+          let recovered;
+          while (!recovered) {
+            try { recovered = await request("sql_tx_begin", {}, workspaceA); }
+            catch (error) {
+              if (error.code !== "busy" || performance.now() >= deadline) throw error;
+              await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+          }
+          const rows = await transactionStatement(recovered.transaction_id, "sql_tx_query",
+            "SELECT count(*) FROM browser_smoke WHERE run=?1", { Positional: [{ Text: marker }] }, workspaceA);
+          await request("sql_tx_rollback", recovered, workspaceA);
+          if (rows.rows[0].values[0].Integer !== 0) throw new Error("borrower loss committed its write");
+          borrower.remove();
+        }
+
+        const held = await request("sql_tx_begin", {}, workspaceA);
+        await transactionStatement(
+          held.transaction_id,
+          "sql_tx_execute",
+          "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
+          { Positional: [{ Text: run }, { Text: "uncommitted" }] },
+          workspaceA,
         );
 
         const peerComplete = new Promise((resolve, reject) => {
@@ -41,7 +500,7 @@
               event.data?.run === run
             ) {
               clearTimeout(timeout);
-              resolve();
+              resolve(event.data);
             }
           });
         });
@@ -50,19 +509,43 @@
         const peerUrl = new URL(location.href);
         peerUrl.searchParams.set("peer", "1");
         peerUrl.searchParams.set("run", run);
+        peerUrl.searchParams.set("transaction_id", held.transaction_id);
+        peerUrl.searchParams.set("workspace_a", workspaceA);
+        peerUrl.searchParams.set("workspace_b", workspaceB);
         iframe.src = peerUrl;
+        const ownershipCheck = new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("peer ownership check timed out")), 15000);
+          addEventListener("message", (event) => {
+            if (
+              event.origin === location.origin &&
+              event.data?.type === "fission-sqlite-owner-check" &&
+              event.data?.run === run
+            ) {
+              clearTimeout(timeout);
+              resolve();
+            }
+          });
+        });
         document.body.append(iframe);
-        await peerComplete;
-
-        const rows = await request("sql_query", {
+        await ownershipCheck;
+        await transactionStatement(held.transaction_id, "sql_tx_query", "SELECT 1", "None", workspaceA);
+        globalThis.__fissionSqliteCloseDatabase(workspaceA);
+        iframe.contentWindow.postMessage({ type: "fission-sqlite-release" }, location.origin);
+        const peerResult = await peerComplete;
+        const reopenedRows = await request("sql_query", {
           statement: {
             sql: "SELECT writer FROM browser_smoke WHERE run=?1 ORDER BY writer",
             parameters: { Positional: [{ Text: run }] },
           },
-        });
-        const writers = rows.rows.map((row) => row.values[0].Text).join(",");
-        document.body.dataset.status = writers === "parent,peer" ? "passed" : "failed";
-        document.body.textContent = writers;
+        }, workspaceA);
+        const reopenedWriters = reopenedRows.rows.map((row) => row.values[0].Text).join(",");
+        const passed = peerResult.writers === "parent,peer" &&
+          peerResult.otherWriters === "other-workspace,peer-other" &&
+          reopenedWriters === peerResult.writers;
+        document.body.dataset.status = passed ? "passed" : "failed";
+        document.body.textContent = passed
+          ? `${reopenedWriters}|${peerResult.otherWriters}`
+          : "named database browser checks failed";
         iframe.remove();
         globalThis.__FISSION_SQLITE_BRIDGE__.close();
       }

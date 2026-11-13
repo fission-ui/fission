@@ -373,6 +373,7 @@ impl<T: FromSqlValue> FromSqlValue for Option<T> {
 pub enum SqlErrorKind {
     Unavailable,
     Busy,
+    QuotaExceeded,
     Constraint,
     ReadOnly,
     InvalidSql,

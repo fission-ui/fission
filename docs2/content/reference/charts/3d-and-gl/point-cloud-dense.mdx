@@ -1,0 +1,57 @@
+---
+title: Dense point cloud
+sidebar_label: Dense point cloud
+description: Inspect dense spatial observations whilst keeping display cost and hidden detail explicit.
+---
+
+# Dense point cloud
+
+![Dense point cloud screenshot](/img/charts/point-cloud-dense.png)
+
+Density changes both the cost and the meaning of a point-cloud view. More observations produce more geometry, whilst overlapping markers can make a densely sampled region appear like a continuous solid. That appearance is not proof that a surface was reconstructed.
+
+For an inspection scan, retain the full observations in the data layer and construct a bounded view of the region being inspected. Do not claim that a short gallery example establishes the capacity to render a complete production scan.
+
+## Reuse the point scene
+
+The [Point cloud](./point-cloud) page defines `PointCloudScene` in `widgets/point_cloud.rs`. The following component accepts a display projection prepared for the selected scan region rather than copying every stored observation into the widget tree.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::point_cloud::PointCloudScene;
+
+fission_component! {
+    pub ScanRegionPreview<()> {
+        props {
+            title: TextContent,
+            visible_positions: Vec<Point3D>,
+            marker_radius: f32,
+            marker_color: Color,
+        }
+    }
+    view(scan, _state, _cx) => PointCloudScene {
+        title: scan.title.clone(),
+        positions: scan.visible_positions.clone(),
+        point_radius: scan.marker_radius,
+        point_color: scan.marker_color,
+    }
+}
+```
+
+Enable Fission's `three-d` feature. Supply finite positions and a finite positive radius in the same scene units. The sphere-per-point implementation is explicit, so its resource cost grows with the display projection rather than being hidden behind a chart-series name.
+
+## Sampling must serve the inspection
+
+Choose any simplification according to the question being answered. Taking every tenth input record is cheap but can miss a small defect if input order follows the scanner's acquisition pattern. A spatially bounded or error-controlled projection needs its own tests and a visible indication when it omits source detail.
+
+Keep the original observations available for detailed inspection. A reduction in display points must not become an unnoticed loss of source data.
+
+## Checks
+
+Measure frame time and memory at the expected display bounds, then inspect overlap and small features in a real rendering. Provide sample counts, region bounds and any sampling policy in accessible text. This legacy scene does not offer per-sphere chart events or automatic point picking; use the source observation list for an accessible selection path. The screenshot is the gallery fixture.
+
+Tags: `3d`, `point-cloud`.
+
+[3D and GL family overview](./overview)

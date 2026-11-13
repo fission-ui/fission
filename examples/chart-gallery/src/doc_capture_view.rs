@@ -5,7 +5,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub DocCaptureView<GalleryState> { slug: String }
-    |capture, state, cx| {
+    view(capture, state, cx) {
         const CAPTURE_PADDING: f32 = 24.0;
         const CAPTURE_MIN_WIDTH: f32 = 420.0;
         const CAPTURE_MIN_HEIGHT: f32 = 320.0;

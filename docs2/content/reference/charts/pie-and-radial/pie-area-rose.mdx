@@ -1,0 +1,58 @@
+---
+title: Area rose
+sidebar_label: Area rose
+description: Fission Charts reference for Area rose.
+---
+
+# Area rose
+
+![Area rose screenshot](/img/charts/pie-area-rose.png)
+
+A rose presentation changes the radius of each pie segment as well as its angle. This can emphasise differences between categories, but it also gives the reader two visual encodings to interpret. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use it for a small composition summary, such as fulfilled orders by sales channel, when exact ranking is available alongside it. An ordinary bar chart is easier for comparing close values. Small segments do not become more accurate merely because their radius changes.
+
+## Data model
+
+`PieSeries::rose_type("area")` applies an offset square-root scaling to radius. Segment angles still depend on each value's share of the total. Consequently this is not an equal-angle rose with areas exactly proportional to values. Supply finite, non-negative category totals with a positive overall total.
+
+## Authoring from a Fission component
+
+The parent supplies channel totals from one reporting period. The example explicitly enables the area-style mode, rather than using a plain donut whilst describing it as a rose.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ChannelAreaRose<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            fulfilled_orders: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.fulfilled_orders.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .rose_type("area")
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test a dominant channel, several small values and an empty or all-zero report. Show exact totals and percentages in a list, and inspect label overlap. Do not infer a precise ratio from the painted segment area; use the underlying values for that comparison.
+
+Tags: `pie`, `rose`.
+
+[Pie and radial family overview](./overview)

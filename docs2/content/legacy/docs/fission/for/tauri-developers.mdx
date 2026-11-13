@@ -1,0 +1,203 @@
+---
+title: Fission for Tauri developers
+description: Compare Tauri frontend state, Rust commands, plugins and packaging with Fission Compose, reducers and typed host work.
+---
+
+# Fission for Tauri developers
+
+Tauri already gives Rust a place in an application. Fission changes the extent
+of that role: the interface, state transitions, routing and platform requests
+also belong to the shared Rust model, rather than sit on opposite sides of a
+webview command boundary.
+
+That does not make platform behaviour disappear. A browser file grant, an
+Android document URI and a desktop path still describe different kinds of
+access. The shell and its providers adapt those differences; the UI should not
+invent a parallel platform abstraction.
+
+These are focused comparisons. Follow [the complete task app](/blog/build-a-single-page-web-app-in-rust/)
+for a runnable example with normal state, screen and widget modules.
+
+## The state ownership rule
+
+A frontend store and Rust command state need not both own the same facts.
+
+- Put shared product data in `GlobalState`.
+- Keep one component's retained interaction memory in `state { ... }`.
+- Accept parent inputs through `props { ... }`.
+- Change state in synchronous reducers.
+- Request I/O through effects, jobs, services, resources or capabilities.
+
+A remote service or database can still be authoritative. Loading its records
+into app state is not a reason to create another independent persistent copy.
+
+## 1. Static UI
+
+Normal Rust imports are enough to use core, app or third-party widgets in
+Compose. Widget authors do not register with a separate authoring catalogue:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::DocumentSummary;
+
+fission_component! {
+    pub DocumentOverview<AppState>
+    view(_overview, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(
+        gap: tokens.spacing.m,
+        children: [
+            Text(cx.tr("documents.title")),
+            DocumentSummary(state.document.clone()),
+        ],
+    )
+}
+```
+
+This excerpt assumes the app owns a loaded `document` and the named reusable
+widget. Named arguments fill public struct fields; positional arguments use
+the widget's existing constructor. Missing defaulted fields are not automatic
+validation of the product's requirements.
+
+## 2. Product state and interaction
+
+A small edit does not need a Rust command round-trip merely because the app
+uses Rust. Bind the current value to its update action:
+
+```rust
+TextInput(
+    label: Some(cx.tr("document.title").into()),
+    bind: state.document.title,
+    required: true,
+)
+```
+
+For an isolated draft use a component `state` field instead, then apply the
+validated draft to the app model in one submission reducer. Do not clear a
+draft before a server save has succeeded unless the app deliberately retains
+a recoverable copy.
+
+The [Compose reference](/compose/) shows local and scoped state as well as
+repeated event bindings. Existing reusable actions and reducers remain valid;
+Compose is not a second runtime.
+
+## 3. Outside work
+
+A Tauri command might load records or call a host API. Fission keeps that work
+outside both view construction and the synchronous state transition.
+
+For a component's user-requested operation, use:
+
+```rust
+Button(
+    child: Text(cx.tr("document.validate")),
+    key: "validate-document",
+    disabled: panel.checking,
+    on_press: effect validate_document(state.document.clone()) {
+        on_start {
+            panel.checking = true;
+            panel.error = None;
+        }
+        on_ok(report) {
+            panel.report = Some(report);
+            panel.checking = false;
+        }
+        on_err(error) {
+            panel.error = Some(error);
+            panel.checking = false;
+        }
+    },
+)
+```
+
+This view excerpt assumes `panel` has retained `checking`, `error` and `report`
+fields, and `validate_document` is a project `#[fission_effect]` async function
+which accepts an owned document snapshot and returns a serializable result.
+It does not receive live `state` or `cx`.
+
+Disable document edits while that check is active or reject results whose
+document generation no longer matches. Otherwise a valid report for an older
+document can appear to describe a newer edit. Render a `Spinner` while waiting
+and make failures visible with an `Alert` or another suitable recovery view.
+
+Use app-owned jobs/resources when work must outlive the panel. Use an existing
+capability for a supported host task, and a service/provider or native module
+when integrating platform behaviour. Those boundaries replace an ad-hoc
+command string, not operating-system permissions or server authorization.
+
+## 4. Styling and theme
+
+Fission's native UI is not a DOM hidden behind a Rust backend. Use generated
+design-system tokens and built-in widget recipes rather than try to preserve
+every CSS utility class as a one-off override.
+
+Read `cx.view.env().theme.tokens` during setup. Keep language and theme choices
+in app state and mirror them into `Env` at app startup. A reusable widget
+consumes that environment; it should not choose its own independent locale.
+
+Static site and SSR can generate HTML/CSS from the same widget model. Select
+those targets when document output is required rather than assume the Web
+canvas app is a server-rendered page.
+
+## 5. Routing
+
+Use the native `Router` and shell route handler for one navigation model:
+
+```rust
+fission_component! {
+    pub DocumentRoutes<AppState>
+    view(_routes, state, _cx) =>
+    Router::<AppState>::new()
+        .with_path(state.current_path.clone())
+        .route_component("/documents", DocumentList)
+        .route_component("/documents/:id", DocumentRoute)
+}
+```
+
+`DocumentRoute` reads `RouteParams` and validates the ID before it opens a
+record. The shell adapts native logical history or browser URLs. Use
+[ProtectedRoute](/reference/widgets/protected-route/) to delay protected
+component construction until access prerequisites resolve, and authorize
+protected API operations independently.
+
+## 6. Testing
+
+A web frontend assertion cannot establish native shell behaviour. Use a pure
+Rust test for domain rules, `TestHarness` for widget output, and
+`LiveTestClient` or manual `/cmd` requests for focus, text input and screenshots.
+
+Stable semantic identifiers are a better selector than DOM classes for tests
+shared across Fission targets. Verify the packaged app's files, permissions and
+native integrations on its target OS. See
+[Write a live UI test](/docs/cookbook/write-a-live-ui-test/) for complete process
+setup and cleanup.
+
+## Vocabulary map
+
+| Tauri concept | Closest Fission concept | Important difference |
+| --- | --- | --- |
+| Web frontend | Compose component/widget tree | The shared UI model is Rust, not a required webview. |
+| `#[tauri::command]` | Effect, job, service, resource or capability | Choose the actual operation lifetime and host boundary. |
+| Plugin | Capability/provider/native module | Host integration remains explicit and target-aware. |
+| `tauri.conf.json` bundle configuration | `fission.toml` targets/package configuration | Package output has an artifact-manifest handoff. |
+| Web tests | `LiveTestClient` and `/cmd` | Semantic selectors can drive multiple shells. |
+
+## Common instincts to adjust
+
+Do not split one product fact into independent frontend and backend state
+merely because that was the previous process layout. Conversely, do not
+mistake shared Rust types for a security policy. Requests still need the
+authorization and user consent their operation requires.
+
+Keep packaging and signing as declared release inputs. Use normal Fission
+target and package commands rather than maintain an unrelated build pipeline
+beside them.
+
+## What to read next
+
+- [Complete task app](/blog/build-a-single-page-web-app-in-rust/)
+- [Compose API](/compose/)
+- [Resources and async](/docs/guides/resources-and-async/)
+- [Desktop packages](/docs/build-and-package/desktop-packages/)
+- [Testing Fission apps](/docs/learn/testing/)

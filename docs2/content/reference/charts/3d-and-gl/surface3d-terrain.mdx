@@ -1,0 +1,53 @@
+---
+title: 3D terrain mesh
+sidebar_label: 3D terrain mesh
+description: Keep elevation data and triangle connectivity explicit when composing a terrain preview.
+---
+
+# 3D terrain mesh
+
+![3D terrain mesh screenshot](/img/charts/surface3d-terrain.png)
+
+A terrain mesh combines sampled elevations with connections between them. The surface can look plausible even when row order or coordinate spacing is wrong, so those choices need tests independent of the renderer.
+
+This gallery variant uses the same `Primitive3D::Mesh` path as [Terrain surface](./terrain-surface). It does not introduce another terrain-series API.
+
+## Reuse the surface component
+
+Prepare complete regular grids with `regular_surface` from [3D surface](./surface3d-basic), or use a generator with an explicit missing-cell policy. Render the resulting geometry with `SurveySurface` from [Mesh surface](./mesh-surface), placed in `widgets/survey_surface.rs`.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::survey_surface::SurveySurface;
+
+fission_component! {
+    pub SurveyTerrainMesh<()> {
+        props {
+            title: TextContent,
+            vertices: Vec<Point3D>,
+            indices: Vec<u32>,
+            terrain_color: Color,
+        }
+    }
+    view(survey, _state, _cx) => SurveySurface {
+        title: survey.title.clone(),
+        vertices: survey.vertices.clone(),
+        indices: survey.indices.clone(),
+        surface_color: survey.terrain_color,
+    }
+}
+```
+
+Enable Fission's `three-d` feature. Keep units, origin and any vertical exaggeration with the projection, whilst the parent supplies translated text and a theme colour.
+
+## Checks
+
+Validate finite positions, index bounds and triangle winding. Test that changing row order is rejected or intentionally changes the survey projection, rather than silently producing another plausible surface.
+
+Inspect ridges and missing regions in a rendered target and provide an accessible elevation summary or source table. This legacy scene API has no camera builders or automatic chart events for terrain cells. The screenshot uses gallery sample geometry.
+
+Tags: `3d`, `terrain`.
+
+[3D and GL family overview](./overview)

@@ -6,7 +6,7 @@ use crate::GalleryState;
 
 fission_component! {
     pub(super) DragAuxiliaryColumn<GalleryState> {}
-    |_column, _state, cx| {} =>
+    view(_column, _state, cx) {} =>
         VStack(
             spacing: cx.view.env().theme.tokens.spacing.s,
             children: [ExternalFileDropTarget(), DragLog()],

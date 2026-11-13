@@ -1,0 +1,41 @@
+---
+title: Live line update
+sidebar_label: Live line update
+description: Keep a bounded ordered queue history in application state.
+---
+
+# Live line update
+
+![Live line update screenshot](/img/charts/dynamic-live-line.png)
+
+A live trend needs a definition of time before it needs animation. For queue monitoring, a useful record is the number of waiting jobs at the end of each fixed interval. Connecting irregular arrival times at equally spaced category positions would imply a different duration between samples.
+
+Use `QueueLoadTrend` from [line basics](../cartesian/line-basic), placed in `widgets/queue_load_trend.rs`:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::queue_load_trend::{QueueLoadTrend, QueueSample};
+
+fission_component! {
+    pub RecentQueueHistory<()> {
+        props {
+            title: String,
+            jobs_label: String,
+            samples: Vec<QueueSample>,
+        }
+    }
+    view(report, _state, _cx) {
+        let start = report.samples.len().saturating_sub(60);
+    } => QueueLoadTrend {
+        title: report.title.clone(),
+        jobs_label: report.jobs_label.clone(),
+        samples: report.samples[start..].to_vec(),
+    }
+}
+```
+
+The slice bounds the presentation to the most recent 60 intervals; it is not a retention policy for the application's history. Aggregate incoming telemetry into intervals in the data layer, then replace the snapshot through a reducer. Translate interval captions and labels in the parent.
+
+Do not create a timer or network request inside this view. Loading and connection failures belong to the parent, including a last-updated or stale indication. Test fewer than 60 samples, exactly 60 and a longer history, as well as missing intervals. A smooth curve is inappropriate if it suggests measurements between samples that were never taken. The gallery image has separate data.
+
+[Dataset family overview](./overview)

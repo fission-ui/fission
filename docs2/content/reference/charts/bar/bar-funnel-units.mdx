@@ -1,0 +1,63 @@
+---
+title: Funnel unit pictorial bars
+sidebar_label: Funnel unit pictorial bars
+description: Compare workflow-stage counts with repeated shapes while retaining exact values separately.
+---
+
+# Funnel unit pictorial bars
+
+![Funnel unit pictorial bars screenshot](/img/charts/bar-funnel-units.png)
+
+A workflow can be represented by the number of records reaching each stage. Pictorial bars replace a continuous rectangle with repeated shapes. They can make a coarse comparison easy to recognise, but they are not an exact tally unless the shape-to-value relationship supports that interpretation.
+
+In Fission's current renderer, the repeated-shape count is derived as `ceil(abs(value) / 20)`, with a minimum of one shape. Consequently, one shape does not mean one record, and even zero is not represented by an empty collection of shapes. Use ordinary bars or a table when literal unit counting is important.
+
+## Keep stage order and cohort consistent
+
+These rows might describe applications received, reviewed and accepted within one cohort. Preserve process order rather than sorting the stages by count. Comparing unrelated cohorts can produce increasing counts which look like a broken funnel even though the underlying queries are individually correct.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, PictorialBarSeries, Series};
+
+#[derive(Clone)]
+pub struct WorkflowStageCount {
+    pub stage: String,
+    pub records: f32,
+}
+
+fission_component! {
+    pub ApplicationStagesChart<()> {
+        props {
+            title: String,
+            records_label: String,
+            rows: Vec<WorkflowStageCount>,
+        }
+    }
+    view(workflow, _state, _cx) {
+        let labels = workflow.rows.iter().map(|row| row.stage.as_str()).collect();
+        let counts = workflow.rows.iter().map(|row| row.records).collect();
+    } => Chart(
+        title: Some(workflow.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        series: vec![
+            Series::PictorialBar(PictorialBarSeries::new(&workflow.records_label)
+                .symbol("rect")
+                .data(counts)),
+        ],
+    )
+}
+```
+
+Enable the `charts` feature. `PictorialBarSeries` receives `Vec<f32>` data and a symbol string. This example chooses `"rect"`, which the renderer draws as repeated square shapes. It does not use `BarSeries` or imply that the stages form a triangular `FunnelSeries`.
+
+## Accessibility and checks
+
+The parent supplies translated stage names and title, and validates finite, non-negative counts. Retain exact values in a table or labelled list: readers should not need to count symbols or interpret a rounded number of shapes.
+
+Check zero, values around multiples of twenty and the largest expected count. Repeated shapes add drawing work as values grow, so this is not the right presentation for unbounded totals. The gallery screenshot is a sample rather than output from these rows.
+
+Tags: `bar`, `symbol`.
+
+[Bar family overview](./overview)

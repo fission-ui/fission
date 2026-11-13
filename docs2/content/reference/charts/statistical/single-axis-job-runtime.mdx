@@ -1,0 +1,53 @@
+---
+title: Job runtime strip
+sidebar_label: Job runtime strip
+description: Fission Charts reference for Job runtime strip.
+---
+
+# Job runtime strip
+
+![Job runtime strip screenshot](/img/charts/single-axis-job-runtime.png)
+
+A runtime strip puts individual completed jobs on one duration scale. It can reveal a long tail without implying that each job occupied a scheduled interval on a calendar. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Position represents runtime in seconds. Give every job the same size weight when the report is about individual runtimes; varying size would introduce another measure.
+
+## Data model
+
+`SingleAxisSeries` takes `(value, size)` pairs and derives its axis range from the supplied values. Index-based vertical lanes help separate marks but do not represent workers, queues or time spans. This is not a Gantt chart.
+
+## Authoring from a Fission component
+
+The parent supplies `(runtime_seconds, 1.0)` pairs and keeps exact job IDs and status in the report.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, SingleAxisSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub CompletedJobDurationStrip<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            seconds_and_weight: Vec<(f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![SingleAxisSeries::new(&report.series_label)
+            .data(report.seconds_and_weight.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test equal runtimes, one job and an extreme duration. Keep cancelled and unfinished work under an explicit reporting rule. Provide exact durations and a readable job list outside the strip.
+
+Tags: `singleAxis`, `runtime`.
+
+[Statistical family overview](./overview)

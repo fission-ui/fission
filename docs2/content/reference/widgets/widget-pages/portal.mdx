@@ -1,0 +1,69 @@
+---
+title: Portal
+description: Render custom overlay content outside the normal layout tree.
+slug: /widgets/portal
+---
+# Portal
+
+`Portal` renders a subtree in the global overlay stack instead of inside its
+parent's bounds. Modals, drawers, popovers, and toasts use this to appear above
+the rest of the screen.
+
+Most app code should use those higher-level widgets directly. Use `Portal`
+when you need to build a custom overlay.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub DiagnosticBanner<()> {
+        props { connected: bool }
+    }
+
+    view(banner, _state, cx) =>
+        if banner.connected {
+            Portal {
+                child: Text::new(cx.tr("diagnostics.connected")).into(),
+            }
+        } else {
+            Spacer()
+        }
+}
+```
+
+`Portal` has no `Default` or `new` constructor in this API. Its fully specified
+Rust literal is therefore intentional and works as a normal expression inside
+Compose without a `rust { ... }` wrapper. Registration changes paint location,
+not the banner's source of truth.
+
+Your app state still decides whether the portal exists. The widget only changes where the child is composed.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `child` | `Widget` | The subtree to place in the overlay stack. | Required. The portal itself returns an invisible spacer in normal layout. |
+
+## Runtime boundary
+
+`Portal` uses `BuildCtxHandle::register_portal(...)` during component conversion. That means the overlay registration is explicit and visible to the runtime, not a hidden side effect after the frame has already been built.
+
+The helper registers into the default portal layer. If you need modal, flyout, or toast ordering, use a higher-level widget or call `BuildCtxHandle::register_portal_with_layer(...)` yourself inside a custom widget.
+
+## Specific advice
+
+Use `Portal` when you are authoring your own overlay widget or application-wide overlay system. For normal product work, start with the more specific overlay widget that already matches the interaction. The more behavior you build directly on top of `Portal`, the more responsibility you take on for layering, dismissal, semantics, and testing.
+
+Also remember that a portal changes rendering location, not state ownership. Keep open or closed flags, selected items, and form values in your app state as usual.
+
+## Production checklist
+
+- Test layering against existing modal/flyout/toast regions.
+- Ensure a decorative banner does not become an accidental focus or pointer blocker.
+- Use named overlay widgets when dismissal or modal semantics are required.
+
+## Related
+
+[`Modal`](/reference/widgets/modal), [`Drawer`](/reference/widgets/drawer), [`Popover`](/reference/widgets/popover), [`Tooltip`](/reference/widgets/tooltip), and [`flyout`](/reference/widgets/flyout).

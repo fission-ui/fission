@@ -16,7 +16,7 @@ fn close_quality_menu(state: &mut GalleryState) {
 
 fission_component! {
     pub(super) QualityHeader<GalleryState> { compact: bool }
-    |header, state, cx| {
+    view(header, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let close_menu = with_reducer!(cx.build, CloseQualityMenu, close_quality_menu);
         let toggle_menu = with_reducer!(cx.build, ToggleQualityMenu, toggle_quality_menu);

@@ -1,0 +1,74 @@
+---
+title: Globe markers
+sidebar_label: Globe markers
+description: Place consistently sized location markers on a globe and preserve their meaning outside the scene.
+---
+
+# Globe markers
+
+![Globe markers screenshot](/img/charts/globe-markers.png)
+
+A marker identifies a location. Before varying its appearance, decide whether it also represents a quantity or a status. If every marker means one office, keep their sizes equal. Otherwise a larger marker can imply a larger office even when no such measurement exists.
+
+The gallery combines one sphere with smaller sphere primitives around its surface. It does not supply marker labels, automatic clustering or geographic hit testing.
+
+## Position and size are separate decisions
+
+Use the `globe_position` conversion from [Globe](./globe-basic) to turn validated latitude and longitude into a scene position. Store invalid coordinates as an explicit unavailable state in your model; placing them at the origin would put the marker inside the globe.
+
+Once a valid position is available, its primitive is straightforward:
+
+```rust
+use fission::core::op::Color;
+use fission::three_d::{Point3D, Primitive3D};
+
+fn location_marker(position: Point3D, color: Color) -> Primitive3D {
+    Primitive3D::Sphere {
+        center: position,
+        radius: 0.06,
+        color,
+    }
+}
+```
+
+The radius uses scene units, not pixels. In the unit-sphere example, the marker centre is at radius `1.04`; the small sphere intersects the surface rather than floating far away from it. Increasing the marker size makes it easier to see, but also increases overlap between nearby locations.
+
+## Compose with the complete globe
+
+The `ServiceLocationsGlobe` component in [Globe](./globe-basic) already performs the sphere construction and places its marker positions. Reuse it instead of replacing the scene with an unrelated chart.
+
+```rust
+use fission::prelude::*;
+use crate::widgets::service_globe::ServiceLocationsGlobe;
+
+fission_component! {
+    pub OfficeLocations<()> {
+        props {
+            title: TextContent,
+            positions: Vec<Point3D>,
+            globe_color: Color,
+            office_color: Color,
+        }
+    }
+    view(offices, _state, _cx) => ServiceLocationsGlobe {
+        title: offices.title.clone(),
+        locations: offices.positions.clone(),
+        globe_color: offices.globe_color,
+        marker_color: offices.office_color,
+    }
+}
+```
+
+Put the shared component in `widgets/service_globe.rs` first. The parent supplies translated text and theme colours; it should retain the named office records for a list or table as well as providing their geometry.
+
+## Interaction, accessibility and checks
+
+These primitives belong to `fission::three_d::Scene3D` and require the `three-d` feature. They do not emit per-marker `ChartInteractionEvent` values. For selecting an office, use the named list or a scene API with explicit picking support.
+
+Test the coordinate conversion and inspect nearby markers, points near the poles and points on the hidden hemisphere. A point being mathematically correct does not mean the user can see it. The same office names and status must therefore remain usable outside the scene, without depending on colour or position.
+
+The screenshot above uses sample gallery locations rather than this component's input.
+
+Tags: `3d`, `globe`.
+
+[3D and GL family overview](./overview)

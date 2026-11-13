@@ -1,0 +1,425 @@
+---
+layout: goal
+title: Build a documentation website in Rust
+description: Create a Rust documentation site with three-column navigation, explicit sidebars, a page outline, highlighted code, search and reference links.
+goal: Help readers find a task, follow its steps and look up precise API details
+path: /blog/build-a-documentation-website-in-rust/
+order: 5
+difficulty: Beginner
+duration: 50 minutes
+run_command: "fission site serve --project-dir ."
+app: rust-documentation-website
+outcomes:
+  - Organize guides around reader tasks
+  - Add search beside explanations and code
+  - Keep links and reading layout reliable
+---
+
+A guide and a reference page answer different questions. A guide explains how to reach an outcome; a reference specifies the fields or operations involved. Mixing both into one flat list forces the reader to reconstruct that distinction each time.
+
+We will build Atlas Docs with a Compose homepage and authored Markdown pages. Fission's documentation template already supplies the sidebar, article and page outline. Rebuilding those pieces as a separate app would give us two navigation systems to maintain, so we will configure the existing one.
+
+## Create the project
+
+```sh
+cargo install cargo-fission
+fission init atlas-docs --template website
+cd atlas-docs
+cargo add serde_yaml
+```
+
+Keep the generated launcher, which calls `atlas_docs::build_site()`. The following checkpoints contain the actual configuration, Rust modules and Markdown. Their previews are the generated HTML, not a collection of hard-coded articles held in app state. Replace the reserved example.com origin before publishing.
+
+<!-- fission:step id="start-screen" -->
+## Give the reader a task and a real route
+
+The homepage explains where to start. The learning pages then teach a concrete, small planning workflow; they are not placeholder cards. Each Markdown file owns its title, description, headings and body.
+
+The Rust component uses theme tokens and translated chrome. These English articles remain English: loading a Spanish bundle translates the component's labels, not the Markdown. A translated edition needs separate authored pages and intentional locale routes.
+
+<Tabs>
+<TabItem label="fission.toml">
+<!-- fission:file path="fission.toml" -->
+```toml
+targets = ["static-site"]
+
+[app]
+name = "atlas-docs"
+app_id = "rs.example.atlas.docs"
+
+[site]
+entry = "crate::site_app"
+title = "Atlas Docs"
+description = "Task guides and precise configuration reference."
+base_url = "https://atlas-docs.example.com"
+out_dir = "dist/site"
+default_locale = "en-US"
+locales = ["en-US", "es-ES"]
+generate_sitemap = true
+generate_robots = true
+
+[site.code_highlighting]
+enabled = true
+
+[[site.nav]]
+title = "Learn"
+href = "/docs/overview/"
+
+[[site.routes]]
+path = "/docs"
+source = "content/docs"
+template = "fission::site::documentation"
+sidebar = "site/docs-sidebar.toml"
+```
+</TabItem>
+
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod home;
+mod translations;
+
+pub fn site_app() -> fission::site::FissionSite {
+    fission::site::FissionSite::new().with_env(translations::create_env())
+        .route_widget::<(), _>("/", "Atlas Docs",
+            Some("Create a first project, then find the exact configuration contract.".into()),
+            home::DocumentationHome::new())
+}
+pub fn build_site() -> anyhow::Result<()> {
+    fission::site::build_from_cli(site_app())
+}
+```
+</TabItem>
+
+<TabItem label="src/home.rs">
+<!-- fission:file path="src/home.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub DocumentationHome<()> {}
+    view(_home, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.l, children: [
+        SemanticsRegion(identifier: Some("site-heading-1:atlas-docs".into()), child:
+            Text(cx.tr("home.title")).size(tokens.typography.heading1_size)),
+        Text(cx.tr("home.description")),
+        Link::to(cx.tr("home.learn"), "docs/overview/"),
+    ])).padding_all(tokens.spacing.l).bg(tokens.colors.background)
+}
+```
+</TabItem>
+
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("checked-in translations must be valid YAML");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+home.title: "Atlas Docs"
+home.description: "Create a small project plan, then look up the exact settings when you need them."
+home.learn: "Create a first project"
+home.reference: "Look up a configuration field"
+```
+</TabItem>
+
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+home.title: "Documentación de Atlas"
+home.description: "Crea un pequeño plan de proyecto y consulta los ajustes precisos cuando los necesites."
+home.learn: "Crear un primer proyecto"
+home.reference: "Consultar un campo de configuración"
+```
+</TabItem>
+
+<TabItem label="site/docs-sidebar.toml">
+<!-- fission:file path="site/docs-sidebar.toml" -->
+```toml
+[[items]]
+title = "Learn"
+href = "/docs/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Create a first project"
+href = "/docs/learn/quickstart/"
+level = 2
+```
+</TabItem>
+
+<TabItem label="content/docs/overview.mdx">
+<!-- fission:file path="content/docs/overview.mdx" -->
+````md
+---
+title: Start an Atlas project
+description: Choose the first-project guide or look up a configuration field.
+---
+An Atlas project records a small team's plan. Start with one useful outcome before adding optional settings.
+
+## Build a first project
+The [first-project guide](../learn/quickstart/) creates a plan and explains how to check it. Follow it when you are starting from an empty directory.
+
+## Use this documentation
+A guide explains a sequence of decisions. A reference page specifies one interface. They serve different questions, so they live in separate navigation groups.
+````
+</TabItem>
+
+<TabItem label="content/docs/learn/quickstart.mdx">
+<!-- fission:file path="content/docs/learn/quickstart.mdx" -->
+````md
+---
+title: Create a first Atlas project
+description: Create a project directory, define one outcome and check who owns the next step.
+---
+A project needs an outcome before it needs a dashboard. This small example creates a plain-text plan that a teammate can review without installing a service.
+
+## Create the directory
+```sh
+mkdir atlas-project
+cd atlas-project
+```
+
+Create `plan.txt` with these contents:
+
+```text
+Outcome: publish the support handover guide
+Owner: the person coordinating the release
+Next step: ask support which questions are missing
+```
+
+## Check the plan
+Open the file and check that the next step can actually be performed. “Finish the project” is not a useful next step: it repeats the outcome without explaining what comes first.
+
+## Review changes
+Keep the plan with the project's other files. When the outcome changes, update this file rather than leaving a second version in a chat message.
+
+[Return to the learning overview](../../overview/).
+````
+</TabItem>
+
+</Tabs>
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Open Create a first project from the homepage and sidebar. Follow Create the directory in the page outline. Reload the guide directly: both article and navigation must still appear.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Separate explanation from lookup
+
+Add Reference as another content mount rather than another branch in a local active_page enum. The sidebar explicitly orders its entries; the article still comes from Markdown.
+
+Search is an enhancement over the generated content. Enabling it emits the index and browser search assets. It does not turn this Static site into a search server, and the articles remain readable without JavaScript.
+
+<Tabs>
+<TabItem label="fission.toml">
+<!-- fission:file path="fission.toml" -->
+```toml
+targets = ["static-site"]
+
+[app]
+name = "atlas-docs"
+app_id = "rs.example.atlas.docs"
+
+[site]
+entry = "crate::site_app"
+title = "Atlas Docs"
+description = "Task guides and precise configuration reference."
+base_url = "https://atlas-docs.example.com"
+out_dir = "dist/site"
+default_locale = "en-US"
+locales = ["en-US", "es-ES"]
+generate_sitemap = true
+generate_robots = true
+
+[site.code_highlighting]
+enabled = true
+
+[[site.nav]]
+title = "Learn"
+href = "/docs/overview/"
+
+[[site.routes]]
+path = "/docs"
+source = "content/docs"
+template = "fission::site::documentation"
+sidebar = "site/docs-sidebar.toml"
+
+[site.search]
+enabled = true
+output_path = "search"
+min_token_len = 2
+
+[[site.nav]]
+title = "Reference"
+href = "/reference/project/"
+
+[[site.routes]]
+path = "/reference"
+source = "content/reference"
+template = "fission::site::documentation"
+sidebar = "site/reference-sidebar.toml"
+```
+</TabItem>
+
+<TabItem label="src/home.rs">
+<!-- fission:file path="src/home.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub DocumentationHome<()> {}
+    view(_home, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.l, children: [
+        SemanticsRegion(identifier: Some("site-heading-1:atlas-docs".into()), child:
+            Text(cx.tr("home.title")).size(tokens.typography.heading1_size)),
+        Text(cx.tr("home.description")),
+        Link::to(cx.tr("home.learn"), "docs/overview/"),
+        Link::to(cx.tr("home.reference"), "reference/project/"),
+    ])).padding_all(tokens.spacing.l).bg(tokens.colors.background)
+}
+```
+</TabItem>
+
+<TabItem label="site/reference-sidebar.toml">
+<!-- fission:file path="site/reference-sidebar.toml" -->
+```toml
+[[items]]
+title = "Project record"
+href = "/reference/project/"
+level = 1
+```
+</TabItem>
+
+<TabItem label="content/reference/project.mdx">
+<!-- fission:file path="content/reference/project.mdx" -->
+````md
+---
+title: Atlas project record
+description: Fields and constraints for the plan.txt record used by the first-project guide.
+---
+This is the contract used by our example plan, not a Fission manifest schema.
+
+## Outcome
+Required. One sentence naming the result the project should produce. Keep implementation steps in Next step instead.
+
+## Owner
+Required. The person responsible for coordinating the next decision. This label does not grant access or establish an authenticated identity.
+
+## Next step
+Required. One action someone can take now. Replace it when that action is complete; do not keep several conflicting next steps.
+
+## Example
+```text
+Outcome: publish the support handover guide
+Owner: the release coordinator
+Next step: ask support which questions are missing
+```
+
+[Create a first project](/docs/learn/quickstart/) explains why these fields are useful.
+````
+</TabItem>
+
+</Tabs>
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Search for outcome, then open the project-record reference. Follow its link back to the guide. With JavaScript disabled, verify that both direct routes and the page-outline links still work.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Add recovery information where the reader needs it
+
+A reference contract can be correct while leaving a reader stuck. Add a short troubleshooting guide for an ambiguous owner or an unactionable next step, and put it after the first-project guide. That gives the learning navigation a deliberate order rather than alphabetical filenames.
+
+<Tabs>
+<TabItem label="site/docs-sidebar.toml">
+<!-- fission:file path="site/docs-sidebar.toml" -->
+```toml
+[[items]]
+title = "Learn"
+href = "/docs/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Create a first project"
+href = "/docs/learn/quickstart/"
+level = 2
+
+[[items]]
+title = "Resolve an unclear plan"
+href = "/docs/learn/unclear-plan/"
+level = 2
+```
+</TabItem>
+
+<TabItem label="content/docs/learn/unclear-plan.mdx">
+<!-- fission:file path="content/docs/learn/unclear-plan.mdx" -->
+````md
+---
+title: Resolve an unclear project plan
+description: Check an ambiguous owner, conflicting next steps and an outcome that cannot be reviewed.
+---
+## The owner is a department
+Choose the person who can coordinate the next decision. A department name does not tell a reader whom to contact.
+
+## There are several next steps
+Pick the first action that can be completed independently. Put later work in the team's task list instead of turning this field into another backlog.
+
+## Nobody can tell whether the outcome is done
+Write down what a reviewer should be able to observe. “Improve support” is broad; “publish the handover guide reviewed by support” identifies a result.
+
+[Review the project-record fields](/reference/project/).
+````
+</TabItem>
+
+</Tabs>
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+At phone width, inspect navigation, code overflow and the outline. Follow every sidebar entry. Search for department and confirm the new guide is indexed after rebuilding.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Build the files the reader will receive
+
+```sh
+fission site build --project-dir .
+fission site check --project-dir .
+fission site routes --project-dir .
+fission site serve --project-dir . --port 8123
+curl http://127.0.0.1:8123/docs/learn/quickstart/
+```
+
+Inspect the returned article text and real heading anchors. A green Rust build does not prove that a sidebar destination exists; the site check and browser checks cover that separate concern. Keep old published paths when restructuring a live site, or add explicit redirects before changing them.
+
+- [Content routes](/docs/guides/static-site-content-routes/)
+- [Site configuration](/reference/config/fission-toml/)

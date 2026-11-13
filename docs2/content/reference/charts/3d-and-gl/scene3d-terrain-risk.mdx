@@ -1,0 +1,53 @@
+---
+title: 3D risk terrain
+sidebar_label: 3D risk terrain
+description: Display a modelled risk field without implying that its height is a direct measurement or a decision.
+---
+
+# 3D risk terrain
+
+![3D risk terrain screenshot](/img/charts/scene3d-terrain-risk.png)
+
+A risk score is a model output with a definition, not an elevation. Drawing it as height can reveal how the score changes across two settings, but does not establish the model's validity or tell the reader which decision to make.
+
+Keep the score definition, input assumptions and uncertainty available outside the picture. A smooth hill can suggest precision which a sparse or uncertain model does not support.
+
+## Compose the model surface
+
+Use the validated mesh path from [Mesh surface](./mesh-surface), with `SurveySurface` in `widgets/survey_surface.rs`. The model layer owns sample generation, scaling and the decision about whether interpolation is justified.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::survey_surface::SurveySurface;
+
+fission_component! {
+    pub RiskModelPreview<()> {
+        props {
+            title: TextContent,
+            model_vertices: Vec<Point3D>,
+            triangle_indices: Vec<u32>,
+            surface_color: Color,
+        }
+    }
+    view(risk, _state, _cx) => SurveySurface {
+        title: risk.title.clone(),
+        vertices: risk.model_vertices.clone(),
+        indices: risk.triangle_indices.clone(),
+        surface_color: risk.surface_color,
+    }
+}
+```
+
+Enable the `three-d` feature. Supply finite positions and valid triangles, a translated title and theme colour. Missing model results are unavailable, not zero risk.
+
+## Checks
+
+Test coordinate scaling and known model cases independently from rendering. Inspect whether perspective or vertical exaggeration makes small score differences look disproportionate.
+
+Provide exact scores, model scope and uncertainty in accessible text or a table. The scene has no automatic policy interpretation, chart axes or per-cell chart events. The screenshot is a gallery fixture, not validation of a risk assessment.
+
+Tags: `3d`, `risk`.
+
+[3D and GL family overview](./overview)

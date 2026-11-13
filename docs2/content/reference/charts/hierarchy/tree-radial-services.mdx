@@ -1,0 +1,94 @@
+---
+title: Radial service tree
+sidebar_label: Radial service tree
+description: Fission Charts reference for Radial service tree.
+---
+
+# Radial service tree
+
+![Radial service tree screenshot](/img/charts/tree-radial-services.png)
+
+A radial service tree can show the services belonging to one ownership hierarchy around its root. It is a way to arrange a hierarchy, not a map of every call between services. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use radial(true) on TreeSeries for this layout. Calls shared across branches need a graph; duplicating a shared service under several parents would change the meaning of the tree.
+
+## Data model
+
+The example uses a team as the root and its owned services as children. TreemapNode values are unit placeholders. They do not set a service's latency, capacity or distance from the root.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `TreeSeries::data` | `Vec<TreemapNode>` | Supplies the roots of the hierarchy. |
+| `TreemapNode::children` | `Vec<TreemapNode>` | Supplies each node's next level. |
+| `TreemapNode::value` | `f32` | Carries the numeric value associated with the node. |
+| `Chart::series` | `Vec<Series>` | Presents the hierarchy without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, TreeSeries, TreemapNode};
+
+let nodes = vec![TreemapNode {
+    name: "Platform team".into(),
+    value: 2.0,
+    children: vec![
+        TreemapNode {
+            name: "Gateway".into(),
+            value: 1.0,
+            children: vec![],
+        },
+        TreemapNode {
+            name: "Scheduler".into(),
+            value: 1.0,
+            children: vec![],
+        },
+    ],
+}];
+
+let chart = Chart::new()
+    .title("Service ownership hierarchy")
+    .series(vec![TreeSeries::new("Owned services")
+        .data(nodes)
+        .radial(true)
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The parent prepares the hierarchy and its loading or error state. The chart component only presents the records supplied to it.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, TreeSeries, TreemapNode};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub RadialServiceTreeChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<TreemapNode>,
+        }
+    }
+    view(hierarchy, _state, _cx) =>
+        Chart(
+            title: Some(hierarchy.chart_title.clone()),
+            series: vec![TreeSeries::new(&hierarchy.series_label)
+                .data(hierarchy.nodes.clone())
+                .radial(true)
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check long service names and a team with many children at mobile and desktop widths. Prefer the conventional tree or a textual list when radial labels become too dense.
+
+Tags: `tree`, `radial`.
+
+[Hierarchy family overview](./overview)

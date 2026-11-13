@@ -3,7 +3,7 @@ use block::{Block, ConcreteBlock};
 #[cfg(target_os = "macos")]
 use fission_core::NotificationResponse;
 use fission_core::{
-    CancelNotificationRequest, NotificationError, NotificationPermission,
+    CancelNotificationRequest, NotificationError, NotificationId, NotificationPermission,
     NotificationPermissionRequest, NotificationReceipt, NotificationRequest, NotificationSchedule,
     NotificationSettings, PushPlatform, PushRegistration, PushRegistrationRequest,
     SetBadgeCountRequest, CANCEL_ALL_NOTIFICATIONS, CANCEL_NOTIFICATION, GET_NOTIFICATION_SETTINGS,
@@ -19,15 +19,17 @@ use objc::runtime::{Class, Object, Protocol, Sel};
 use objc::{class, msg_send, sel, sel_impl};
 #[cfg(target_os = "macos")]
 use objc::{class, msg_send, sel, sel_impl};
+use std::collections::HashMap;
 #[cfg(target_os = "macos")]
 use std::ffi::CStr;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 use std::os::raw::c_void;
 #[cfg(not(target_os = "ios"))]
 use std::process::Command;
-use std::sync::Arc;
 #[cfg(target_os = "macos")]
-use std::sync::{Condvar, Mutex, OnceLock};
+use std::sync::OnceLock;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 #[cfg(target_os = "windows")]
 use windows::{
     core::{HSTRING, PCWSTR},
@@ -68,6 +70,122 @@ type NotificationResponseHandler = Arc<dyn Fn(NotificationResponse) + Send + Syn
 #[cfg(target_os = "macos")]
 static NOTIFICATION_RESPONSE_HANDLER: OnceLock<Mutex<Option<NotificationResponseHandler>>> =
     OnceLock::new();
+
+/// Cancellable timers used by Android's in-process notification scheduler.
+///
+/// Android's portable host currently has no manifest-backed alarm receiver, so
+/// these timers can only run while the app process remains alive. The registry
+/// still guarantees that replacing or cancelling a pending id prevents the old
+/// timer from posting later.
+#[derive(Default)]
+pub(crate) struct PendingNotificationSchedules {
+    pending: Mutex<HashMap<NotificationId, Arc<PendingNotificationCancellation>>>,
+}
+
+pub(crate) struct PendingNotificationCancellation {
+    cancelled: Mutex<bool>,
+    wake: Condvar,
+}
+
+impl PendingNotificationCancellation {
+    fn new() -> Self {
+        Self {
+            cancelled: Mutex::new(false),
+            wake: Condvar::new(),
+        }
+    }
+
+    pub(crate) fn cancel(&self) {
+        let mut cancelled = self
+            .cancelled
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *cancelled = true;
+        self.wake.notify_all();
+    }
+
+    /// Returns true when cancellation wins before the delay elapses.
+    pub(crate) fn wait(&self, delay: Duration) -> bool {
+        let cancelled = self
+            .cancelled
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match self
+            .wake
+            .wait_timeout_while(cancelled, delay, |cancelled| !*cancelled)
+        {
+            Ok((cancelled, _)) => *cancelled,
+            Err(poisoned) => {
+                let (cancelled, _) = poisoned.into_inner();
+                *cancelled
+            }
+        }
+    }
+}
+
+impl PendingNotificationSchedules {
+    /// Registers a timer and cancels any earlier timer with the same stable id.
+    pub(crate) fn replace(&self, id: NotificationId) -> Arc<PendingNotificationCancellation> {
+        let schedule = Arc::new(PendingNotificationCancellation::new());
+        let previous = self
+            .pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(id, schedule.clone());
+        if let Some(previous) = previous {
+            previous.cancel();
+        }
+        schedule
+    }
+
+    /// Cancels and removes a timer for `id`, returning whether one was pending.
+    pub(crate) fn cancel(&self, id: &NotificationId) -> bool {
+        let schedule = self
+            .pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(id);
+        if let Some(schedule) = schedule {
+            schedule.cancel();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn cancel_all(&self) {
+        let schedules = self
+            .pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .drain()
+            .map(|(_, schedule)| schedule)
+            .collect::<Vec<_>>();
+        for schedule in schedules {
+            schedule.cancel();
+        }
+    }
+
+    /// Removes the timer only if it has not been replaced or cancelled.
+    pub(crate) fn finish(
+        &self,
+        id: &NotificationId,
+        schedule: &Arc<PendingNotificationCancellation>,
+    ) -> bool {
+        let mut pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let is_current = pending
+            .get(id)
+            .map(|current| Arc::ptr_eq(current, schedule))
+            .unwrap_or(false);
+        if is_current {
+            pending.remove(id);
+        }
+        is_current
+    }
+}
 
 /// Installs the event-loop bridge used by the native notification delegate.
 #[cfg(target_os = "macos")]
@@ -1545,7 +1663,42 @@ pub(crate) fn register_notification_capabilities(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fission_core::NotificationId;
+
+    #[test]
+    fn pending_notification_can_be_cancelled_before_its_delay() {
+        let schedules = PendingNotificationSchedules::default();
+        let id = NotificationId::new("trail-follow-up");
+        let schedule = schedules.replace(id.clone());
+
+        assert!(schedules.cancel(&id));
+        assert!(schedule.wait(Duration::ZERO));
+        assert!(!schedules.finish(&id, &schedule));
+    }
+
+    #[test]
+    fn replacing_a_pending_notification_cancels_only_the_old_timer() {
+        let schedules = PendingNotificationSchedules::default();
+        let id = NotificationId::new("trail-follow-up");
+        let old = schedules.replace(id.clone());
+        let current = schedules.replace(id.clone());
+
+        assert!(old.wait(Duration::ZERO));
+        assert!(!current.wait(Duration::ZERO));
+        assert!(!schedules.finish(&id, &old));
+        assert!(schedules.finish(&id, &current));
+    }
+
+    #[test]
+    fn cancel_all_wakes_every_pending_notification_timer() {
+        let schedules = PendingNotificationSchedules::default();
+        let first = schedules.replace(NotificationId::new("first"));
+        let second = schedules.replace(NotificationId::new("second"));
+
+        schedules.cancel_all();
+
+        assert!(first.wait(Duration::ZERO));
+        assert!(second.wait(Duration::ZERO));
+    }
 
     #[test]
     fn unsupported_host_reports_permission_without_panicking() {

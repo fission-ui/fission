@@ -4,7 +4,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub BrowserCartIsland<StoreState> {}
-    |_island, _state, cx| {
+    view(_island, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
     } =>

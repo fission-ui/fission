@@ -1,0 +1,33 @@
+---
+title: Flight density lines
+sidebar_label: Flight density lines
+description: Aggregate repeated flight connections before drawing dense networks.
+---
+
+# Flight density lines
+
+![Flight density lines screenshot](/img/charts/lines-flight-density.png)
+
+Drawing a mark per flight can obscure the useful question: which airport pairs account for most departures? Aggregate flights over one defined interval, then draw one connection per directed pair.
+
+```rust
+use std::collections::BTreeMap;
+
+pub fn departures_by_route(
+    flights: &[(String, String)],
+) -> BTreeMap<(String, String), u64> {
+    let mut totals = BTreeMap::new();
+    for (origin_id, destination_id) in flights {
+        *totals.entry((origin_id.clone(), destination_id.clone())).or_insert(0) += 1;
+    }
+    totals
+}
+```
+
+Join these keys to validated airport coordinates in the data layer and project them into the [ServiceConnections component](../geographic-and-route/lines-basic). Keep the two directions separate. Use translated captions stating the reporting interval and whether records represent scheduled or completed departures.
+
+Line intensity is relative within the displayed series; it is not a fixed density scale across changing filters. Keep exact route totals in a ranked list and filter or group deliberately if overlap prevents useful reading.
+
+This drawing is a fitted schematic. It does not calculate geodesic routes, place aircraft, or align automatically over a regional map. Test duplicate flights in the source, unknown airports and an empty interval. The gallery screenshot uses independent inputs.
+
+[Geo family overview](./overview)

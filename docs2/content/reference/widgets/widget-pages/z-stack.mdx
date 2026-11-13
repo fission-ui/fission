@@ -1,0 +1,73 @@
+---
+title: ZStack
+description: Layer children on top of each other in paint order.
+slug: /widgets/z-stack
+---
+# ZStack
+
+`ZStack` is the layered layout primitive.
+
+It paints children in order from back to front: the first child is at the bottom and the last child is on top. This makes it the right tool for layered cards, image-plus-badge compositions, full-screen overlays, floating controls, and other interfaces where depth matters.
+
+Use `ZStack` when layering is the real structural idea. Do not use it as a replacement for ordinary rows and columns. If the relationship between children is really sequential rather than layered, a stack on the z axis will make the code harder to understand.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub AttachmentPreview<()> {
+        props {
+            image: Widget,
+            file_type: String,
+        }
+    }
+
+    view(preview, _state, cx) {
+        let inset = cx.view.env().theme.tokens.spacing.s;
+    } =>
+        ZStack(
+            children: [
+                preview.image.clone(),
+                Positioned(
+                    bottom: inset,
+                    right: inset,
+                    child: Tag(label: preview.file_type.clone()),
+                ),
+            ],
+        )
+}
+```
+
+The parent supplies the actual image and a file-type value derived from its
+metadata. The image establishes the card bounds; the tag is positioned within
+them. Preserve a readable foreground/background recipe because it may cover
+arbitrary image content.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `children` | `Vec<Widget>` | Layered children, painted in order. | Defaults to an empty list. First child is bottom, last child is top. |
+
+## Layout behavior
+
+`ZStack` sizes itself from its non-absolute children and then lays those children into the same bounds. Children wrapped in [`Positioned`](/reference/widgets/positioned) or [`absolute_fill(...)`](/reference/widgets/absolute-fill) are treated specially by the layout engine as absolute children relative to the stack's bounds.
+
+This is what makes `ZStack` the natural parent for corner badges, floating overlays, and full-surface scrims.
+
+## Specific advice
+
+If you only need exactly two layers with a simple "main content plus top layer" relationship, [`Overlay`](/reference/widgets/overlay) is often easier to read. Use `ZStack` when you really need the general layered layout model.
+
+## Check the layers in context
+
+- The first child is behind later children. Put each layer in paint order and use `Positioned` when a child belongs at a particular edge or corner.
+- Make sure an overlay does not cover a control users still need to reach; test the actual pointer, keyboard, and accessibility paths for overlapping content.
+- Give repeated stateful children stable ids based on their data when their order can change.
+
+## Related
+
+[`Overlay`](/reference/widgets/overlay), [`Positioned`](/reference/widgets/positioned), and [`absolute_fill(...)`](/reference/widgets/absolute-fill).

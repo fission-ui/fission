@@ -9,7 +9,7 @@ fission_component! {
         selected: bool,
         instance: &'static str,
     }
-    |button, _state, cx| {
+    view(button, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Button(

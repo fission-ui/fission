@@ -5,7 +5,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub CurrentValues<AnimationGalleryState> {}
-    |_values, state, cx| {
+    view(_values, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let progress = (state.scrub_ms as f32 / 300.0).clamp(0.0, 1.0);
         let progress_value = format!("{progress:.2}");

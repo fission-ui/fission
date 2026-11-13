@@ -1,0 +1,69 @@
+---
+title: Design systems and fonts
+description: Generate a Fission design system, embed font assets, and use theme tokens instead of hard-coded styling.
+---
+
+# Design systems and fonts
+
+A Fission design system is the source of truth for color, typography, spacing, radius, elevation, motion, chart palettes, component styles, and packaged assets.
+
+The recommended production flow is:
+
+1. Copy `dsp.json` and `tokens.json` into your app.
+2. Add `fission-design-system-codegen` as a build dependency.
+3. Generate a typed design-system Rust type in `build.rs`.
+4. Install that design system on app startup.
+5. Read `view.env().theme` inside widgets.
+
+## Declaring fonts
+
+Fonts belong in the DSP asset manifest.
+
+```json
+{
+  "assets": {
+    "fonts": [
+      {
+        "family": "Acme Sans",
+        "weight": 400,
+        "style": "normal",
+        "path": "fonts/AcmeSans-Regular.ttf",
+        "format": "ttf"
+      }
+    ]
+  }
+}
+```
+
+Codegen validates the paths at build time and emits `PackagedFont` entries using `include_bytes!`. Shells can then register the fonts through `DesignSystem::font_faces()`.
+
+## Using tokens in widgets
+
+```rust
+fission_component! {
+    pub SettingsHeader<()> {}
+    view(_header, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Text(
+        TextContent::Key("settings.title".into()),
+        font_size: tokens.typography.display_sm_size,
+        line_height: tokens.typography.display_sm_size * tokens.typography.line_height_display,
+        font_weight: tokens.typography.font_weight_bold,
+        color: tokens.colors.text_primary,
+    )
+}
+```
+The header is state-agnostic: it needs the environment's theme and translated
+title, not a separate `SettingsState`. The setup block reads those inputs and
+Compose assigns the public text fields. It does not load fonts during a build.
+
+Do not guess token names. Inspect the generated Rust output or the DSP and token files you copied into the app.
+
+Packaging a font and delivering it through CSS are separate decisions. Native
+and canvas-rendered Web shells register the packaged faces with their renderer.
+Static site and SSR default to `WebFontDelivery::None`; choose `external` or
+`inline` under `[web].font_delivery` when those documents should publish font
+data. `external` lets the browser fetch a separately cacheable asset, whereas
+`inline` increases the CSS payload. See [Fonts](/reference/core/fonts/) and the
+[design-system guide](/docs/guides/design-system/) for configuration and setup.

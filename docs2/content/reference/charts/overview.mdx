@@ -1,0 +1,90 @@
+---
+title: Charts
+sidebar_label: Overview
+description: Reference pages for every Fission chart family and chart variant.
+---
+
+# Charts reference
+
+A chart is a projection of application data, not the data model itself. Fission Charts provides typed series and configuration which render as a normal Fission widget. Use this reference to choose the representation and check precisely which values, units and interaction each API supports.
+
+For a guided introduction, start with the [charts overview](/docs/charts/overview). For data modelling guidance, read [Series & DataSets](/docs/charts/series-and-datasets).
+
+## Chart families
+
+- [3D and GL](/reference/charts/3d-and-gl/overview) - 44 chart variants.
+- [Analytics](/reference/charts/analytics/overview) - 20 chart variants.
+- [Bar](/reference/charts/bar/overview) - 38 chart variants.
+- [Cartesian](/reference/charts/cartesian/overview) - 13 chart variants.
+- [Components and interaction](/reference/charts/components-and-interaction/overview) - 23 chart variants.
+- [Coordinates](/reference/charts/coordinates/overview) - 4 chart variants.
+- [Data pipeline and interaction](/reference/charts/data-pipeline-and-interaction/overview) - 3 chart variants.
+- [Dataset](/reference/charts/dataset/overview) - 20 chart variants.
+- [Dataset and dynamic](/reference/charts/dataset-and-dynamic/overview) - 16 chart variants.
+- [Geo](/reference/charts/geo/overview) - 20 chart variants.
+- [Geo and route](/reference/charts/geo-and-route/overview) - 10 chart variants.
+- [Geographic and route](/reference/charts/geographic-and-route/overview) - 4 chart variants.
+- [Heatmap](/reference/charts/heatmap/overview) - 20 chart variants.
+- [Heatmap and calendar](/reference/charts/heatmap-and-calendar/overview) - 12 chart variants.
+- [Hierarchy](/reference/charts/hierarchy/overview) - 19 chart variants.
+- [Hierarchy and flow](/reference/charts/hierarchy-and-flow/overview) - 14 chart variants.
+- [Interaction](/reference/charts/interaction/overview) - 20 chart variants.
+- [Line](/reference/charts/line/overview) - 36 chart variants.
+- [Monitoring](/reference/charts/monitoring/overview) - 20 chart variants.
+- [Pie and radial](/reference/charts/pie-and-radial/overview) - 12 chart variants.
+- [Radial](/reference/charts/radial/overview) - 20 chart variants.
+- [Radial and polar](/reference/charts/radial-and-polar/overview) - 9 chart variants.
+- [Relationships and hierarchy](/reference/charts/relationships-and-hierarchy/overview) - 9 chart variants.
+- [Scatter and statistical](/reference/charts/scatter-and-statistical/overview) - 14 chart variants.
+- [Statistical](/reference/charts/statistical/overview) - 20 chart variants.
+- [Statistical and finance](/reference/charts/statistical-and-finance/overview) - 6 chart variants.
+
+## Authoring with Compose
+
+Enable Fission's `charts` feature, prepare the report in ordinary Rust, then pass it into a small presentation component. Here, labels and values describe completed orders in matching reporting intervals. They are component inputs, not retained local state.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub CompletedOrdersChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            completed_orders: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value().min(0.0)),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.completed_orders.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+Use named imports for chart types. In particular, `fission::charts::Grid` and `fission::charts::Tooltip` differ from the layout grid and UI tooltip exported by the prelude.
+
+## Keep the model and its projection distinct
+
+Retain authoritative quantities and identifiers in domain types. Aggregate before converting to the chart's display values, and keep labels aligned with the corresponding observations. A display vector index is not a durable order, service or customer ID.
+
+Effects load or refresh data; reducers record the result. A component should present loading, empty, error or ready state rather than start a request while converting into a widget. Reuse the same prepared snapshot for related charts so that their totals and reporting periods agree.
+
+The gallery includes 3D scene examples alongside chart families. Those use a separate scene API and the `three-d` feature, not interchangeable `Chart` series. Individual references also identify current limits, including unweighted Sankey links and visual-only toolbox/timeline elements.
+
+## Check the question, not just the drawing
+
+A screenshot can confirm that marks were drawn, but not that a count was correctly converted to a rate or that a missing observation was handled honestly. Test preparation separately, then exercise any control through its actual reducer/effect flow.
+
+Inspect the real rendered target at representative sizes. Provide the important values and findings outside the image, and retain a table or equivalent controls where colour, precision or pointer-only gestures would otherwise prevent someone answering the same question.

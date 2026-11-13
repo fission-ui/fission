@@ -1,0 +1,65 @@
+---
+title: Spacer
+description: Occupy fixed or flexible empty space in a layout.
+slug: /widgets/spacer
+---
+# Spacer
+
+`Spacer` either creates a fixed gap from its width or height, or takes up
+leftover space when `flex_grow > 0.0`. It is useful inside
+[`Row`](/reference/widgets/row) and
+[`Column`](/reference/widgets/column).
+
+For regular spacing between siblings, set the row or column's `gap` instead.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub DocumentActions<()> {
+        props {
+            back: ActionEnvelope,
+            save: ActionEnvelope,
+        }
+    }
+
+    view(actions, _state, cx) =>
+        Row(
+            children: [
+                Button(child: Text(cx.tr("navigation.back")), on_press: actions.back.clone()),
+                Spacer(flex_grow: 1.0),
+                Button(child: Text(cx.tr("document.save")), on_press: actions.save.clone()),
+            ],
+        )
+}
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `width` | `Option<f32>` | Fixed width. | Defaults to `None`. |
+| `height` | `Option<f32>` | Fixed height. | Defaults to `None`. |
+| `flex_grow` | `f32` | Extra space this spacer should absorb. | Defaults to `0.0`. Set this above zero for push-apart behavior. |
+
+## Layout behavior
+
+`Spacer` lowers to a simple box layout node with no child content. When `flex_grow` is zero, its effect comes only from fixed width or height. When `flex_grow` is positive, it behaves like a flexible spring inside the surrounding layout.
+
+This is why `Spacer` is excellent for toolbars and headers where one group of controls should be pushed away from another.
+
+## Specific advice
+
+Use `gap` on `Row` and `Column` for ordinary repeated spacing, and use `Spacer` when the empty space itself needs to flex. That distinction keeps layouts readable.
+
+## Check the spacing in context
+
+- Use `gap` for repeated space between siblings; use `Spacer` when empty space needs to stretch or when a fixed gap is intentional.
+- Check the parent constraints so a flexible spacer does not push content out of the visible area.
+
+## Related
+
+[`Row`](/reference/widgets/row), [`Column`](/reference/widgets/column), [`HStack`](/reference/widgets/h-stack), and [`VStack`](/reference/widgets/v-stack).

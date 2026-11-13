@@ -4,7 +4,7 @@ use crate::model::{on_close_product_detail, CloseProductDetail, ProductBrowserSt
 
 fission_component! {
     pub CompactProductDetail<ProductBrowserState> { detail: Widget }
-    |component, _state, cx| {
+    view(component, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Column(

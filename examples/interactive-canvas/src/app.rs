@@ -5,7 +5,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub InteractiveCanvasExample<CanvasExampleState>
-    |_app, state, cx| {
+    view(_app, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let edit_canvas = with_reducer!(cx.build, EditCanvas("workflow".into()), edit_canvas);
         let viewer_camera =

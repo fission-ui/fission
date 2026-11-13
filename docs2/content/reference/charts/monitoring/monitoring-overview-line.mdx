@@ -1,0 +1,61 @@
+---
+title: Monitoring overview line
+sidebar_label: Monitoring overview line
+description: Fission Charts reference for Monitoring overview line.
+---
+
+# Monitoring overview line
+
+![Monitoring overview line screenshot](/img/charts/monitoring-overview-line.png)
+
+An overview should establish what changed before asking the reader to inspect individual services. A request-rate trend gives that context when every point covers the same reporting duration. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This chart shows completed requests per second. It is not a cumulative request counter: plotting the counter would mostly show how long collection had been running. Derive rates from counter differences and elapsed time, handling resets explicitly.
+
+## Data model
+
+Supply ordered interval labels and corresponding finite rates. The category axis spaces labels evenly, so regular reporting intervals matter. An unavailable interval is not a zero-rate interval; handle incomplete collection before presenting a continuous line.
+
+## Authoring from a Fission component
+
+Keep rate calculation and loading in the application's data/effect flow. The component receives the prepared report and uses a value axis starting at zero.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub RequestRateOverview<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            requests_per_second: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value().min(0.0)),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.requests_per_second.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test counter resets, changing interval durations and partial collection. Compare the displayed peak and reporting range with the underlying observations, and provide them in text. If the report is windowed or aggregated, state that instead of implying every request is individually represented.
+
+Tags: `monitoring`, `line`.
+
+[Monitoring family overview](./overview)

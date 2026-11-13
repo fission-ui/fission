@@ -1,0 +1,208 @@
+---
+title: App structure
+description: Organize a Fission app around typed state, explicit reducers, reusable widgets, and target entrypoints.
+---
+
+# App structure
+
+A second target should not require a second implementation of the product.
+Keep state, transitions and reusable widgets in shared Rust modules; let each
+shell entrypoint configure how that app is hosted. This separation is what
+allows the same product model to serve macOS, Windows, Linux, Web, Android,
+iOS, Terminal, Static site and SSR without putting platform setup in every view.
+
+This guide shows where the first screen, actions, and reducers belong, when to split a widget into its own module, and what to keep out of `main.rs`.
+
+## 1. Start from the generated files
+
+A new app usually starts like this:
+
+```text
+my-app/
+  Cargo.toml
+  fission.toml
+  src/
+    app.rs
+    lib.rs
+    main.rs
+  platforms/
+    web/
+    android/
+    ios/
+```
+
+The exact target folders depend on which targets you add. The important split is stable:
+
+| Path | Responsibility |
+| --- | --- |
+| `src/app.rs` | The shared product app: state, root widget, reducers, selectors, and modules used by every target. |
+| `src/lib.rs` | Shared exports and target entry helpers used by generated web/mobile hosts. |
+| `src/main.rs` | The default desktop binary entrypoint. Keep it small. |
+| [`fission.toml`](/reference/config/fission-toml/) | Fission project metadata, targets, capabilities, site/release references, and package configuration. |
+| `platforms/<target>/` | Generated host files for web, Android, iOS, or other targets. Review them, but do not move product logic there. |
+
+The main rule is simple: product behaviour belongs in shared Rust modules, not generated platform folders.
+
+## 2. Give the app state a clear shape
+
+Begin with one state struct. Add fields because the UI needs to render them or a reducer needs to update them.
+
+```rust
+#[derive(Debug, Default)]
+pub struct TodoState {
+    pub draft: String,
+    pub items: Vec<TodoItem>,
+    pub filter: TodoFilter,
+    pub saving: bool,
+    pub error: Option<String>,
+}
+```
+
+Don’t store the same fact twice without a good reason. If you can cheaply derive a value from state, use a selector or helper instead of keeping another copy in sync.
+
+## 3. Put actions and reducers next to the state they change
+
+Keep reducers easy to find in code review. It’s fine to put actions and reducers in `src/app.rs` while the app is small. As it grows, group them by feature:
+
+```text
+src/
+  app.rs
+  todo/
+    mod.rs
+    state.rs
+    actions.rs
+    reducers.rs
+    selectors.rs
+    widgets.rs
+```
+
+For a setter used by one input, Compose's `bind: state.draft` generates the
+update wiring. Use an inline `reduce` for a component-specific transition. A
+transition shared by several controls can have its own typed reducer:
+
+```rust
+#[fission_reducer(AddTodo)]
+fn on_add_todo(state: &mut TodoState) {
+    let text = state.draft.trim();
+    if text.is_empty() {
+        return;
+    }
+
+    state.items.push(TodoItem::new(text));
+    state.draft.clear();
+}
+```
+
+Use `#[fission_action]` when an action needs its own public/documented data
+shape or several reducers share it. Ordinary component events should not gain
+another action struct and function merely to assign a field.
+
+## 4. Build screens from real widget structs
+
+Prefer reusable widget structs to large helper functions that return `Widget`. That keeps production code aligned with how Fission models retained UI.
+
+```rust
+
+
+fission_component! {
+    pub TodoScreen<TodoState>
+    view(_screen, state, cx) {
+        let add = cx.bind(AddTodo, reduce!(on_add_todo));
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(
+        gap: tokens.spacing.m,
+        children: [
+            TodoComposer(add),
+            TodoList(visible_todos(state)),
+        ],
+    )
+}
+```
+Here `TodoComposer` and `TodoList` are app components with typed `on_submit` and
+`items` props. The composer binds the draft field; the shared add transition
+can also be used by a keyboard shortcut without duplicating its validation.
+Small helpers are still useful for formatting and repeated values. Just don’t let them turn into a second component system beside `Widget` conversions.
+
+## 5. Use selectors for derived view data
+
+A selector turns product state into data the view can use. It keeps component conversion readable without mutating state during the build.
+
+```rust
+#[derive(Clone, Debug)]
+pub struct TodoListItemVm {
+    pub id: u64,
+    pub title: String,
+    pub completed: bool,
+}
+
+fn visible_todos(state: &TodoState) -> Vec<TodoListItemVm> {
+    state.items
+        .iter()
+        .filter(|item| state.filter.allows(item))
+        .map(|item| TodoListItemVm {
+            id: item.id,
+            title: item.title.clone(),
+            completed: item.completed,
+        })
+        .collect()
+}
+```
+
+Keep durable IDs in view models used for repeated rows. Filtering changes
+positions; it should not change which task owns retained state or receives an
+event. Use selectors for formatted strings, filtered lists, disabled-state
+decisions and empty states, not host work, mutation or dispatch.
+
+## 6. Keep entrypoints small
+
+Keep `src/main.rs` thin: start the shell, then hand control to the shared app.
+
+```rust
+use fission::prelude::*;
+use my_app::{create_env, TodoScreen, TodoState};
+
+fn main() -> anyhow::Result<()> {
+    DesktopApp::<TodoState, _>::new(TodoScreen)
+        .with_env(create_env()?)
+        .run()
+}
+```
+
+Generated host entrypoints should do the same as you add targets. They call the shared app instead of copying screens and reducers, so every target runs the same product behaviour.
+
+`create_env` is the shared translation/theme setup described in
+[Theming and i18n](/docs/guides/theming-and-i18n/). Put it beside the shared app
+configuration, not in a separate per-target copy.
+
+## 7. Add target-specific code only at the host boundary
+
+Some code is genuinely target-specific: notification and camera providers, URL scheme registration, native packaging, browser service workers, and release metadata. Keep it at the shell/provider boundary or in the generated platform files, not scattered through widgets.
+
+If a widget needs to know whether a feature is available, check the capability, store the result in state, and render from that. Don’t scatter `cfg(target_os = ...)` through product widgets unless the widget genuinely cannot exist on that target.
+
+## 8. Split modules when review becomes hard
+
+A file is too large when a reviewer can’t quickly answer:
+
+- Which state does this feature own?
+- Which actions can change it?
+- Which reducers handle those actions?
+- Which widgets render that state?
+- Which effects leave the app and enter the host?
+
+Split by feature before the file becomes a dumping ground. Keep a feature’s state, reducers, selectors, and widgets close together. Shared design-system components can live in `components/`.
+
+## Where to go next
+
+Read [Runtime model](/docs/learn/runtime-model/) for the state-action-reducer loop, [State, handles, and providers](/docs/guides/state-handles-and-providers/) for state ownership, and [Layout and widgets](/docs/guides/layout-and-widgets/) for composition. Before adding host-owned features, check [Platform capabilities](/docs/guides/platform-capabilities/).
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |

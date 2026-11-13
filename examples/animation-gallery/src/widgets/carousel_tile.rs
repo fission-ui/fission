@@ -7,7 +7,7 @@ const TILE_HEIGHT: f32 = 86.0;
 
 fission_component! {
     pub(super) CarouselTile<AnimationGalleryState> { label: String, background: Color }
-    |tile, _state, cx| {
+    view(tile, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(

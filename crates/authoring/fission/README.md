@@ -15,7 +15,7 @@ This crate is the public facade. Application code should normally depend on `fis
 
 ```toml
 [dependencies]
-fission = { version = "0.15.1", features = ["desktop"] }
+fission = { version = "0.16.0", features = ["desktop"] }
 ```
 
 For the full developer workflow, install the Fission command:
@@ -26,6 +26,13 @@ fission init my-app
 cd my-app
 fission run
 ```
+
+### Using Fission from Git
+
+For native desktop and mobile builds, Fission's shell and its built-in
+AccessKit adapter share the same pinned `fission-winit` dependency. Cargo does
+not need an application-level `[patch.crates-io]` entry when you consume Fission
+from Git.
 
 ## What the facade gives you
 

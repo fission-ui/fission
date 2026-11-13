@@ -1,0 +1,69 @@
+---
+title: Rendering pipeline
+description: Follow how Fission turns a widget tree into layout, semantics, rendering commands, and a presented frame.
+---
+
+# Rendering pipeline
+
+When a screen looks wrong, the rendering pipeline tells you where to investigate. Wrong text usually points to state or component conversion; wrong size points to layout; incorrect pixels point to rendering; and host-specific behavior points to the shell.
+
+Fission keeps these stages explicit so you can inspect and test them separately:
+
+```text
+fission_component! view
+  -> widget tree
+  -> lowering
+  -> Core intermediate representation
+  -> layout snapshot
+  -> semantics tree
+  -> display list
+  -> renderer
+  -> shell presentation
+```
+
+## Start with the widget tree
+
+Component conversion produces the widget tree: the `Widget` values that describe what should be on screen from the current app, runtime, and environment inputs. You write widgets such as rows, text inputs, cards, and dialogs; the renderer does not need to understand every authoring convenience directly.
+
+## Lowering turns authored user interface into a smaller internal form
+
+Lowering translates that tree into Core IR, a smaller internal representation shared by later stages. Different widgets can lower to the same structure when they have the same meaning. Custom widgets can emit their supported behavior here, and Fission collects runtime registrations for portals, media, web views, and animations.
+
+## The Core intermediate representation becomes the contract for later stages
+
+Core IR is the contract for layout, semantics, tests, and rendering. You rarely author it directly. Keeping later stages on this shared representation means new widgets do not each need their own layout and rendering paths.
+
+## Layout computes the actual sizes and positions
+
+Layout computes positions and sizes. It answers questions such as:
+
+- How wide is the Save button after padding, text measurement, and available space are considered?
+- How much vertical space does the multiline editor get?
+- If the viewport gets narrower, which containers shrink, wrap, scroll, or stack differently?
+- Where does a modal or tooltip anchor land in absolute coordinates?
+
+The result is an immutable layout snapshot for the frame. Tests can inspect geometry directly, and widgets such as anchored overlays can read prior-frame geometry through `ViewHandle`.
+
+## Semantics capture meaning for accessibility and testing
+
+Fission also derives a semantics tree for meaningful controls and regions: their roles, labels, values, focus, and other accessibility data. Screen readers and semantic tests use this tree, so a test can find a button by its label instead of by its pixels. If a control renders but assistive technology cannot find it, inspect its semantics here.
+
+## Rendering turns structure into ordered drawing commands
+
+After layout and semantics, Fission compiles visible content into a display list: ordered drawing commands for text, shapes, images, borders, and embedded surfaces. The renderer consumes this output; it does not decide product logic.
+
+Desktop uses a GPU-backed renderer built around Vello and `wgpu`. Web and mobile use the same shared runtime model with their target host presentation. Tests can check geometry, semantics, and paint order before resorting to screenshots.
+
+## The shell presents the frame on a real host
+
+The shell presents the frame on its target. Desktop creates a window and forwards input; Web attaches to the browser; Android and iOS integrate with their app hosts and lifecycle. Terminal, Static site, and SSR produce terminal cells, static HTML, or request-time HTML. The shell hosts the frame; it should not invent layout rules, accessibility labels, or separate product state.
+
+## Why this pipeline makes debugging and testing better
+
+Use the stages to narrow down a bug: inspect state and `view` for the wrong content, layout for wrong geometry, semantics for accessibility output, and the shell when the rendered frame is right but the host behaves incorrectly.
+
+Reducer tests stop before rendering. Headless tests inspect layout and semantics without a real window. Live tests drive a running shell. Choose the first layer that exercises the behavior you need to prove.
+
+## Where to go next
+
+For the app-side flow, read [Runtime model](/docs/learn/runtime-model). For examples and generated hosts, continue to [Examples and targets](/docs/learn/examples-and-targets).

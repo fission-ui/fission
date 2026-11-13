@@ -1,0 +1,186 @@
+---
+title: Fission 0.14.0: navigation, SQLite storage, and complete text
+description: Fission 0.14.0 adds coherent deep links and history, opt-in cross-platform SQLite, and a complete retained text subsystem.
+authors:
+  - fission
+categories:
+  - Releases
+tags:
+  - release
+  - navigation
+  - storage
+  - text
+show_adjacent_posts: true
+---
+
+# Fission 0.14.0: navigation, SQLite storage, and complete text
+
+Fission 0.14.0 brings three pieces of everyday app work under a common contract:
+navigation, storage, and text editing. Deep links and history behave the same
+across shells. SQLite is available when an app opts in, without adding its cost
+to apps that do not use it. Text editing, layout, rendering, selection,
+accessibility, and platform input now share one retained source of truth.
+
+This release adds public APIs and target capabilities. Existing route handlers
+and ordinary string-controlled text inputs continue to work.
+
+## Deep links and history without a required router
+
+Every shell now exposes the same route and navigation commands. Use Fission's
+`Router`, keep an existing `with_route_handler` integration, or build a custom
+or third-party router on `RouteLocation`.
+
+Reducers can navigate through the normal effect pipeline:
+
+```rust
+#[fission_reducer(OpenProject)]
+fn open_project(
+    _state: &mut AppState,
+    project_id: String,
+    ctx: &mut ReducerContext<AppState>,
+) {
+    ctx.effects.navigate(format!("/projects/{project_id}"));
+}
+```
+
+On Web, `/projects/42` and `#/projects/42` can open the same app route.
+`WebRouteStrategy::Auto` keeps the form used when the app launched; you can also
+choose path or hash routing explicitly and configure a deployment base path.
+Back, forward, hash changes, and initial deep links all use the same route
+change contract.
+
+`Link::to("Open project", "/projects/42")` navigates within the app and remains
+a real link. The hyperlink semantics are public, so a custom widget can expose
+an `href`, target, relationship metadata, download, or popover target without
+depending on the built-in `Link`. Web canvas output maps these links to DOM
+anchors; Static site and SSR output write ordinary `<a>` elements.
+
+For path-based SPA routes, configure the host to serve the app entry document
+for application routes. Fission's development and generated Web servers do
+this, while still returning `404` for missing assets. If your static host does
+not support rewrites, hash routing works without extra configuration.
+
+## SQLite is the portable storage direction
+
+Storage is opt-in. If your app does not enable it, it does not compile SQLite,
+start a worker, or ship SQLite Web assets.
+
+CLI-managed projects can add the capability with:
+
+```console
+fission add-capability storage --project-dir .
+```
+
+The high-level Store API uses one reserved `fission` table. It gives you typed
+keys, application/session/user/named scopes, `get`, `set`, `contains`, `remove`,
+prefix listing, and atomic batches. Requests and results use Fission's normal
+reducer-effect and typed-input contracts.
+
+If you need SQL directly, the API supports parameterised statements, typed query
+rows, ordered migrations using `user_version`, and transactions that can be
+passed between modules as they are assembled:
+
+```rust
+fn append_audit(transaction: &mut SqlTransaction, message: String) {
+    transaction.execute(
+        SqlStatement::new("INSERT INTO audit(message) VALUES (?1)").bind(message),
+    );
+}
+
+let mut transaction = SqlTransaction::new();
+transaction.execute(
+    SqlStatement::new("UPDATE projects SET name = ?1 WHERE id = ?2")
+        .bind(name)
+        .bind(project_id),
+);
+append_audit(&mut transaction, "Project renamed".into());
+// committed and failed are bound application completion envelopes.
+ctx.effects.sql().transaction(transaction).on_ok(committed).on_err(failed);
+```
+
+Desktop, mobile, and Terminal use bundled SQLite in an application-data
+database. Web uses the official SQLite WebAssembly distribution in a worker and
+stores data through OPFS. SSR uses a server-side database file. Static site
+projects reject runtime storage because generated files have no runtime
+storage. You can provide a different Store or SQL provider through the same
+capability traits.
+
+## One complete retained text subsystem
+
+`TextEditingValue` now keeps text, directional selection and affinity, and the
+composing range together. Validated UTF-8 `TextPosition` values include named
+conversions to UTF-16 and Unicode scalar offsets for platform boundaries.
+Keyboard, IME, Web editing, accessibility, clipboard, controllers, and tests
+all enter through one `TextEditCommand` pipeline.
+
+Ordinary `value: String` inputs remain supported. Applications that need full
+control can provide the complete value:
+
+```rust
+TextInput {
+    editing_value: Some(state.document.clone()),
+    on_input: Some(update_document),
+    ..Default::default()
+}
+```
+
+Input, selection, focus, blur, validation, submission, and completion callbacks
+keep the action payload you bound. Repeated and schema-generated forms can
+therefore retain their field context. Public controllers cover editing,
+scrolling, shared read-only selection, and forms. Validation and autofill
+metadata reach native accessibility and semantic HTML.
+
+Here `state.document` is the app-owned `TextEditingValue`, initially created
+with `TextEditingValue::from_text(...)` and updated from editing events. Do
+not reconstruct the same literal value on every build and expect it to retain
+the user's edits.
+
+Paragraph measurement now keeps the final lines, Unicode clusters, caret stops,
+selection rectangles, inline placements, constraints, and measured size. Painting,
+hit testing, selection, scrolling, IME candidate placement, and accessibility
+use that same result. Typography also gains fallback families, locale, word
+spacing, decoration styles, shadows and paints, OpenType features, variable axes,
+baseline and leading policies, line breaking, hyphenation, and nonlinear
+accessibility scaling across native rendering, software rendering, Static site,
+and SSR.
+
+`SelectionRegion` coordinates selection across retained `Text` and `RichText`
+widgets. Desktop supports mouse, keyboard, and context-menu workflows. Touch
+adds forgiving selection handles, magnification, a selection toolbar, and
+edge auto-scroll.
+
+## Input and scrolling polish
+
+Multiline fields now start at the top, fill the editor height, and show a
+scrollbar by default. Hide it with `show_scrollbar(false)`. The collapsed blue
+touch caret handle stays hidden unless you enable it.
+
+Scrollbars stay visually compact but have a wider hit target on the inside.
+Click the rail above or below the thumb to jump proportionally and start a drag.
+Fission also reconciles scroll state before layout, so an offset from one screen
+does not hide content on another screen that shares its structural identity.
+
+## Upgrade
+
+Update the framework and CLI:
+
+```toml
+[dependencies]
+fission = { version = "0.14.0", default-features = false, features = ["desktop"] }
+```
+
+```sh
+cargo install cargo-fission --version 0.14.0 --locked
+```
+
+Existing route handlers and string-controlled text fields still work. Enable
+SQLite only in apps that use storage, with the CLI command above or the
+`store-sqlite-native` and `store-sqlite-web` Cargo features in a manually managed
+project.
+
+For current Web projects, keep the `storage` capability declaration even when
+managing Cargo features manually. The CLI validates and installs the worker,
+bridge, and SQLite assets too; a feature-only edit is not the complete setup.
+The [current storage guide](/docs/guides/storage-and-sqlite/) documents that
+contract. New UI code should use [Compose](/compose/); the struct snippets
+above explain this release's input and storage changes.

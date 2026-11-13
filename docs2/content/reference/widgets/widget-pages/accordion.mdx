@@ -1,0 +1,85 @@
+---
+title: Accordion
+description: Show a vertical list of sections that can reveal or hide their content.
+slug: /widgets/accordion
+---
+# Accordion
+
+`Accordion` puts related sections in a vertical list and lets people open the
+details they need. It works well for advanced filters, shipping details, FAQs,
+or email metadata that should not take up the whole screen.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub ProjectDetails<()> {
+        props {
+            details: Widget,
+            history: Widget,
+            details_open: bool,
+            history_open: bool,
+            toggle_details: ActionEnvelope,
+            toggle_history: ActionEnvelope,
+        }
+    }
+
+    view(section, _state, cx) =>
+        Accordion(
+            items: vec![
+                AccordionItem {
+                    title: cx.tr("project.details"),
+                    content: section.details.clone(),
+                    is_expanded: section.details_open,
+                    on_toggle: Some(section.toggle_details.clone()),
+                },
+                AccordionItem {
+                    title: cx.tr("project.history"),
+                    content: section.history.clone(),
+                    is_expanded: section.history_open,
+                    on_toggle: Some(section.toggle_history.clone()),
+                },
+            ],
+        )
+}
+```
+
+The parent binds the two actions and owns the expansion policy. The component
+receives already-built content, so it does not duplicate the project's data
+loading or history model. `AccordionItem` is a data model; its fully specified
+Rust literal is not another widget-authoring API.
+
+The widget only reflects state. If your product wants exactly one section open at a time, that rule belongs in the reducer. If your product wants several sections open together, that also belongs in the reducer.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `items` | `Vec<AccordionItem>` | The sections to render from top to bottom. | Defaults to an empty list. |
+| `motion` | `Option<AccordionMotion>` | Panel and chevron transitions. | `None` follows the app's standard widget-motion policy. |
+
+## State ownership and behavior
+
+`Accordion` does not own expansion state. Each item brings its own `is_expanded` flag and `on_toggle` action. That means the widget does not enforce a single-open pattern, does not remember the last opened section, and does not silently mutate anything on its own.
+
+Each header is a button whose expanded relationship points at the panel.
+The standard motion policy animates panel collapse/fade and the chevron;
+`motion: Some(AccordionMotion::None)` opts out. A reduced-motion environment
+also changes the effective motion. Expansion remains controlled state rather
+than a consequence inferred from the animation.
+
+## Specific advice
+
+An accordion should reduce scanning cost, not hide essential content. If users must open every section just to finish the main task, the layout probably wants tabs, a stepper, or a simpler single-column flow instead.
+
+## Production checklist
+
+- Test both expansion policies if the app offers single-open and multi-open variants.
+- Check focus and expanded-panel relationships after opening, closing, and reduced-motion transitions.
+- Keep section order stable; the compact item model derives panel identity from position.
+
+## Related
+
+[`AccordionItem`](/reference/widgets/accordion-item), [`Tabs`](/reference/widgets/tabs), [`Stepper`](/reference/widgets/stepper), and [`Card`](/reference/widgets/card).

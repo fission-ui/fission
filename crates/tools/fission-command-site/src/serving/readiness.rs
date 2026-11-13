@@ -14,8 +14,33 @@ use std::{
 };
 use url::Url;
 
-const MAX_ASSET_BYTES: u64 = 64 * 1024 * 1024;
+const DEFAULT_MAX_ASSET_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_ASSET_BYTES_ENV: &str = "FISSION_SERVING_MAX_ASSET_BYTES";
+const HTTP_HEADER_LIMIT: usize = 16 * 1024;
 const MAX_REFERENCES: usize = 2048;
+
+fn max_asset_bytes_from_env(value: Option<&std::ffi::OsStr>) -> Result<u64> {
+    let Some(value) = value else {
+        return Ok(DEFAULT_MAX_ASSET_BYTES);
+    };
+    let value = value
+        .to_str()
+        .with_context(|| format!("{MAX_ASSET_BYTES_ENV} must be valid UTF-8"))?;
+    let bytes = value
+        .parse::<u64>()
+        .with_context(|| format!("{MAX_ASSET_BYTES_ENV} must be a positive byte count"))?;
+    if bytes == 0 {
+        bail!("{MAX_ASSET_BYTES_ENV} must be greater than zero");
+    }
+    if bytes > (usize::MAX - HTTP_HEADER_LIMIT) as u64 {
+        bail!("{MAX_ASSET_BYTES_ENV} exceeds this platform's addressable size");
+    }
+    Ok(bytes)
+}
+
+fn max_asset_bytes() -> Result<u64> {
+    max_asset_bytes_from_env(std::env::var_os(MAX_ASSET_BYTES_ENV).as_deref())
+}
 
 #[derive(Default)]
 struct Assets {
@@ -81,6 +106,26 @@ pub(super) fn verify(
     deadline: Instant,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<usize> {
+    verify_with_limit(
+        root,
+        entry,
+        base,
+        web,
+        deadline,
+        max_asset_bytes()?,
+        &mut cancelled,
+    )
+}
+
+fn verify_with_limit(
+    root: &Path,
+    entry: &str,
+    base: &Url,
+    web: bool,
+    deadline: Instant,
+    max_asset_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<usize> {
     let root = crate::paths::absolute_root(root)?;
     let entry_url = if entry == "index.html" {
         base.clone()
@@ -126,15 +171,18 @@ pub(super) fn verify(
         if !path.is_file() {
             bail!("required serving asset is missing: {url}");
         }
-        if fs::metadata(&path)?.len() > MAX_ASSET_BYTES {
-            bail!("required asset exceeds 64 MiB: {url}");
+        if fs::metadata(&path)?.len() > max_asset_bytes {
+            bail!(
+                "required asset exceeds the configured {max_asset_bytes}-byte serving limit ({MAX_ASSET_BYTES_ENV}): {url}"
+            );
         }
         let expected = fs::read(&path)?;
         if expected.is_empty() {
             bail!("required asset is empty: {url}");
         }
-        let (content_type, actual) = get_local_asset(&url, remaining, &mut cancelled)
-            .with_context(|| format!("required serving GET failed: {url}"))?;
+        let (content_type, actual) =
+            get_local_asset(&url, remaining, max_asset_bytes, cancelled)
+                .with_context(|| format!("required serving GET failed: {url}"))?;
         if actual != expected {
             bail!("serving response differs from the expected build asset: {url}");
         }
@@ -211,6 +259,7 @@ pub(super) fn verify(
 fn get_local_asset(
     url: &Url,
     timeout: Duration,
+    max_asset_bytes: u64,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<(String, Vec<u8>)> {
     let ip = match url.host() {
@@ -261,10 +310,17 @@ fn get_local_asset(
             }
             Err(error) => return Err(error.into()),
         }
-        if response.len() > MAX_ASSET_BYTES as usize + 16384 {
-            bail!("asset response exceeds 64 MiB");
+        if response.len() > max_asset_bytes as usize + HTTP_HEADER_LIMIT {
+            bail!(
+                "asset response exceeds the configured {max_asset_bytes}-byte serving limit ({MAX_ASSET_BYTES_ENV})"
+            );
         }
-        if response.len() > 16384 && !response.windows(4).take(16384).any(|w| w == b"\r\n\r\n") {
+        if response.len() > HTTP_HEADER_LIMIT
+            && !response
+                .windows(4)
+                .take(HTTP_HEADER_LIMIT)
+                .any(|w| w == b"\r\n\r\n")
+        {
             bail!("asset HTTP headers exceed 16 KiB");
         }
     }
@@ -272,7 +328,7 @@ fn get_local_asset(
         .windows(4)
         .position(|w| w == b"\r\n\r\n")
         .context("invalid asset HTTP response")?;
-    if split > 16384 {
+    if split > HTTP_HEADER_LIMIT {
         bail!("asset HTTP headers exceed 16 KiB");
     }
     let headers = std::str::from_utf8(&response[..split])?;
@@ -292,8 +348,10 @@ fn get_local_asset(
             .map(|(_, value)| value.trim())
     };
     let body = response[split + 4..].to_vec();
-    if body.len() > MAX_ASSET_BYTES as usize {
-        bail!("asset response exceeds 64 MiB");
+    if body.len() > max_asset_bytes as usize {
+        bail!(
+            "asset response exceeds the configured {max_asset_bytes}-byte serving limit ({MAX_ASSET_BYTES_ENV})"
+        );
     }
     let length: usize = header("Content-Length")
         .context("missing asset Content-Length")?
@@ -352,29 +410,79 @@ mod tests {
             Self(root)
         }
         fn verify(&self, mount: &str, web: bool) -> Result<usize> {
-            let server = OwnedServer::start(
-                self.0.clone(),
-                &ServerOptions {
-                    mount: mount.into(),
-                    spa: web,
-                    ..Default::default()
-                },
-            )?;
-            let base = Url::parse(&format!("http://{}{mount}", server.address()))?;
-            verify(
-                &self.0,
-                "index.html",
-                &base,
-                web,
-                Instant::now() + Duration::from_secs(2),
-                || false,
-            )
+            verify_with_limit_from_fixture(self, mount, web, max_asset_bytes()?)
         }
+        fn verify_with_asset_limit(
+            &self,
+            mount: &str,
+            web: bool,
+            max_asset_bytes: u64,
+        ) -> Result<usize> {
+            verify_with_limit_from_fixture(self, mount, web, max_asset_bytes)
+        }
+    }
+
+    fn verify_with_limit_from_fixture(
+        fixture: &Fixture,
+        mount: &str,
+        web: bool,
+        max_asset_bytes: u64,
+    ) -> Result<usize> {
+        let server = OwnedServer::start(
+            fixture.0.clone(),
+            &ServerOptions {
+                mount: mount.into(),
+                spa: web,
+                ..Default::default()
+            },
+        )?;
+        let base = Url::parse(&format!("http://{}{mount}", server.address()))?;
+        verify_with_limit(
+            &fixture.0,
+            "index.html",
+            &base,
+            web,
+            Instant::now() + Duration::from_secs(2),
+            max_asset_bytes,
+            &mut || false,
+        )
     }
     impl Drop for Fixture {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn serving_asset_limit_defaults_and_accepts_a_positive_byte_override() {
+        assert_eq!(
+            max_asset_bytes_from_env(None).unwrap(),
+            DEFAULT_MAX_ASSET_BYTES
+        );
+        assert_eq!(
+            max_asset_bytes_from_env(Some(std::ffi::OsStr::new("134217728"))).unwrap(),
+            128 * 1024 * 1024
+        );
+        assert!(max_asset_bytes_from_env(Some(std::ffi::OsStr::new("0"))).is_err());
+        assert!(max_asset_bytes_from_env(Some(std::ffi::OsStr::new("large"))).is_err());
+    }
+
+    #[test]
+    fn serving_readiness_obeys_the_configured_asset_limit() {
+        let fixture = Fixture::new("<html>Ready</html>");
+        let asset_size = fs::metadata(fixture.0.join("index.html")).unwrap().len();
+
+        let error = fixture
+            .verify_with_asset_limit("/", false, asset_size - 1)
+            .unwrap_err();
+        assert!(format!("{error:#}")
+            .contains(&format!("configured {}-byte serving limit", asset_size - 1)));
+        assert_eq!(
+            fixture
+                .verify_with_asset_limit("/", false, asset_size)
+                .unwrap(),
+            1
+        );
     }
 
     #[cfg(target_os = "linux")]

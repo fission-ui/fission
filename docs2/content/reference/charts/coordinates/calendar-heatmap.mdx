@@ -1,0 +1,48 @@
+---
+title: Calendar heatmap
+sidebar_label: Calendar heatmap
+description: Place complete daily observations on a calendar without converting missing reports to inactivity.
+---
+
+# Calendar heatmap
+
+![Calendar heatmap screenshot](/img/charts/calendar-heatmap.png)
+
+A calendar preserves the weekday and week relationships between dates. That makes it useful for asking whether engagement is consistent, rather than merely whether the monthly total is large.
+
+The [engagement calendar](../analytics/analytics-calendar-engagement) defines `EngagementDay` and `EngagementCalendar`. Put them in `widgets/engagement_calendar.rs`:
+
+```rust
+use fission::prelude::*;
+use fission::charts::VisualMap;
+use crate::widgets::engagement_calendar::{EngagementCalendar, EngagementDay};
+
+fission_component! {
+    pub DailyEngagementOverview<()> {
+        props {
+            title: String,
+            accounts_label: String,
+            start_date: String,
+            end_date: String,
+            days: Vec<EngagementDay>,
+            colour_scale: VisualMap,
+        }
+    }
+    view(overview, _state, _cx) => EngagementCalendar {
+        title: overview.title.clone(),
+        metric_label: overview.accounts_label.clone(),
+        start_date: overview.start_date.clone(),
+        end_date: overview.end_date.clone(),
+        days: overview.days.clone(),
+        colour_scale: overview.colour_scale.clone(),
+    }
+}
+```
+
+The calendar uses `CalendarHeatmapSeries`, not a categorical AM/PM matrix. Dates are valid `YYYY-MM-DD` strings aggregated in one reporting timezone.
+
+Validate the complete requested interval and reject duplicate dates before rendering. The renderer treats absent days as zero and ignores invalid date strings, so those behaviours must not silently turn incomplete data into a successful inactivity report.
+
+Provide translated labels, a stable explained colour scale and exact daily counts in accessible content. The current calendar's built-in weekday captions are fixed English; caller labels do not localise those internal captions. Test month boundaries, leap days and empty data. The gallery screenshot is a separate fixture.
+
+[Coordinates family overview](./overview)

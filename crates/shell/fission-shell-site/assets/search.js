@@ -78,15 +78,27 @@
       });
 
       return Array.from(scores.entries())
-        .sort(function (a, b) {
-          return b[1] - a[1];
-        })
-        .slice(0, 12)
         .map(function (entry) {
           var doc = documents[entry[0]];
-          return doc && Object.assign({ score: entry[1] }, doc);
+          if (!doc) return null;
+
+          var titleTokens = tokenise(doc.title);
+          var titleMatches = tokens.filter(function (token) {
+            return titleTokens.some(function (titleToken) {
+              return titleToken === token || titleToken.startsWith(token);
+            });
+          }).length;
+          var isTutorial = String(doc.href || "").replace(/^\/+/, "").indexOf("blog/") === 0;
+          var titleScore = titleMatches * 18;
+          if (isTutorial && titleMatches === tokens.length) titleScore += 30;
+
+          return Object.assign({ score: entry[1], rank: entry[1] + titleScore }, doc);
         })
-        .filter(Boolean);
+        .filter(Boolean)
+        .sort(function (a, b) {
+          return b.rank - a.rank;
+        })
+        .slice(0, 12);
     });
   }
 

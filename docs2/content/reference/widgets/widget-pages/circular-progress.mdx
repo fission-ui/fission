@@ -1,0 +1,82 @@
+---
+title: CircularProgress
+description: Show determinate or indeterminate progress in a compact circular form factor.
+slug: /widgets/circular-progress
+---
+# CircularProgress
+
+`CircularProgress` shows progress in a compact round shape.
+
+Pass `value: Some(...)` when you know how much work is complete; use
+`value: None` when the app is busy but cannot report a fraction. It fits
+sidebars, dashboard tiles, and other small spaces.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub UploadProgress<()> {
+        props {
+            uploaded_bytes: u64,
+            total_bytes: u64,
+        }
+    }
+
+    view(upload, _state, cx) {
+        let fraction = (upload.total_bytes > 0).then(|| {
+            (upload.uploaded_bytes as f64 / upload.total_bytes as f64)
+                .clamp(0.0, 1.0) as f32
+        });
+    } =>
+        CircularProgress(
+            value: fraction,
+            label: Some(cx.tr("upload.progress")),
+            motion: CircularProgressMotion::Default,
+        )
+}
+```
+
+Byte counts remain integers in the upload model. Only the display projection
+becomes a fraction. An unknown total stays indeterminate; it is not reported as
+zero percent or a made-up estimate.
+
+The label names the operation for assistive technology. Keep the byte-count
+text nearby when the user needs an exact transfer amount.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `value` | `Option<f32>` | Progress fraction for the ring. | Use `Some(0.0..=1.0)` for determinate progress. Use `None` for indeterminate activity. |
+| `id` | `WidgetId` | Retained motion/semantic identity. | Compose supplies structural identity; distinguish repeated indicators. |
+| `size` | `Option<f32>` | Outer width and height of the indicator. | `None` follows the circular-progress recipe. |
+| `color` | `Option<Color>` | Indicator arc color override. | Defaults to the theme's primary color. |
+| `track_color` | `Option<Color>` | Background track color override. | Defaults to the theme's border color. |
+| `thickness` | `Option<f32>` | Stroke width of the ring. | `None` follows the circular-progress recipe. |
+| `motion` | `Option<CircularProgressMotion>` | Optional indeterminate rotation. | `None` is static; choose `Default` or `Spin` to animate. |
+| `label` | `Option<String>` | Accessible name for the operation. | Set it even when a nearby caption also explains progress. |
+
+## Determinate versus indeterminate behavior
+
+`value: None` is indeterminate mode. The widget draws a partial arc and animates
+only when `motion` is set. Motion still respects the environment's reduced-motion
+preference. Give each concurrently animated indicator a stable distinct `WidgetId` so their animation state does not collide.
+
+For determinate progress, pass `Some(fraction)`. Validate and clamp the display fraction to `0.0..=1.0` upstream; the semantic
+range is clamped, but that does not make invalid source measurements meaningful.
+
+## Specific advice
+
+Pair circular progress with text when precision matters. A ring is good at showing relative advancement, but not always good at communicating exact meaning on its own.
+
+## Production checklist
+
+- Test unknown totals, completed transfers, and impossible counts without NaN or fabricated progress.
+- Give concurrent operations independent retained identities and accessible names.
+- Check both ordinary and reduced-motion behaviour.
+
+## Related
+
+[`ProgressBar`](/reference/widgets/progress-bar), [`Spinner`](/reference/widgets/spinner), [`Stat`](/reference/widgets/stat), and [`Skeleton`](/reference/widgets/skeleton).

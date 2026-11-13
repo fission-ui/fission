@@ -1,0 +1,84 @@
+---
+title: Support theme river
+sidebar_label: Support theme river
+description: Fission Charts reference for Support theme river.
+---
+
+# Support theme river
+
+![Support theme river screenshot](/img/charts/theme-river-support.png)
+
+A support theme river shows which topics contribute to incoming work as the total changes. A growing band can identify where to investigate without suggesting that every queue is under the same pressure. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The measure here is new tickets per day, not the number still open. Arrivals and backlog answer different questions; the chart cannot tell how quickly a team is resolving work unless resolution measures are added separately.
+
+## Data model
+
+ThemeRiverSeries takes date/value/topic triples. Aggregate one value per day and topic, using consistent category names and a fixed reporting timezone. The chart uses lexical date order and equal spacing, so prepare regular ISO-date buckets first.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `ThemeRiverSeries::data` | `Vec<(&str, f32, &str)>` | Takes time, value and category. |
+| `ThemeRiverSeries::data` field | `Vec<(String, f32, String)>` | Stores the samples with owned labels. |
+| `Chart::series` | `Vec<Series>` | Adds the river without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, ThemeRiverSeries};
+
+let chart = Chart::new()
+    .title("Daily support arrivals by topic")
+    .series(vec![ThemeRiverSeries::new("New tickets")
+        .data(vec![
+        ("2026-10-01", 18.0, "Billing"),
+        ("2026-10-01", 34.0, "Technical"),
+        ("2026-10-02", 27.0, "Billing"),
+        ("2026-10-02", 41.0, "Technical"),
+        ("2026-10-03", 21.0, "Billing"),
+        ("2026-10-03", 38.0, "Technical"),
+        ])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+Keep the aggregate in the parent workflow and pass its completed samples into this component. A build presents those samples; it does not start another request.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, Series, ThemeRiverSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub SupportThemeRiverChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            samples: Vec<(String, f32, String)>,
+        }
+    }
+    view(river, _state, _cx) =>
+        Chart(
+            title: Some(river.chart_title.clone()),
+            series: vec![Series::ThemeRiver(ThemeRiverSeries {
+                name: river.series_label.clone(),
+                data: river.samples.clone(),
+            })],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check tickets whose topic changes after creation and decide whether the report preserves the original topic. Distinguish a missed ingestion day from a known zero; the renderer treats absent category values as zero.
+
+Provide a readable breakdown alongside the bands. Their colour and changing baseline should not be the only way a user can identify a category or compare its values.
+
+Tags: `themeRiver`, `support`.
+
+[Hierarchy family overview](./overview)

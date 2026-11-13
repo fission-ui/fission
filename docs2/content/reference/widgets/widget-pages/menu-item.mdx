@@ -1,0 +1,78 @@
+---
+title: MenuItem
+description: Describe one entry inside a Menu or MenuButton.
+slug: /widgets/menu-item
+---
+# MenuItem
+
+`MenuItem` describes one row in a [`Menu`](/reference/widgets/menu) or
+[`MenuButton`](/reference/widgets/menu-button). It can include a label, icon,
+and the action to dispatch when a user selects the row. It is data, not a
+standalone widget.
+
+Use `MenuActionItem` inside `MenuContent` when a row needs a description,
+shortcut or metadata, selected state, explicit disabled state, or destructive
+tone. Both APIs lower through the same retained menu recipe.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+// In a parent's build scope. Both actions are already registered for this file.
+let items = vec![
+    MenuItem {
+        label: cx.tr("file.rename"),
+        icon: None,
+        on_select: Some(rename_action),
+        semantics_identifier: Some("file.rename".into()),
+    },
+    MenuItem {
+        label: cx.tr("file.duplicate"),
+        icon: None,
+        on_select: Some(duplicate_action),
+        semantics_identifier: Some("file.duplicate".into()),
+    },
+];
+```
+
+The parent menu turns these records into visible rows.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `label` | `String` | Visible text for the menu row. | Required. Keep labels short and action-oriented. |
+| `icon` | `Option<String>` | Optional icon source shown before the label. | Defaults to `None`. Typically a scalable vector graphics (SVG) string used by the icon helper. |
+| `on_select` | `Option<ActionEnvelope>` | Action dispatched when the row is chosen. | Defaults to `None`. An item with no action is visually present but effectively inert. |
+| `semantics_identifier` | `Option<String>` | Stable identifier exposed on the generated `MenuItem` semantic node. | Use it when labels may be duplicated or localized and tests need stable addressing. |
+
+## How action flow works here
+
+Unlike [`Combobox`](/reference/widgets/combobox) or [`SegmentedControl`](/reference/widgets/segmented-control), `MenuItem` does not generate actions from a closure. You hand it the final `ActionEnvelope` up front. That makes it a good fit for a fixed set of known actions.
+
+If the selected value must vary per item, build a different payload for each item when you construct the vector.
+
+The parent turns the record into a semantic `MenuItem` whose visible label is
+also its accessible name. A direct `Menu` retains only its first enabled row in
+page-level Tab order and uses arrow keys to rove through the rest.
+`MenuButton` keeps every popup row out of page-level Tab order and gives the
+opened popup controlled focus entry; see the parent pages for arrow,
+boundary-key, character matching, and dismissal behavior.
+
+## Specific advice
+
+`MenuItem` has no disabled field. If `on_select` is `None`, the row still
+appears and remains focusable but has no default action. For an unavailable row
+that must remain visible, use `MenuActionItem::disabled(true)` so focus,
+activation, semantics, and the design-system state agree.
+
+## Production checklist
+
+- Register each payload for the record it actually changes.
+- Use explicit disabled MenuActionItem state for unavailable commands.
+- Verify stable identifiers when translated labels or duplicate command names change.
+
+## Related
+
+[`Menu`](/reference/widgets/menu), [`MenuButton`](/reference/widgets/menu-button), [`SelectItem`](/reference/widgets/select-item), and [`Button`](/reference/widgets/button).

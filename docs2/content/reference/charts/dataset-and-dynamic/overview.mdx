@@ -1,0 +1,52 @@
+---
+title: Dataset and dynamic
+sidebar_label: Overview
+description: Bind validated datasets and refresh real chart inputs through Fission state, reducers and effects.
+---
+
+# Dataset and dynamic
+
+A dynamic chart is still a projection of application state. Data arrives through the ordinary effect/reducer flow; the component receives a ready snapshot and constructs the matching series. The chart does not acquire a subscription merely because an example is named dynamic.
+
+These sixteen examples cover actual dataset encodings, source changes, meaningful series choices and colour scales. They distinguish what the current renderer does from behaviour that still belongs to the application.
+
+![Dataset stacked area screenshot](/img/charts/dataset-stack-area.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Dataset stacked area](./dataset-stack-area) | Several named measures sharing ordered categories. | Use it when the data pipeline should stay visible instead of hidden in chart-specific arrays. |
+| [Dynamic alert scatter](./dynamic-effect-alerts) | Small list of highlighted x/y samples. | Use it when outliers or active alerts need immediate attention. |
+| [Dynamic brush scatter](./dynamic-brush-scatter) | Point samples plus a brush rectangle. | Use it when users need to select a region before drilling into data. |
+| [Dynamic pictorial units](./dynamic-pictorial-units) | Category labels plus numeric values and a symbol choice. | Use it for unit counts that benefit from a branded or icon-like visual form. |
+| [Dynamic polar score](./dynamic-polar-score) | Label/value pairs mapped around a circle. | Use it for cyclic or radial score comparisons. |
+| [Dynamic radar health](./dynamic-radar-health) | Several same-length vectors across named indicators. | Use it for multidimensional status summaries. |
+| [Dynamic sales funnel](./dynamic-funnel-sales) | Stage/value pairs ordered by process position. | Use it when the loss between stages matters more than exact axis measurement. |
+| [Dynamic score gauge](./dynamic-gauge-score) | Single label/value pair scaled into a gauge arc. | Use it for scorecards where the main result should be immediately visible. |
+| [Dynamic single-axis events](./dynamic-single-axis-events) | Position/value pairs on one continuous axis. | Use it for timelines or compact event strips. |
+| [Dynamic speed gauge](./dynamic-gauge-speed) | Speed relative to a declared limit, with uncapped values retained. | Use a limit-utilisation dial, not a falsely configurable physical speedometer. |
+| [Dynamic toolbox line](./dynamic-toolbox-line) | Ordered samples plus toolbox action configuration. | Use real application commands; built-in toolbox labels are decorative. |
+| [Encoded bars dataset](./dataset-encoded-bars) | Records with category, group, and numeric value fields. | Use it when chart code should name fields once and reuse them across bar variants. |
+| [Encoded lines dataset](./dataset-encoded-lines) | Records with ordered label, measure, and series fields. | Use it when the same dataset powers several line views. |
+| [Visual map calendar](./visual-map-calendar) | Date/value pairs over a calendar range. | Use it to show daily volume, incidents, or activity in a compact year-like shape. |
+| [Visual map heatmap](./visual-map-heatmap) | Grid cell coordinates with numeric intensity. | Use it for dense comparisons where color communicates rank faster than labels. |
+| [Visual map scatter](./visual-map-scatter) | Triples of x, y, and magnitude values. | Compare two cohort rates with size and colour representing account count. |
+
+## Keep one report authority
+
+Validate and aggregate source records in ordinary Rust. Named dataset dimensions are runtime schema keys, not compiler-checked struct fields. The current numeric extractor can turn malformed or absent cells into zero, so build complete typed projections rather than allowing that fallback to conceal an error.
+
+Preserve domain identities outside the chart. A brushed or zoomed item index belongs to its displayed projection and snapshot; resolve it before treating it as an order, account or resource ID.
+
+## Updates do not change interpretation
+
+Use stable reporting windows, denominators and units when comparing updates. A gauge uses a fixed 0–100 dial, whilst polar extents are relative to the displayed maximum. Pictorial symbols follow their fixed count rule, and a radar polygon is not an overall health score.
+
+Concentric effect-scatter rings are visual emphasis, not asynchronous effects or an alert subscription. Timeline and toolbox graphics likewise do not implement dataset switching, playback or export. The relevant examples use actual Compose controls and existing state transitions where application behaviour is required.
+
+## Compose, accessibility and checks
+
+Built-in chart fields use normal `Chart(...)` composition and explicit `Series` variants. Required-prop component reuse uses fully specified Rust struct literals, preserving required inputs without assuming a generated `Default`.
+
+Supply translated visible labels and design-system colours. Keep exact values, IDs and essential explanations in accessible content, including missing/stale/error states. Use LiveTest to exercise actual gestures and controls, inspect both small and large layouts, and profile representative datasets rather than inferring performance from the gallery screenshots.

@@ -11,7 +11,7 @@ use std::time::Duration;
 
 fission_component! {
     pub EditorApp<EditorState>
-    |_app, state, cx| {
+    view(_app, state, cx) {
         // Registers the reducer for the EditorStarted action dispatched at launch.
         cx.build.bind(
             EditorStarted {

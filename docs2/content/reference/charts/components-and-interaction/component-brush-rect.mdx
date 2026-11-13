@@ -1,0 +1,51 @@
+---
+title: Brush rectangle
+sidebar_label: Brush rectangle
+description: Use a two-dimensional brush to inspect basket value and item count together.
+---
+
+# Brush rectangle
+
+![Brush rectangle screenshot](/img/charts/component-brush-rect.png)
+
+A rectangular brush constrains both axes. It can isolate orders with a high basket value but few items, rather than selecting every order in that value range.
+
+The distinction matters: a horizontal brush and a rectangle may look similar in a static image, but they express different filters.
+
+Use `BrushInspector` from [brush selection](./brush-select), placed in `widgets/brush_inspector.rs`:
+
+```rust
+use fission::prelude::*;
+use fission::charts::ChartBrush;
+use crate::widgets::brush_inspector::BrushInspector;
+
+fission_component! {
+    pub BasketRegionInspector<()> {
+        props {
+            chart_id: WidgetId,
+            title: String,
+            orders_label: String,
+            value_axis_label: String,
+            item_axis_label: String,
+            summary_pattern: String,
+            samples: Vec<(f32, f32)>,
+        }
+    }
+    view(region, _state, _cx) => BrushInspector {
+        chart_id: region.chart_id,
+        title: region.title.clone(),
+        orders_label: region.orders_label.clone(),
+        value_axis_label: region.value_axis_label.clone(),
+        item_axis_label: region.item_axis_label.clone(),
+        summary_pattern: region.summary_pattern.clone(),
+        samples: region.samples.clone(),
+        brush: ChartBrush::rect(),
+    }
+}
+```
+
+Supply finite, eligible observations and translated labels, including a summary pattern with `{count}`. The base component demonstrates the real completion reducer; a preview rectangle alone would not do that.
+
+Test a region containing no points, one boundary point and several points. Keep numeric filters or an accessible order list available as an alternative gesture. The current polygon brush mode also follows rectangular bounds; do not imply free-form polygon selection from this example. The gallery screenshot is illustrative.
+
+[Components and interaction family overview](./overview)

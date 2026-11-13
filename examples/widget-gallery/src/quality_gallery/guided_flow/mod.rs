@@ -18,7 +18,7 @@ use workflow::GuidedWorkflow;
 
 fission_component! {
     pub(super) GuidedFlowPage<()> {}
-    |_page, _state, _cx| {} => Container(Row(
+    view(_page, _state, _cx) {} => Container(Row(
             gap: 0.0_f32,
             align_items: fission::op::AlignItems::Stretch,
             children: [

@@ -1,0 +1,76 @@
+---
+title: 3D network
+sidebar_label: 3D network
+description: Resolve network connections by durable device identity before constructing their scene geometry.
+---
+
+# 3D network
+
+![3D network screenshot](/img/charts/graph3d-network.png)
+
+A network view has two authorities to keep separate: the devices and connections describe the network, whilst positions describe its layout. An edge referring to device `router-a` should continue to refer to that device after a layout change or a sort in the accompanying device list.
+
+Do not use a device's current position in a vector as its durable identity. That turns an innocent reordering into a change in the displayed network.
+
+## Resolve endpoints before rendering
+
+Use ordinary Rust to resolve connection IDs to positions. This operation is small and deterministic; it belongs with the data projection rather than inside a scene primitive.
+
+```rust
+use std::collections::HashMap;
+use fission::three_d::Point3D;
+use crate::widgets::spatial_graph::Link3D;
+
+#[derive(Clone)]
+pub struct NetworkDevice {
+    pub id: String,
+    pub position: Point3D,
+}
+
+pub struct DeviceConnection {
+    pub from_id: String,
+    pub to_id: String,
+}
+
+pub fn connection_geometry(
+    devices: &[NetworkDevice],
+    connections: &[DeviceConnection],
+) -> Result<Vec<Link3D>, String> {
+    let mut positions = HashMap::new();
+    for device in devices {
+        if positions.insert(device.id.as_str(), &device.position).is_some() {
+            return Err(format!("duplicate device ID: {}", device.id));
+        }
+    }
+    connections.iter().map(|connection| {
+        let from = positions.get(connection.from_id.as_str())
+            .ok_or_else(|| format!("unknown device: {}", connection.from_id))?;
+        let to = positions.get(connection.to_id.as_str())
+            .ok_or_else(|| format!("unknown device: {}", connection.to_id))?;
+        Ok(Link3D {
+            from: (**from).clone(),
+            to: (**to).clone(),
+        })
+    }).collect()
+}
+```
+
+`Link3D` and the `NetworkScene` Compose component are defined in [3D graph](./graph3d-basic); put them in `widgets/spatial_graph.rs`. Pass the resolved links, device positions, translated title and theme colours to that component. Enable the `three-d` feature.
+
+An unknown endpoint is an error, not a connection which may be silently omitted. Handle the result in the application's projection or loading flow and render a clear failure state if the graph cannot be represented correctly.
+
+## What the scene provides
+
+`fission::three_d::Scene3D` stores `Vec<Primitive3D>` geometry. Spheres represent devices and prism meshes represent resolved links; optional `width` and `height` values size the viewport. This interface has no `size`, `camera` or `ambient_light` builders and does not provide graph layout, selection or per-device chart events automatically.
+
+For a network with no meaningful spatial placement, a two-dimensional graph or labelled connection list is usually clearer. Depth can hide a device or link without changing the underlying network.
+
+## Checks
+
+Test duplicate IDs, missing endpoints and input reordering. Then inspect a rendered network with representative density; valid geometry alone cannot prove that the connections are readable.
+
+Keep device names, status and connection endpoints available in an accessible list or table. Colour and location are not sufficient identifiers. The screenshot above is a gallery fixture rather than output from this projection.
+
+Tags: `3d`, `graph`.
+
+[3D and GL family overview](./overview)

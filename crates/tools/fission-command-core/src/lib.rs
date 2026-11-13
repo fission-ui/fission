@@ -12,6 +12,7 @@ const DEFAULT_APP_ICON_PNG: &[u8] = include_bytes!("../assets/fission_logo.png")
 const GENERATED_APP_AGENTS_MARKER: &str = "<!-- fission-cli-generated-agents:v1 -->";
 const GENERATED_APP_AGENTS_MD: &str = include_str!("../assets/AGENTS.md");
 
+mod android_bridge;
 mod desktop_features;
 mod icons;
 mod linux_native;
@@ -23,6 +24,7 @@ mod splash;
 mod web_storage;
 mod website;
 mod windows_native;
+pub use android_bridge::prepare_android_capability_helper;
 pub use desktop_features::{read_desktop_cargo_options, DesktopCargoOptions};
 pub use icons::{copy_icon_for_bundle, normalized_extension, resolve_app_icon, ResolvedIcon};
 pub use linux_native::{
@@ -1565,11 +1567,13 @@ fi
 "#;
 
 fn apply_platform_capability_config(root: &Path, project: &FissionProject) -> Result<()> {
+    if project.targets.contains(&Target::Android) {
+        ensure_android_capability_helper(root)?;
+    }
     if project.capabilities.is_empty() {
         return Ok(());
     }
     if project.targets.contains(&Target::Android) {
-        ensure_android_capability_helper(root)?;
         if project
             .capabilities
             .contains(&PlatformCapability::FileSystem)
@@ -1585,11 +1589,7 @@ fn apply_platform_capability_config(root: &Path, project: &FissionProject) -> Re
 }
 
 fn ensure_android_capability_helper(root: &Path) -> Result<()> {
-    write_file_with_policy(
-        &root.join("platforms/android/java/rs/fission/runtime/FissionAndroidCapabilities.java"),
-        render_android_capabilities_java(),
-        WritePolicy::PreserveExisting,
-    )
+    prepare_android_capability_helper(root)
 }
 
 fn ensure_android_file_system_helper(root: &Path) -> Result<()> {
@@ -2520,6 +2520,7 @@ fn scaffold_target_with_policy(
                     "Run `fission run --target web --detach --project-dir .` to keep the local server running in the background.",
                     "Run `fission test --target web --project-dir .` for a headless Chrome/Chromium CDP smoke test.",
                     "Run `./platforms/web/run-browser.sh` from the project root to build the wasm package and serve the app locally.",
+                    "Set `FISSION_WEB_WASM_SIMD=scalar` before a Web build when the target browsers do not support wasm `simd128`; SIMD is enabled by default.",
                     "Set `FISSION_WEB_PORT=<port>` or `FISSION_WEB_HOST=<host>` if the default `127.0.0.1:8123` does not suit your machine.",
                     "Set `FISSION_WEB_OPEN=1` if you want the helper script to open a browser tab automatically.",
                     "The generated page uses `assets/app-icon.png` as its default favicon/app icon seed.",
@@ -2760,6 +2761,11 @@ fn scaffold_android_bundle(
     write_file_with_policy(
         &root.join("platforms/android/java/rs/fission/runtime/FissionActivity.java"),
         render_android_activity_java(),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/android/java/rs/fission/runtime/FissionAndroidCapabilities.java"),
+        render_android_capabilities_java(),
         write_policy,
     )?;
     if project
@@ -5645,6 +5651,46 @@ set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd -- "$SCRIPT_DIR/../.." && pwd)
 PROFILE="${FISSION_WEB_PROFILE:-dev}"
+SIMD_MODE="${FISSION_WEB_WASM_SIMD:-simd}"
+SIMD_MODE=$(printf '%s' "$SIMD_MODE" | tr '[:upper:]' '[:lower:]')
+
+case "$SIMD_MODE" in
+  1|true|yes|on|simd|simd128)
+    GLOBAL_FLAGS="${CARGO_ENCODED_RUSTFLAGS:-${RUSTFLAGS:-}}"
+    if [[ -n "$GLOBAL_FLAGS" ]]; then
+      if [[ "$GLOBAL_FLAGS" != *"+simd128"* || "$GLOBAL_FLAGS" == *"-simd128"* ]]; then
+        printf '%s\n' "Global Rust flags override target-specific Web flags; add +simd128 to them or set FISSION_WEB_WASM_SIMD=scalar." >&2
+        exit 2
+      fi
+    else
+      TARGET_FLAGS="${CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS:-}"
+      if [[ "$TARGET_FLAGS" == *"target-feature="* ]]; then
+        if [[ "$TARGET_FLAGS" != *"+simd128"* ]]; then
+          printf '%s\n' "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS already sets target-feature; include +simd128 or set FISSION_WEB_WASM_SIMD=scalar." >&2
+          exit 2
+        fi
+      else
+        export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS="${TARGET_FLAGS:+$TARGET_FLAGS }-C target-feature=+simd128"
+      fi
+    fi
+    ;;
+  0|false|no|off|scalar)
+    GLOBAL_FLAGS="${CARGO_ENCODED_RUSTFLAGS:-${RUSTFLAGS:-}}"
+    if [[ "$GLOBAL_FLAGS" == *"+simd128"* && "$GLOBAL_FLAGS" != *"-simd128"* ]]; then
+      printf '%s\n' "Global Rust flags enable simd128; remove that flag for a scalar build." >&2
+      exit 2
+    fi
+    if [[ "${CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS:-}" == *"+simd128"* ]]; then
+      printf '%s\n' "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS enables simd128; remove that flag for a scalar build." >&2
+      exit 2
+    fi
+    ;;
+  *)
+    printf '%s\n' "FISSION_WEB_WASM_SIMD must be 'simd' (default) or 'scalar'." >&2
+    exit 2
+    ;;
+esac
+
 BUILD_ARGS=(build "$PROJECT_DIR" --target web --out-dir "$SCRIPT_DIR/pkg")
 
 if [[ "$PROFILE" == "release" ]]; then
@@ -6248,7 +6294,7 @@ mod tests {
         let dir = unique_dir("target-sync-preserves-features");
         fs::write(
             dir.join("Cargo.toml"),
-            "[package]\nname = \"qualification\"\nversion = \"0.1.0\"\n\n[dependencies]\nfission = { version = \"0.15.1\", default-features = false, features = [\"desktop\", \"scene2d\", \"game\", \"physics-rapier2d\"] }\n",
+            "[package]\nname = \"qualification\"\nversion = \"0.1.0\"\n\n[dependencies]\nfission = { version = \"0.16.0\", default-features = false, features = [\"desktop\", \"scene2d\", \"game\", \"physics-rapier2d\"] }\n",
         )
         .unwrap();
         let project = FissionProject {
@@ -6451,6 +6497,16 @@ publisher = "CN=Example & Co"
 
         scaffold_android_bundle(&dir, &project, WritePolicy::Overwrite).unwrap();
 
+        assert!(dir
+            .join("platforms/android/java/rs/fission/runtime/FissionAndroidCapabilities.java")
+            .exists());
+        let capabilities = fs::read_to_string(
+            dir.join("platforms/android/java/rs/fission/runtime/FissionAndroidCapabilities.java"),
+        )
+        .unwrap();
+        assert!(capabilities.contains("Intent.ACTION_OPEN_DOCUMENT"));
+        assert!(capabilities.contains("Intent.ACTION_CREATE_DOCUMENT"));
+        assert!(capabilities.contains("nativeFilePickerResult"));
         assert!(!dir
             .join("platforms/android/java/rs/fission/runtime/FissionFileSystem.java")
             .exists());

@@ -1,0 +1,62 @@
+---
+title: Demand sparkline
+sidebar_label: Demand sparkline
+description: Fission Charts reference for Demand sparkline.
+---
+
+# Demand sparkline
+
+![Demand sparkline screenshot](/img/charts/line-demand-spark.png)
+
+A compact demand line gives a dashboard card recent context without turning the card into a full report. For an export queue, the useful question is whether incoming work is steady or changing. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This is a small regular chart, not an axis-free sparkline API. Keep it large enough for the labels it still renders. If the card cannot support those labels, show the current count and a readable summary rather than squeezing the plot until it loses meaning.
+
+## Data model
+
+Supply one export-request count per regular hour and a matching label for each bucket. Counts describe arrivals, not queue depth: a busy hour can still leave no backlog when processing keeps pace.
+
+## Authoring from a Fission component
+
+The parent supplies prepared values and matching labels. This component does not start work or mutate application state while building.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DemandSparklineChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            request_counts: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            height: Some(180.0),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.request_counts.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check a single sample, an empty history and a long label at the actual card width. Preserve peak demand when reducing a long history, and expose the current count in text so the line is not the only source of information.
+
+Tags: `line`, `dense`.
+
+[Line family overview](./overview)

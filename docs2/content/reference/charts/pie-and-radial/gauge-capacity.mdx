@@ -1,0 +1,60 @@
+---
+title: Capacity gauge
+sidebar_label: Capacity gauge
+description: Fission Charts reference for Capacity gauge.
+---
+
+# Capacity gauge
+
+![Capacity gauge screenshot](/img/charts/gauge-capacity.png)
+
+Capacity used is meaningful in relation to capacity available. A gauge can summarise that proportion for one resource pool, provided the exact quantities and observation time remain available. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use the gauge for a current utilisation percentage, not a comparison of several resource pools. A larger occupied quantity does not necessarily indicate a fuller pool. If the question is which pool will fill first, retain its trend as well.
+
+## Data model
+
+Calculate `100 × used / capacity` in the data layer and handle zero or unavailable capacity before rendering. `GaugeSeries` renders only its first label/value pair on a fixed 0–100 arc. Values outside that range are clamped visually, so an over-capacity value needs an explicit textual indication.
+
+## Authoring from a Fission component
+
+The parent supplies the validated percentage. The component displays the actual value alongside the arc so that visual clamping cannot hide over-allocation.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GaugeSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ResourceCapacityGauge<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            summary_pattern: String, // Contains the {value} placeholder.
+            value_label: String,
+            used_percent: f32,
+        }
+    }
+    view(capacity, _state, _cx) => Column(children: [
+        Text(
+                    capacity.summary_pattern.replace("{value}", &format!("{:.1}", capacity.used_percent)),
+                ),
+        Chart(
+            title: Some(capacity.chart_title.clone()),
+            series: vec![GaugeSeries::new(&capacity.series_label)
+                .data(vec![(&capacity.value_label, capacity.used_percent)])
+                .into()],
+        ),
+    ])
+}
+```
+
+## Testing and accessibility
+
+Test no capacity, zero use, full capacity and over-allocation. Keep authoritative quantities in their domain units rather than deriving them back from rounded percentages. Inspect the needle at the limits and provide accessible used/available values; the gauge itself is not a capacity alerting policy.
+
+Tags: `gauge`, `capacity`.
+
+[Pie and radial family overview](./overview)

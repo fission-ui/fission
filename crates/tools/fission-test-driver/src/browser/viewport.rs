@@ -13,7 +13,7 @@ pub(super) fn validate_dimensions(width: u32, height: u32) -> Result<()> {
 pub(super) fn read(client: &mut CdpClient) -> Result<Value> {
     // Read-only host observation, never shipped in production HTML.
     let result = client.send("Runtime.evaluate", json!({
-        "expression": "(() => {const c=document.querySelector('canvas');const b=c?c.getBoundingClientRect():null;return {width:innerWidth,height:innerHeight,scale:devicePixelRatio,url:location.href,frame:globalThis.__FISSION_TEST__?.frame||null,canvas:b?{x:b.x,y:b.y,width:b.width,height:b.height,pixel_width:c.width,pixel_height:c.height}:null};})()",
+        "expression": "(() => {const c=document.querySelector('canvas');const b=c?c.getBoundingClientRect():null;const raw=globalThis.__FISSION_TEST__?.frame;return {width:innerWidth,height:innerHeight,scale:devicePixelRatio,url:location.href,frame:raw?JSON.parse(raw):null,canvas:b?{x:b.x,y:b.y,width:b.width,height:b.height,pixel_width:c.width,pixel_height:c.height}:null};})()",
         "returnByValue": true
     }))?;
     runtime_exception(&result)?;
@@ -82,15 +82,20 @@ impl BrowserController {
         last: &mut Value,
     ) -> Result<()> {
         *last = read(&mut self.client)?;
+        self.reset_viewport_baseline_after_navigation();
         let canvas = self.options.mode == BrowserSmokeMode::FissionCanvas;
         if canvas {
             let status = read_runtime_status(&mut self.client)?;
             anyhow::ensure!(status.test_bridge_ready && last["frame"]["phase"].as_str() == Some("submitted") && last["frame"]["frame"].as_u64().is_some(),
                 "unsupported_host: Web canvas resize needs the matching opt-in Web test-control frame contract; compile Web with FISSION_WEB_TEST_CONTROL=1, then use LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())");
+            self.reset_viewport_baseline_after_navigation();
+            self.bridge_ready_navigation_count = Some(self.client.main_frame_navigation_count);
         }
         let same = last["width"].as_u64() == Some(width as u64)
             && last["height"].as_u64() == Some(height as u64)
-            && acknowledged(last, &self.options, canvas, self.viewport_after)
+            // A no-op resize only needs a currently submitted layout at these
+            // dimensions. It does not need a frame newer than the last resize.
+            && acknowledged(last, &self.options, canvas, None)
             && self.options.viewport_width == width
             && self.options.viewport_height == height;
         let after = if same {

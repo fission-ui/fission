@@ -1,0 +1,71 @@
+---
+title: GridItem
+description: Place one child at a specific row and column inside a Grid.
+slug: /widgets/grid-item
+---
+# GridItem
+
+`GridItem` places one child in a [`Grid`](/reference/widgets/grid), with an
+optional span across multiple tracks.
+
+Use it when explicit rows, columns, and placement matter. For wrapping
+galleries or equal-width cards, use
+[`SimpleGrid`](/reference/widgets/simple-grid) or [`Wrap`](/reference/widgets/wrap).
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub ReportSummaryPlacement<()> {
+        props { summary: Widget }
+    }
+
+    view(report, _state, _cx) =>
+        GridItem(report.summary.clone())
+            .cell(1, 1)
+            .span(1, 2)
+}
+```
+
+Place this component inside a parent grid with at least two columns. Its summary
+is one owned child, not a table or a floating overlay. The positional argument
+uses the real `GridItem::new` constructor; placement remains explicit.
+
+This places the item at row 1, column 1, and spans two columns.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `child` | `Widget` | The content placed inside the grid. | Required. |
+| `row_start` | `GridPlacement` | Starting row placement. | Defaults to `GridPlacement::Auto`. |
+| `row_end` | `GridPlacement` | Ending row placement or row span. | Defaults to `GridPlacement::Auto`. |
+| `col_start` | `GridPlacement` | Starting column placement. | Defaults to `GridPlacement::Auto`. |
+| `col_end` | `GridPlacement` | Ending column placement or column span. | Defaults to `GridPlacement::Auto`. |
+
+## Placement behavior
+
+The convenience helpers are the easiest way to use this type.
+
+`cell(row, col)` sets the starting row and column using 1-indexed grid lines.
+
+`span(row_span, col_span)` sets the ending placement as a span value.
+
+If you omit placement, the grid can auto-place the item. That is convenient for simple cases, but explicit placement is usually clearer when you chose `Grid` in the first place.
+
+## Specific advice
+
+Reach for `GridItem` when placement is part of the design, not just part of implementation detail. If you find yourself assigning every item a row and column only to simulate a simple responsive gallery, the layout probably wants [`SimpleGrid`](/reference/widgets/simple-grid) instead.
+
+## Production checklist
+
+- Verify one-based cell placement and spans against the parent's declared tracks.
+- Check the same item under narrow constraints and long translated content.
+- Keep record identity stable if items can reorder.
+
+## Related
+
+[`Grid`](/reference/widgets/grid), [`SimpleGrid`](/reference/widgets/simple-grid), and [`Wrap`](/reference/widgets/wrap).

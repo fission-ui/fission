@@ -1,0 +1,56 @@
+---
+title: Sankey
+sidebar_label: Sankey
+description: Fission Charts reference for Sankey.
+---
+
+# Sankey
+
+![Sankey screenshot](/img/charts/sankey-basic.png)
+
+A Sankey normally invites the reader to compare quantities flowing between stages. The current Fission `SankeySeries` does not carry weighted edges, so that interpretation would be misleading. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use this implementation for a two-stage relationship diagram, such as configured job sources and destination queues. Keep transfer counts or bytes in a separate quantitative report rather than implying they determine band width.
+
+## Data model
+
+The series takes `GraphNode` records and `GraphEdge` source/target IDs. Edges have no value field, and the current two-column layout uses fixed-width bands. Node values do not turn these links into a conserved flow model.
+
+## Authoring from a Fission component
+
+The parent validates the routing topology and supplies readable names. The component presents actual links without claiming weighted flow.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GraphNode, SankeySeries};
+use fission::charts::series::graph::GraphEdge;
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub JobSourceQueueRoutes<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            sources_and_queues: Vec<GraphNode>,
+            routes: Vec<GraphEdge>,
+        }
+    }
+    view(routing, _state, _cx) => Chart(
+        title: Some(routing.chart_title.clone()),
+        series: vec![SankeySeries::new(&routing.series_label)
+            .nodes(routing.sources_and_queues.clone())
+            .edges(routing.routes.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test missing endpoints and disconnected queues. Provide an accessible route list, and inspect crossed links in the real output. If the requirement is a weighted energy, revenue or conversion Sankey, this API does not currently satisfy it.
+
+Tags: `sankey`, `flow`.
+
+[Relationships and hierarchy family overview](./overview)

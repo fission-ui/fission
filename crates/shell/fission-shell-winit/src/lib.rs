@@ -24,6 +24,8 @@ use anyhow::Result;
 use base64::Engine;
 use fission_core::authoring::BuildCtx;
 use std::collections::{HashMap, HashSet, VecDeque};
+#[cfg(target_arch = "wasm32")]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -92,12 +94,61 @@ use read_fonts::types::Tag;
 
 use fission_test_driver::{TestEvent, TestPointerKind, TestPointerPhase, TestScrollDeltaMode};
 
+#[cfg(target_arch = "wasm32")]
+static WEB_WAKE_EVENT_PENDING: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn send_wake_event(proxy: &EventLoopProxy<TestEvent>) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if WEB_WAKE_EVENT_PENDING.swap(true, Ordering::AcqRel) {
+            return;
+        }
+
+        // EventLoopProxy::send_event can synchronously re-enter Winit's Web
+        // callback. If a reducer or effect sends another wake while that
+        // callback is still applying state, nested event-loop passes can keep
+        // the browser task from yielding to timers, RAF, or DevTools. Queue the
+        // wake as a new browser task so the current callback can unwind first.
+        let deferred_proxy = proxy.clone();
+        let callback = Closure::once(move || {
+            if deferred_proxy.send_event(TestEvent::Wake).is_err() {
+                WEB_WAKE_EVENT_PENDING.store(false, Ordering::Release);
+            }
+        });
+        if let Some(window) = web_sys::window() {
+            if window
+                .set_timeout_with_callback_and_timeout_and_arguments_0(
+                    callback.as_ref().unchecked_ref(),
+                    0,
+                )
+                .is_ok()
+            {
+                callback.forget();
+                return;
+            }
+        }
+        drop(callback);
+        // A missing Web timer should not lose an application wake. Keep the
+        // immediate proxy path as a fallback for unusual shutdown states.
+        if proxy.send_event(TestEvent::Wake).is_err() {
+            WEB_WAKE_EVENT_PENDING.store(false, Ordering::Release);
+        }
+        return;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = proxy.send_event(TestEvent::Wake);
+}
+
 // Vello / WGPU
 #[cfg(not(target_arch = "wasm32"))]
 use pollster::block_on;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 mod gpu_context;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "native_document_write.rs"]
+mod native_document_write_tests;
 mod semantic_records;
 use gpu_context::{DeviceHandle, RenderContext, RenderSurface};
 use semantic_records::*;
@@ -111,6 +162,8 @@ use web_time::Instant;
 mod compositor;
 use compositor::TextureLayerCompositor;
 mod accessibility;
+#[cfg(not(target_arch = "wasm32"))]
+mod accessibility_adapter;
 use accessibility::AccessibilityBridge;
 mod pipeline;
 mod platform_motion_preference;
@@ -138,6 +191,8 @@ mod web_file_system;
 mod web_input;
 #[cfg(target_arch = "wasm32")]
 mod web_links;
+#[cfg(target_arch = "wasm32")]
+mod web_print;
 use native_surface::NativeSurfaceRegistry;
 mod navigation;
 pub use navigation::{WebNavigationConfig, WebRouteStrategy};
@@ -157,6 +212,8 @@ mod file_picker;
 ))]
 mod file_system;
 mod geolocation;
+#[cfg(not(target_arch = "wasm32"))]
+mod native_print;
 pub use geolocation::{GeolocationHost, MemoryGeolocationHost, UnsupportedGeolocationHost};
 mod haptics;
 pub use haptics::{HapticHost, MemoryHapticHost, UnsupportedHapticHost};
@@ -196,20 +253,36 @@ mod volume;
 pub use volume::{MemoryVolumeHost, UnsupportedVolumeHost, VolumeHost};
 #[cfg(target_os = "android")]
 mod android_capabilities;
+#[cfg(target_os = "android")]
+mod android_file_picker;
 #[cfg(all(target_os = "android", feature = "filesystem"))]
 mod android_file_system;
+#[cfg(target_os = "android")]
+mod android_print;
 #[cfg(target_os = "android")]
 mod android_text_input;
 #[cfg(target_os = "ios")]
 mod ios_capabilities;
+#[cfg(target_os = "ios")]
+mod ios_file_picker;
 #[cfg(all(target_os = "ios", feature = "filesystem"))]
 mod ios_file_system;
+#[cfg(target_os = "ios")]
+mod ios_print;
 #[cfg(target_os = "macos")]
 mod macos_capabilities;
 #[cfg(target_arch = "wasm32")]
 mod web_capabilities;
 #[cfg(target_arch = "wasm32")]
 mod web_test_control;
+
+#[inline(always)]
+fn record_web_test_diagnostic(stage: u32, iteration: u32) {
+    #[cfg(target_arch = "wasm32")]
+    web_test_control::record_diagnostic(stage, iteration);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (stage, iteration);
+}
 
 type EffectResult = AsyncMessage;
 
@@ -311,12 +384,14 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
     {
         web_capabilities::register_web_operation_capabilities(async_registry);
         web_file_picker::register_web_file_picker(async_registry);
+        web_print::register_web_print_capability(async_registry);
         #[cfg(feature = "filesystem")]
         web_file_system::register_web_file_system_capabilities(async_registry);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     {
+        native_print::register_native_print_capability(async_registry);
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         file_picker::register_file_picker_capability(async_registry);
         #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -376,6 +451,46 @@ fn register_unsupported_file_picker_capability(async_registry: &mut AsyncRegistr
         |_request: fission_core::PickOpenFilesRequest, _| async move {
             Err::<fission_core::PickOpenFilesResult, _>(
                 fission_core::PickOpenFilesError::unsupported("pick_open_files"),
+            )
+        },
+    );
+    async_registry.register_operation_capability(
+        fission_core::PICK_SAVE_FILE,
+        |_request: fission_core::PickSaveFileRequest, _| async move {
+            Err::<fission_core::PickSaveFileResult, _>(fission_core::FileSystemError::unsupported(
+                "pick_save_file",
+            ))
+        },
+    );
+    async_registry.register_operation_capability(
+        fission_core::WRITE_PICKED_FILE,
+        |_request: fission_core::WritePickedFileRequest, _| async move {
+            Err::<fission_core::WritePickedFileResult, _>(
+                fission_core::FileSystemError::unsupported("write_picked_file"),
+            )
+        },
+    );
+    async_registry.register_operation_capability(
+        fission_core::RESTORE_SAVE_FILE,
+        |_request: fission_core::RestoreSaveFileRequest, _| async move {
+            Err::<fission_core::RestoreSaveFileResult, _>(
+                fission_core::FileSystemError::unsupported("restore_save_file"),
+            )
+        },
+    );
+    async_registry.register_operation_capability(
+        fission_core::FORGET_SAVE_FILE,
+        |_request: fission_core::ForgetSaveFileRequest, _| async move {
+            Err::<(), _>(fission_core::FileSystemError::unsupported(
+                "forget_save_file",
+            ))
+        },
+    );
+    async_registry.register_operation_capability(
+        fission_core::WRITABLE_FILE_PERMISSION,
+        |_request: fission_core::WritableFilePermissionRequest, _| async move {
+            Err::<fission_core::WritableFilePermissionResult, _>(
+                fission_core::FileSystemError::unsupported("writable_file_permission"),
             )
         },
     );
@@ -718,6 +833,7 @@ enum MainRenderer {
 struct WebCanvasPresenter {
     canvas: HtmlCanvasElement,
     context: CanvasRenderingContext2d,
+    cpu_renderer: fission_render_vello::cpu::CpuRenderer,
     report: RendererReport,
 }
 
@@ -736,6 +852,9 @@ impl WebCanvasPresenter {
         Ok(Self {
             canvas,
             context,
+            // The software fallback renders the same declared effects as the GPU path.
+            cpu_renderer: fission_render_vello::cpu::CpuRenderer::new()
+                .with_exact_root_clip_elision(true),
             report: RendererReport::new(
                 "canvas2d-software",
                 web_renderer_request(),
@@ -756,8 +875,17 @@ impl WebCanvasPresenter {
         height: u32,
         scale_factor: f64,
     ) -> anyhow::Result<()> {
-        self.canvas.set_width(width.max(1));
-        self.canvas.set_height(height.max(1));
+        let width = width.max(1);
+        let height = height.max(1);
+        // Assigning either canvas dimension clears its backing store and resets the
+        // rendering context, even when the value did not change. Avoid reallocating
+        // the full software surface on every frame.
+        if self.canvas.width() != width {
+            self.canvas.set_width(width);
+        }
+        if self.canvas.height() != height {
+            self.canvas.set_height(height);
+        }
         self.report.width = width.max(1);
         self.report.height = height.max(1);
         self.report.scale_factor = scale_factor;
@@ -1726,6 +1854,11 @@ struct WebFrameStagePerf<'a> {
     post_layout_ms: f64,
     prepare_ms: f64,
     render_present_ms: f64,
+    software_render_ms: f64,
+    software_scene_recording_ms: f64,
+    software_rasterization_ms: f64,
+    software_output_copy_ms: f64,
+    canvas_upload_ms: f64,
     total_ms: f64,
     rebuilt: bool,
     nodes: u32,
@@ -2083,23 +2216,62 @@ impl PlatformWindow for Arc<Window> {
     }
 }
 
+fn request_redraw_once(window: &Window, frame_schedule: &mut FrameScheduleState) -> bool {
+    if !frame_schedule.mark_redraw_scheduled() {
+        return false;
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    if let Some(web_redraw) = frame_schedule.web_redraw.as_ref() {
+        if let Err(error) = web_redraw.request() {
+            eprintln!("failed to request Web animation frame: {error}");
+            frame_schedule.redraw_started();
+        } else {
+            return true;
+        }
+    }
+
+    // Native platforms use winit's redraw dispatch. Web schedules a single
+    // owned animation frame so redraws yield to browser tasks and LiveTest CDP
+    // commands instead of chaining microtask user events.
+    window.request_redraw();
+    frame_schedule.redraw_scheduled = true;
+    true
+}
+
 fn request_redraw_throttled(
     window: &Window,
     elwt: &EventLoopWindowTarget,
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
+    frame_schedule: &mut FrameScheduleState,
 ) {
     let now = Instant::now();
-    let next = *last_redraw_at + min_frame;
-    if now >= next {
-        *last_redraw_at = now;
-        *redraw_pending = false;
-        window.request_redraw();
-    } else {
-        *redraw_pending = true;
-        elwt.set_control_flow(ControlFlow::WaitUntil(next));
+    match frame_schedule.redraw_timing(now, *last_redraw_at, min_frame) {
+        RedrawRequestTiming::AlreadyScheduled => {
+            *redraw_pending = false;
+            record_web_test_diagnostic(366, 2);
+        }
+        RedrawRequestTiming::Ready => {
+            *last_redraw_at = now;
+            *redraw_pending = false;
+            request_redraw_once(window, frame_schedule);
+            record_web_test_diagnostic(366, 1);
+        }
+        RedrawRequestTiming::DeferredUntil(next) => {
+            *redraw_pending = true;
+            elwt.set_control_flow(ControlFlow::WaitUntil(next));
+            record_web_test_diagnostic(366, 0);
+        }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RedrawRequestTiming {
+    AlreadyScheduled,
+    Ready,
+    DeferredUntil(Instant),
 }
 
 fn frame_trace_enabled() -> bool {
@@ -2112,16 +2284,142 @@ fn frame_trace_enabled() -> bool {
 }
 
 #[derive(Default)]
-struct FrameTraceState {
+struct FrameScheduleState {
     enabled: bool,
     redraw_reasons: Vec<String>,
+    redraw_scheduled: bool,
+    #[cfg(target_arch = "wasm32")]
+    web_redraw: Option<WebRedrawScheduler>,
 }
 
-impl FrameTraceState {
+#[cfg(target_arch = "wasm32")]
+struct WebRedrawScheduler {
+    window: web_sys::Window,
+    callback: wasm_bindgen::closure::Closure<dyn FnMut(f64)>,
+    handle: Rc<Cell<Option<i32>>>,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl WebRedrawScheduler {
+    fn new(proxy: EventLoopProxy<TestEvent>) -> anyhow::Result<Self> {
+        use wasm_bindgen::JsCast;
+
+        let window =
+            web_sys::window().ok_or_else(|| anyhow::anyhow!("browser window is unavailable"))?;
+        let handle = Rc::new(Cell::new(None));
+        let callback_handle = handle.clone();
+        let callback = wasm_bindgen::closure::Closure::wrap(Box::new(move |_timestamp: f64| {
+            callback_handle.set(None);
+            record_web_test_diagnostic(438, 1);
+            let _ = proxy.send_event(TestEvent::WebRedrawFrame);
+        }) as Box<dyn FnMut(f64)>);
+
+        Ok(Self {
+            window,
+            callback,
+            handle,
+        })
+    }
+
+    fn request(&self) -> Result<(), String> {
+        use wasm_bindgen::JsCast;
+
+        if self.handle.get().is_some() {
+            return Ok(());
+        }
+        let handle = self
+            .window
+            .request_animation_frame(self.callback.as_ref().unchecked_ref())
+            .map_err(js_error_to_string)?;
+        self.handle.set(Some(handle));
+        Ok(())
+    }
+
+    fn cancel(&self) {
+        if let Some(handle) = self.handle.take() {
+            let _ = self.window.cancel_animation_frame(handle);
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for WebRedrawScheduler {
+    fn drop(&mut self) {
+        self.cancel();
+    }
+}
+
+impl FrameScheduleState {
     fn new(enabled: bool) -> Self {
         Self {
             enabled,
             redraw_reasons: Vec::new(),
+            redraw_scheduled: false,
+            #[cfg(target_arch = "wasm32")]
+            web_redraw: None,
+        }
+    }
+
+    fn mark_redraw_scheduled(&mut self) -> bool {
+        if self.redraw_scheduled {
+            return false;
+        }
+        self.redraw_scheduled = true;
+        true
+    }
+
+    fn request_redraw(&mut self, request: impl FnOnce()) -> bool {
+        if !self.mark_redraw_scheduled() {
+            return false;
+        }
+
+        // Keep one redraw request outstanding until RedrawRequested so bursts
+        // of input and LiveTest events do not queue redundant frames.
+        request();
+        true
+    }
+
+    fn redraw_started(&mut self) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(web_redraw) = self.web_redraw.as_ref() {
+            web_redraw.cancel();
+        }
+        self.redraw_scheduled = false;
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn install_web_redraw_scheduler(
+        &mut self,
+        proxy: EventLoopProxy<TestEvent>,
+    ) -> anyhow::Result<()> {
+        self.web_redraw = Some(WebRedrawScheduler::new(proxy)?);
+        Ok(())
+    }
+
+    fn redraw_timing(
+        &self,
+        now: Instant,
+        last_redraw_at: Instant,
+        min_frame: Duration,
+    ) -> RedrawRequestTiming {
+        if self.redraw_scheduled {
+            RedrawRequestTiming::AlreadyScheduled
+        } else {
+            let next = last_redraw_at + min_frame;
+            if now >= next {
+                RedrawRequestTiming::Ready
+            } else {
+                RedrawRequestTiming::DeferredUntil(next)
+            }
+        }
+    }
+
+    fn wait_for_redraw_or_deadline(&self, deadline: Instant) -> ControlFlow {
+        record_web_test_diagnostic(473, u32::from(self.redraw_scheduled));
+        if self.redraw_scheduled {
+            ControlFlow::Wait
+        } else {
+            ControlFlow::WaitUntil(deadline)
         }
     }
 
@@ -2186,11 +2484,18 @@ fn request_redraw_logged(
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     reason: &str,
 ) {
     frame_trace.note_redraw_reason(reason);
-    request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+    request_redraw_throttled(
+        window,
+        elwt,
+        last_redraw_at,
+        min_frame,
+        redraw_pending,
+        frame_trace,
+    );
 }
 
 fn apply_authoritative_resize(
@@ -2206,7 +2511,7 @@ fn apply_authoritative_resize(
     last_redraw_at: &mut Instant,
     resize_frame: Duration,
     redraw_pending: &mut bool,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     reason: &str,
 ) {
     *pending_resize = Some(next_viewport);
@@ -2274,6 +2579,30 @@ fn animation_redraw_interval(
     }
 }
 
+fn runtime_timer_wake_at(runtime: &Runtime, last_frame_time: Instant) -> Option<Instant> {
+    runtime.next_timer_deadline().map(|deadline| {
+        runtime_clock_deadline_wake_at(last_frame_time, runtime.clock().current_time(), deadline)
+    })
+}
+
+fn runtime_clock_deadline_wake_at(
+    last_frame_time: Instant,
+    current_time: fission_core::CurrentTime,
+    deadline: fission_core::CurrentTime,
+) -> Instant {
+    last_frame_time + Duration::from_millis(deadline.saturating_sub(current_time))
+}
+
+fn earliest_wake_at(
+    base: Instant,
+    candidates: impl IntoIterator<Item = Option<Instant>>,
+) -> Instant {
+    candidates
+        .into_iter()
+        .flatten()
+        .fold(base, |wake_at, candidate| wake_at.min(candidate))
+}
+
 fn pending_work_redraw_interval(
     invalidations: InvalidationSet,
     pending_resize: bool,
@@ -2285,6 +2614,46 @@ fn pending_work_redraw_interval(
     } else {
         min_frame
     }
+}
+
+fn text_input_blink_enabled(
+    override_setting: Option<&str>,
+    software_renderer_active: bool,
+) -> bool {
+    override_setting
+        .map(|value| !matches!(value.to_ascii_lowercase().as_str(), "0" | "false" | "no"))
+        .unwrap_or(!software_renderer_active)
+}
+
+#[derive(Clone, Copy, Default)]
+struct TestPumpState {
+    has_current_frame: bool,
+    invalidations: InvalidationSet,
+    resize_unsettled: bool,
+    capture_settle_pending: bool,
+    redraw_pending: bool,
+    active_animation: bool,
+    playing_video: bool,
+    has_dynamic_surfaces: bool,
+    frame_hook_registered: bool,
+    pending_effects: bool,
+    pending_screenshot: bool,
+    pending_image_cache: bool,
+}
+
+fn test_pump_can_ack_current_frame(state: TestPumpState) -> bool {
+    state.has_current_frame
+        && !state.invalidations.any()
+        && !state.resize_unsettled
+        && !state.capture_settle_pending
+        && !state.redraw_pending
+        && !state.active_animation
+        && !state.playing_video
+        && !state.has_dynamic_surfaces
+        && !state.frame_hook_registered
+        && !state.pending_effects
+        && !state.pending_screenshot
+        && !state.pending_image_cache
 }
 
 fn resize_is_unsettled(pending_resize: bool, needs_settled_frame: bool, live_resize: bool) -> bool {
@@ -2358,7 +2727,7 @@ fn process_pending_effects(
         let proxy = Arc::new(Mutex::new(event_proxy.clone()));
         Arc::new(move || {
             if let Ok(proxy) = proxy.lock() {
-                let _ = proxy.send_event(TestEvent::Wake);
+                send_wake_event(&proxy);
             }
         })
     };
@@ -3220,7 +3589,7 @@ fn handle_cursor_moved(
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
@@ -3284,7 +3653,7 @@ fn handle_external_drag(
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
@@ -3352,7 +3721,7 @@ fn handle_mouse_button(
     next_text_trace_seq: &mut u64,
     presented_frames: u64,
     last_blink_toggle: &mut Instant,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
@@ -3468,7 +3837,7 @@ fn handle_scroll(
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
@@ -3554,7 +3923,7 @@ fn handle_pointer_signal(
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
@@ -3601,7 +3970,7 @@ fn handle_cursor_left(
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     invalidations: &mut InvalidationSet,
 ) {
     if let Some(ir) = &pipeline.prev_ir {
@@ -3762,7 +4131,7 @@ fn handle_key_down<S: GlobalState>(
     presented_frames: u64,
     last_blink_toggle: &mut Instant,
     key_handler: Option<&KeyHandler<S>>,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     invalidations: &mut InvalidationSet,
 ) -> bool {
     let ir_and_snap = match (&pipeline.prev_ir, &pipeline.last_snapshot) {
@@ -3876,7 +4245,7 @@ fn handle_key_up(
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
-    frame_trace: &mut FrameTraceState,
+    frame_trace: &mut FrameScheduleState,
     invalidations: &mut InvalidationSet,
 ) {
     let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) else {
@@ -4131,8 +4500,13 @@ fn set_text_value_for_test(
     {
         return false;
     }
+    // 450–466 are reserved for FillText dispatch. The bridge's submit/query/
+    // poll diagnostics use 410–435 and are recorded in the same trace stream.
+    record_web_test_diagnostic(455, 0);
     set_focus_for_test(runtime, ir, record.id, &record.semantics);
-    runtime
+    record_web_test_diagnostic(456, 0);
+    record_web_test_diagnostic(457, 0);
+    let applied = runtime
         .apply_text_edit_command_to(
             ir,
             layout,
@@ -4143,7 +4517,9 @@ fn set_text_value_for_test(
                 phase: fission_core::TextValuePhase::Committed,
             },
         )
-        .unwrap_or(false)
+        .unwrap_or(false);
+    record_web_test_diagnostic(458, applied as u32);
+    applied
 }
 
 fn resolve_selector_response(
@@ -4161,23 +4537,30 @@ fn handle_scroll_into_view_selector(
     query: &fission_test_driver::SelectorQuery,
     runtime: &mut Runtime,
     pipeline: &Pipeline,
-) -> fission_test_driver::TestResponse {
+) -> (fission_test_driver::TestResponse, bool) {
     let mut hidden_query = query.clone();
     hidden_query.include_hidden = true;
     match resolve_selector_record(pipeline, &runtime.runtime_state.scroll, &hidden_query) {
         Ok(record) => {
-            runtime.queue_scroll_into_view(ScrollIntoViewRequest {
-                container: None,
-                target: record.id,
-                axis: ScrollAxis::Both,
-                alignment: ScrollAlignment::Nearest,
-                padding: [8.0, 8.0, 8.0, 8.0],
-                behavior: ScrollBehavior::Instant,
-                if_needed: true,
-            });
-            fission_test_driver::TestResponse::SelectorResolved { node: record.node }
+            let needs_scroll =
+                record.node.visibility != fission_test_driver::VisibilityState::FullyVisible;
+            if needs_scroll {
+                runtime.queue_scroll_into_view(ScrollIntoViewRequest {
+                    container: None,
+                    target: record.id,
+                    axis: ScrollAxis::Both,
+                    alignment: ScrollAlignment::Nearest,
+                    padding: [8.0, 8.0, 8.0, 8.0],
+                    behavior: ScrollBehavior::Instant,
+                    if_needed: true,
+                });
+            }
+            (
+                fission_test_driver::TestResponse::SelectorResolved { node: record.node },
+                needs_scroll,
+            )
         }
-        Err(error) => error,
+        Err(error) => (error, false),
     }
 }
 
@@ -4333,6 +4716,7 @@ fn handle_fill_text_selector(
     runtime: &mut Runtime,
     pipeline: &Pipeline,
 ) -> fission_test_driver::TestResponse {
+    record_web_test_diagnostic(450, 0);
     let Some(ir) = pipeline.prev_ir.as_ref() else {
         return selector_failure(
             query.clone(),
@@ -4341,10 +4725,12 @@ fn handle_fill_text_selector(
             Vec::new(),
         );
     };
+    record_web_test_diagnostic(451, ir.nodes.len() as u32);
     let record = match resolve_selector_record(pipeline, &runtime.runtime_state.scroll, query) {
         Ok(record) => record,
         Err(error) => return error,
     };
+    record_web_test_diagnostic(452, 0);
     if record.semantics.disabled {
         return selector_failure(
             query.clone(),
@@ -4377,9 +4763,12 @@ fn handle_fill_text_selector(
             vec![(record, None)],
         );
     };
+    record_web_test_diagnostic(453, 0);
     if set_text_value_for_test(runtime, ir, layout, &record, text) {
+        record_web_test_diagnostic(454, 1);
         fission_test_driver::TestResponse::Ok {}
     } else {
+        record_web_test_diagnostic(454, 0);
         selector_failure(
             query.clone(),
             fission_test_driver::SelectorFailureKind::UnsupportedAction,
@@ -5397,7 +5786,7 @@ where
                             Ok((location, resolved)) => {
                                 strategy.set(resolved);
                                 queue.borrow_mut().push_back(location);
-                                let _ = proxy.send_event(TestEvent::Wake);
+                                send_wake_event(&proxy);
                             }
                             Err(error) => eprintln!(
                                 "fission-shell-winit: browser route change failed: {error}"
@@ -5424,7 +5813,7 @@ where
                 let proxy = event_proxy.clone();
                 let listener = Closure::wrap(Box::new(move |_event: web_sys::Event| {
                     changed.set(true);
-                    let _ = proxy.send_event(TestEvent::Wake);
+                    send_wake_event(&proxy);
                 }) as Box<dyn FnMut(_)>);
                 query
                     .add_event_listener_with_callback("change", listener.as_ref().unchecked_ref())
@@ -5444,7 +5833,7 @@ where
                 if let Ok(mut queue) = queue.lock() {
                     queue.push_back(response);
                 }
-                let _ = proxy.send_event(TestEvent::Wake);
+                send_wake_event(&proxy);
             })
         });
         let mut accessibility_bridge = AccessibilityBridge::new(event_proxy.clone());
@@ -5508,9 +5897,6 @@ where
         let mut web_renderer_reported = false;
         #[cfg(target_arch = "wasm32")]
         let mut web_rendered_frames: u64 = 0;
-
-        #[cfg(not(target_os = "android"))]
-        platform_window.request_redraw();
 
         let mut runtime = self.runtime;
         let mut env = self.env;
@@ -5614,9 +6000,7 @@ where
         let mut last_frame_time = Instant::now();
         let mut test_animations_paused = false;
         let mut pending_test_clock_advance_ms: Option<u64> = None;
-        let blink_enabled = std::env::var("FISSION_TEXTINPUT_BLINK")
-            .map(|v| !matches!(v.to_ascii_lowercase().as_str(), "0" | "false" | "no"))
-            .unwrap_or(true);
+        let blink_override = std::env::var("FISSION_TEXTINPUT_BLINK").ok();
         let blink_period = Duration::from_millis(
             std::env::var("FISSION_TEXTINPUT_BLINK_MS")
                 .ok()
@@ -5629,13 +6013,24 @@ where
         let text_trace_enabled = std::env::var("FISSION_TEXT_TRACE")
             .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
             .unwrap_or(false);
-        let mut frame_trace = FrameTraceState::new(frame_trace_enabled());
+        let mut frame_trace = FrameScheduleState::new(frame_trace_enabled());
+        #[cfg(target_arch = "wasm32")]
+        let mut web_wake_dispatched_in_cycle = false;
+        #[cfg(target_arch = "wasm32")]
+        if let Err(error) = frame_trace.install_web_redraw_scheduler(event_proxy.clone()) {
+            eprintln!("failed to install Web animation-frame scheduler: {error}");
+        }
         let mut presented_frames: u64 = 0;
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut software_frame_valid = false;
         let mut next_text_trace_seq: u64 = 0;
         let mut pending_text_traces: VecDeque<PendingTextTrace> = VecDeque::new();
         #[cfg(target_arch = "wasm32")]
         let mut pending_web_input_at: Option<Instant> = None;
         let mut current_mods: u8 = 0;
+
+        #[cfg(not(target_os = "android"))]
+        request_redraw_once(&platform_window, &mut frame_trace);
 
         // Test control (enabled via FISSION_TEST_CONTROL_PORT env var).
         // The TCP server injects TestEvents via the EventLoopProxy. Query
@@ -5712,6 +6107,16 @@ where
                         event: WindowEvent::RedrawRequested,
                     }
                 }
+                Event::UserEvent(TestEvent::WebRedrawFrame) => {
+                    record_web_test_diagnostic(439, 1);
+                    let Some(window_id) = platform_window.active_window_id() else {
+                        return;
+                    };
+                    Event::WindowEvent {
+                        window_id,
+                        event: WindowEvent::RedrawRequested,
+                    }
+                }
                 other => other,
             };
             let debug_android_events = cfg!(target_os = "android")
@@ -5721,6 +6126,56 @@ where
                 if debug_android_events {
                     eprintln!("[android-events] user_event={test_event:?}");
                 }
+                let diagnostic_kind = match &test_event {
+                    TestEvent::MouseMove { .. } => 1,
+                    TestEvent::MouseDown { .. } => 2,
+                    TestEvent::MouseUp { .. } => 3,
+                    TestEvent::PointerDown { .. } => 4,
+                    TestEvent::PointerMove { .. } => 5,
+                    TestEvent::PointerUp { .. } => 6,
+                    TestEvent::PointerCancel { .. } => 7,
+                    TestEvent::KeyDown { .. } => 8,
+                    TestEvent::KeyUp { .. } => 9,
+                    TestEvent::TextInput { .. } => 10,
+                    TestEvent::ImePreedit { .. } => 11,
+                    TestEvent::ImeCommit { .. } => 12,
+                    TestEvent::ImeCancel => 13,
+                    TestEvent::Scroll { .. } => 14,
+                    TestEvent::PointerScroll { .. } => 15,
+                    TestEvent::Magnify { .. } => 16,
+                    TestEvent::ExternalFileHover { .. } => 17,
+                    TestEvent::ExternalFileDrop { .. } => 18,
+                    TestEvent::ExternalFileCancel => 19,
+                    TestEvent::Resize { .. } => 20,
+                    TestEvent::Screenshot { .. } => 21,
+                    TestEvent::CaptureScreenshot { .. } => 22,
+                    TestEvent::PauseAnimations { .. } => 23,
+                    TestEvent::ResumeAnimations { .. } => 24,
+                    TestEvent::AdvanceClock { .. } => 25,
+                    TestEvent::CaptureAt { .. } => 26,
+                    TestEvent::MotionStatus { .. } => 27,
+                    TestEvent::GetText { .. } => 28,
+                    TestEvent::GetTree { .. } => 29,
+                    TestEvent::Pump { .. } => 30,
+                    TestEvent::Wake => 31,
+                    TestEvent::HeadlessFrame => 32,
+                    TestEvent::Quit => 33,
+                    TestEvent::TapText { .. } => 34,
+                    TestEvent::ResolveSelector { .. } => 35,
+                    TestEvent::TapSelector { .. } => 36,
+                    TestEvent::ActivateSelector { .. } => 37,
+                    TestEvent::FocusSelector { .. } => 38,
+                    TestEvent::HoverSelector { .. } => 39,
+                    TestEvent::RightClickSelector { .. } => 40,
+                    TestEvent::ScrollIntoView { .. } => 41,
+                    TestEvent::FillText { .. } => 42,
+                    TestEvent::ClearText { .. } => 43,
+                    TestEvent::Toggle { .. } => 44,
+                    TestEvent::SelectOption { .. } => 45,
+                    TestEvent::Wait { .. } => 46,
+                    TestEvent::WebRedrawFrame => 47,
+                };
+                record_web_test_diagnostic(90, diagnostic_kind);
                 match test_event {
                     TestEvent::MouseMove { x, y } => {
                         let Some(window) = platform_window.active_window() else {
@@ -6481,12 +6936,21 @@ where
                         );
                     }
                     TestEvent::ResolveSelector { query, response_tx } => {
+                        record_web_test_diagnostic(
+                            100,
+                            pipeline
+                                .prev_ir
+                                .as_ref()
+                                .map_or(0, |ir| ir.nodes.len() as u32),
+                        );
                         let resp = resolve_selector_response(
                             &pipeline,
                             &runtime.runtime_state.scroll,
                             &query,
                         );
+                        record_web_test_diagnostic(101, 0);
                         let _ = response_tx.send(resp);
+                        record_web_test_diagnostic(102, 0);
                     }
                     TestEvent::ScrollIntoView { query, response_tx } => {
                         let Some(window) = platform_window.active_window() else {
@@ -6495,24 +6959,23 @@ where
                             });
                             return;
                         };
-                        let resp =
+                        let (resp, needs_scroll) =
                             handle_scroll_into_view_selector(&query, &mut runtime, &pipeline);
-                        if matches!(
-                            resp,
-                            fission_test_driver::TestResponse::SelectorResolved { .. }
-                        ) {
+                        if needs_scroll {
                             invalidations.mark_build();
                         }
                         let _ = response_tx.send(resp);
-                        request_redraw_logged(
-                            window,
-                            elwt,
-                            &mut last_redraw_at,
-                            min_frame,
-                            &mut redraw_pending,
-                            &mut frame_trace,
-                            "test_scroll_into_view",
-                        );
+                        if needs_scroll {
+                            request_redraw_logged(
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "test_scroll_into_view",
+                            );
+                        }
                     }
                     TestEvent::TapSelector { query, response_tx } => {
                         let Some(window) = platform_window.active_window() else {
@@ -6667,6 +7130,7 @@ where
                         text,
                         response_tx,
                     } => {
+                        record_web_test_diagnostic(460, 0);
                         let Some(window) = platform_window.active_window() else {
                             let _ = response_tx.send(fission_test_driver::TestResponse::Error {
                                 message: "window not ready".into(),
@@ -6675,8 +7139,10 @@ where
                         };
                         let resp =
                             handle_fill_text_selector(&query, &text, &mut runtime, &pipeline);
+                        record_web_test_diagnostic(461, 0);
                         if matches!(resp, fission_test_driver::TestResponse::Ok { .. }) {
                             invalidations.mark_build();
+                            record_web_test_diagnostic(462, 0);
                             if process_pending_effects(
                                 &mut runtime,
                                 &effect_result_tx,
@@ -6688,8 +7154,11 @@ where
                             ) {
                                 invalidations.mark_build();
                             }
+                            record_web_test_diagnostic(463, 0);
                         }
+                        record_web_test_diagnostic(464, 0);
                         let _ = response_tx.send(resp);
+                        record_web_test_diagnostic(465, 0);
                         request_redraw_logged(
                             window,
                             elwt,
@@ -6699,6 +7168,23 @@ where
                             &mut frame_trace,
                             "test_fill_text_selector",
                         );
+                        // 467 brackets the 466 console diagnostic. If 467 appears but 476 does
+                        // not, the callback is stuck while recording 466 rather than in cleanup.
+                        record_web_test_diagnostic(467, 0);
+                        record_web_test_diagnostic(466, 0);
+                        record_web_test_diagnostic(476, 0);
+                        // Keep the final Web LiveTest callback boundary visible. The response
+                        // sender and selector strings normally drop at the end of this arm; make
+                        // those drops explicit so a browser-side stall can be narrowed to a
+                        // specific destructor instead of appearing as a missing event exit.
+                        record_web_test_diagnostic(474, 0);
+                        drop(response_tx);
+                        record_web_test_diagnostic(475, 0);
+                        record_web_test_diagnostic(468, 0);
+                        drop(query);
+                        record_web_test_diagnostic(469, 0);
+                        drop(text);
+                        record_web_test_diagnostic(470, 0);
                     }
                     TestEvent::ClearText { query, response_tx } => {
                         let Some(window) = platform_window.active_window() else {
@@ -6784,7 +7270,7 @@ where
                         // compositor layer to repaint so the image cannot contain only the
                         // regions damaged by the preceding interaction.
                         invalidations.mark_paint();
-                        window.request_redraw();
+                        request_redraw_once(window, &mut frame_trace);
                     }
                     TestEvent::CaptureScreenshot { response_tx } => {
                         let Some(window) = platform_window.active_window() else {
@@ -6801,7 +7287,7 @@ where
                             live_resize.is_live(Instant::now()),
                         );
                         invalidations.mark_paint();
-                        window.request_redraw();
+                        request_redraw_once(window, &mut frame_trace);
                     }
                     TestEvent::PauseAnimations { response_tx } => {
                         test_animations_paused = true;
@@ -6811,7 +7297,7 @@ where
                         test_animations_paused = false;
                         last_frame_time = Instant::now();
                         if let Some(window) = platform_window.active_window() {
-                            window.request_redraw();
+                            request_redraw_once(window, &mut frame_trace);
                         }
                         let _ = response_tx.send(fission_test_driver::TestResponse::Ok {});
                     }
@@ -6828,7 +7314,7 @@ where
                                 .saturating_add(ms),
                         );
                         let _ = response_tx.send(fission_test_driver::TestResponse::Ok {});
-                        window.request_redraw();
+                        request_redraw_once(window, &mut frame_trace);
                     }
                     TestEvent::CaptureAt { ms, response_tx } => {
                         let Some(window) = platform_window.active_window() else {
@@ -6850,7 +7336,7 @@ where
                             live_resize.is_live(Instant::now()),
                         );
                         invalidations.mark_paint();
-                        window.request_redraw();
+                        request_redraw_once(window, &mut frame_trace);
                     }
                     TestEvent::MotionStatus { response_tx } => {
                         let finite = runtime
@@ -6916,17 +7402,58 @@ where
                                 invalidations.mark_build();
                             }
                         }
-                        pending_screenshot_path = Some("__pump__".into());
-                        pending_screenshot_response_tx = Some(response_tx);
-                        pending_capture_settle = resize_is_unsettled(
-                            pending_resize.is_some(),
-                            resize_needs_settled_frame,
-                            live_resize.is_live(Instant::now()),
-                        );
-                        window.request_redraw();
+                        let renderer_ready = {
+                            #[cfg(not(target_arch = "wasm32"))]
+                            {
+                                render_state.is_some()
+                            }
+                            #[cfg(target_arch = "wasm32")]
+                            {
+                                web_renderer.is_some()
+                            }
+                        };
+                        let pump_state = TestPumpState {
+                            has_current_frame: pipeline.prev_ir.is_some() && renderer_ready,
+                            invalidations,
+                            resize_unsettled: resize_is_unsettled(
+                                pending_resize.is_some(),
+                                resize_needs_settled_frame,
+                                live_resize.is_live(Instant::now()),
+                            ),
+                            capture_settle_pending: pending_capture_settle,
+                            redraw_pending: redraw_pending || frame_trace.redraw_scheduled,
+                            active_animation: !runtime.runtime_state.motion.active.is_empty(),
+                            playing_video: runtime
+                                .runtime_state
+                                .video
+                                .states
+                                .values()
+                                .any(|state| state.status == VideoStatus::Playing),
+                            has_dynamic_surfaces: !pipeline.video_surfaces.is_empty()
+                                || !pipeline.web_surfaces.is_empty()
+                                || !pipeline.native_surfaces.is_empty(),
+                            frame_hook_registered: self.frame_hook.is_some(),
+                            pending_effects: !runtime.pending_effects.is_empty(),
+                            pending_screenshot: pending_screenshot_path.is_some(),
+                            pending_image_cache: fission_render_vello::image_cache_has_pending(),
+                        };
+                        if test_pump_can_ack_current_frame(pump_state) {
+                            let _ = response_tx.send(fission_test_driver::TestResponse::Ok {});
+                        } else {
+                            pending_screenshot_path = Some("__pump__".into());
+                            pending_screenshot_response_tx = Some(response_tx);
+                            pending_capture_settle = resize_is_unsettled(
+                                pending_resize.is_some(),
+                                resize_needs_settled_frame,
+                                live_resize.is_live(Instant::now()),
+                            );
+                            request_redraw_once(window, &mut frame_trace);
+                        }
                     }
                     // Mapped to a redraw before dispatch.
                     TestEvent::HeadlessFrame => {}
+                    // Mapped to a redraw before dispatch.
+                    TestEvent::WebRedrawFrame => {}
                     TestEvent::Wake => {
                         #[cfg(target_arch = "wasm32")]
                         {
@@ -7056,6 +7583,7 @@ where
                         elwt.exit();
                     }
                 }
+                record_web_test_diagnostic(91, diagnostic_kind);
             };
 
             #[cfg(target_os = "android")]
@@ -7220,6 +7748,16 @@ where
                 // UserEvent — injected by test control server via proxy
                 // ═══════════════════════════════════════════════════════
                 Event::UserEvent(test_event) => {
+                    let diagnostic_kind = match &test_event {
+                        TestEvent::Pump { .. } => 30,
+                        TestEvent::Wake => 31,
+                        TestEvent::FillText { .. } => 42,
+                        _ => 0,
+                    };
+                    #[cfg(target_arch = "wasm32")]
+                    if matches!(&test_event, TestEvent::Wake) {
+                        web_wake_dispatched_in_cycle = true;
+                    }
                     #[cfg(target_os = "android")]
                     if matches!(test_event, TestEvent::Wake) {
                         if debug_android_events {
@@ -7228,15 +7766,21 @@ where
                         drain_pending_test_events();
                         return;
                     }
-                    handle_test_event(test_event)
+                    handle_test_event(test_event);
+                    record_web_test_diagnostic(437, diagnostic_kind);
                 }
 
                 // ═══════════════════════════════════════════════════════
                 // AboutToWait — idle / animation / blink / effects
                 // ═══════════════════════════════════════════════════════
                 Event::AboutToWait => {
+                    record_web_test_diagnostic(360, 0);
                     let Some(window) = platform_window.active_window() else {
                         elwt.set_control_flow(ControlFlow::Wait);
+                        #[cfg(target_arch = "wasm32")]
+                        if std::mem::take(&mut web_wake_dispatched_in_cycle) {
+                            WEB_WAKE_EVENT_PENDING.store(false, Ordering::Release);
+                        }
                         return;
                     };
                     // Queued test events are drained before the pending screenshot is read: the
@@ -7323,6 +7867,7 @@ where
                             }
                         }
                     }
+                    record_web_test_diagnostic(361, 0);
                     #[cfg(feature = "tray")]
                     if let (Some(rx), Some(active)) = (tray_event_rx.as_ref(), active_tray.as_ref())
                     {
@@ -7421,6 +7966,7 @@ where
                     let web_surfaces = pipeline.web_surfaces.clone();
                     web_backend.present_surfaces(&web_surfaces);
                     native_surface_handlers.present_surfaces(&pipeline.native_surfaces);
+                    record_web_test_diagnostic(362, surfaces.len() as u32);
 
                     // Video Logic - Process Player Events and Sync State
                     for (widget_id, active_player) in players.iter_mut() {
@@ -7552,6 +8098,7 @@ where
                         &runtime,
                         pipeline.prev_ir.as_ref(),
                     ));
+                    record_web_test_diagnostic(363, 0);
                     let focused_text_input =
                         focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
                     if focused_text_input != blink_focus_id {
@@ -7575,7 +8122,27 @@ where
                         }
                     }
 
-                    // Cursor blink: toggle visibility and request a redraw.
+                    let software_renderer_active = {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            render_state.as_ref().is_some_and(|state| {
+                                matches!(&state.main_renderer, MainRenderer::Software)
+                            })
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            web_renderer.as_ref().is_some_and(|renderer| {
+                                matches!(renderer, WebRenderer::Canvas2d(_))
+                            })
+                        }
+                    };
+                    let blink_enabled = text_input_blink_enabled(
+                        blink_override.as_deref(),
+                        software_renderer_active,
+                    );
+
+                    // Keep the caret visible on CPU renderers. Blinking it would invalidate and
+                    // rerasterize the entire retained frame every half-second.
                     if blink_enabled {
                         if let Some(id) = blink_focus_id {
                             if now.duration_since(last_blink_toggle) >= blink_period {
@@ -7722,9 +8289,13 @@ where
                         None
                     };
 
+                    let current_runtime_time = runtime.clock().current_time();
                     let long_press_wake_at = runtime.next_long_press_deadline().map(|deadline| {
-                        let remaining = deadline.saturating_sub(runtime.clock().current_time());
-                        last_frame_time + Duration::from_millis(remaining)
+                        runtime_clock_deadline_wake_at(
+                            last_frame_time,
+                            current_runtime_time,
+                            deadline,
+                        )
                     });
                     let long_press_due = long_press_wake_at.is_some_and(|wake_at| wake_at <= now);
                     if long_press_due {
@@ -7739,14 +8310,24 @@ where
                         );
                     }
 
+                    let next_timer_wake_at = runtime_timer_wake_at(&runtime, last_frame_time);
+                    let timer_due = next_timer_wake_at.is_some_and(|wake_at| wake_at <= now);
+                    // A due timer has already caused pending work below. Only
+                    // future deadlines participate in the wait calculation;
+                    // using an expired deadline there would spin while a
+                    // redraw is deferred by the frame-rate limit.
+                    let timer_wake_at = next_timer_wake_at.filter(|_| !timer_due);
+
                     let has_pending_work = effect_results_dispatched
                         || frame_hook_wants_redraw
                         || image_cache_changed
                         || long_press_due
+                        || timer_due
                         || invalidations.any()
                         || resize_unsettled
                         || pending_capture_settle;
                     let active_keys = active_animation_keys(&runtime);
+                    record_web_test_diagnostic(364, has_pending_work as u32);
 
                     if has_pending_work {
                         let pending_frame = pending_work_redraw_interval(
@@ -7767,6 +8348,8 @@ where
                             "pending_work:paint"
                         } else if invalidations.composite {
                             "pending_work:composite"
+                        } else if timer_due {
+                            "resource:timer"
                         } else if effect_results_dispatched {
                             "pending_work:effects"
                         } else if frame_hook_wants_redraw {
@@ -7798,23 +8381,16 @@ where
                                     invalidations.highest_class(),
                                 ),
                             );
-                        let mut wake_at = last_redraw_at + pending_frame;
-                        if let Some(blink_at) = blink_wake_at {
-                            if blink_at < wake_at {
-                                wake_at = blink_at;
-                            }
-                        }
-                        if let Some(hook_at) = frame_hook_wake_at {
-                            if hook_at < wake_at {
-                                wake_at = hook_at;
-                            }
-                        }
-                        if let Some(long_press_at) = long_press_wake_at {
-                            if long_press_at < wake_at {
-                                wake_at = long_press_at;
-                            }
-                        }
-                        elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
+                        let wake_at = earliest_wake_at(
+                            last_redraw_at + pending_frame,
+                            [
+                                blink_wake_at,
+                                frame_hook_wake_at,
+                                long_press_wake_at,
+                                timer_wake_at,
+                            ],
+                        );
+                        elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(wake_at));
                     } else if let Some(animation_frame) = animation_frame {
                         request_redraw_logged(
                             &window,
@@ -7846,31 +8422,22 @@ where
                                     invalidations.highest_class(),
                                 ),
                             );
-                        let mut wake_at = last_redraw_at + animation_frame;
-                        if let Some(blink_at) = blink_wake_at {
-                            if blink_at < wake_at {
-                                wake_at = blink_at;
-                            }
-                        }
-                        if let Some(hook_at) = frame_hook_wake_at {
-                            if hook_at < wake_at {
-                                wake_at = hook_at;
-                            }
-                        }
-                        if let Some(long_press_at) = long_press_wake_at {
-                            if long_press_at < wake_at {
-                                wake_at = long_press_at;
-                            }
-                        }
-                        elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
+                        let wake_at = earliest_wake_at(
+                            last_redraw_at + animation_frame,
+                            [
+                                blink_wake_at,
+                                frame_hook_wake_at,
+                                long_press_wake_at,
+                                timer_wake_at,
+                            ],
+                        );
+                        elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(wake_at));
                     } else if image_cache_pending {
-                        let mut wake_at = now + Duration::from_millis(50);
-                        if let Some(long_press_at) = long_press_wake_at {
-                            if long_press_at < wake_at {
-                                wake_at = long_press_at;
-                            }
-                        }
-                        elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
+                        let wake_at = earliest_wake_at(
+                            now + Duration::from_millis(50),
+                            [long_press_wake_at, timer_wake_at],
+                        );
+                        elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(wake_at));
                     } else if let Some(blink_at) = blink_wake_at {
                         let reasons = frame_trace.take_redraw_reasons();
                         frame_trace.emit(
@@ -7881,18 +8448,11 @@ where
                                 &reasons,
                                 "schedule=blink_wait pending_resize=false redraw_pending=false highest=none",
                             );
-                        let mut wake_at = blink_at;
-                        if let Some(hook_at) = frame_hook_wake_at {
-                            if hook_at < wake_at {
-                                wake_at = hook_at;
-                            }
-                        }
-                        if let Some(long_press_at) = long_press_wake_at {
-                            if long_press_at < wake_at {
-                                wake_at = long_press_at;
-                            }
-                        }
-                        elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
+                        let wake_at = earliest_wake_at(
+                            blink_at,
+                            [frame_hook_wake_at, long_press_wake_at, timer_wake_at],
+                        );
+                        elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(wake_at));
                     } else if let Some(hook_at) = frame_hook_wake_at {
                         let reasons = frame_trace.take_redraw_reasons();
                         frame_trace.emit(
@@ -7903,11 +8463,23 @@ where
                                 &reasons,
                                 "schedule=hook_wait pending_resize=false redraw_pending=false highest=none",
                             );
-                        elwt.set_control_flow(ControlFlow::WaitUntil(
-                            long_press_wake_at.map_or(hook_at, |wake_at| wake_at.min(hook_at)),
-                        ));
+                        let wake_at =
+                            earliest_wake_at(hook_at, [long_press_wake_at, timer_wake_at]);
+                        elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(wake_at));
                     } else if let Some(long_press_at) = long_press_wake_at {
-                        elwt.set_control_flow(ControlFlow::WaitUntil(long_press_at));
+                        let wake_at = earliest_wake_at(long_press_at, [timer_wake_at]);
+                        elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(wake_at));
+                    } else if let Some(timer_at) = timer_wake_at {
+                        let reasons = frame_trace.take_redraw_reasons();
+                        frame_trace.emit(
+                            "about_to_wait",
+                            presented_frames + 1,
+                            &active_keys,
+                            invalidations,
+                            &reasons,
+                            "schedule=timer_wait pending_resize=false redraw_pending=false highest=none",
+                        );
+                        elwt.set_control_flow(frame_trace.wait_for_redraw_or_deadline(timer_at));
                     } else {
                         let reasons = frame_trace.take_redraw_reasons();
                         frame_trace.emit(
@@ -7928,6 +8500,15 @@ where
                         }
                         #[cfg(not(target_os = "android"))]
                         elwt.set_control_flow(ControlFlow::Wait);
+                    }
+                    record_web_test_diagnostic(365, redraw_pending as u32);
+                    // Keep the wake gate closed through event handling and the complete
+                    // synchronous AboutToWait pass. Effects may dispatch more synchronous
+                    // state work; clearing here coalesces those reentrant requests while still
+                    // allowing later browser tasks to enqueue a follow-up wake.
+                    #[cfg(target_arch = "wasm32")]
+                    if std::mem::take(&mut web_wake_dispatched_in_cycle) {
+                        WEB_WAKE_EVENT_PENDING.store(false, Ordering::Release);
                     }
                 }
 
@@ -8017,7 +8598,7 @@ where
                             };
                             invalidations.mark_build();
                             frame_trace.note_redraw_reason("system_theme_changed");
-                            window.request_redraw();
+                            request_redraw_once(window, &mut frame_trace);
                             redraw_pending = true;
                         }
                         WindowEvent::Focused(false) => {
@@ -8033,20 +8614,30 @@ where
                             current_mods = 0;
                             invalidations.mark_build();
                             frame_trace.note_redraw_reason("window_focus_lost");
-                            window.request_redraw();
+                            request_redraw_once(window, &mut frame_trace);
                             redraw_pending = true;
                         }
                         WindowEvent::Focused(true) => {}
                         WindowEvent::Occluded(occluded) => {
                             surface_occluded = occluded;
-                            if !occluded {
+                            if occluded {
+                                frame_trace.redraw_started();
+                            } else {
                                 invalidations.mark_paint();
                                 frame_trace.note_redraw_reason("window_unoccluded");
-                                window.request_redraw();
+                                request_redraw_once(window, &mut frame_trace);
                                 redraw_pending = true;
                             }
                         }
                         WindowEvent::RedrawRequested => {
+                            frame_trace.redraw_started();
+                            record_web_test_diagnostic(
+                                300,
+                                pipeline
+                                    .prev_ir
+                                    .as_ref()
+                                    .map_or(0, |ir| ir.nodes.len() as u32),
+                            );
                             if debug_android_events {
                                 eprintln!("[android-events] redraw_requested");
                             }
@@ -8100,6 +8691,7 @@ where
                                     eprintln!("Runtime tick error: {:?}", e);
                                 }
                             }
+                            record_web_test_diagnostic(301, 0);
                             if let (Some(ir), Some(layout)) =
                                 (&pipeline.prev_ir, &pipeline.last_snapshot)
                             {
@@ -8131,6 +8723,7 @@ where
                                     "redraw:effects",
                                 );
                             }
+                            record_web_test_diagnostic(302, 0);
                             let viewport_state = pending_resize.unwrap_or_else(|| {
                                 #[cfg(not(target_os = "android"))]
                                 {
@@ -8281,7 +8874,7 @@ where
                                                     .map_err(|error| error.to_string());
                                                     if generation.get() == started_generation {
                                                         *pending.borrow_mut() = Some(result);
-                                                        let _ = proxy.send_event(TestEvent::Wake);
+                                                        send_wake_event(&proxy);
                                                     }
                                                 });
                                             }
@@ -8388,6 +8981,7 @@ where
                                         );
                                     }
                                     render_state.target_texture_size = render_target_size;
+                                    software_frame_valid = false;
                                 }
                             }
 
@@ -8430,11 +9024,11 @@ where
                                 applied_window_title = desired_window_title.to_string();
                             }
 
-                            #[cfg(target_arch = "wasm32")]
+                            record_web_test_diagnostic(303, 0);
                             let update_ms = now.elapsed().as_secs_f64() * 1000.0;
-                            #[cfg(target_arch = "wasm32")]
                             let build_started = Instant::now();
                             let rebuilt = invalidations.build || pipeline.prev_ir.is_none();
+                            record_web_test_diagnostic(310, u32::from(rebuilt));
                             if rebuilt {
                                 let (
                                     node_tree,
@@ -8454,16 +9048,20 @@ where
                                         pipeline.last_snapshot.as_ref(),
                                     );
                                     let mut ctx = BuildCtx::new();
+                                    record_web_test_diagnostic(311, 0);
                                     let node = fission_core::build::enter_with_root(
                                         &mut ctx,
                                         &view,
                                         root_widget_id,
                                         || root_widget.clone().into(),
                                     );
-                                    let node = fission_core::internal::resolve_widget_identities(
-                                        &node,
-                                        root_widget_id,
-                                    );
+                                    record_web_test_diagnostic(312, 0);
+                                    let node =
+                                        fission_core::internal::resolve_widget_identities_owned(
+                                            node,
+                                            root_widget_id,
+                                        );
+                                    record_web_test_diagnostic(313, 0);
                                     let resources = ctx.take_resources();
                                     let motion_declarations = ctx.take_motion_declarations();
                                     let videos = ctx.take_video_registrations();
@@ -8591,11 +9189,12 @@ where
                                     );
                                     let shell_root_id =
                                         fission_core::internal::shell_root_id(root_widget_id);
-                                    let root_id = fission_core::internal::lower_widget_with_root(
-                                        &final_root,
-                                        &mut lower_cx,
-                                        shell_root_id,
-                                    );
+                                    let root_id =
+                                        fission_core::internal::lower_widget_with_root_owned(
+                                            final_root,
+                                            &mut lower_cx,
+                                            shell_root_id,
+                                        );
                                     lower_cx.set_root(root_id);
                                     lower_cx.into_ir()
                                 };
@@ -8612,15 +9211,15 @@ where
                                 invalidations.merge(pipeline_invalidations);
                                 last_built_viewport = Some(build_viewport);
                             }
-                            #[cfg(target_arch = "wasm32")]
+                            record_web_test_diagnostic(314, 0);
                             let build_ms = build_started.elapsed().as_secs_f64() * 1000.0;
 
                             if let Some(ir) = pipeline.prev_ir.as_ref() {
                                 runtime.reconcile_ir(ir);
                             }
 
-                            #[cfg(target_arch = "wasm32")]
                             let layout_started = Instant::now();
+                            record_web_test_diagnostic(320, 0);
                             let layout_updates = match pipeline.ensure_layout(
                                 LayoutRect::new(
                                     0.0,
@@ -8638,11 +9237,24 @@ where
                                     return;
                                 }
                             };
-                            #[cfg(target_arch = "wasm32")]
+                            record_web_test_diagnostic(321, layout_updates as u32);
                             let layout_ms = layout_started.elapsed().as_secs_f64() * 1000.0;
 
-                            #[cfg(target_arch = "wasm32")]
                             let post_layout_started = Instant::now();
+                            record_web_test_diagnostic(322, 0);
+                            if let (Some(ir), Some(layout)) =
+                                (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref())
+                            {
+                                match runtime.reconcile_focus_with_layout(ir, layout) {
+                                    Ok(true) => invalidations.mark_build(),
+                                    Ok(false) => {}
+                                    Err(err) => {
+                                        eprintln!(
+                                            "Runtime post-layout focus reconciliation error: {err:?}"
+                                        );
+                                    }
+                                }
+                            }
                             let refresh_hover = invalidations.build
                                 || layout_updates > 0
                                 || pipeline.scroll_offsets_changed(&runtime.runtime_state.scroll);
@@ -8673,19 +9285,21 @@ where
                             if let (Some(ir), Some(layout)) =
                                 (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref())
                             {
+                                record_web_test_diagnostic(323, 0);
                                 accessibility_bridge.update_tree(
                                     ir,
                                     layout,
                                     &runtime,
                                     scale_factor,
                                 );
+                                record_web_test_diagnostic(324, 0);
                             }
-                            #[cfg(target_arch = "wasm32")]
+                            record_web_test_diagnostic(330, 0);
                             let post_layout_ms =
                                 post_layout_started.elapsed().as_secs_f64() * 1000.0;
 
-                            #[cfg(target_arch = "wasm32")]
                             let prepare_started = Instant::now();
+                            record_web_test_diagnostic(340, 0);
                             match pipeline.prepare_current(
                                 target_viewport,
                                 target_viewport,
@@ -8696,13 +9310,21 @@ where
                                 &runtime.runtime_state.web,
                             ) {
                                 Ok(stats) => {
-                                    #[cfg(not(target_arch = "wasm32"))]
-                                    let _ = (&stats, layout_updates);
-                                    #[cfg(target_arch = "wasm32")]
+                                    record_web_test_diagnostic(341, 0);
                                     let prepare_ms =
                                         prepare_started.elapsed().as_secs_f64() * 1000.0;
-                                    #[cfg(target_arch = "wasm32")]
+                                    record_web_test_diagnostic(350, 0);
                                     let render_started = Instant::now();
+                                    #[cfg(target_arch = "wasm32")]
+                                    let mut software_render_ms = 0.0;
+                                    #[cfg(target_arch = "wasm32")]
+                                    let mut software_scene_recording_ms = 0.0;
+                                    #[cfg(target_arch = "wasm32")]
+                                    let mut software_rasterization_ms = 0.0;
+                                    #[cfg(target_arch = "wasm32")]
+                                    let mut software_output_copy_ms = 0.0;
+                                    #[cfg(target_arch = "wasm32")]
+                                    let mut canvas_upload_ms = 0.0;
                                     #[cfg(target_arch = "wasm32")]
                                     {
                                         let Some(renderer) = web_renderer.as_mut() else {
@@ -8721,8 +9343,11 @@ where
                                                     .expect(
                                                     "retained render scene missing before render",
                                                 );
-                                                let Ok(rgba) =
-                                                    fission_render_vello::cpu::render_to_rgba8(
+                                                record_web_test_diagnostic(367, 1);
+                                                let software_render_started = Instant::now();
+                                                let Ok((rgba, timings)) = presenter
+                                                    .cpu_renderer
+                                                    .render_to_rgba8_with_timings(
                                                         retained_scene,
                                                         render_target_size.0,
                                                         render_target_size.1,
@@ -8745,7 +9370,18 @@ where
                                                     diag::end_frame(diag::FrameStats::default());
                                                     return;
                                                 };
+                                                record_web_test_diagnostic(368, 1);
+                                                software_render_ms =
+                                                    software_render_started.elapsed().as_secs_f64()
+                                                        * 1000.0;
+                                                software_scene_recording_ms =
+                                                    timings.scene_recording.as_secs_f64() * 1000.0;
+                                                software_rasterization_ms =
+                                                    timings.rasterization.as_secs_f64() * 1000.0;
+                                                software_output_copy_ms =
+                                                    timings.output_copy.as_secs_f64() * 1000.0;
 
+                                                let canvas_upload_started = Instant::now();
                                                 if let Err(err) = presenter.present(
                                                     &rgba,
                                                     render_target_size.0,
@@ -8758,6 +9394,10 @@ where
                                                     diag::end_frame(diag::FrameStats::default());
                                                     return;
                                                 }
+                                                record_web_test_diagnostic(369, 1);
+                                                canvas_upload_ms =
+                                                    canvas_upload_started.elapsed().as_secs_f64()
+                                                        * 1000.0;
                                             }
                                             WebRenderer::WebGpu(presenter) => {
                                                 if swapchain_size.width
@@ -8817,6 +9457,7 @@ where
                                                         return;
                                                     }
                                                 };
+                                                record_web_test_diagnostic(367, 2);
                                                 let device_handle = &presenter.render_cx.devices
                                                     [presenter.render_state.surface.dev_id];
 
@@ -8922,6 +9563,7 @@ where
                                                     }
                                                     MainRenderer::Software => {}
                                                 }
+                                                record_web_test_diagnostic(368, 2);
 
                                                 let surface_view =
                                                     surface_texture.texture.create_view(
@@ -8967,6 +9609,7 @@ where
                                                 );
                                                 device_handle.queue.submit(Some(encoder.finish()));
                                                 surface_texture.present();
+                                                record_web_test_diagnostic(369, 2);
                                             }
                                         }
 
@@ -8978,15 +9621,46 @@ where
                                                 if let Some(response_tx) =
                                                     pending_screenshot_response_tx.take()
                                                 {
-                                                    let response = if path == "__pump__" {
-                                                        fission_test_driver::TestResponse::Ok {}
+                                                    if path == "__pump__" {
+                                                        let _ = response_tx.send(
+                                                            fission_test_driver::TestResponse::Ok {},
+                                                        );
+                                                    } else if matches!(
+                                                        web_renderer.as_ref(),
+                                                        Some(WebRenderer::WebGpu(_))
+                                                    ) {
+                                                        record_web_test_diagnostic(367, 3);
+                                                        let screenshot_dimensions =
+                                                            layout_size_to_image_dimensions(
+                                                                target_viewport,
+                                                            );
+                                                        let rendered = pipeline.retained_scene().map(
+                                                            |scene| {
+                                                                fission_render_vello::cpu::render_to_rgba8(
+                                                                    scene,
+                                                                    render_target_size.0,
+                                                                    render_target_size.1,
+                                                                    theme_background_render_color(&env),
+                                                                    scale_factor,
+                                                                    measurer.clone(),
+                                                                )
+                                                            },
+                                                        );
+                                                        record_web_test_diagnostic(368, 3);
+                                                        let response = covered_window_screenshot(
+                                                            rendered,
+                                                            render_target_size,
+                                                            screenshot_dimensions,
+                                                            None,
+                                                        );
+                                                        let _ = response_tx.send(response);
                                                     } else {
-                                                        fission_test_driver::TestResponse::Error {
-                                                            message: "Web renderer screenshots are captured by the browser test host"
-                                                                .into(),
-                                                        }
-                                                    };
-                                                    let _ = response_tx.send(response);
+                                                        let _ = response_tx.send(
+                                                            fission_test_driver::TestResponse::Error {
+                                                                message: "renderer_screenshot_unavailable: use browser-host capture with the Canvas2D renderer".into(),
+                                                            },
+                                                        );
+                                                    }
                                                 }
                                             }
                                         }
@@ -8997,6 +9671,7 @@ where
                                         }
                                         invalidations = InvalidationSet::default();
 
+                                        record_web_test_diagnostic(351, 0);
                                         presented_frames = presented_frames.saturating_add(1);
                                         if web_frame_has_content {
                                             web_rendered_frames =
@@ -9035,6 +9710,11 @@ where
                                                 .elapsed()
                                                 .as_secs_f64()
                                                 * 1000.0,
+                                            software_render_ms,
+                                            software_scene_recording_ms,
+                                            software_rasterization_ms,
+                                            software_output_copy_ms,
+                                            canvas_upload_ms,
                                             total_ms,
                                             rebuilt,
                                             nodes: pipeline
@@ -9341,58 +10021,91 @@ where
                                                 }
                                             }
                                             MainRenderer::Software => {
-                                                let retained_scene = pipeline
-                                                    .retained_scene()
-                                                    .expect(
-                                                    "retained render scene missing before render",
-                                                );
-                                                let Ok(rgba) =
-                                                    fission_render_vello::cpu::render_to_rgba8(
-                                                        retained_scene,
-                                                        render_target_size.0,
-                                                        render_target_size.1,
-                                                        fission_render::Color {
-                                                            r: env.theme.tokens.colors.background.r,
-                                                            g: env.theme.tokens.colors.background.g,
-                                                            b: env.theme.tokens.colors.background.b,
-                                                            a: env.theme.tokens.colors.background.a,
-                                                        },
-                                                        scale_factor,
-                                                        measurer.clone(),
-                                                    )
-                                                    .inspect_err(|error| {
-                                                        report_frame_failure(
-                                                            "rasterize software frame",
-                                                            error,
+                                                let has_dynamic_surfaces = stats.video_surfaces > 0
+                                                    || !pipeline.web_surfaces.is_empty()
+                                                    || !pipeline.native_surfaces.is_empty();
+                                                if crate::pipeline::software_frame_needs_raster(
+                                                    software_frame_valid,
+                                                    invalidations,
+                                                    stats.paint_misses,
+                                                    has_dynamic_surfaces,
+                                                ) {
+                                                    let retained_scene = pipeline
+                                                        .retained_scene()
+                                                        .expect(
+                                                            "retained render scene missing before render",
+                                                        );
+                                                    let Ok(rgba) =
+                                                        fission_render_vello::cpu::render_to_rgba8(
+                                                            retained_scene,
+                                                            render_target_size.0,
+                                                            render_target_size.1,
+                                                            fission_render::Color {
+                                                                r: env
+                                                                    .theme
+                                                                    .tokens
+                                                                    .colors
+                                                                    .background
+                                                                    .r,
+                                                                g: env
+                                                                    .theme
+                                                                    .tokens
+                                                                    .colors
+                                                                    .background
+                                                                    .g,
+                                                                b: env
+                                                                    .theme
+                                                                    .tokens
+                                                                    .colors
+                                                                    .background
+                                                                    .b,
+                                                                a: env
+                                                                    .theme
+                                                                    .tokens
+                                                                    .colors
+                                                                    .background
+                                                                    .a,
+                                                            },
+                                                            scale_factor,
+                                                            measurer.clone(),
                                                         )
-                                                    })
-                                                else {
-                                                    diag::end_frame(diag::FrameStats::default());
-                                                    return;
-                                                };
-                                                device_handle.queue.write_texture(
-                                                    wgpu::TexelCopyTextureInfo {
-                                                        texture: &render_state
-                                                            .surface
-                                                            .target_texture,
-                                                        mip_level: 0,
-                                                        origin: wgpu::Origin3d::ZERO,
-                                                        aspect: wgpu::TextureAspect::All,
-                                                    },
-                                                    &rgba,
-                                                    wgpu::TexelCopyBufferLayout {
-                                                        offset: 0,
-                                                        bytes_per_row: Some(
-                                                            render_target_size.0 * 4,
-                                                        ),
-                                                        rows_per_image: Some(render_target_size.1),
-                                                    },
-                                                    wgpu::Extent3d {
-                                                        width: render_target_size.0,
-                                                        height: render_target_size.1,
-                                                        depth_or_array_layers: 1,
-                                                    },
-                                                );
+                                                        .inspect_err(|error| {
+                                                            report_frame_failure(
+                                                                "rasterize software frame",
+                                                                error,
+                                                            )
+                                                        })
+                                                    else {
+                                                        diag::end_frame(diag::FrameStats::default());
+                                                        return;
+                                                    };
+                                                    device_handle.queue.write_texture(
+                                                        wgpu::TexelCopyTextureInfo {
+                                                            texture: &render_state
+                                                                .surface
+                                                                .target_texture,
+                                                            mip_level: 0,
+                                                            origin: wgpu::Origin3d::ZERO,
+                                                            aspect: wgpu::TextureAspect::All,
+                                                        },
+                                                        &rgba,
+                                                        wgpu::TexelCopyBufferLayout {
+                                                            offset: 0,
+                                                            bytes_per_row: Some(
+                                                                render_target_size.0 * 4,
+                                                            ),
+                                                            rows_per_image: Some(
+                                                                render_target_size.1,
+                                                            ),
+                                                        },
+                                                        wgpu::Extent3d {
+                                                            width: render_target_size.0,
+                                                            height: render_target_size.1,
+                                                            depth_or_array_layers: 1,
+                                                        },
+                                                    );
+                                                    software_frame_valid = true;
+                                                }
                                             }
                                         }
 
@@ -9492,6 +10205,35 @@ where
                                                 total_ms: now.elapsed().as_secs_f64() * 1000.0,
                                             },
                                         );
+                                        diag::emit(
+                                            diag::DiagCategory::Frame,
+                                            diag::DiagLevel::Debug,
+                                            diag::DiagEventKind::FrameStagePerformance {
+                                                renderer: render_state
+                                                    .renderer_report
+                                                    .active
+                                                    .clone(),
+                                                update_ms,
+                                                build_ms,
+                                                layout_ms,
+                                                post_layout_ms,
+                                                prepare_ms,
+                                                render_present_ms: render_started
+                                                    .elapsed()
+                                                    .as_secs_f64()
+                                                    * 1000.0,
+                                                total_ms: now.elapsed().as_secs_f64() * 1000.0,
+                                                rebuilt,
+                                                nodes: pipeline
+                                                    .prev_ir
+                                                    .as_ref()
+                                                    .map_or(0, |ir| ir.nodes.len() as u32),
+                                                layout_updates: layout_updates as u32,
+                                                paint_hits: stats.paint_hits as u32,
+                                                paint_misses: stats.paint_misses as u32,
+                                            },
+                                        );
+                                        record_web_test_diagnostic(352, 0);
                                         diag::end_frame(diag::FrameStats::default());
                                     }
                                 }
@@ -9962,7 +10704,7 @@ where
                                         );
                                     }
                                     invalidations.mark_build();
-                                    window.request_redraw();
+                                    request_redraw_once(window, &mut frame_trace);
                                     redraw_pending = true;
                                     return;
                                 }
@@ -10495,8 +11237,8 @@ fn gpu_screenshot(
     )
 }
 
-/// Answers a screenshot of a covered window, which cannot present, from a software rendering of the
-/// retained scene.
+/// Answers a screenshot from a software rendering of the retained scene when the presented surface
+/// cannot be read back reliably.
 fn covered_window_screenshot<E: std::fmt::Display>(
     rendered: Option<Result<Vec<u8>, E>>,
     render_size: (u32, u32),
@@ -10784,19 +11526,24 @@ mod tests {
         physical_size_to_layout_size, preferred_native_present_mode, preferred_surface_alpha_mode,
         preferred_web_surface_alpha_mode, present_frame_with_winit_coordination,
         rect_visible_in_scroll_ancestors, repeating_animation_redraw_interval, resize_is_unsettled,
-        resolve_build_viewport, resolve_selector_record, should_present_startup_clear_frame,
-        surface_acquire_recovery, sync_tracked_target_texture_size_to_surface,
-        texture_plans_fit_device_limits, visual_rect_for_node, web_effective_render_scale,
-        window_insets_from_safe_area_frames, windows_shell_execute_succeeded, windows_wide,
-        BrowserDefaults, LiveResizeController, SurfaceAcquireRecovery, WindowViewportState,
+        resolve_build_viewport, resolve_selector_record, runtime_timer_wake_at,
+        should_present_startup_clear_frame, surface_acquire_recovery,
+        sync_tracked_target_texture_size_to_surface, test_pump_can_ack_current_frame,
+        text_input_blink_enabled, texture_plans_fit_device_limits, visual_rect_for_node,
+        web_effective_render_scale, window_insets_from_safe_area_frames,
+        windows_shell_execute_succeeded, windows_wide, BrowserDefaults, ControlFlow,
+        FrameScheduleState, Instant, LiveResizeController, RedrawRequestTiming,
+        SurfaceAcquireRecovery, TestPumpState, WindowViewportState,
     };
-    use crate::pipeline::CompositorTexturePlan;
+    use crate::pipeline::{software_frame_needs_raster, CompositorTexturePlan};
     use crate::InvalidationSet;
+    use fission_core::authoring::BuildCtx;
     use fission_core::event::{InputEvent, KeyCode, KeyEvent};
     use fission_core::{
         Action as FissionAction, ActionId as FissionActionId, ActionRegistry, DeepLinkConfig,
         GlobalState, MotionPropertyId, PointerId, PointerKind, PointerPhase, ReducerContext,
-        Runtime, ScrollDeltaMode, TextEditSource, TextValuePhase, UpdateTextInput, WidgetId,
+        ResourceKey, Runtime, RuntimeResourceDeclaration, RuntimeResourceKind, ScrollDeltaMode,
+        TextEditSource, TextValuePhase, TimerResource, UpdateTextInput, WidgetId,
     };
     use fission_core::{ActiveMotion, MotionEasing, MotionStateMap, MotionValue, ScrollStateMap};
     use fission_ir::semantics::{ActionTrigger, MouseCursor};
@@ -10804,6 +11551,97 @@ mod tests {
     use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
     use fission_test_driver::{TestPointerKind, TestPointerPhase, TestScrollDeltaMode};
     use wgpu::PresentMode;
+
+    #[derive(Debug, Default, Clone)]
+    struct TimerWakeState {
+        ticks: u32,
+    }
+
+    impl GlobalState for TimerWakeState {}
+
+    #[fission_macros::fission_reducer(ShellTimerWakeFired)]
+    fn shell_timer_wake_fired(
+        state: &mut TimerWakeState,
+        _ctx: &mut ReducerContext<TimerWakeState>,
+    ) {
+        state.ticks += 1;
+    }
+
+    #[test]
+    fn immediate_timer_schedules_a_wake_when_the_shell_would_be_idle() {
+        let mut runtime = Runtime::default();
+        runtime
+            .add_app_state(Box::new(TimerWakeState::default()))
+            .expect("register timer wake state");
+
+        let mut ctx = BuildCtx::new();
+        let on_tick = fission_core::with_reducer!(ctx, ShellTimerWakeFired, shell_timer_wake_fired);
+        runtime.clear_reducers();
+        runtime.absorb_registry(ctx.registry);
+
+        let timer = TimerResource::new(
+            ResourceKey::new("shell-idle-wake"),
+            Duration::from_millis(1),
+            (),
+        )
+        .immediate()
+        .on_tick(on_tick);
+        runtime
+            .reconcile_resources(vec![RuntimeResourceDeclaration {
+                key: "shell-idle-wake".into(),
+                deps: timer.deps.clone(),
+                policy: timer.policy,
+                kind: RuntimeResourceKind::Timer(timer),
+            }])
+            .expect("register immediate timer");
+
+        let last_frame_time = Instant::now();
+        assert_eq!(
+            runtime_timer_wake_at(&runtime, last_frame_time),
+            Some(last_frame_time)
+        );
+    }
+
+    #[test]
+    fn software_renderer_keeps_the_caret_static_unless_blink_is_explicitly_enabled() {
+        assert!(!text_input_blink_enabled(None, true));
+        assert!(text_input_blink_enabled(None, false));
+        assert!(text_input_blink_enabled(Some("1"), true));
+        assert!(text_input_blink_enabled(Some("true"), true));
+        assert!(!text_input_blink_enabled(Some("0"), false));
+        assert!(!text_input_blink_enabled(Some("false"), false));
+    }
+
+    #[test]
+    fn live_test_pump_reuses_the_current_frame_when_idle() {
+        let idle = TestPumpState {
+            has_current_frame: true,
+            ..Default::default()
+        };
+        assert!(test_pump_can_ack_current_frame(idle));
+
+        let mut pending = idle;
+        pending.invalidations.mark_build();
+        assert!(!test_pump_can_ack_current_frame(pending));
+
+        let mut pending = idle;
+        pending.resize_unsettled = true;
+        assert!(!test_pump_can_ack_current_frame(pending));
+
+        let mut pending = idle;
+        pending.active_animation = true;
+        assert!(!test_pump_can_ack_current_frame(pending));
+
+        let mut pending = idle;
+        pending.redraw_pending = true;
+        assert!(!test_pump_can_ack_current_frame(pending));
+
+        let mut pending = idle;
+        pending.pending_screenshot = true;
+        assert!(!test_pump_can_ack_current_frame(pending));
+
+        assert!(!test_pump_can_ack_current_frame(TestPumpState::default()));
+    }
 
     #[test]
     fn key_down_preserves_produced_text_independently_of_logical_key() {
@@ -11269,6 +12107,79 @@ mod tests {
     }
 
     #[test]
+    fn get_tree_excludes_semantics_from_inactive_responsive_branches() {
+        let root = WidgetId::explicit("responsive-root");
+        let compact_branch = WidgetId::explicit("compact-branch");
+        let compact_input = WidgetId::explicit("compact-input");
+        let expanded_branch = WidgetId::explicit("expanded-branch");
+        let expanded_input = WidgetId::explicit("expanded-input");
+        let input_semantics = || {
+            Op::Semantics(Semantics {
+                role: Role::TextInput,
+                identifier: Some("slide.text.input".into()),
+                focusable: true,
+                value: Some("Draft".into()),
+                ..Semantics::default()
+            })
+        };
+        let box_op = || {
+            Op::Layout(LayoutOp::Box {
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            })
+        };
+
+        let mut ir = CoreIR::new();
+        ir.add_node(compact_input, input_semantics(), Vec::new());
+        ir.add_node(compact_branch, box_op(), vec![compact_input]);
+        ir.add_node(expanded_input, input_semantics(), Vec::new());
+        ir.add_node(expanded_branch, box_op(), vec![expanded_input]);
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::Responsive {
+                query: fission_ir::op::ResponsiveQuery::Viewport,
+                cases: vec![fission_ir::op::ResponsiveCondition {
+                    min_width: None,
+                    max_width: Some(600.0),
+                }],
+            }),
+            vec![compact_branch, expanded_branch],
+        );
+        ir.set_root(root);
+
+        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(1_100.0, 700.0));
+        for (id, rect) in [
+            (root, LayoutRect::new(0.0, 0.0, 1_100.0, 700.0)),
+            (expanded_branch, LayoutRect::new(0.0, 0.0, 1_100.0, 700.0)),
+            (expanded_input, LayoutRect::new(20.0, 20.0, 320.0, 36.0)),
+        ] {
+            snapshot.nodes.insert(
+                id,
+                LayoutNodeGeometry {
+                    rect,
+                    content_size: LayoutSize::new(rect.width(), rect.height()),
+                },
+            );
+        }
+
+        let records = collect_semantic_records(&ir, &snapshot, &ScrollStateMap::default());
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id, expanded_input);
+        assert_eq!(
+            records[0].node.identifier.as_deref(),
+            Some("slide.text.input")
+        );
+    }
+
+    #[test]
     fn get_tree_reports_effective_sequential_focusability() {
         let input = WidgetId::from_u128(10);
         let mut ir = CoreIR::new();
@@ -11520,6 +12431,40 @@ mod tests {
         let record = resolve_selector_record(&pipeline, &ScrollStateMap::default(), &query)
             .expect("scoped selector should resolve");
         assert_eq!(record.node.identifier.as_deref(), Some("app.open"));
+        assert_eq!(record.node.children, Vec::<String>::new());
+
+        let app_record = resolve_selector_record(
+            &pipeline,
+            &ScrollStateMap::default(),
+            &fission_test_driver::SelectorQuery::semantic_identifier("mounted.app"),
+        )
+        .expect("semantic parent should resolve");
+        assert_eq!(app_record.node.children, vec![app_open.to_string()]);
+
+        let missing_query =
+            fission_test_driver::SelectorQuery::semantic_identifier("missing.control");
+        let detailed =
+            match resolve_selector_record(&pipeline, &ScrollStateMap::default(), &missing_query) {
+                Err(error) => error,
+                Ok(_) => panic!("missing selector should fail"),
+            };
+        let fission_test_driver::TestResponse::SelectorError { failure } = detailed else {
+            panic!("missing selector should return a selector error");
+        };
+        assert!(!failure.candidates.is_empty());
+
+        let quiet = match resolve_selector_record(
+            &pipeline,
+            &ScrollStateMap::default(),
+            &missing_query.without_candidates(),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("quiet missing selector should fail"),
+        };
+        let fission_test_driver::TestResponse::SelectorError { failure } = quiet else {
+            panic!("quiet missing selector should return a selector error");
+        };
+        assert!(failure.candidates.is_empty());
     }
 
     #[test]
@@ -11613,11 +12558,94 @@ mod tests {
     }
 
     #[test]
+    fn unchanged_software_frames_reuse_the_valid_render_target() {
+        assert!(!software_frame_needs_raster(
+            true,
+            InvalidationSet::default(),
+            0,
+            false,
+        ));
+        assert!(software_frame_needs_raster(
+            false,
+            InvalidationSet::default(),
+            0,
+            false,
+        ));
+
+        let mut invalidations = InvalidationSet::default();
+        invalidations.mark_composite();
+        assert!(software_frame_needs_raster(true, invalidations, 0, false,));
+        assert!(software_frame_needs_raster(
+            true,
+            InvalidationSet::default(),
+            1,
+            false,
+        ));
+        assert!(software_frame_needs_raster(
+            true,
+            InvalidationSet::default(),
+            0,
+            true,
+        ));
+    }
+
+    #[test]
     fn no_repeat_interval_means_no_idle_animation_redraw() {
         let min_frame = Duration::from_millis(16);
         assert_eq!(
             animation_redraw_interval(false, None, false, min_frame),
             None
+        );
+    }
+
+    #[test]
+    fn redraw_requests_are_coalesced_until_the_frame_starts() {
+        let mut schedule = FrameScheduleState::new(false);
+        let mut redraw_requests = 0;
+        let now = Instant::now();
+        let min_frame = Duration::from_millis(16);
+
+        assert_eq!(
+            schedule.redraw_timing(now, now, min_frame),
+            RedrawRequestTiming::DeferredUntil(now + min_frame)
+        );
+
+        assert!(schedule.request_redraw(|| redraw_requests += 1));
+        assert!(!schedule.request_redraw(|| redraw_requests += 1));
+        assert_eq!(redraw_requests, 1);
+        assert_eq!(
+            schedule.redraw_timing(now + min_frame, now, min_frame),
+            RedrawRequestTiming::AlreadyScheduled
+        );
+
+        schedule.redraw_started();
+        assert_eq!(
+            schedule.redraw_timing(now + min_frame, now, min_frame),
+            RedrawRequestTiming::Ready
+        );
+        assert!(schedule.request_redraw(|| redraw_requests += 1));
+        assert_eq!(redraw_requests, 2);
+    }
+
+    #[test]
+    fn scheduled_redraw_waits_for_its_event_instead_of_rearming_a_timer() {
+        let mut schedule = FrameScheduleState::new(false);
+        let deadline = Instant::now() + Duration::from_millis(16);
+
+        assert_eq!(
+            schedule.wait_for_redraw_or_deadline(deadline),
+            ControlFlow::WaitUntil(deadline)
+        );
+        assert!(schedule.mark_redraw_scheduled());
+        assert_eq!(
+            schedule.wait_for_redraw_or_deadline(deadline),
+            ControlFlow::Wait
+        );
+
+        schedule.redraw_started();
+        assert_eq!(
+            schedule.wait_for_redraw_or_deadline(deadline),
+            ControlFlow::WaitUntil(deadline)
         );
     }
 

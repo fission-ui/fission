@@ -1,0 +1,555 @@
+---
+layout: goal
+title: Use SQL transactions and migrations in an Android app
+description: "Close an inspection and record its closure note in one SQLite transaction. Upgrade an existing database and test a failed second write."
+goal: "Create local inspections, migrate their schema and commit each completed status with its closure note or neither change."
+path: /blog/use-sql-transactions-and-migrations-in-an-android-app/
+order: 56
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-use-sql-transactions-and-migrations-in-an-android-app
+outcomes:
+  - "Apply ordered migrations before enabling database writes"
+  - "Bind user-entered titles and notes as SQL parameters"
+  - "Close an inspection and insert its note in one bounded transaction"
+  - "Test upgrade, rollback and repeated requests through the real native SQLite provider"
+---
+
+## Name what has to commit together
+
+Closing an inspection changes two related facts: the visit becomes complete, and its closure note explains what was done. The invariant is that neither change becomes visible without the other. Two independent SQL effects cannot provide that guarantee; one bounded transaction can.
+
+This app starts from the device's actual SQLite database. The user creates an inspection and later closes it with a note. The interface refreshes from committed rows rather than marking the card complete before the database acknowledges the write. There is no fixture provider, server or synchronisation layer.
+
+## Create the Android project
+
+Complete [SDK/NDK setup](/blog/set-up-rust-android-gui-development-with-fission/), then prepare [an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [a phone](/blog/run-a-fission-app-on-a-physical-android-phone/).
+
+```sh
+cargo install cargo-fission
+fission init android-use-sql-transactions-and-migrations-in-an-android-app
+cd android-use-sql-transactions-and-migrations-in-an-android-app
+fission add-target android --project-dir .
+fission add-capability storage --project-dir .
+cargo add serde_yaml
+cargo add serde --features derive
+cargo add --dev pollster@0.3
+```
+
+Use the capability command, not only hand-added Cargo features. It configures native SQLite and the Web worker/bridge/WASM assets. The small `pollster` dependency is used only by native regression tests to await the public SQLite provider; it does not change the application runtime.
+
+Keep the generated main entrypoint. For Web, serve the generated storage assets with `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`. The database belongs to that browser origin, not to the Android installation.
+
+<!-- fission:step id="main-flow" -->
+## Migrate first, then allow writes
+
+Migration 1 creates the visits table. Migration 2 adds closure notes without replacing existing visits. Their versions are stable schema history, not a reason to edit migration 1 every time the application grows.
+
+The shell queues one startup action. The view registers that action unconditionally, before any error branch exists; merely generating its reducer function would not register it. Migration success then triggers a bounded query. A loading or failed database cannot masquerade as an empty ready database.
+
+The closure transaction updates an open visit and inserts its note only when that update changed one row. Both run on the transaction's connection, so SQLite's `changes()` refers to that update. A second note is not silently substituted for an earlier one. The completion reducer checks both step results, then reads the actual committed records.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Inspection { pub id: i64, pub title: String, pub closure_note: Option<String> }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase { Loading, Ready, Writing, Failed }
+#[derive(Debug)]
+pub struct InspectionsState {
+    pub phase: Phase,
+    pub records: Vec<Inspection>,
+    pub title_draft: String,
+    pub issue: Option<&'static str>,
+}
+impl Default for InspectionsState {
+    fn default() -> Self {
+        Self { phase: Phase::Loading, records: Vec::new(), title_draft: String::new(), issue: None }
+    }
+}
+impl GlobalState for InspectionsState {}
+pub fn valid_text(value: &str) -> bool { (1..=160).contains(&value.trim().chars().count()) }
+
+```
+</TabItem>
+<TabItem label="src/storage.rs">
+<!-- fission:file path="src/storage.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::{valid_text, Inspection, InspectionsState, Phase};
+
+pub fn migrations() -> SqlMigrations {
+    let mut migrations = SqlMigrations::new();
+    migrations.add(SqlMigration::new(1, "inspection records",
+        "CREATE TABLE inspection_visits(
+            id INTEGER PRIMARY KEY,
+            title TEXT NOT NULL CHECK(length(trim(title)) BETWEEN 1 AND 160),
+            completed INTEGER NOT NULL DEFAULT 0 CHECK(completed IN (0,1))
+        );"
+    )).expect("unique version one");
+    migrations.add(SqlMigration::new(2, "inspection closure notes",
+        "CREATE TABLE inspection_closures(
+            visit_id INTEGER PRIMARY KEY REFERENCES inspection_visits(id),
+            note TEXT NOT NULL CHECK(length(trim(note)) BETWEEN 1 AND 160)
+        );"
+    )).expect("unique version two");
+    migrations
+}
+
+pub fn close_transaction(id: i64, note: &str) -> SqlTransaction {
+    let mut transaction = SqlTransaction::new();
+    transaction.execute(SqlStatement::new(
+        "UPDATE inspection_visits SET completed=1 WHERE id=?1 AND completed=0"
+    ).bind(id));
+    transaction.execute(SqlStatement::new(
+        "INSERT INTO inspection_closures(visit_id,note)
+         SELECT ?1,?2 WHERE changes()=1"
+    ).bind(id).bind(note.trim().to_owned()));
+    transaction
+}
+
+pub fn query_inspections(ctx: &mut ReducerContext<InspectionsState>) {
+    let ok = ctx.effects.bind(InspectionsLoaded, reduce_with!(inspections_loaded));
+    let err = ctx.effects.bind(DatabaseFailed, reduce_with!(database_failed));
+    ctx.effects.sql().query(SqlStatement::new(
+        "SELECT v.id,v.title,v.completed,c.note
+         FROM inspection_visits v LEFT JOIN inspection_closures c ON c.visit_id=v.id
+         ORDER BY v.id DESC LIMIT 251"
+    )).on_ok(ok).on_err(err);
+}
+
+pub fn decode_inspections(rows: SqlRows) -> Result<Vec<Inspection>, &'static str> {
+    if rows.rows.len() > 250 { return Err("sql.limit"); }
+    rows.rows.into_iter().map(|row| {
+        let id: i64 = row.get("id").map_err(|_| "sql.records")?;
+        let title: String = row.get("title").map_err(|_| "sql.records")?;
+        let completed: i64 = row.get("completed").map_err(|_| "sql.records")?;
+        let note: Option<String> = row.get("note").map_err(|_| "sql.records")?;
+        if id <= 0 || !valid_text(&title) || !matches!(completed, 0 | 1)
+            || (completed == 1) != note.is_some()
+            || note.as_deref().is_some_and(|value| !valid_text(value)) {
+            return Err("sql.records");
+        }
+        Ok(Inspection { id, title, closure_note: note })
+    }).collect()
+}
+
+#[fission_reducer(PrepareInspections)]
+pub fn prepare_inspections(state: &mut InspectionsState, ctx: &mut ReducerContext<InspectionsState>) {
+    if state.phase == Phase::Writing { return; }
+    state.phase = Phase::Loading;
+    state.issue = None;
+    let ok = ctx.effects.bind(SchemaPrepared, reduce_with!(schema_prepared));
+    let err = ctx.effects.bind(DatabaseFailed, reduce_with!(database_failed));
+    ctx.effects.sql().migrate(migrations()).on_ok(ok).on_err(err);
+}
+#[fission_reducer(SchemaPrepared)]
+pub fn schema_prepared(state: &mut InspectionsState, ctx: &mut ReducerContext<InspectionsState>) {
+    if !ctx.input.sql_migration_result().is_some_and(|value| value.current_version == 2) {
+        state.phase = Phase::Failed;
+        state.issue = Some("sql.schema");
+        return;
+    }
+    query_inspections(ctx);
+}
+#[fission_reducer(InspectionsLoaded)]
+pub fn inspections_loaded(state: &mut InspectionsState, ctx: &mut ReducerContext<InspectionsState>) {
+    match ctx.input.sql_rows().ok_or("sql.records").and_then(decode_inspections) {
+        Ok(records) => {
+            state.records = records;
+            state.phase = Phase::Ready;
+            state.issue = None;
+        }
+        Err(key) => {
+            state.phase = Phase::Failed;
+            state.issue = Some(key);
+        }
+    }
+}
+#[fission_reducer(DatabaseFailed)]
+pub fn database_failed(state: &mut InspectionsState, ctx: &mut ReducerContext<InspectionsState>) {
+    let _ = ctx.input.sql_error();
+    state.phase = Phase::Failed;
+    state.issue = Some("sql.failed");
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "storage_tests.rs"]
+mod tests;
+```
+</TabItem>
+<TabItem label="src/writes.rs">
+<!-- fission:file path="src/writes.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::{valid_text, InspectionsState, Phase};
+use crate::storage::{close_transaction, query_inspections, DatabaseFailed, database_failed};
+
+pub fn add_inspection(state: &mut InspectionsState, ctx: &mut ReducerContext<InspectionsState>) {
+    if state.phase != Phase::Ready { return; }
+    if state.records.len() >= 250 { state.issue = Some("sql.limit"); return; }
+    if !valid_text(&state.title_draft) { state.issue = Some("sql.invalid"); return; }
+    state.phase = Phase::Writing;
+    state.issue = None;
+    let ok = ctx.effects.bind(InspectionAdded, reduce_with!(inspection_added));
+    let err = ctx.effects.bind(DatabaseFailed, reduce_with!(database_failed));
+    ctx.effects.sql().execute(SqlStatement::new(
+        "INSERT INTO inspection_visits(title) VALUES (?1)"
+    ).bind(state.title_draft.trim().to_owned())).on_ok(ok).on_err(err);
+}
+#[fission_reducer(InspectionAdded)]
+pub fn inspection_added(state: &mut InspectionsState, ctx: &mut ReducerContext<InspectionsState>) {
+    if !ctx.input.sql_execute_result().is_some_and(|value| value.affected_rows == 1) {
+        state.phase = Phase::Failed;
+        state.issue = Some("sql.failed");
+        return;
+    }
+    // Inputs are read-only while writing, so this is the submitted draft.
+    state.title_draft.clear();
+    state.phase = Phase::Loading;
+    query_inspections(ctx);
+}
+
+pub fn close_inspection(
+    state: &mut InspectionsState, ctx: &mut ReducerContext<InspectionsState>, id: i64, note: &str,
+) {
+    if state.phase != Phase::Ready { return; }
+    if !valid_text(note) { state.issue = Some("sql.invalid"); return; }
+    if !state.records.iter().any(|record| record.id == id && record.closure_note.is_none()) { return; }
+    state.phase = Phase::Writing;
+    state.issue = None;
+    let ok = ctx.effects.bind(InspectionClosed, reduce_with!(inspection_closed));
+    let err = ctx.effects.bind(DatabaseFailed, reduce_with!(database_failed));
+    ctx.effects.sql().transaction(close_transaction(id, note)).on_ok(ok).on_err(err);
+}
+#[fission_reducer(InspectionClosed)]
+pub fn inspection_closed(state: &mut InspectionsState, ctx: &mut ReducerContext<InspectionsState>) {
+    let confirmed = ctx.input.sql_transaction_result().is_some_and(|value| {
+        matches!(value.steps.as_slice(), [
+            SqlStepResult::Execute(first), SqlStepResult::Execute(second),
+        ] if first.affected_rows == 1 && second.affected_rows == 1)
+    });
+    if !confirmed {
+        state.phase = Phase::Failed;
+        state.issue = Some("sql.failed");
+        return;
+    }
+    state.phase = Phase::Loading;
+    query_inspections(ctx);
+}
+
+```
+</TabItem>
+<TabItem label="src/card.rs">
+<!-- fission:file path="src/card.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::{valid_text, Inspection, InspectionsState, Phase};
+use crate::writes::close_inspection;
+
+fission_component! {
+    pub InspectionCard<InspectionsState> {
+        props { inspection: Inspection }
+        state { closure_draft: String = String::new() }
+    }
+    view(card, state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
+    Container(
+        Column(gap: tokens.spacing.s, children: [
+            Text(card.inspection.title.clone()).weight(tokens.typography.font_weight_bold),
+            if let Some(note) = &card.inspection.closure_note {
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("sql.closed")),
+                    Text(note.clone()),
+                ])
+            } else {
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("sql.open")),
+                    TextInput(
+                        label: Some(cx.tr("sql.closure").into()), bind: card.closure_draft,
+                        read_only: state.phase != Phase::Ready,
+                        semantics_identifier: format!("inspection.note.{}", card.inspection.id),
+                    ),
+                    Button(
+                        child: Text(cx.tr("sql.close")), key: "inspection.close",
+                        disabled: state.phase != Phase::Ready || !valid_text(&card.closure_draft),
+                        on_press: reduce {
+                            close_inspection(state, cx, card.inspection.id, &card.closure_draft);
+                        },
+                    ),
+                ])
+            },
+        ])
+    ).padding_all(tokens.spacing.m).bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0).border_radius(tokens.radii.medium)
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{card::InspectionCard, state::*, storage::*, writes::add_inspection};
+
+fission_component! {
+    pub InspectionsApp<InspectionsState> {}
+    view(_app, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        // Register before the shell dispatches its startup action, not only
+        // inside the error branch where the retry button becomes visible.
+        let prepare = with_reducer!(cx.build, PrepareInspections, prepare_inspections);
+    } =>
+    SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("sql.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("sql.scope")),
+            TextInput(
+                label: Some(cx.tr("sql.new").into()), bind: state.title_draft,
+                read_only: state.phase != Phase::Ready,
+                semantics_identifier: "inspection.new".to_owned(),
+            ),
+            Button(
+                child: Text(cx.tr("sql.add")), key: "inspection.add",
+                disabled: state.phase != Phase::Ready || !valid_text(&state.title_draft),
+                on_press: reduce { add_inspection(state, cx); },
+            ),
+            if matches!(state.phase, Phase::Loading | Phase::Writing) {
+                Spinner(motion: Some(SpinnerMotion::Default), label: cx.tr("sql.pending"))
+            },
+            if let Some(issue) = state.issue { Text(cx.tr(issue)).color(tokens.colors.error) },
+            if state.phase == Phase::Failed {
+                Button(
+                    child: Text(cx.tr("sql.reload")), key: "inspection.reload",
+                    on_press: prepare,
+                )
+            },
+            if state.phase == Phase::Ready && state.records.is_empty() {
+                Text(cx.tr("sql.empty"))
+            },
+            Column(gap: tokens.spacing.m, children: [
+                for record in &state.records {
+                    InspectionCard(record.clone(), key: record.id)
+                        .id(WidgetId::explicit(&format!("inspection.{}", record.id)))
+                },
+            ]),
+        ])
+    ).padding_all(tokens.spacing.l)))
+}
+```
+</TabItem>
+<TabItem label="src/storage_tests.rs">
+<!-- fission:file path="src/storage_tests.rs" -->
+```rust
+use super::*;
+use fission::sqlite::SqliteStore;
+use fission::store::SqlStoreProvider;
+
+#[test]
+fn migration_upgrade_and_second_statement_failure_use_the_real_sqlite_provider() {
+    pollster::block_on(async {
+        let store = SqliteStore::open_in_memory().unwrap();
+        let mut version_one = SqlMigrations::new();
+        version_one.add(migrations().iter().next().unwrap().clone()).unwrap();
+        assert_eq!(store.migrate(version_one).await.unwrap().current_version, 1);
+        let created = store.execute(SqlStatement::new(
+            "INSERT INTO inspection_visits(title) VALUES (?1)"
+        ).bind("Check the caretaker's gate")).await.unwrap();
+        let id = created.last_insert_rowid.unwrap();
+
+        let upgraded = store.migrate(migrations()).await.unwrap();
+        assert_eq!(upgraded.previous_version, 1);
+        assert_eq!(upgraded.current_version, 2);
+        assert_eq!(upgraded.applied, 1);
+        assert_eq!(store.migrate(migrations()).await.unwrap().applied, 0);
+
+        // Bypass UI validation only in this test. The second statement fails
+        // its CHECK constraint after the first statement has changed the visit.
+        assert!(store.transaction(close_transaction(id, "")).await.is_err());
+        let row = store.query(SqlStatement::new(
+            "SELECT completed FROM inspection_visits WHERE id=?1"
+        ).bind(id).into()).await.unwrap().rows.remove(0);
+        assert_eq!(row.get::<i64>("completed").unwrap(), 0);
+        let row = store.query(SqlStatement::new(
+            "SELECT COUNT(*) AS count FROM inspection_closures"
+        ).into()).await.unwrap().rows.remove(0);
+        assert_eq!(row.get::<i64>("count").unwrap(), 0);
+
+        let committed = store.transaction(
+            close_transaction(id, "Latch replaced and tested"),
+        ).await.unwrap();
+        assert!(matches!(committed.steps.as_slice(), [
+            SqlStepResult::Execute(first), SqlStepResult::Execute(second),
+        ] if first.affected_rows == 1 && second.affected_rows == 1));
+        // A repeated request cannot overwrite the first closure note.
+        let repeated = store.transaction(close_transaction(id, "Another note")).await.unwrap();
+        assert!(matches!(repeated.steps.as_slice(), [
+            SqlStepResult::Execute(first), SqlStepResult::Execute(second),
+        ] if first.affected_rows == 0 && second.affected_rows == 0));
+    });
+}
+
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+sql.title: "Local inspection register"
+sql.scope: "Records are read from this device's SQLite database. Closing an inspection commits its status and closure note together; no server or sync is configured."
+sql.new: "New inspection title"
+sql.add: "Add inspection"
+sql.open: "Open inspection"
+sql.closed: "Closed inspection"
+sql.closure: "What was completed?"
+sql.close: "Close with this note"
+sql.pending: "Waiting for the local database…"
+sql.reload: "Reload and inspect committed records"
+sql.empty: "No inspections yet. Add one to begin."
+sql.invalid: "Use between 1 and 160 characters."
+sql.limit: "This example supports at most 250 records. It does not silently discard older records."
+sql.records: "Stored rows could not be decoded consistently. Editing is disabled; do not discard the database."
+sql.schema: "The database did not confirm schema version 2. Keep the existing data and diagnose the migration."
+sql.failed: "The database operation failed or returned an unexpected result. Reload before repeating a write; it may already have committed."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+sql.title: "Registro local de inspecciones"
+sql.scope: "Los registros proceden de SQLite en este dispositivo. Cerrar confirma el estado y la nota juntos; no hay servidor ni sincronización."
+sql.new: "Título de la nueva inspección"
+sql.add: "Añadir inspección"
+sql.open: "Inspección abierta"
+sql.closed: "Inspección cerrada"
+sql.closure: "¿Qué se completó?"
+sql.close: "Cerrar con esta nota"
+sql.pending: "Esperando a la base de datos local…"
+sql.reload: "Recargar e inspeccionar los registros confirmados"
+sql.empty: "Aún no hay inspecciones. Añade una para empezar."
+sql.invalid: "Usa entre 1 y 160 caracteres."
+sql.limit: "Este ejemplo admite hasta 250 registros. No descarta los anteriores sin avisar."
+sql.records: "Los registros guardados no son coherentes. Se desactiva la edición; no borres la base de datos."
+sql.schema: "La base de datos no confirmó la versión 2. Conserva los datos e investiga la migración."
+sql.failed: "La operación falló o devolvió un resultado inesperado. Recarga antes de repetir una escritura; puede haberse confirmado."
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+pub mod state;
+mod storage;
+mod writes;
+mod card;
+mod translations;
+
+use app::InspectionsApp;
+use state::InspectionsState;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<InspectionsState, _>::new(InspectionsApp)
+        .with_env(translations::create_env())
+        .with_startup_action(storage::PrepareInspections)
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<InspectionsState, InspectionsApp> {
+    let app = MobileApp::<InspectionsState, _>::new(InspectionsApp)
+        .with_env(translations::create_env())
+        .with_startup_action(storage::PrepareInspections);
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<InspectionsState, _>::new(InspectionsApp)
+        .with_env(translations::create_env())
+        .with_startup_action(storage::PrepareInspections)
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+include!("../src/lib.rs");
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Add an inspection using punctuation in its title, then close it with a meaningful note. Reload the app: both the completed state and that note should come from SQLite. Values are bound parameters, never concatenated into SQL. A malformed stored row rejects the read rather than disappearing from the result.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Exercise rollback through the actual provider
+
+The native test uses a temporary in-memory SQLite database provided by `SqliteStore`, not a fake implementation of SQL. It creates version 1, writes a record, upgrades to version 2 and checks migrations are not reapplied. It then deliberately supplies an invalid closure note, bypassing UI validation only inside the test.
+
+That second statement fails after the first has updated the visit. The test checks that the visit remains open and no closure row was inserted. This is the failure that establishes the need for the transaction; a test which merely counts the statements would not establish rollback.
+
+```sh
+cargo test
+fission doctor android --project-dir .
+adb devices -l
+fission run --target android --device <adb-serial> --project-dir .
+fission test --target android --project-dir .
+fission build --target android --project-dir . --release
+```
+
+On Android, create a record, close the process without uninstalling it, and reopen the same application ID. Verify the title and closure note reload from that installation's database. Test an actual version-1 database as well as a fresh installation. Do not delete the user's database to make a migration test pass.
+
+Writes and refreshes are serialised in this example, and inputs remain read-only until their result is known. A failed or missing acknowledgment is not permission to repeat an insert: reload committed data first, since a write may have reached the database before its result was lost. The screen retains its last confirmed rows and disables editing rather than treating an error as success.
+
+This lesson supports 250 records and fails explicitly if a query discovers more. Larger datasets need intentional pagination, not a hidden `LIMIT` that silently makes records disappear. A local closure note is also not a tamper-proof audit log or a server authorisation mechanism.
+
+<!-- fission:checkpoint -->
+Compilation, native provider tests, Web storage assets and Android persistence are different evidence. The test code above is part of the tutorial; running it and checking the installed app remain required before claiming those outcomes.
+<!-- /fission:checkpoint -->
+
+### Current references
+
+- [Storage and SQLite guide](/docs/guides/storage-and-sqlite/)
+- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
+- [Fission component and widget reference](/reference/widgets/catalog/)
+<!-- /fission:step -->

@@ -1,0 +1,58 @@
+---
+title: Quality boxplot
+sidebar_label: Quality boxplot
+description: Fission Charts reference for Quality boxplot.
+---
+
+# Quality boxplot
+
+![Quality boxplot screenshot](/img/charts/boxplot-quality.png)
+
+Two production batches can have the same average dimension and very different variation. A boxplot helps compare their distributions before deciding whether the process is consistently within tolerance. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here the measure is part diameter in millimetres. A narrow box does not by itself prove compliance: the location of the distribution relative to the specification also matters.
+
+## Data model
+
+Supply `[min, Q1, median, Q3, max]` per batch. Calculate the summaries from comparable validated measurements and retain the sampling policy. Whiskers in this contract are the supplied endpoints, not automatically a 1.5×IQR outlier rule.
+
+## Authoring from a Fission component
+
+The parent prepares one five-value array per labelled batch, keeping raw measurements and specification checks in the quality model.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BoxplotSeries, Chart};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub BatchDiameterDistributions<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            group_labels: Vec<String>,
+            summaries: Vec<[f32; 5]>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.group_labels.iter().map(String::as_str).collect();
+        let rows = report.summaries.iter().map(|summary| summary.to_vec()).collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(&report.axis_label)),
+        series: vec![BoxplotSeries::new(&report.series_label).data(rows).into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test a one-part batch, an unavailable batch and a systematic measurement offset. Show sample sizes, exact values and tolerances outside the image. Do not label a batch acceptable purely because it looks less spread out.
+
+Tags: `boxplot`, `quality`.
+
+[Scatter and statistical family overview](./overview)

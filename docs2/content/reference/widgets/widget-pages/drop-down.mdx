@@ -1,0 +1,68 @@
+---
+title: DropDown
+description: Use a simplified dropdown trigger button when you only need the button surface.
+slug: /widgets/drop-down
+---
+# DropDown
+
+`DropDown` renders a dropdown-style trigger with the current selection and a
+chevron. It does not render the options list. For a complete selection
+control, use [`Select`](/reference/widgets/select).
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub SortSheetTrigger<()> {
+        props {
+            selected_label: String,
+            open: bool,
+            toggle_sheet: ActionEnvelope,
+        }
+    }
+
+    view(sort, _state, _cx) =>
+        DropDown(
+            selected: Some(sort.selected_label.clone()),
+            is_open: sort.open,
+            on_toggle: sort.toggle_sheet.clone(),
+        )
+}
+```
+
+The parent supplies the translated current sort label and owns the separate
+sheet. Leaving `options` unset is intentional: this trigger does not render
+choices. If there is no separate sheet, use `Select` rather than building half
+of a selection control.
+
+This is a good fit when some other part of your user interface owns the actual popup or sheet, and you only want a trigger with dropdown styling.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `on_toggle` | `Option<ActionEnvelope>` | Action dispatched when the trigger is pressed. | Defaults to `None`. Usually opens or closes some surrounding surface. |
+| `options` | `Vec<String>` | Option labels associated with the control. | Present in the struct, but not currently rendered by the widget itself. |
+| `on_select` | `Option<ActionEnvelope>` | Selection action placeholder. | Present in the struct, but not currently used by the widget itself. |
+| `is_open` | `bool` | Expanded state of the separately owned surface. | Reported to assistive technology; it does not construct the popup. |
+| `selected` | `Option<String>` | Currently displayed label. | If `None`, the trigger shows "Select an option". |
+
+## Current behavior
+
+In the checked-in implementation, `selected` changes the label and `on_toggle` drives the press behavior. `options` and `on_select` do not affect rendering yet. That makes `DropDown` best understood as a stylized trigger, not a finished dropdown system.
+
+## Specific advice
+
+Reach for `DropDown` only when that limitation is exactly what you want. If the user expects the widget itself to own option presentation and choice handling, use [`Select`](/reference/widgets/select) or [`MenuButton`](/reference/widgets/menu-button) instead.
+
+## Production checklist
+
+- Verify the separately owned popup and this trigger expose the same open state.
+- Test dismissal, focus return, and the current translated label together.
+- Do not advertise unused `options` or `on_select` as functional selection support.
+
+## Related
+
+[`Select`](/reference/widgets/select), [`MenuButton`](/reference/widgets/menu-button), [`Button`](/reference/widgets/button), and [`Combobox`](/reference/widgets/combobox).

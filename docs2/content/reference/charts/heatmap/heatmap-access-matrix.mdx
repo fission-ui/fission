@@ -1,0 +1,98 @@
+---
+title: Access matrix
+sidebar_label: Access matrix
+description: Fission Charts reference for Access matrix.
+---
+
+# Access matrix
+
+![Access matrix screenshot](/img/charts/heatmap-access-matrix.png)
+
+An access matrix lets an administrator compare effective permissions across roles and resources. The important word is effective: displaying a role's explicit grants alone can hide permissions inherited from another rule. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+A matrix is useful for reviewing many decisions together, but a permission editor also needs named controls and readable allowed/denied states. Do not make a user infer a security decision from colour.
+
+## Data model
+
+Each cell is a resource index, role index and access value: one for allowed, zero for denied. Resolve the actual policy before creating these samples. The chart displays the decision; it must never become the authority that grants access.
+
+`HeatmapSeries::data` takes `Vec<(usize, usize, f32)>`. The first two values are category indices; they must refer to the same ordered labels used by the axes.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `Chart::x_axis` | `Axis` | Supplies the column categories. |
+| `Chart::y_axis` | `Axis` | Supplies the row categories, not the cell-value range. |
+| `HeatmapSeries::data` | `Vec<(usize, usize, f32)>` | Supplies the indexed cells and their values. |
+| `Chart::visual_map` | `VisualMap` | Sets the numeric range used for colour. |
+
+## Example
+
+```rust
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+let chart = Chart::new()
+    .title("Effective access by role and resource")
+    .x_axis(Axis::category(vec!["Invoices", "Reports", "Users"]))
+    .y_axis(Axis::category(vec!["Viewer", "Administrator"]))
+    .visual_map(VisualMap::new().min(0.0).max(1.0))
+    .series(vec![HeatmapSeries::new("Access allowed")
+        .data(vec![
+            (0, 0, 0.0),
+            (1, 0, 1.0),
+            (2, 0, 0.0),
+            (0, 1, 1.0),
+            (1, 1, 1.0),
+            (2, 1, 1.0),
+        ])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+Pass the prepared samples into the component. Fetching, aggregation and failure handling stay outside the build; the component presents values already available to its parent.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub AccessMatrixChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            column_labels: Vec<String>,
+            row_labels: Vec<String>,
+            samples: Vec<(usize, usize, f32)>,
+        }
+    }
+    view(chart, _state, _cx) =>
+        Chart(
+            title: Some(chart.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                chart.column_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::category(
+                chart.row_labels.iter().map(String::as_str).collect(),
+            )),
+            visual_map: Some(VisualMap::new().min(0.0).max(1.0)),
+            series: vec![HeatmapSeries::new(&chart.series_label)
+                .data(chart.samples.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check inherited grants, explicit denials and a role with no access. Keep the index-to-role mapping stable when filtering; assigning the right value to the wrong role is more serious than a visual defect.
+
+Give the matrix a text summary and an exact-value view when decisions depend on its cells. Inspect the actual rendered width and label lengths; a correctly indexed matrix is still unusable if its category names cannot be read.
+
+Tags: `heatmap`, `security`.
+
+[Heatmap family overview](./overview)

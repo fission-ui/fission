@@ -1,0 +1,53 @@
+---
+title: 3D wave surface
+sidebar_label: 3D wave surface
+description: Render a sampled periodic response whilst retaining its model parameters and sampling limits.
+---
+
+# 3D wave surface
+
+![3D wave surface screenshot](/img/charts/scene3d-surface-wave.png)
+
+A wave-shaped field is useful when periodic behaviour belongs to the model, for example an expected vibration response. It is not a general way to make unrelated measurements look continuous.
+
+This gallery entry is a visual variant of [3D wave surface](./surface3d-wave). It uses a mesh of sampled heights rather than a dedicated wave-series type.
+
+## Reuse the field renderer
+
+Convert a validated regular grid with `regular_surface` from [3D surface](./surface3d-basic). Render its vertices and indices with `SurveySurface` from [Mesh surface](./mesh-surface).
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::survey_surface::SurveySurface;
+
+fission_component! {
+    pub PeriodicResponsePreview<()> {
+        props {
+            title: TextContent,
+            vertices: Vec<Point3D>,
+            indices: Vec<u32>,
+            response_color: Color,
+        }
+    }
+    view(response, _state, _cx) => SurveySurface {
+        title: response.title.clone(),
+        vertices: response.vertices.clone(),
+        indices: response.indices.clone(),
+        surface_color: response.response_color,
+    }
+}
+```
+
+Place the shared component in `widgets/survey_surface.rs` and enable Fission's `three-d` feature. Preserve model parameters and units outside the mesh, with translated labels and colour supplied by the parent.
+
+## Checks
+
+Test that the grid resolves the expected wavelength and that invalid or missing samples are not converted into invented zeroes. Inspect angular segments and apparent peaks in a real rendering; a visually smooth field is not proof of a correct model.
+
+Provide parameters and important response values in accessible text. The legacy scene does not expose automatic chart axes, simulation animation or per-point chart events. The screenshot is the gallery fixture.
+
+Tags: `3d`, `wave`.
+
+[3D and GL family overview](./overview)

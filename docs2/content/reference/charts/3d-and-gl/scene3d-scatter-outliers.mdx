@@ -1,0 +1,47 @@
+---
+title: 3D outlier scatter
+sidebar_label: 3D outlier scatter
+description: Preserve the outlier rule and comparison observations when highlighting unusual spatial samples.
+---
+
+# 3D outlier scatter
+
+![3D outlier scatter screenshot](/img/charts/scene3d-scatter-outliers.png)
+
+A distant-looking sphere is not automatically an outlier. That conclusion needs a rule about the observations and their scale. Keep the rule and its result in the model so a change of viewpoint cannot change which records are considered unusual.
+
+The [outlier reference](./scatter3d-outliers) shows how to project an existing classification into `SpatialSample` values. It keeps all observations for comparison and uses a constant radius so highlighting does not invent a physical-size difference.
+
+## Compose the reviewed observations
+
+Use `SpatialScatter` from [3D scatter](./scatter3d-basic), placed in `widgets/spatial_scatter.rs`.
+
+```rust
+use fission::prelude::*;
+use crate::widgets::spatial_scatter::{SpatialSample, SpatialScatter};
+
+fission_component! {
+    pub ReviewedSpatialObservations<()> {
+        props {
+            title: TextContent,
+            reviewed_samples: Vec<SpatialSample>,
+        }
+    }
+    view(review, _state, _cx) => SpatialScatter {
+        title: review.title.clone(),
+        samples: review.reviewed_samples.clone(),
+    }
+}
+```
+
+Enable the `three-d` feature. Validate finite coordinates and finite positive radii before constructing the view. The parent supplies translated text and colours, whilst the source records retain observation IDs and classification reasons.
+
+## Checks
+
+Test that styling does not move points or discard ordinary observations. Provide an accessible list of flagged observations and their reasons rather than relying on colour alone.
+
+Inspect points near the main group and points hidden by other geometry. The legacy scene does not supply statistical analysis or per-sphere chart picking. The screenshot is gallery sample output, not evidence for an outlier detector.
+
+Tags: `3d`, `outlier`.
+
+[3D and GL family overview](./overview)

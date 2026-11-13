@@ -1,0 +1,88 @@
+---
+title: Telemetry zoom
+sidebar_label: Telemetry zoom
+description: Fission Charts reference for Telemetry zoom.
+---
+
+# Telemetry zoom
+
+![Telemetry zoom screenshot](/img/charts/interaction-datazoom-telemetry.png)
+
+A telemetry window helps an operator inspect a short spike without discarding the surrounding measurements. Keeping that context matters: a single high sample does not show when the change began or whether it recovered. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example uses one response-time measurement per minute and initially displays a narrower range. Zooming changes the visible window, not the sampling interval or the source history. It does not compute finer-resolution telemetry.
+
+## Data model
+
+Supply regularly bucketed labels and values in matching order, then configure DataZoom with percentage bounds. Fetch or aggregate telemetry through the application's normal async workflow before constructing this chart.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `Chart::data_zoom` | `DataZoom` | Adds the initial visible range. |
+| `DataZoom::start_percent` | `f32` | Sets the start of the ordered window. |
+| `DataZoom::end_percent` | `f32` | Sets the end of the ordered window. |
+| `DataZoom::zoom_type` | `DataZoomType` | Chooses slider or inside-plot interaction. |
+
+## Example
+
+```rust
+use fission::charts::{Axis, Chart, DataZoom, LineSeries};
+
+let chart = Chart::new()
+    .title("API response time by minute (ms)")
+    .x_axis(Axis::category(vec!["09:00", "09:01", "09:02", "09:03", "09:04", "09:05"]))
+    .y_axis(Axis::value())
+    .data_zoom(DataZoom::new().start_percent(20.0).end_percent(80.0))
+    .series(vec![LineSeries::new("Response time (ms)")
+        .data(vec![80.0, 84.0, 190.0, 240.0, 110.0, 86.0])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+Pass the prepared values to the chart and let its built-in retained interaction own the visible window. The example keeps its category list fixed; pass labels alongside values when the reporting period is variable.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, DataZoom, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub TelemetryZoomChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            category_labels: Vec<String>,
+            values: Vec<f32>,
+        }
+    }
+    view(history, _state, _cx) =>
+        Chart(
+            title: Some(history.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                history.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            data_zoom: Some(DataZoom::new()
+                .start_percent(20.0)
+                .end_percent(80.0)),
+            series: vec![LineSeries::new(&history.series_label)
+                .data(history.values.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check label/value alignment at both zoom boundaries and a dataset shorter than the usual history. Keep missing telemetry distinct from a zero-millisecond response, and make reset-to-full-history available in the product workflow.
+
+Check the actual zoom gesture and offer a keyboard-accessible way to choose the reporting range where that choice is essential to the task.
+
+Tags: `dataZoom`, `telemetry`.
+
+[Interaction family overview](./overview)

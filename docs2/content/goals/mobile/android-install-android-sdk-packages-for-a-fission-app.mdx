@@ -1,0 +1,294 @@
+---
+layout: goal
+title: Install Android SDK packages for a Fission app
+description: "Install and verify the Android SDK packages needed to build a Fission app with Rust."
+goal: Inspect and install the Android platform, build tools, command-line tools and emulator packages, accept licences and correct SDK discovery.
+path: /blog/install-android-sdk-packages-for-a-fission-app/
+order: 22
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-install-android-sdk-packages-for-a-fission-app
+outcomes:
+  - Find the Android SDK root and inspect installed SDK packages
+  - Install the platform, build tools, NDK and optional emulator packages used by Fission
+  - Run Fission's doctor checks and understand its current command-line-tools requirement
+---
+The Android SDK is a collection of packages, not one tool whose presence establishes that a build can run. A working `adb` tells you that platform tools are available; it does not establish that a platform API, the native compiler or an accepted licence is present.
+
+Here, we will locate one SDK installation, inspect its packages and install the missing pieces used by the generated Fission host. Keeping the installation and the selected versions explicit avoids a common failure: Android Studio and the terminal finding different toolchains.
+
+At the end, `fission doctor` should be able to find the packages needed by the generated Android host. The browser preview cannot install them or inspect your machine; the command output is the check that matters here.
+
+## Create the project and add the target
+
+Create a small Fission project and add Android as a target. This gives the checks below a real project configuration to validate.
+
+```sh
+cargo install cargo-fission
+fission init android-install-android-sdk-packages-for-a-fission-app
+cd android-install-android-sdk-packages-for-a-fission-app
+cargo add serde_yaml
+fission add-target android --project-dir .
+```
+
+## Files created by Fission
+
+This is the tree Fission generates. Shared Rust code stays under `src/`; the Android host under `platforms/android/` owns launch and packaging.
+
+```text
+android-install-android-sdk-packages-for-a-fission-app/
+├── Cargo.toml                 # Rust package and dependencies
+├── fission.toml               # app identity, targets and capabilities
+├── src/
+│   ├── main.rs                # generated app entrypoint
+│   ├── lib.rs                 # shared app setup
+│   ├── app.rs                 # manual Compose checklist
+│   └── translations.rs        # embedded language bundles
+└── platforms/
+    └── android/              # generated Android host
+```
+
+Keep the screen, state, reducers and reusable `fission_component!` components in the shared Rust project. Add a separate service or effect module only when the feature needs one. The generated host handles Android launch and packaging; shared components do not need to import Android APIs.
+
+<!-- fission:step id="field-check-preview" -->
+## Keep a manual record of the package checks
+
+The small app below records which checks you have reviewed. It gives the native build a real interactive screen to launch, but does not pretend that a checkbox can inspect the host's SDK.
+
+Replace the normal `src/lib.rs` as well as the screen, keeping the generated `src/main.rs`. The marked state belongs to the checklist and resets when the app restarts; the package manager remains the authority for what is installed.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub ToolchainChecklist<()> {
+        state {
+            tools_checked: bool = false,
+            runtime_checked: bool = false,
+            targets_checked: bool = false,
+        }
+    }
+    view(setup, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let reviewed = [setup.tools_checked, setup.runtime_checked, setup.targets_checked]
+            .iter().filter(|checked| **checked).count();
+    } =>
+    Container(SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("setup.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("setup.summary")).color(tokens.colors.text_secondary),
+            Text(cx.tr("setup.manual")).weight(tokens.typography.font_weight_semibold),
+            Divider(),
+            Checkbox(
+                checked: setup.tools_checked,
+                label: Some(cx.tr("setup.tools.check")),
+                semantics_identifier: Some("setup.tools".into()),
+                bind(on_toggle): to(setup.tools_checked),
+            ),
+            Text(cx.tr("setup.tools.detail")),
+            Checkbox(
+                checked: setup.runtime_checked,
+                label: Some(cx.tr("setup.runtime.check")),
+                semantics_identifier: Some("setup.runtime".into()),
+                bind(on_toggle): to(setup.runtime_checked),
+            ),
+            Text(cx.tr("setup.runtime.detail")),
+            Checkbox(
+                checked: setup.targets_checked,
+                label: Some(cx.tr("setup.targets.check")),
+                semantics_identifier: Some("setup.targets".into()),
+                bind(on_toggle): to(setup.targets_checked),
+            ),
+            Text(cx.tr("setup.targets.detail")),
+            Divider(),
+            Text(cx.tr("setup.reviewed").replace("{count}", &reviewed.to_string())),
+            Text(cx.tr("setup.scope")).color(tokens.colors.text_secondary),
+        ])
+    ).padding_all(tokens.spacing.l)
+     .width_length(Length::percent(100.0))
+     .max_width(680.0))))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod translations;
+
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(app::ToolchainChecklist)
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), app::ToolchainChecklist> {
+    let app = MobileApp::<(), _>::new(app::ToolchainChecklist)
+        .with_env(translations::create_env())
+        .with_title("Toolchain checklist");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::ToolchainChecklist)
+        .with_env(translations::create_env())
+        .with_title("Toolchain checklist")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("checked-in setup translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+setup.title: "Android development checklist"
+setup.summary: "Keep track of the checks you have run in your own terminal."
+setup.manual: "Mark these only after reviewing the command output."
+setup.tools.check: "SDK root and command-line tools found"
+setup.tools.detail: "Run sdkmanager --version and review ANDROID_HOME before installing packages."
+setup.runtime.check: "Platform and build tools installed"
+setup.runtime.detail: "Review sdkmanager --list_installed for the platform and build-tools versions you intend to use."
+setup.targets.check: "NDK installed and doctor checked"
+setup.targets.detail: "Inspect the installed NDK and run fission doctor android from this project."
+setup.reviewed: "{count} of 3 checks marked"
+setup.scope: "This is a manual checklist, not a toolchain diagnostic. Your marks are local to this session; reloading clears them."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+setup.title: "Lista de desarrollo para Android"
+setup.summary: "Anota las comprobaciones que has ejecutado en tu propio terminal."
+setup.manual: "Marca cada casilla tras revisar la salida del comando."
+setup.tools.check: "Raíz del SDK y herramientas encontradas"
+setup.tools.detail: "Ejecuta sdkmanager --version y revisa ANDROID_HOME antes de instalar paquetes."
+setup.runtime.check: "Plataforma y herramientas de compilación instaladas"
+setup.runtime.detail: "Revisa sdkmanager --list_installed y las versiones de plataforma y herramientas previstas."
+setup.targets.check: "NDK instalado y diagnóstico revisado"
+setup.targets.detail: "Inspecciona el NDK instalado y ejecuta fission doctor android en este proyecto."
+setup.reviewed: "{count} de 3 comprobaciones marcadas"
+setup.scope: "Esta lista es manual; no diagnostica las herramientas. Las marcas son locales a la sesión y se borran al recargar."
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::ToolchainChecklist)
+        .with_env(translations::create_env())
+        .with_title("Toolchain checklist")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Select and clear an item and confirm that the marked count changes. Reloading clears this manual record; it must not be presented as proof that the SDK was checked automatically.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Install the Android SDK packages the generated host needs
+
+The [full Android setup guide](/blog/set-up-rust-android-gui-development-with-fission/) also covers the compatible Java and Gradle installation. SDK packages alone do not supply those tools.
+
+Work from the Fission project root so the generated README and doctor output describe this app's target requirements. `sdkmanager --list_installed` shows what is already present; the package names below cover the Android platform, build tools, NDK, emulator and an arm64 Google APIs image used by the generated launcher.
+
+### Check the SDK manager and installed packages
+
+```sh
+sdkmanager --version
+sdkmanager --list_installed
+```
+
+Install **Android SDK Command-line Tools (latest)** in Android Studio's SDK Manager and add the SDK's `cmdline-tools/latest/bin` directory to `PATH`. Fission currently checks for `sdkmanager` and `avdmanager` at that path; the newer `android sdk` command alone does not satisfy those checks yet. Android Studio shows the SDK root in **Settings → Languages & Frameworks → Android SDK** (on macOS, **Android Studio → Settings → Languages & Frameworks → Android SDK**). Set `ANDROID_HOME` to that root if Fission cannot find it.
+
+### Install the packages
+
+The commands below choose API 35 and Build Tools 35.0.0 as a concrete setup, not a framework-wide version pin. The generated script selects the highest installed platform unless `ANDROID_TARGET_API_LEVEL` overrides it. Inspect `platforms/android/README.md` and the generated build configuration before choosing a different API.
+
+```sh
+sdkmanager --install \
+  "platform-tools" "emulator" \
+  "platforms;android-35" "build-tools;35.0.0" \
+  "system-images;android-35;google_apis;arm64-v8a"
+sdkmanager --licenses
+```
+
+Install one NDK version through Android Studio's SDK Manager or choose an exact `ndk;...` package shown by `sdkmanager --list`. Fission selects the latest NDK installed under `$ANDROID_HOME/ndk`, unless `ANDROID_NDK` names a specific installation. The project does not pin a universal NDK version. Read each licence prompt and accept only after reviewing it. `platform-tools` provide `adb`; the Android platform and build tools compile the host; the NDK supplies the native linker; and the system image gives the emulator an Android system to boot.
+
+### Verify discovery before building
+
+```sh
+fission doctor android --project-dir .
+fission devices --project-dir .
+```
+
+`fission doctor` reports which tool or SDK path is missing. Fix that first, then run it again. `fission devices` lists the emulators or phones Fission can currently launch; an empty list means the SDK may be ready while no AVD or device is running yet. See the [Android setup tutorial](/blog/set-up-rust-android-gui-development-with-fission/) for the next emulator and phone checks.
+
+### Read next
+
+- [Android setup tutorial](/blog/set-up-rust-android-gui-development-with-fission/)
+- [Android target requirements](/reference/platform/targets/)
+
+<!-- fission:checkpoint -->
+The browser preview is only a compiled component example. Use the package-manager and doctor checks above to verify the actual Android SDK installation.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->

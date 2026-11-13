@@ -1,0 +1,48 @@
+---
+title: Visual map calendar
+sidebar_label: Visual map calendar
+description: Apply a stable explicit colour scale to a real daily engagement calendar.
+---
+
+# Visual map calendar
+
+![Visual map calendar screenshot](/img/charts/visual-map-calendar.png)
+
+A daily calendar and a categorical heatmap are different coordinate systems. Here each value belongs to a date, so use `CalendarHeatmapSeries` rather than repurposing an AM/PM matrix.
+
+The [engagement calendar](../analytics/analytics-calendar-engagement) defines `EngagementDay` and `EngagementCalendar`. Put them in `widgets/engagement_calendar.rs`:
+
+```rust
+use fission::prelude::*;
+use fission::charts::VisualMap;
+use crate::widgets::engagement_calendar::{EngagementCalendar, EngagementDay};
+
+fission_component! {
+    pub EngagementIntensityCalendar<()> {
+        props {
+            title: String,
+            accounts_label: String,
+            start_date: String,
+            end_date: String,
+            days: Vec<EngagementDay>,
+            colour_scale: VisualMap,
+        }
+    }
+    view(calendar, _state, _cx) => EngagementCalendar {
+        title: calendar.title.clone(),
+        metric_label: calendar.accounts_label.clone(),
+        start_date: calendar.start_date.clone(),
+        end_date: calendar.end_date.clone(),
+        days: calendar.days.clone(),
+        colour_scale: calendar.colour_scale.clone(),
+    }
+}
+```
+
+Use a stable theme-derived scale when comparing date windows and explain its numeric endpoints outside the chart. Translate caller-provided labels; current internal weekday captions remain fixed English.
+
+Validate dates and duplicate days in one reporting timezone. Absent dates are filled as zero by the renderer, so do not show an incomplete reporting interval as inactivity.
+
+Test date boundaries, zero activity and a failed refresh. Show exact daily values and an accessible scale explanation. The gallery screenshot is a separate fixture.
+
+[Dataset and dynamic family overview](./overview)

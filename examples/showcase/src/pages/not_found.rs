@@ -5,7 +5,7 @@ use fission::widgets::{Center, EmptyState};
 fission_component! {
 /// Shown when an address matches no example, with a way back to the catalog.
     #[derive(Clone, Debug)] pub(crate) NotFoundPage<ShowcaseState> {}
-    |_component, _state, cx| {} =>
+    view(_component, _state, cx) {} =>
         Center(
             EmptyState(
                 title: cx.view.tr("showcase.not_found.title"),

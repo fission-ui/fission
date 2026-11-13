@@ -1,0 +1,35 @@
+---
+title: Region value map
+sidebar_label: Region value map
+description: Join regional demand to stable geometry identifiers.
+---
+
+# Region value map
+
+![Region value map screenshot](/img/charts/map-region-values.png)
+
+A regional report needs a stable join between the business records and the map boundaries. Translating a place name should not disconnect its measured value from its polygon.
+
+The [choropleth component](../geographic-and-route/map-choropleth) lives in `widgets/regional_report_map.rs` and uses `properties.region_id` as the join key. Project typed records rather than coupling the join to visible labels:
+
+```rust
+use crate::widgets::regional_report_map::RegionMeasure;
+
+pub struct RegionalDemand {
+    pub region_id: String,
+    pub open_requests: u32,
+}
+
+pub fn demand_values(rows: &[RegionalDemand]) -> Vec<RegionMeasure> {
+    rows.iter().map(|row| RegionMeasure {
+        region_id: row.region_id.clone(),
+        value: row.open_requests as f32,
+    }).collect()
+}
+```
+
+Supply the resulting values, validated GeoJSON and a shared `VisualMap` to `RegionalReportMap`. The parent translates its title, measure caption and explanation. No network lookup is implied by the map-type string.
+
+Check duplicate IDs, records without polygons and polygons without values before rendering. The last case is unknown demand, not a confirmed empty queue. Large polygons dominate the visual area, so add a ranked list when deciding where to allocate staff. Test the join with deliberately reordered inputs and a missing region. The gallery image uses separate geometry and values.
+
+[Geo and route family overview](./overview)

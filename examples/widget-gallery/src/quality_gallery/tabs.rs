@@ -11,7 +11,7 @@ fn select_quality_tab(state: &mut GalleryState, index: usize) {
 
 fission_component! {
     pub(super) QualityTabs<GalleryState> { compact: bool }
-    |tabs, state, cx| {
+    view(tabs, state, cx) {
         let active_tab = state.active_tab;
         let root_id = WidgetId::explicit(if tabs.compact {
             "quality-gallery.tabs.mobile"
@@ -89,7 +89,7 @@ fission_component! {
 
 fission_component! {
     QualityPendingPanel<GalleryState> { title: &'static str, description: &'static str }
-    |panel, _state, _cx| {} =>
+    view(panel, _state, _cx) {} =>
         Card(
             child: EmptyState(
                 icon: None,

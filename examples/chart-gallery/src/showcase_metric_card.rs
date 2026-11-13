@@ -3,7 +3,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub ShowcaseMetricCard<GalleryState> { title: &'static str, value: &'static str, detail: &'static str, accent: Color }
-    |card, _state, cx| {
+    view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(

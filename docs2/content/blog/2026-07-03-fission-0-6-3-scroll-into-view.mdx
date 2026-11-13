@@ -1,0 +1,100 @@
+---
+title: Fission 0.6.3: ScrollIntoView runtime effects
+authors:
+  - fission
+tags:
+  - release
+  - runtime
+  - scroll
+  - documents
+categories:
+  - Releases
+---
+
+Fission 0.6.3 lets a reducer ask the runtime to reveal a widget in a scroll container after layout.
+
+This helps document editors, page outlines, validation summaries, search results, sidebars, and any app where a user selects content that may be further down the page.
+
+## Why this belongs in the runtime
+
+Fission already had the pieces for scrolling:
+
+- `Scroll` owns a scrollable viewport;
+- `RuntimeState.scroll` stores offsets;
+- pointer wheels, scrollbars, and text-input caret tracking can mutate those offsets internally;
+- app code can read previous layout through `View::get_rect(...)`.
+
+What was missing was a safe way for app logic to say: after the next layout pass, scroll this viewport until that widget is visible.
+
+Reducers do not own layout geometry, so they cannot safely change scroll offsets directly. Widget conversion must stay free of side effects too. `ScrollIntoViewRequest` keeps those responsibilities separate.
+
+## The API
+
+A reducer can now emit:
+
+```rust
+ctx.effects.scroll_into_view(ScrollIntoViewRequest {
+    container: Some(WidgetId::explicit("document.canvas.scroll")),
+    target: WidgetId::explicit("document.page.3"),
+    axis: ScrollAxis::Vertical,
+    alignment: ScrollAlignment::Start,
+    padding: [24.0, 24.0, 24.0, 24.0],
+    behavior: ScrollBehavior::Instant,
+    if_needed: false,
+});
+```
+
+Fission resolves the request after layout, when it has both the target rectangle and the scroll-container geometry. If you omit `container`, it uses the nearest matching scroll ancestor.
+
+`ScrollAlignment` supports `Start`, `Center`, `End`, `Nearest`, and `Fraction(f32)`. `Nearest` keeps already visible content stationary and otherwise uses the smallest offset change needed to reveal the target.
+
+## Document editor flow
+
+A document app can keep pages in natural order:
+
+```rust
+Scroll {
+    id: Some(WidgetId::explicit("document.canvas.scroll")),
+    direction: FlexDirection::Column,
+    flex_grow: 1.0,
+    child: Some(DocumentPages { pages: state.pages.clone() }.into()),
+    ..Default::default()
+}
+.into()
+```
+
+Give each page wrapper a stable ID, such as `document.page.3`. When the user selects page 3 in the rail or outline, the reducer updates the selected page and emits `ScrollIntoViewRequest`. After layout, Fission updates the offset and schedules another frame so rendering, hit testing, semantics, and test-control output all use the new scroll position.
+
+Here the suffix identifies the page record. If pages can be inserted or
+reordered, use their durable IDs rather than a displayed page number; the
+request must continue to name the same page after its position changes.
+
+You do not need to reorder the rendered pages just to bring the selected page near the top.
+
+## Runtime behavior
+
+The runtime now:
+
+1. queues `ScrollIntoViewRequest` as a runtime effect;
+2. waits for the next layout snapshot;
+3. resolves the target and container;
+4. computes the requested offset in scroll-content coordinates;
+5. clamps the offset to the scrollable range;
+6. writes `RuntimeState.scroll`;
+7. schedules a follow-up frame when the offset changes.
+
+If the target is missing, Fission retries once on the next frame. This covers route changes and conditional rendering where selecting the target also makes it appear.
+
+## Migration notes
+
+Apps on 0.6.2 can update the Rust dependency:
+
+```toml
+fission = { version = "0.6.3", default-features = false, features = ["desktop"] }
+```
+
+Use stable explicit widget IDs for both the scroll container and reveal targets when the request comes from app state, route state, search state, or external document navigation.
+
+## Verification
+
+The release tests explicit containers, nearest scroll ancestors, alignment, no-op requests for visible targets, queued runtime effects, and the one-frame retry. Release checks also include formatting, workspace checks, and documentation-site checks.

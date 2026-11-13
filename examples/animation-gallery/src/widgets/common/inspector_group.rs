@@ -5,7 +5,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) InspectorGroup<AnimationGalleryState> { title: String, rows: Vec<String> }
-    |group, _state, cx| {
+    view(group, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Column(gap: tokens.spacing.xs, children: [

@@ -1,0 +1,58 @@
+---
+title: Market share pie
+sidebar_label: Market share pie
+description: Compare a small number of exclusive market categories with a true pie rather than a donut.
+---
+
+# Market share pie
+
+![Market share pie screenshot](/img/charts/analytics-market-pie.png)
+
+A market-share chart needs a defined market. Shares of subscriptions, revenue and active organisations can all be useful, but they are not interchangeable.
+
+Start with counts or amounts from the same market and reporting period. The pie then shows each category's part of that total; it does not decide what should have been counted.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries, Series};
+
+#[derive(Clone)]
+pub struct MarketCategory {
+    pub label: String,
+    pub amount: f32,
+}
+
+fission_component! {
+    pub MarketShare<()> {
+        props {
+            title: String,
+            measure_label: String,
+            categories: Vec<MarketCategory>,
+        }
+    }
+    view(market, _state, _cx) {
+        let values = market.categories.iter()
+            .map(|category| (category.label.as_str(), category.amount))
+            .collect();
+    } => Chart(
+        title: Some(market.title.clone()),
+        series: vec![Series::Pie(
+            PieSeries::new(&market.measure_label)
+                .inner_radius(0.0)
+                .data(values),
+        )],
+    )
+}
+```
+
+Unlike the device donut, this example has no hole. Require finite, non-negative amounts and a positive total before constructing it. Translate category names in the parent, keeping their underlying market identifiers stable in the data model.
+
+## Check what the whole excludes
+
+Include an explicit remainder where the dataset does not name every category. Otherwise, the chart normalises a partial sample to a whole and can overstate every visible share.
+
+Keep the category count small, show exact amounts and percentages beside the pie, and use bars when differences between similar categories matter. Test that the categories are exclusive and reconcile to the reported market total. The gallery image has its own fixture and may use different presentation settings.
+
+[Analytics family overview](./overview)

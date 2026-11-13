@@ -24,7 +24,7 @@ Enable the facade feature rather than combining implementation crates manually:
 
 ```toml
 [dependencies]
-fission = { version = "0.15.1", features = ["game", "scene2d"] }
+fission = { version = "0.16.0", features = ["game", "scene2d"] }
 ```
 
 Physics is optional. When enabled, step the selected provider from the same fixed simulation clock and copy results into the game state intentionally.

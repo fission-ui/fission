@@ -1,0 +1,419 @@
+---
+layout: goal
+title: Build iOS forms that work with the keyboard
+description: "Prepare a visitor request with focus changes, text selection and an exact six-digit code which keeps leading zeroes."
+goal: "Validate actual visitor input and coordinate focus, selection and keyboard dismissal without pretending the code has been verified."
+path: /blog/build-ios-forms-that-work-with-the-keyboard/
+order: 75
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target ios --project-dir ."
+app: ios-build-ios-forms-that-work-with-the-keyboard
+outcomes:
+  - Keep name and code drafts separate from the prepared request
+  - Use text-editing effects for focus, selection and dismissal
+  - Associate validation with the controls and check the native keyboard separately
+---
+
+A keyboard choice tells iOS how a value is normally entered; it does not prove that the value is valid. Pasted text, hardware keyboards and accessibility input can all produce something the software keyboard would not normally offer.
+
+We will build a visitor check-in draft with a name and six-digit visit code. The code stays a string so its leading zeros survive. Validation prepares a typed request in application state; it does not claim that the code is genuine or that a check-in has been saved.
+
+## Create the project and add the target
+
+Complete [iOS setup](/blog/set-up-rust-ios-development-with-fission/) and [simulator setup](/blog/install-and-select-xcodes-ios-simulator-tools/) first.
+
+```sh
+cargo install cargo-fission
+fission init ios-build-ios-forms-that-work-with-the-keyboard
+cd ios-build-ios-forms-that-work-with-the-keyboard
+fission add-target ios --project-dir .
+cargo add serde_yaml
+```
+
+Keep the generated `src/main.rs` and install the shared form through `src/lib.rs` below. The browser preview changes only the mount point, not the validation rules or app.
+
+<!-- fission:step id="start-screen" -->
+## Give the draft a clear owner and an explicit submission boundary
+
+Typing belongs to the form's retained local state. Only a validated snapshot becomes `VisitRequest` in `GlobalState`. Later edits do not silently rewrite that prepared request.
+
+Each field has a stable ID. The same IDs address `TextEditingController` commands for focus, selection and dismissal; there is no separate selector language or guessed widget method.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+pub mod form;
+pub mod state;
+
+pub use form::VisitForm;
+pub use state::VisitState;
+```
+</TabItem>
+<TabItem label="src/app/state.rs">
+<!-- fission:file path="src/app/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VisitRequest {
+    pub contact_name: String,
+    pub access_code: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VisitState {
+    pub last_prepared: Option<VisitRequest>,
+    pub locale: Locale,
+}
+
+impl Default for VisitState {
+    fn default() -> Self {
+        Self {
+            last_prepared: None,
+            locale: Locale::from("en-US"),
+        }
+    }
+}
+
+impl GlobalState for VisitState {}
+
+pub fn name_id() -> WidgetId {
+    WidgetId::explicit("visit.contact-name")
+}
+
+pub fn code_id() -> WidgetId {
+    WidgetId::explicit("visit.access-code")
+}
+
+pub fn valid_code(code: &str) -> bool {
+    code.len() == 6 && code.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+pub fn dismiss_keyboard(cx: &mut ReducerContext<VisitState>) {
+    for id in [name_id(), code_id()] {
+        cx.effects
+            .text_editing(TextEditingController::new(id), TextEditingCommand::Unfocus);
+    }
+}
+
+pub fn prepare_request(
+    state: &mut VisitState,
+    cx: &mut ReducerContext<VisitState>,
+    name: &str,
+    code: &str,
+) {
+    let invalid_id = if name.trim().is_empty() {
+        Some(name_id())
+    } else if !valid_code(code) {
+        Some(code_id())
+    } else {
+        None
+    };
+    if let Some(id) = invalid_id {
+        cx.effects
+            .text_editing(TextEditingController::new(id), TextEditingCommand::Focus);
+        return;
+    }
+    state.last_prepared = Some(VisitRequest {
+        contact_name: name.trim().to_owned(),
+        access_code: code.to_owned(),
+    });
+    dismiss_keyboard(cx);
+}
+```
+</TabItem>
+<TabItem label="src/app/form.rs">
+<!-- fission:file path="src/app/form.rs" -->
+```rust
+use super::state::{code_id, dismiss_keyboard, name_id, prepare_request, valid_code, VisitState};
+use fission::prelude::*;
+
+fission_component! {
+    pub VisitForm<VisitState> {
+        state {
+            contact_name: String = String::new(),
+            access_code: String = String::new(),
+            attempted: bool = false,
+        }
+    }
+    view(form, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let name_error = if form.attempted && form.contact_name.trim().is_empty() {
+            Some(cx.tr("form.name_error"))
+        } else { None };
+        let code_error = if form.attempted && !valid_code(&form.access_code) {
+            Some(cx.tr("form.code_error"))
+        } else { None };
+    } => SafeArea(
+        child: Scroll(
+            child: Container(
+                Column(gap: tokens.spacing.m, children: [
+                    Text(cx.tr("form.title")).size(tokens.typography.heading2_size),
+                    Text(cx.tr("form.explanation")),
+                    Row(gap: tokens.spacing.s, children: [
+                        Button(
+                            child: Text(cx.tr("language.english")),
+                            key: "english",
+                            on_press: reduce { state.locale = Locale::from("en-US"); },
+                        ),
+                        Button(
+                            child: Text(cx.tr("language.spanish")),
+                            key: "spanish",
+                            on_press: reduce { state.locale = Locale::from("es-ES"); },
+                        ),
+                    ]),
+                    FormControl(
+                        label: Some(cx.tr("form.name")),
+                        error: name_error,
+                        required: true,
+                        child: TextInput(
+                            id: Some(name_id()),
+                            value: form.contact_name.clone(),
+                            bind(on_input): to(form.contact_name),
+                            keyboard_type: TextInputType::Name,
+                            text_input_action: TextInputAction::Next,
+                            on_submit: reduce {
+                                cx.effects.text_editing(
+                                    TextEditingController::new(code_id()),
+                                    TextEditingCommand::Focus,
+                                );
+                            },
+                            semantics_identifier: Some("visit.contact-name".into()),
+                        ),
+                    ),
+                    FormControl(
+                        label: Some(cx.tr("form.code")),
+                        helper: Some(cx.tr("form.code_help")),
+                        error: code_error,
+                        required: true,
+                        child: TextInput(
+                            id: Some(code_id()),
+                            value: form.access_code.clone(),
+                            bind(on_input): to(form.access_code),
+                            keyboard_type: TextInputType::Number,
+                            text_input_action: TextInputAction::Done,
+                            autocorrect: false,
+                            on_submit: reduce {
+                                form.attempted = true;
+                                prepare_request(state, cx, &form.contact_name, &form.access_code);
+                            },
+                            semantics_identifier: Some("visit.access-code".into()),
+                        ),
+                    ),
+                    Button(
+                        child: Text(cx.tr("form.prepare")),
+                        key: "prepare-visit",
+                        on_press: reduce {
+                            form.attempted = true;
+                            prepare_request(state, cx, &form.contact_name, &form.access_code);
+                        },
+                    ),
+                    Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                        Button(
+                            child: Text(cx.tr("form.select_code")),
+                            key: "select-code",
+                            on_press: reduce {
+                                let controller = TextEditingController::new(code_id());
+                                cx.effects.text_editing(controller, TextEditingCommand::Focus);
+                                cx.effects.text_editing(controller, TextEditingCommand::SelectAll);
+                            },
+                        ),
+                        Button(
+                            child: Text(cx.tr("form.dismiss")),
+                            key: "dismiss-keyboard",
+                            on_press: reduce { dismiss_keyboard(cx); },
+                        ),
+                    ]),
+                    if let Some(request) = &state.last_prepared {
+                        Text(cx.tr("form.last_prepared").replace("{name}", &request.contact_name))
+                    },
+                    Text(cx.tr("form.scope")).color(tokens.colors.text_secondary),
+                ]),
+            )
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface),
+        ),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/i18n.rs">
+<!-- fission:file path="src/i18n.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid visit translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+
+pub fn sync_env(state: &crate::app::VisitState, env: &mut Env) {
+    env.locale = state.locale.clone();
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod i18n;
+
+use app::{VisitForm, VisitState};
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<VisitState, _>::new(VisitForm)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    MobileApp::<VisitState, _>::new(VisitForm)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = MobileApp::<VisitState, _>::new(VisitForm)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<VisitState, _>::new(VisitForm)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod i18n;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<app::VisitState, _>::new(app::VisitForm)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+form.title: "Prepare a visitor check-in"
+form.explanation: "Enter your contact name and the six digits supplied for your visit. The app checks the format, not whether the code grants access."
+form.name: "Contact name"
+form.name_error: "Enter the contact name."
+form.code: "Six-digit visit code"
+form.code_help: "Keep leading zeros. A numeric keyboard is a hint, not validation."
+form.code_error: "Enter exactly six digits, with no spaces or letters."
+form.prepare: "Prepare request"
+form.select_code: "Select the code"
+form.dismiss: "Dismiss keyboard"
+form.last_prepared: "Last request prepared for {name}. It has not been sent."
+form.scope: "This example keeps the draft and prepared request in memory. A server must verify the code before recording a check-in."
+language.english: "English"
+language.spanish: "Español"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+form.title: "Prepara el registro de una visita"
+form.explanation: "Escribe tu nombre y los seis dígitos de la visita. La app comprueba el formato, no si el código permite entrar."
+form.name: "Nombre de contacto"
+form.name_error: "Escribe el nombre de contacto."
+form.code: "Código de visita de seis dígitos"
+form.code_help: "Conserva los ceros iniciales. El teclado numérico es una sugerencia, no una validación."
+form.code_error: "Introduce exactamente seis dígitos, sin espacios ni letras."
+form.prepare: "Preparar solicitud"
+form.select_code: "Seleccionar código"
+form.dismiss: "Ocultar teclado"
+form.last_prepared: "Última solicitud preparada para {name}. No se ha enviado."
+form.scope: "Este ejemplo conserva el borrador y la solicitud en memoria. El servidor debe verificar el código antes de registrar la entrada."
+language.english: "Inglés"
+language.spanish: "Español"
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Try an empty name, letters in the code, a five-digit code and a six-digit code beginning with zero. Errors stay beside their fields and focus returns to the first invalid field. A valid request appears separately without claiming it has been sent.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Treat focus and dismissal as explicit UI operations
+
+The name field requests a Name keyboard and a Next action. Its submit handler focuses the code field through `cx.effects.text_editing`. The code field requests Number and Done, but the validator still requires six ASCII digits. A six-character string containing letters is not a valid code.
+
+The Select code button queues Focus then SelectAll for the same retained field. Dismiss keyboard queues Unfocus without changing either draft. Preparing a valid request also dismisses focus. Neither operation treats dismissal itself as validation success.
+
+`SafeArea` uses the shell's window insets around display cutouts and system UI. The `Scroll` gives the form a scrollable viewport. These widgets do not, by their names alone, establish that every iOS keyboard configuration is handled: verify the focused field and actions in the actual shell whilst the software keyboard is visible.
+
+The browser uses the same controlled text values, bindings and reducer flow. It can exercise selection, validation and focus, but it cannot qualify an iPhone's keyboard layout, composition or inset behavior.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Use Next, Select code and Dismiss keyboard without losing text. Prepare a request, edit the draft again, and confirm the last-prepared summary still names its original snapshot until another valid submission.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Check the keyboard on the intended iOS target
+
+```sh
+fission doctor ios --project-dir .
+fission run --target ios --project-dir .
+fission test --target ios --project-dir .
+```
+
+Follow [simulator selection](/blog/choose-boot-and-launch-an-ios-simulator-with-fission/) and [physical iPhone installation](/blog/install-a-fission-app-on-a-physical-iphone/) for the target-specific commands. On a simulator, explicitly enable the software keyboard rather than testing only the Mac's hardware keyboard.
+
+Check the final field and prepare action at a narrow phone size, with the keyboard open, in both languages and after rotation. Select text in the middle of a value and replace it; the caret should not jump to the start. Test paste, accented names and an input method with composition. Errors and their associations should remain understandable with VoiceOver.
+
+An occluded final field, unreachable action or lost selection is a defect to reproduce in the shell, not a reason to claim the form is qualified because its source compiled. Keep native keyboard checks separate from the browser preview and launch smoke test.
+
+- [TextInput reference](/reference/widgets/text-input/)
+- [FormControl reference](/reference/widgets/form-control/)
+- [State, handles and providers](/docs/guides/state-handles-and-providers/)
+<!-- /fission:step -->

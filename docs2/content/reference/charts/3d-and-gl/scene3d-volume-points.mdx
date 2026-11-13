@@ -1,0 +1,53 @@
+---
+title: 3D volume points
+sidebar_label: 3D volume points
+description: Show samples within a volume without claiming a general volume-rendering API.
+---
+
+# 3D volume points
+
+![3D volume points screenshot](/img/charts/scene3d-volume-points.png)
+
+Points can show where a volume was sampled, but the empty space between them remains unmeasured unless the data model says otherwise. Overlapping spheres can suggest a solid object without actually reconstructing one.
+
+This gallery entry is a point-based approximation. It is not a voxel texture, a ray-cast volume renderer or a guarantee that internal structures remain visible through the outer samples.
+
+## Compose the sample projection
+
+Use `PointCloudScene` from [Point cloud](./point-cloud), placed in `widgets/point_cloud.rs`. Retain original sample values and coordinates in the data layer; the view receives only a bounded display projection.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::point_cloud::PointCloudScene;
+
+fission_component! {
+    pub VolumeSamplePreview<()> {
+        props {
+            title: TextContent,
+            sample_positions: Vec<Point3D>,
+            sample_radius: f32,
+            sample_color: Color,
+        }
+    }
+    view(volume, _state, _cx) => PointCloudScene {
+        title: volume.title.clone(),
+        positions: volume.sample_positions.clone(),
+        point_radius: volume.sample_radius,
+        point_color: volume.sample_color,
+    }
+}
+```
+
+Enable the `three-d` feature. Validate finite positions and a finite positive radius. The parent supplies translated text and colour; the radius must not silently imply a physical sample volume which the acquisition process did not measure.
+
+## Checks
+
+Test the coordinate projection and any filtering or threshold policy separately. Inspect hidden interior samples and representative display counts in a real rendering.
+
+Provide sampling bounds, source/display counts and important values outside the scene. The primitive API has no per-sample chart picking, volume-transfer function or inferred density field. The screenshot is the gallery fixture.
+
+Tags: `3d`, `volume`.
+
+[3D and GL family overview](./overview)

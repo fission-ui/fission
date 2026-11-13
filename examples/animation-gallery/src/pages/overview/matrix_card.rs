@@ -5,7 +5,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) MatrixCard<AnimationGalleryState> { title: &'static str, content: &'static str }
-    |card, _state, cx| {
+    view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(

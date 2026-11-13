@@ -1,0 +1,58 @@
+---
+title: Presentation rose
+sidebar_label: Presentation rose
+description: Fission Charts reference for Presentation rose.
+---
+
+# Presentation rose
+
+![Presentation rose screenshot](/img/charts/pie-rose-presentation.png)
+
+A radius-style rose emphasises differences between category totals by changing both their angle and outer radius. The extra emphasis can help a presentation, but it should not be confused with a more precise comparison. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here the categories are workshop attendance totals from one event. Each registration belongs to one workshop. If the reader needs to rank two similar attendance counts accurately, use a bar chart or the exact values beside the rose.
+
+## Data model
+
+`PieSeries::rose_type("radius")` scales radius linearly relative to the largest value, with a non-zero baseline. Angles still encode share of the overall total, so neither radius nor area alone is a direct part-to-whole measure.
+
+## Authoring from a Fission component
+
+The parent supplies the completed attendance report and localized workshop labels. This example actually selects radius mode rather than describing a plain donut as a rose.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub WorkshopAttendanceRose<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            attendance_by_workshop: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.attendance_by_workshop.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .rose_type("radius")
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test equal counts, a dominant workshop and an all-zero report. Keep the event date and counting rule visible, and present exact attendance values accessibly. Inspect short and translated labels for overlap before using the view in a presentation.
+
+Tags: `pie`, `rose`.
+
+[Pie and radial family overview](./overview)

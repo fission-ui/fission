@@ -1,0 +1,94 @@
+---
+title: Product taxonomy tree
+sidebar_label: Product taxonomy tree
+description: Fission Charts reference for Product taxonomy tree.
+---
+
+# Product taxonomy tree
+
+![Product taxonomy tree screenshot](/img/charts/tree-product-taxonomy.png)
+
+A taxonomy tree preserves how catalog categories are nested. The goal is to make the category structure understandable before a shopper or editor chooses a branch. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This chart is a read-only overview. A category picker should use the built-in TreeView when it needs disclosure, selection and keyboard behaviour. Do not recreate those interactions just because the chart looks similar.
+
+## Data model
+
+Supply category nodes through TreemapNode.children. Each child has one parent in this view; product membership in several categories belongs in a separate relationship model. Unit values make clear that this example is not a sales breakdown.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `TreeSeries::data` | `Vec<TreemapNode>` | Supplies the roots of the hierarchy. |
+| `TreemapNode::children` | `Vec<TreemapNode>` | Supplies each node's next level. |
+| `TreemapNode::value` | `f32` | Carries the numeric value associated with the node. |
+| `Chart::series` | `Vec<Series>` | Presents the hierarchy without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, TreeSeries, TreemapNode};
+
+let nodes = vec![TreemapNode {
+    name: "Catalog".into(),
+    value: 2.0,
+    children: vec![
+        TreemapNode {
+            name: "Electronics".into(),
+            value: 1.0,
+            children: vec![],
+        },
+        TreemapNode {
+            name: "Home".into(),
+            value: 1.0,
+            children: vec![],
+        },
+    ],
+}];
+
+let chart = Chart::new()
+    .title("Catalog category structure")
+    .series(vec![TreeSeries::new("Categories")
+        .data(nodes)
+        .radial(false)
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The parent prepares the hierarchy and its loading or error state. The chart component only presents the records supplied to it.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, TreeSeries, TreemapNode};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ProductTaxonomyTreeChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<TreemapNode>,
+        }
+    }
+    view(hierarchy, _state, _cx) =>
+        Chart(
+            title: Some(hierarchy.chart_title.clone()),
+            series: vec![TreeSeries::new(&hierarchy.series_label)
+                .data(hierarchy.nodes.clone())
+                .radial(false)
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check uncategorised products outside the taxonomy view, empty categories and long translated category names. A valid nested structure is not enough if the rendered names cannot be read.
+
+Tags: `tree`, `taxonomy`.
+
+[Hierarchy family overview](./overview)

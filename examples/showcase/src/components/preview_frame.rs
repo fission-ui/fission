@@ -10,7 +10,7 @@ fission_component! {
     #[derive(Clone, Copy, Debug)] pub(crate) PreviewFrame<ShowcaseState> {
         example: ExampleDefinition,
     }
-    |component, state, cx| {
+    view(component, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let mobile = state.preview_viewport == PreviewViewport::Mobile;
         // The frame shows through wherever the example does not paint, so it takes the

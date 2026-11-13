@@ -12,7 +12,7 @@ fission_component! {
         example: ExampleDefinition,
         selected: bool,
     }
-    |component, _state, cx| {
+    view(component, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let path = format!("/examples/{}", component.example.slug);
         let navigate = with_reducer!(cx.build, Navigate(path), on_navigate);

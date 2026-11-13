@@ -1,0 +1,62 @@
+---
+title: Introduction
+description: Understand what Fission owns, what the platform shell owns, and how a product change moves through an application.
+---
+
+# Introduction
+
+Fission is a Rust application platform. You can build one product model and run it on macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR hosts.
+
+> **After this page**
+>
+> You should be able to identify what your application owns, what a platform shell owns, and where to look when behaviour is wrong.
+
+## Why Fission calls itself an application platform
+
+Drawing controls is only part of building an app. You also need state, platform capabilities, accessibility, testing, packaging, signing, and a way to release it. If each part follows a different model, sharing a widget tree still leaves you maintaining separate apps for each platform.
+
+Fission gives those parts one structure. Your Rust code defines product state and behaviour; retained widgets describe the interface; effects request work outside rendering. The shell connects that shared app to an operating system, browser, terminal, static build, or server request.
+
+> **The practical boundary:** Your product decides what should happen. The shell handles how the current platform hosts and delivers it.
+
+## The application flow
+
+A Fission app uses one-way data flow. Each part has a job, so it’s easier to see where a change belongs and where to look when something goes wrong.
+
+1. **State holds product truth.** Plain Rust data stores the facts your interface and behaviour rely on.
+2. **Actions name intent.** A click becomes a request such as save, open, submit, or retry.
+3. **Reducers change state.** Business rules update the source of truth through an explicit path you can test.
+4. **Widgets describe the interface.** They read state and environment values without doing hidden work.
+5. **Shells connect the platform.** They handle input, lifecycle, accessibility, rendering, capabilities, and packaging.
+
+## A product change in concrete terms
+
+Take “archive conversation” in a mail app. Shared state holds the conversations. `ArchiveConversation` names what the user asked to do, and a reducer applies the rule. Desktop, Web, and mobile can bind that same action to their controls. Shared tests check the transition once.
+
+Platform-specific details stay explicit: desktop might add a keyboard shortcut, mobile a swipe gesture, and Web the right browser-history behaviour. None of that needs a second archive implementation.
+
+```rust
+#[derive(Clone, Debug)]
+struct ArchiveConversation {
+    id: ConversationId,
+}
+
+fn archive(state: &mut AppState, action: ArchiveConversation) {
+    state.conversations.archive(action.id);
+}
+```
+
+## How the structure helps when something is wrong
+
+| Symptom | Investigate |
+| --- | --- |
+| The data is wrong | Check state, the dispatched action, and its reducer |
+| The data is right but the screen is wrong | Check widget inputs, layout, semantics, and painting |
+| Only one target fails | Check that target’s shell, provider, lifecycle, and packaging |
+| Work happens at a surprising time | Make sure I/O starts through an effect, job, service, resource, or capability—not component conversion |
+
+## Run the model before learning more terminology
+
+The quickstart builds a small counter. It shows the whole loop with very little code: state, action, reducer, widget, shell, and the result on screen.
+
+[Continue to Quickstart →](/docs/learn/quickstart/)

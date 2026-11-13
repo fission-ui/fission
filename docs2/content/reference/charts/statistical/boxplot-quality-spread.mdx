@@ -1,0 +1,58 @@
+---
+title: Quality spread boxplot
+sidebar_label: Quality spread boxplot
+description: Fission Charts reference for Quality spread boxplot.
+---
+
+# Quality spread boxplot
+
+![Quality spread boxplot screenshot](/img/charts/boxplot-quality-spread.png)
+
+A batch's quality variation can matter as much as its average. A boxplot can show whether measured part weights are concentrated or widely spread across comparable batches. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use a physical measure with one unit, here grams, rather than an unexplained composite quality number. A tight distribution can still be consistently outside the allowed weight range.
+
+## Data model
+
+`BoxplotSeries` consumes five ordered values per batch: min, Q1, median, Q3 and max. Compute them under a documented sampling and quantile rule. The series does not test tolerance or identify outlier records.
+
+## Authoring from a Fission component
+
+The parent supplies validated five-value arrays and localized batch labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BoxplotSeries, Chart};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub BatchPartWeightSpread<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            group_labels: Vec<String>,
+            summaries: Vec<[f32; 5]>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.group_labels.iter().map(String::as_str).collect();
+        let rows = report.summaries.iter().map(|summary| summary.to_vec()).collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(&report.axis_label)),
+        series: vec![BoxplotSeries::new(&report.series_label).data(rows).into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test calibration offsets, empty samples and a batch with one extreme measurement. Retain exact summaries, sample counts and specification limits outside the chart. Compliance remains a domain-policy decision.
+
+Tags: `boxplot`, `quality`.
+
+[Statistical family overview](./overview)

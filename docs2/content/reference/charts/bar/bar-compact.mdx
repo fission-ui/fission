@@ -1,0 +1,61 @@
+---
+title: Compact category bars
+sidebar_label: Compact category bars
+description: Compare a short set of categories in a card without losing labels or a meaningful scale.
+---
+
+# Compact category bars
+
+![Compact category bars screenshot](/img/charts/bar-compact.png)
+
+A compact chart should reduce the amount of space it uses, not the information needed to interpret it. For a support overview, a short comparison of unresolved tickets by queue can fit in a card. A long list of queues with abbreviated labels usually cannot.
+
+Keep the category count small and retain a zero baseline. Narrowing the numeric range to make small differences look larger does not make the chart more useful.
+
+## Compose example
+
+The rows below are display projections of the application's ticket data. The parent supplies translated labels and an already calculated count for each queue; this component does not fetch tickets during its build.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct QueueCount {
+    pub label: String,
+    pub unresolved: f32,
+}
+
+fission_component! {
+    pub QueueSummaryChart<()> {
+        props {
+            title: String,
+            tickets_label: String,
+            rows: Vec<QueueCount>,
+        }
+    }
+    view(summary, _state, _cx) {
+        let labels = summary.rows.iter().map(|row| row.label.as_str()).collect();
+        let counts = summary.rows.iter().map(|row| row.unresolved).collect();
+    } => Chart(
+        title: Some(summary.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        series: vec![
+            Series::Bar(BarSeries::new(&summary.tickets_label).data(counts)),
+        ],
+    )
+}
+```
+
+Enable Fission's `charts` feature. `Chart.series` is a `Vec<Series>`, and each `BarSeries` receives a `Vec<f32>` in category order. The chart's optional dimensions are left to its containing layout rather than fixing a desktop width inside the component.
+
+## Decide what to remove
+
+With a single series, an additional legend often repeats the title or unit rather than adding information. Category labels and the numeric scale still matter. If they no longer fit, change the presentation: use horizontal bars, a table, or a drill-down view instead of hiding essential labels.
+
+Test the smallest supported card width with the longest translated queue names. Also check zero tickets and the largest expected count. Provide exact queue counts outside the chart for accessibility and for readers who need to act on them. The screenshot is from the gallery's sample data.
+
+Tags: `bar`, `category`.
+
+[Bar family overview](./overview)

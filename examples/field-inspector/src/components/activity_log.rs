@@ -4,7 +4,7 @@ use crate::model::FieldInspectorState;
 use fission::prelude::*;
 fission_component! {
     pub ActivityLog<FieldInspectorState> {}
-    |_log, state, cx| {} =>
+    view(_log, state, cx) {} =>
         PanelCard(
             Column(
                 gap: cx.view.env().theme.tokens.spacing.s,

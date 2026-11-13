@@ -14,7 +14,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(crate) SelectedChart<GalleryState> { scale: f32 }
-    |selection, state, _cx| {
+    view(selection, state, _cx) {
         let chart = state.selected_chart;
     } =>
         match state.selected_category {

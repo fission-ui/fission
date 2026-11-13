@@ -1,0 +1,93 @@
+---
+title: Drawer
+description: Show a side panel as a modal-layer overlay while keeping open state in your app model.
+slug: /widgets/drawer
+---
+# Drawer
+
+`Drawer` is a temporary side panel for navigation, filters, settings, or an
+inspector. It appears above the current screen without changing the route.
+
+Your app owns `is_open`. A reducer changes it in response to an action; the
+next conversion renders the drawer or removes it. The widget adds the panel to
+the modal portal layer and can dispatch your dismiss action when the backdrop
+is tapped.
+
+Use a [`Modal`](/reference/widgets/modal) for a blocking decision, or a
+[`Popover`](/reference/widgets/popover) or
+[`flyout`](/reference/widgets/flyout) for a small anchored choice.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub FilterDrawer<()> {
+        props { filters: Widget }
+        state { open: bool = false }
+    }
+
+    view(drawer, _state, cx) =>
+        Column(
+            children: [
+                Button(
+                    child: Text(cx.tr("search.filters")),
+                    on_press: reduce { drawer.open = true; },
+                ),
+                Drawer(
+                    id: WidgetId::explicit("search.filters"),
+                    side: DrawerSide::Right,
+                    is_open: drawer.open,
+                    dismiss_semantics_identifier: Some("search.close-filters".into()),
+                    content: drawer.filters.clone(),
+                    on_dismiss: reduce { drawer.open = false; },
+                ),
+            ],
+        )
+}
+```
+
+Only panel visibility is local; filter values and the query they affect belong
+to the parent model. Closing sets visibility to false, so duplicate dismiss
+requests are harmless. The parent supplies one owned filter tree for this drawer.
+
+The reducer owns `show_filters`. The drawer itself only reads that state and emits `on_dismiss` when the user taps the backdrop.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetId` | Stable identity for the portal entry. | Required. Give each drawer a stable id so the runtime can track it consistently. |
+| `side` | `DrawerSide` | Which horizontal edge the panel attaches to. | Use `Left` or `Right`. |
+| `is_open` | `bool` | Whether the drawer should be visible this frame. | Controlled visibility, including any retained exit transition. |
+| `on_dismiss` | `Option<ActionEnvelope>` | Action dispatched when the backdrop is tapped. | Defaults to `None`. If you omit it, the backdrop still covers the screen but does not close the drawer for you. |
+| `motion` | `Option<DrawerMotion>` | Entry/exit transition policy. | `None` follows standard widget motion. |
+| `dismiss_semantics_identifier` | `Option<String>` | Stable backdrop-dismissal test identifier. | Useful when a page has several overlays. |
+| `content` | `Widget` | The panel body. | Build the full drawer user interface here. |
+| `width` | `Option<f32>` | Requested panel width in logical pixels. | Defaults to `300.0`. The runtime clamps it to the current viewport so the drawer still fits on smaller screens. |
+
+## Layout and overlay behavior
+
+When open, `Drawer` registers a portal in `PortalLayer::Modal`. The shell wraps portal content in a viewport-sized container, so the drawer always measures against the whole screen instead of the inline spot where the widget was declared.
+
+The panel itself is pinned to the chosen edge and stretches from top to bottom. The backdrop covers the full viewport behind it. This means the screen under the drawer is visually present but not the place where the user should continue interacting.
+
+## Specific advice
+
+Put only temporary, secondary user interface in a drawer. If people need to finish a task before they can continue, use a modal dialog instead. If the panel is always visible on large screens, consider a normal layout widget such as [`SplitView`](/reference/widgets/split-view), [`Row`](/reference/widgets/row), or [`Column`](/reference/widgets/column) instead of opening and closing an overlay.
+
+The standard widget-motion policy supplies drawer entry/exit transitions.
+Use `motion: Some(DrawerMotion::None)` when this panel should not animate;
+otherwise reduced-motion behaviour follows the environment. Keep the same
+identity through the exit so retained motion and focus refer to one panel.
+
+## Production checklist
+
+- Check open, backdrop dismiss, explicit close, and focus restoration.
+- Test narrow viewports and long filter labels with the app's translated bundles.
+- Verify an exit transition cannot activate obscured background content.
+
+## Related
+
+[`DrawerSide`](/reference/widgets/drawer-side), [`Modal`](/reference/widgets/modal), [`Popover`](/reference/widgets/popover), [`Portal`](/reference/widgets/portal), and [`SafeArea`](/reference/widgets/safe-area).

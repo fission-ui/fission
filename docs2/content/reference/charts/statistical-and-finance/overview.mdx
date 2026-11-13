@@ -1,0 +1,63 @@
+---
+title: Statistical and finance
+sidebar_label: Overview
+description: Fission Charts reference for the Statistical and finance family.
+---
+
+# Statistical and finance
+
+These charts preserve distributions, paired observations and interval summaries which a total or average would hide. Keep the statistical calculation and exact source values separate from the visual projection.
+
+![Boxplot screenshot](/img/charts/boxplot-basic.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Boxplot](./boxplot-basic) | Five-number rows; raw groups use a separate calculation helper. | Use it when distribution matters more than a single average. |
+| [Bubble scatter](./scatter-bubble) | Vec&lt;(x, y, size)&gt;. | Use it when two axes are not enough and size can encode importance or volume. |
+| [Candlestick](./candlestick-basic) | Rows of open, close, low, high values. | Use it for finance and other range-over-time data. |
+| [Cartesian heatmap](./heatmap-cartesian) | x index, y index, and value triples. | Use it for density, activity, and matrix-style comparison. |
+| [Effect scatter](./scatter-effect) | Vec&lt;(f32, f32)&gt; plus emphasis styling. | Use it to mark active locations, alerts, or selected results. |
+| [Scatter](./scatter-basic) | Vec&lt;(f32, f32)&gt;. | Inspect paired observations; analysis and classification remain explicit. |
+
+## Choosing within this family
+
+A boxplot expects min/Q1/median/Q3/max, whilst a candlestick expects open/close/low/high. Passing similarly shaped rows in the wrong order can compile and still create a false report. Use typed arrays and validate the order before conversion.
+
+Scatter uses two numeric dimensions, bubbles add a non-negative size and effect scatter adds emphasis. A heatmap needs indexed cells and category labels. None of these choices automatically validates observations or provides a statistical conclusion.
+
+## Authoring from a Fission component
+
+A completed-delivery report illustrates the five-number contract. The parent computes and validates each summary before passing it to the component.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BoxplotSeries, Chart};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DeliveryDistributionOverview<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            group_labels: Vec<String>,
+            summaries: Vec<[f32; 5]>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.group_labels.iter().map(String::as_str).collect();
+        let rows = report.summaries.iter().map(|summary| summary.to_vec()).collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(&report.axis_label)),
+        series: vec![BoxplotSeries::new(&report.series_label).data(rows).into()],
+    )
+}
+```
+
+## Checks
+
+Test units, row shape, missing groups and summary conventions independently of rendering. Retain financial amounts in exact domain types and use f32 only for display. Inspect real output and provide exact values, sample counts and reporting periods outside the image.

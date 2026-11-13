@@ -107,15 +107,12 @@ pub(super) fn run_startup_command(command: &mut Command, label: &str) -> Option<
             .checked_duration_since(Instant::now())
             .context("startup timed out")?;
         let signals = termination_signals()?;
-        let output = run_captured(command, label, remaining, || {
+        run_captured_with_output(command, label, remaining, true, || {
             if signals.take().is_some() {
                 stop.store(true, Ordering::Release);
             }
             stop.load(Ordering::Acquire)
         })?;
-        if !output.is_empty() {
-            eprint!("{output}");
-        }
         Ok(())
     })
 }
@@ -153,6 +150,16 @@ pub fn run_captured(
     timeout: Duration,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<String> {
+    run_captured_with_output(command, label, timeout, false, cancelled)
+}
+
+fn run_captured_with_output(
+    command: &mut Command,
+    label: &str,
+    timeout: Duration,
+    stream: bool,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<String> {
     if cancelled() {
         return Err(
             anyhow::Error::new(Cancelled).context(format!("{label} cancelled before starting"))
@@ -170,8 +177,8 @@ pub fn run_captured(
     let stderr = inner.stderr.take().context("missing worker stderr")?;
     let out = Arc::new(Mutex::new(VecDeque::new()));
     let err = Arc::new(Mutex::new(VecDeque::new()));
-    let out_reader = capture(stdout, out.clone());
-    let err_reader = capture(stderr, err.clone());
+    let out_reader = capture(stdout, out.clone(), stream);
+    let err_reader = capture(stderr, err.clone(), stream);
     let deadline = Instant::now() + timeout;
     let result = loop {
         if cancelled() {
@@ -226,12 +233,18 @@ fn tail(buffer: &Mutex<VecDeque<u8>>) -> String {
 fn capture(
     mut reader: impl Read + Send + 'static,
     buffer: Arc<Mutex<VecDeque<u8>>>,
+    stream: bool,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let mut chunk = [0; 4096];
         while let Ok(count) = reader.read(&mut chunk) {
             if count == 0 {
                 break;
+            }
+            if stream {
+                let mut stderr = std::io::stderr().lock();
+                let _ = std::io::Write::write_all(&mut stderr, &chunk[..count]);
+                let _ = std::io::Write::flush(&mut stderr);
             }
             let mut tail = buffer.lock().expect("log buffer lock");
             tail.extend(&chunk[..count]);

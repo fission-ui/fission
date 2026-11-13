@@ -1,0 +1,51 @@
+---
+title: Mark point component
+sidebar_label: Mark point component
+description: Attach a named annotation to an actual numeric observation with MarkPoint.
+---
+
+# Mark point component
+
+![Mark point component screenshot](/img/charts/component-mark-point.png)
+
+A mark point identifies an observation worth explaining. For a service report, it might identify a request measured during an incident, using payload size on x and response time on y.
+
+Choose the observation in the reporting layer. A visual marker does not establish that it is the maximum, an outlier or the cause of an incident.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, Chart, MarkPoint, ScatterSeries, Series};
+
+fission_component! {
+    pub AnnotatedServiceObservation<()> {
+        props {
+            title: String,
+            requests_label: String,
+            payload_label: String,
+            response_label: String,
+            incident_label: String,
+            samples: Vec<(f32, f32)>,
+            incident_sample: (f32, f32),
+            marker_colour: Color,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.title.clone()),
+        x_axis: Some(Axis::value().name(report.payload_label.clone())),
+        y_axis: Some(Axis::value().name(report.response_label.clone())),
+        series: vec![Series::Scatter(
+            ScatterSeries::new(&report.requests_label).data(report.samples.clone()),
+        )],
+        mark_points: vec![MarkPoint::xy(
+            report.incident_label.clone(), report.incident_sample.0, report.incident_sample.1,
+        ).color(report.marker_colour)],
+    )
+}
+```
+
+The numeric coordinate pair refers to the same units as the scatter data. Require finite values and an incident sample present in the displayed snapshot. If annotating a category line instead, x is a category index, not an arbitrary timestamp.
+
+Supply translated names and a design-system colour, and keep the incident's durable identifier in the source model rather than replacing it with a data index. Test that filtering does not leave an annotation on an absent observation, and show the explanation outside the plot. The gallery image is illustrative.
+
+[Components and interaction family overview](./overview)

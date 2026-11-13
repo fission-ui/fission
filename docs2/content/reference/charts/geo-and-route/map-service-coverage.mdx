@@ -1,0 +1,28 @@
+---
+title: Service coverage map
+sidebar_label: Service coverage map
+description: Show measured premises coverage rather than an undefined regional score.
+---
+
+# Service coverage map
+
+![Service coverage map screenshot](/img/charts/map-service-coverage.png)
+
+Coverage is a relation between what is served and what could be served. A region with many active connections is not necessarily well covered if it contains many more eligible premises.
+
+The [coverage dataset example](../dataset/dataset-map-coverage) defines `RegionCoverage` and `PremisesCoverageMap` in `widgets/premises_coverage_map.rs`. Its central projection is:
+
+```rust
+pub fn coverage_percent(covered: u32, eligible: u32) -> Option<f32> {
+    if eligible == 0 || covered > eligible {
+        return None;
+    }
+    Some(100.0 * covered as f32 / eligible as f32)
+}
+```
+
+Use the linked Compose component with the same validated counts and a 0–100 colour scale. It joins stable region IDs to supplied GeoJSON, rather than using translated names as keys. Supply translated captions explaining what counts as eligible and the date of the survey.
+
+Do not turn `None` into zero: an unmeasured area and a confirmed unserved area require different explanations. Validate `covered <= eligible` before passing records to the component. Keep exact counts available because equal percentages can describe very different amounts of work. Test boundary values and missing geometry. The gallery image uses separate fixtures.
+
+[Geo and route family overview](./overview)

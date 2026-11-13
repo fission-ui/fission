@@ -1,0 +1,58 @@
+---
+title: Stacked revenue bars
+sidebar_label: Stacked revenue bars
+description: Compare recurring and usage revenue contributions with one reconciled reporting measure.
+---
+
+# Stacked revenue bars
+
+![Stacked revenue bars screenshot](/img/charts/bar-stacked-revenue.png)
+
+Stacked revenue bars show a total and its components together. For a subscription product, recurring charges and usage charges are useful components only if they cover the same period, currency and accounting basis.
+
+Keep invoice calculations in the application's money type. The chart receives a display projection; it must not become the authority for rounding or revenue recognition.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Legend, Series};
+
+#[derive(Clone)]
+pub struct RevenuePeriod {
+    pub label: String,
+    pub recurring: f32,
+    pub usage: f32,
+}
+
+fission_component! {
+    pub RevenueComposition<()> {
+        props {
+            title: String,
+            recurring_label: String,
+            usage_label: String,
+            periods: Vec<RevenuePeriod>,
+        }
+    }
+    view(revenue, _state, _cx) {
+        let labels = revenue.periods.iter().map(|row| row.label.as_str()).collect();
+        let recurring = revenue.periods.iter().map(|row| row.recurring).collect();
+        let usage = revenue.periods.iter().map(|row| row.usage).collect();
+    } => Chart(
+        title: Some(revenue.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Bar(BarSeries::new(&revenue.recurring_label)
+                .stack("revenue").data(recurring)),
+            Series::Bar(BarSeries::new(&revenue.usage_label)
+                .stack("revenue").data(usage)),
+        ],
+    )
+}
+```
+
+Both series use the same internal stack key. The parent supplies translated labels and finite non-negative display amounts. Handle refunds or negative adjustments explicitly rather than assuming this positive-contribution presentation explains them.
+
+Reconcile the component sum against the report total, and keep exact amounts in an accessible table. The upper segment does not have a fixed baseline, so grouped bars are better when precise usage-revenue comparisons are the main task. The screenshot uses gallery data.
+
+[Bar family overview](./overview)

@@ -2,7 +2,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) QualityHeading<()> { compact: bool }
-    |heading, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(heading, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         Row(
             align_items: fission::op::AlignItems::End,
             children: [

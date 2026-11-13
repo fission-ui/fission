@@ -1,0 +1,62 @@
+---
+title: Coverage dataset map
+sidebar_label: Coverage dataset map
+description: Join coverage ratios to supplied boundaries through the actual MapSeries API.
+---
+
+# Coverage dataset map
+
+![Coverage dataset map screenshot](/img/charts/dataset-map-coverage.png)
+
+Coverage needs a denominator. A region with more covered premises may still have a lower rate if it contains many more premises overall.
+
+Calculate the ratio from authoritative counts and keep unknown denominators distinct from observed zero coverage.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, MapSeries, Series, VisualMap};
+
+#[derive(Clone)]
+pub struct RegionCoverage {
+    pub region_id: String,
+    pub covered_premises: u32,
+    pub total_premises: u32,
+}
+
+fission_component! {
+    pub PremisesCoverageMap<()> {
+        props {
+            title: String,
+            coverage_label: String,
+            explanation: TextContent,
+            boundaries: String,
+            regions: Vec<RegionCoverage>,
+            percent_scale: VisualMap,
+        }
+    }
+    view(coverage, _state, _cx) {
+        let values = coverage.regions.iter().filter_map(|region| {
+            (region.total_premises > 0).then(|| (
+                region.region_id.as_str(),
+                region.covered_premises as f32 / region.total_premises as f32 * 100.0,
+            ))
+        }).collect();
+    } => Column(children: [
+        Text(coverage.explanation.clone()),
+        Chart(
+            title: Some(coverage.title.clone()),
+            visual_map: Some(coverage.percent_scale.clone()),
+            series: vec![Series::Map(
+                MapSeries::new(&coverage.coverage_label, "premises-coverage")
+                    .geojson(&coverage.boundaries).name_property("region_id").data(values),
+            )],
+        ),
+    ])
+}
+```
+
+Supply valid GeoJSON polygon features with stable string `region_id` properties, unique rows and covered counts no greater than totals. A zero denominator is omitted and must be explained as unavailable.
+
+Use a stable 0–100 theme colour scale and translated explanations. The map consumes direct region/value pairs, not generic line/bar encoding. Test unmatched IDs and unknown denominators, and expose exact counts and rates in a regional table. The screenshot is a fixture.
+
+[Dataset family overview](./overview)

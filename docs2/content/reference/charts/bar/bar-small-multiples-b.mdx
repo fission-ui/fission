@@ -1,0 +1,69 @@
+---
+title: Small multiple bars B
+sidebar_label: Small multiple bars B
+description: Compose two independent branch-order panels using the same reporting periods and numeric scale.
+---
+
+# Small multiple bars B
+
+![Small multiple bars B screenshot](/img/charts/bar-small-multiples-b.png)
+
+The useful part of a small-multiples layout is the comparison between panels. If the axes change from one panel to the next, the repeated visual form suggests a consistency that the data does not actually have.
+
+Reuse the [panel from example A](./bar-small-multiples-a), while constructing a new instance for each branch. A vertical arrangement also keeps the panels readable when the available width is small.
+
+## Compose the comparison
+
+This example assumes `WeeklyBranchOrders` is in `widgets/weekly_branch_orders.rs`, as described on that page.
+
+```rust
+use fission::prelude::*;
+use crate::widgets::weekly_branch_orders::WeeklyBranchOrders;
+
+fission_component! {
+    pub TwoBranchOrders<()> {
+        props {
+            first_id: WidgetId,
+            second_id: WidgetId,
+            first_title: String,
+            second_title: String,
+            measure_label: String,
+            periods: Vec<String>,
+            first_counts: Vec<u32>,
+            second_counts: Vec<u32>,
+        }
+    }
+    view(comparison, _state, _cx) {
+        let shared_max = comparison.first_counts.iter()
+            .chain(comparison.second_counts.iter())
+            .copied().max().unwrap_or(0).max(1) as f32;
+    } => Column(children: [
+        WeeklyBranchOrders {
+            chart_id: comparison.first_id,
+            title: comparison.first_title.clone(),
+            measure_label: comparison.measure_label.clone(),
+            periods: comparison.periods.clone(),
+            counts: comparison.first_counts.clone(),
+            shared_max: shared_max,
+        },
+        WeeklyBranchOrders {
+            chart_id: comparison.second_id,
+            title: comparison.second_title.clone(),
+            measure_label: comparison.measure_label.clone(),
+            periods: comparison.periods.clone(),
+            counts: comparison.second_counts.clone(),
+            shared_max: shared_max,
+        },
+    ])
+}
+```
+
+Use distinct, stable chart IDs for the branches. Cloning input strings and counts does not clone retained widgets; each component creates its own tree and retains its own chart interaction state.
+
+## Validate the shared snapshot
+
+Both count vectors must correspond to exactly the supplied periods. Build that alignment in the reporting layer, not by independently sorting labels and values in each panel. A missing branch report should produce an explicit incomplete state rather than an all-zero series.
+
+The shared maximum has a non-zero fallback for an all-zero report. Test that case, an empty report and one branch with a much larger workload. If you later arrange panels side by side responsively, construct independent trees in each responsive branch and verify both layouts. The gallery screenshot shows only its own sample panel.
+
+[Bar family overview](./overview)

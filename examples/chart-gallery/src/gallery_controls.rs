@@ -15,7 +15,7 @@ fission_component! {
         toggle_markers: ActionEnvelope,
         instance: &'static str,
     }
-    |controls, state, cx| {
+    view(controls, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Column(

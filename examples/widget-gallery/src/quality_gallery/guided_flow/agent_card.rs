@@ -14,7 +14,7 @@ fission_component! {
         tone: AgentTone,
         selected: bool,
     }
-    |card, _state, _cx| {
+    view(card, _state, _cx) {
         let (icon_source, icon_bg, icon_color) = match card.tone {
             AgentTone::Intake => (
                 material::content::inbox::regular(),
@@ -45,7 +45,7 @@ fission_component! {
         icon_bg: Color,
         icon_color: Color,
     }
-    |surface, _state, _cx| {
+    view(surface, _state, _cx) {
         let card = &surface.card;
         let selected = card.selected;
         let (tag_background, tag_text) = if card.tone == AgentTone::Planning {
@@ -71,7 +71,7 @@ fission_component! {
 
 fission_component! {
     GuidedAgentHeading<()> { card: GuidedAgentCard, icon_source: &'static str, icon_bg: Color, icon_color: Color }
-    |heading, _state, _cx| {
+    view(heading, _state, _cx) {
         let card = &heading.card;
         let (tag_background, tag_text) = if card.tone == AgentTone::Planning {
             (rgba(255, 244, 223, 255), rgba(209, 105, 0, 255))
@@ -146,7 +146,7 @@ fission_component! {
 
 fission_component! {
     GuidedAgentContent<()> { card: GuidedAgentCard }
-    |content, _state, _cx| { let card = &content.card; } =>
+    view(content, _state, _cx) { let card = &content.card; } =>
         Row(
             gap: 12.0_f32,
             align_items: fission::op::AlignItems::Start,
@@ -211,7 +211,7 @@ fission_component! {
 
 fission_component! {
     GuidedAgentFooter<()> { meta: &'static str }
-    |footer, _state, _cx| {} =>
+    view(footer, _state, _cx) {} =>
         Row(
             gap: 8.0_f32,
             flex_grow: 1.0_f32,

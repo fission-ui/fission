@@ -1,0 +1,68 @@
+---
+title: Route
+description: Describe one path pattern and the widget that should render it.
+slug: /widgets/route
+---
+# Route
+
+`Route` matches one path pattern and builds its screen. It does not own
+navigation state: your app keeps the current path, and reducers decide when it
+changes.
+
+The current implementation keeps route syntax intentionally small and predictable:
+
+- literal segments such as `/settings`
+- named parameters such as `/users/:id`
+- exact segment counts only
+
+`Route` itself does not parse a query or drive browser history. The shell's
+navigation API owns path/query/fragment and history; pass the current path into
+`Router` and use `RouteLocation` for full location data.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+// Routing-table excerpt. AppState and ProjectDetail are application types.
+let project_route = Route::<AppState> {
+    path: "/projects/:id".into(),
+    builder: std::sync::Arc::new(|_ctx, _view, params| {
+        ProjectDetail {
+            id: params["id"].clone(),
+        }
+        .into()
+    }),
+};
+```
+
+`Route` is a routing record, not a visible widget with a `Default` contract.
+The thin builder converts the application's named Compose screen using its
+fully specified props. The declared pattern guarantees an `id` entry; the
+screen must still validate whether it is a legitimate project identifier.
+
+If a route needs data from route parameters, use the `params` value passed to the builder. Keep the closure thin and hand the values into a named screen component.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `path` | `String` | Route pattern to match against `Router.current_path`. | Use literal segments and `:name` parameter segments. |
+| `builder` | `PageBuilder<S>` | Closure that receives build handles plus route parameters and returns the matching screen. | Return a named screen component such as `ProjectDetail { id }`. |
+
+## Page contract
+
+The builder returns a normal `Widget` value. It should describe the screen to display. It should not fetch data, write files, or perform side effects directly.
+
+If the route needs to kick off work, dispatch an explicit action and let the reducer or effect system do that in the right place.
+
+## Specific advice
+
+Keep route construction thin. The cleanest pattern is usually to extract a real screen widget and hand any selected identifiers into that widget. That keeps the routing table readable and makes the screen easier to test in isolation.
+
+Also validate parameter parsing locally. Matching `/projects/:id` only guarantees that there was some text in that segment, not that the text is a valid project id.
+
+
+## Related
+
+[`Router`](/reference/widgets/router), [`RouteParams`](/reference/widgets/route-params), and [`Runtime model`](/docs/learn/runtime-model).

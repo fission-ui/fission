@@ -1,0 +1,119 @@
+---
+title: NumberInput
+description: Present a numeric value with decrement and increment buttons around a text field.
+slug: /widgets/number-input
+---
+# NumberInput
+
+`NumberInput` changes a number one step at a time with minus and plus buttons
+around a central value. Use it for quantities, counts, and compact settings
+where choosing a specific step matters more than free-form typing.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+#[derive(Debug)]
+pub struct OrderState {
+    quantity: u16,
+    quantity_draft: String,
+}
+
+impl Default for OrderState {
+    fn default() -> Self {
+        Self { quantity: 1, quantity_draft: "1".into() }
+    }
+}
+
+impl GlobalState for OrderState {}
+
+fission_component! {
+    pub OrderQuantity<OrderState> {}
+
+    view(_field, state, cx) {
+        let invalid = state.quantity_draft.parse::<u16>()
+            .map_or(true, |value| !(1..=10).contains(&value));
+    } =>
+        FormControl(
+            label: Some(cx.tr("order.quantity")),
+            error: if invalid { Some(cx.tr("order.quantity_range")) } else { None },
+            child: NumberInput(
+                value: state.quantity as f32,
+                display_text: Some(state.quantity_draft.clone()),
+                min: 1.0,
+                max: 10.0,
+                step: 1.0,
+                label: Some(cx.tr("order.quantity")),
+                on_input: reduce {
+                    if let Some(change) = cx.input.text_change() {
+                        state.quantity_draft = change.new_text.clone();
+                        if let Ok(value) = state.quantity_draft.parse::<u16>() {
+                            if (1..=10).contains(&value) {
+                                state.quantity = value;
+                            }
+                        }
+                    }
+                },
+                on_increment: reduce {
+                    state.quantity = state.quantity.saturating_add(1).min(10);
+                    state.quantity_draft = state.quantity.to_string();
+                },
+                on_decrement: reduce {
+                    state.quantity = state.quantity.saturating_sub(1).max(1);
+                    state.quantity_draft = state.quantity.to_string();
+                },
+            ),
+        )
+}
+```
+
+The canonical quantity is an integer. An incomplete draft remains visible
+without replacing the last valid quantity. The checkout action must reject an
+invalid draft rather than silently ordering the previous number. Shared order
+truth lives in `GlobalState`; the field does not invent its own hidden cart.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable identity for the inner text field. | Defaults to `None`. |
+| `value` | `f32` | Current numeric value. | Defaults to `0.0`. |
+| `display_text` | `Option<String>` | Exact text shown in the field. | If `None`, the widget formats `value` with `format!("{}", value)`. |
+| `min` | `Option<f32>` | Intended minimum value. | Exposed in range semantics; enforce it in the reducer. |
+| `max` | `Option<f32>` | Intended maximum value. | Exposed in range semantics; enforce it in the reducer. |
+| `step` | `f32` | Intended adjustment step. | Defaults to `1.0`, but the current widget does not apply it automatically. Your reducer does. |
+| `field_width` | `Option<f32>` | Width of the central text field. | If `None`, width is estimated from `display_text`. |
+| `button_size` | `Option<f32>` | Size of the plus and minus buttons. | Uses `tokens.sizing.control_md`, bounded below by `min_pointer_target`. |
+| `gap` | `Option<f32>` | Spacing between the buttons and field. | Uses the number-input recipe gap or `tokens.spacing.xs`. |
+| `on_increment` | `Option<ActionEnvelope>` | Action fired by the plus button. | Defaults to `None`. |
+| `on_decrement` | `Option<ActionEnvelope>` | Action fired by the minus button. | Defaults to `None`. |
+| `label` | `Option<String>` | Accessible name for the numeric adjustment. | Supply the same operation name as the visible form label. |
+| `on_input` | `Option<ActionEnvelope>` | Action fired for typed edits in the central field. | Preserves the bound action; parse `ctx.input.text_change().new_text` in the reducer. |
+
+## Current behavior and limitations
+
+The central field is rendered with [`TextInput`](/reference/widgets/text-input)
+and forwards `on_input`. Bounds are exposed in range semantics, but do not
+disable the step buttons or parse typed edits. `step` likewise does not generate
+a new number: the supplied actions and reducers own every adjustment.
+
+Typed edits arrive as text because incomplete numeric input such as an empty
+field, `-`, or a trailing decimal point is not always an `f32`. Parse inside the
+reducer and decide whether to retain a separate draft string when intermediate
+states matter. The plus and minus buttons continue to dispatch
+`on_increment` and `on_decrement` independently.
+
+## Specific advice
+
+Keep the canonical number in state as a number, not only as a string. If you also need a draft text representation, store that draft explicitly so validation and formatting stay predictable.
+
+## Production checklist
+
+- Test empty, partial, malformed, out-of-range, and very large typed values.
+- Enforce bounds in the reducer; the current step buttons do not disable themselves at the ends.
+- Prevent submission while the visible draft is invalid; do not order the last valid quantity silently.
+
+## Related
+
+[`TextInput`](/reference/widgets/text-input), [`Slider`](/reference/widgets/slider), [`TimePicker`](/reference/widgets/time-picker), and [`FormControl`](/reference/widgets/form-control).

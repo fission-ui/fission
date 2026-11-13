@@ -1,0 +1,54 @@
+---
+title: Store comparison
+sidebar_label: Store comparison
+description: Compare current and previous store orders with aligned categories and reporting rules.
+---
+
+# Store comparison
+
+![Store comparison screenshot](/img/charts/bar-store-comparison.png)
+
+Comparing stores across two periods is useful when a manager needs to distinguish a general change from a local one. Put both observations beside the same store label, rather than requiring the reader to match two independently ordered charts.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Legend, Series};
+
+#[derive(Clone)]
+pub struct StoreOrders {
+    pub label: String,
+    pub previous: u32,
+    pub current: u32,
+}
+
+fission_component! {
+    pub StorePeriodComparison<()> {
+        props {
+            title: String,
+            previous_label: String,
+            current_label: String,
+            stores: Vec<StoreOrders>,
+        }
+    }
+    view(comparison, _state, _cx) {
+        let labels = comparison.stores.iter().map(|store| store.label.as_str()).collect();
+        let previous = comparison.stores.iter().map(|store| store.previous as f32).collect();
+        let current = comparison.stores.iter().map(|store| store.current as f32).collect();
+    } => Chart(
+        title: Some(comparison.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Bar(BarSeries::new(&comparison.previous_label).data(previous)),
+            Series::Bar(BarSeries::new(&comparison.current_label).data(current)),
+        ],
+    )
+}
+```
+
+The absence of a stack key keeps periods side by side. Construct the typed rows from one report snapshot so sorting cannot detach a store's previous value from its current value.
+
+Use comparable period lengths and order-completion rules, with explicit treatment for recently opened stores. Missing previous-period data is not zero sales. Provide exact counts and test an incomplete period, tied results and long translated names. The gallery screenshot is illustrative rather than output from these props.
+
+[Bar family overview](./overview)

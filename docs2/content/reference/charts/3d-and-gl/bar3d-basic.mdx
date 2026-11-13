@@ -1,0 +1,126 @@
+---
+title: 3D bar
+sidebar_label: 3D bar
+description: Represent a spatial grid of measurements with native 3D bars in Fission.
+---
+
+# 3D bar
+
+![3D bar screenshot](/img/charts/bar3d-basic.png)
+
+A 3D bar chart places a value at each position in a grid. Consider readings from a storage facility: the two ground-plane coordinates identify a location, whilst the height represents the reading at that location. Keeping those positions can reveal a spatial pattern which would be lost by sorting the values into a single list. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Depth is useful here because position carries information. For a comparison of totals by department, an ordinary two-dimensional bar chart is easier to read. Perspective changes the apparent size of distant objects and bars can obscure one another; neither helps when the question is simply which value is larger.
+
+## Data model
+
+This gallery example uses `fission::three_d::Scene3D`, not a `Chart` containing a 3D series. Each reading becomes a `Primitive3D::Mesh` cuboid. Keep the grid in ordinary Rust types so that validation and geometry conversion can be tested independently of rendering.
+
+Enable Fission's `three-d` feature to use these types. The example accepts optional, non-negative readings in scene units; `None` preserves the position of a cell whose reading is unavailable. Choose an intentional scale for measurements before constructing the component.
+
+## Rust API
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `primitives` | `Vec<Primitive3D>` | Geometry stored in the scene. |
+| `Primitive3D::Mesh` | `vertices`, `indices`, `color` | Triangle geometry expressed as positions and vertex indices. |
+| `width / height` | `Option<f32>` | Fixed viewport dimensions when supplied; `None` leaves sizing to layout. |
+
+This `Scene3D` has no chart title, axes or legend fields. Provide those explanations in the surrounding UI rather than assuming that a mesh has chart semantics.
+
+## Example
+
+```rust
+use fission::three_d::{Point3D, Primitive3D};
+use fission::core::op::Color;
+
+fn reading_bar(x: f32, z: f32, height: f32, color: Color) -> Primitive3D {
+    let half_width = 0.3;
+    Primitive3D::Mesh {
+        vertices: vec![
+            Point3D::new(x - half_width, 0.0, z - half_width),
+            Point3D::new(x + half_width, 0.0, z - half_width),
+            Point3D::new(x + half_width, height, z - half_width),
+            Point3D::new(x - half_width, height, z - half_width),
+            Point3D::new(x - half_width, 0.0, z + half_width),
+            Point3D::new(x + half_width, 0.0, z + half_width),
+            Point3D::new(x + half_width, height, z + half_width),
+            Point3D::new(x - half_width, height, z + half_width),
+        ],
+        indices: vec![
+            0, 1, 2, 0, 2, 3,
+            1, 5, 6, 1, 6, 2,
+            5, 4, 7, 5, 7, 6,
+            4, 0, 3, 4, 3, 7,
+            3, 2, 6, 3, 6, 7,
+            4, 5, 1, 4, 1, 0,
+        ],
+        color,
+    }
+}
+```
+
+## Interaction and animation
+
+These primitives are not `Chart` series. Consequently, do not attach `ChartAnimation` or expect `ChartInteractionEvent` to identify a bar in this scene. If the user must select a reading, provide an associated labelled list or table, or use a scene API with an explicit picking contract.
+
+## Testing guidance
+
+Test the reading-to-geometry conversion separately: a bar must have eight vertices, valid triangle indices, a bottom at zero and a top at the supplied height. Include zero and invalid measurements in the data-layer tests. Then inspect a rendered scene with representative values to check occlusion and viewport sizing.
+
+## Authoring from a Fission component
+
+The component below uses `reading_bar` from the preceding example. It accepts its title and colour from the parent, which can supply a translation key and a colour from the active design system.
+
+```rust
+use fission::prelude::*;
+use fission::three_d::Scene3D;
+
+fission_component! {
+    pub StorageReadings<()> {
+        props {
+            title: TextContent,
+            readings: Vec<Vec<Option<f32>>>,
+            bar_color: Color,
+        }
+    }
+    view(chart, _state, _cx) {
+        let mut scene = Scene3D::new().height(320.0);
+        for (row, readings) in chart.readings.iter().enumerate() {
+            for (column, &reading) in readings.iter().enumerate() {
+                let Some(height) = reading else { continue };
+                if height.is_finite() && height > 0.0 {
+                    scene = scene.add_primitive(reading_bar(
+                        column as f32,
+                        row as f32,
+                        height,
+                        chart.bar_color,
+                    ));
+                }
+            }
+        }
+    } => Column(
+        children: [
+            Text(chart.title.clone()),
+            scene,
+        ],
+    )
+}
+```
+The row and column numbers locate fixed grid cells; they are not retained widget identities. A zero reading produces no mesh. Invalid readings must also be reported by the data-loading layer rather than being presented as successful measurements. The gallery screenshot uses its own sample values, not this component's input.
+
+## Options, accessibility, and diagnostics
+
+| Area | What to decide | How to check it |
+| --- | --- | --- |
+| Data shape | Keep measurements separate from mesh geometry, with a documented scale and missing-value policy. | Test that conversion without constructing a widget tree. |
+| Presentation | Reserve depth for spatial relationships, not decoration. | Inspect occlusion with the largest expected grid. |
+| Accessibility | Provide a summary and accessible values outside the scene. A title alone does not describe the readings. | Check that the same question can be answered without seeing the scene. |
+| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
+| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+
+Tags: `3d`, `bar`.
+
+[3D and GL family overview](./overview)

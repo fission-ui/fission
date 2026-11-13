@@ -1,0 +1,55 @@
+---
+title: Geo
+sidebar_label: Overview
+description: Compare defined regional measures and schematic connections without inventing geographic capabilities.
+---
+
+# Geo
+
+A geographical report starts with the measure, the reporting period and the boundary definition. Colouring regions or drawing connections comes after those facts are clear. Otherwise an attractive map can imply comparisons the data does not support.
+
+![Capacity regions map screenshot](/img/charts/map-capacity-regions.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Capacity regions map](./map-capacity-regions) | Region values with visual scale. | Use it for capacity by geography. |
+| [Courier routes](./lines-courier-routes) | Point-to-point route lines. | Use it for logistics routing. |
+| [Coverage score map](./map-coverage-score) | Coverage scores by region. | Use it for service coverage surfaces. |
+| [Data center links](./geo-data-center-links) | Route-like links between points. | Use it for infrastructure network views. |
+| [Dispatch routes](./geo-dispatch-routes) | Map regions plus route lines. | Use it when routes need region context. |
+| [Expansion plan map](./map-expansion-plan) | Planning values by region. | Use it for geographic planning dashboards. |
+| [Flight density lines](./lines-flight-density) | Dense route lines between points. | Use it for movement patterns. |
+| [Incident routing lines](./lines-incident-routing) | Routes representing response movement. | Use it for dispatch and response analytics. |
+| [Incident severity map](./map-incident-severity) | Severity values mapped to region color. | Use it for incident command views. |
+| [Market regions map](./map-market-regions) | Named regions with values. | Use it for regional comparisons where shape matters. |
+| [Migration flow](./geo-migration-flow) | Region map plus movement routes. | Use it for source-to-destination stories. |
+| [Network overlay](./geo-network-overlay) | Region values with connection lines. | Use it for linked geographic systems. |
+| [Network traffic lines](./lines-network-traffic) | Route lines with effect markers. | Use it for flow over a spatial surface. |
+| [Risk regions map](./map-risk-regions) | Region values mapped to color. | Use it to scan geographic risk. |
+| [Route overlay map](./geo-route-overlay) | Map and line series together. | Use it when geography and movement are inseparable. |
+| [Sales route map](./geo-sales-routes) | Sales territories with route overlays. | Use it for field team planning. |
+| [Sales territory map](./map-sales-territory) | Territory values over named regions. | Use it when territory is the mental model. |
+| [Service health map](./map-service-health) | Region health values. | Use it for operational geography. |
+| [Supply routes](./lines-supply-routes) | Coordinate pairs representing routes. | Use it for route and movement diagrams. |
+| [Support demand map](./map-support-demand) | Demand values over regions. | Use it to allocate support capacity geographically. |
+
+
+## Regional measures
+
+Use [capacity](./map-capacity-regions), [coverage](./map-coverage-score) or [service reliability](./map-service-health) when a denominator is part of the question. Keep missing denominators distinct from zero. [Sales](./map-sales-territory) retain exact monetary amounts and the territory definition used for attribution.
+
+The actual [choropleth Compose component](/reference/charts/geographic-and-route/map-choropleth/) takes supplied GeoJSON and joins values by stable IDs. Validate geometry and records before rendering; a map-type string does not fetch a boundary file.
+
+## Connections and overlays
+
+[Courier legs](./lines-courier-routes), [supply quantities](./lines-supply-routes) and [network rates](./lines-network-traffic) use actual endpoint connections. Their curves are schematic: they do not calculate roads, distances, journey times or a navigation route.
+
+Map and line series currently fit their bounds independently. Consequently, pages with overlay titles describe that limitation and use [paired region/connection views](/reference/charts/geo-and-route/geo-network/) instead. They do not promise a correctly aligned geographic overlay; that needs a shared projection outside these examples.
+
+## Read the result as evidence
+
+Translate visible captions and keep units, reporting windows and freshness explicit. Offer exact values in a table or list and use colour palettes that remain useful without red/green discrimination. Load snapshots through effects and reducers, not during widget conversion.
+
+Test joins, missing records, invalid ratios and report replacement before visual checks. Gallery screenshots are separate fixtures, not qualification of live data, routes or an operational planning workflow.

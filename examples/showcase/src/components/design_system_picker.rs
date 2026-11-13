@@ -15,7 +15,7 @@ fission_component! {
 /// choice here re-skins whichever example is open. A select keeps seven looks to
 /// one compact trigger.
     #[derive(Clone, Copy, Debug)] pub(crate) DesignSystemPicker<ShowcaseState> {}
-    |_component, state, cx| {
+    view(_component, state, cx) {
         let items: Vec<SelectItem> = DesignSystemChoice::ALL
             .iter()
             .map(|choice| SelectItem {

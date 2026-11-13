@@ -1,0 +1,56 @@
+---
+title: Force graph
+sidebar_label: Force graph
+description: Fission Charts reference for Force graph.
+---
+
+# Force graph
+
+![Force graph screenshot](/img/charts/graph-force.png)
+
+A graph is appropriate when the relationships themselves matter. A package dependency view, for example, needs to preserve which package depends on which other package, including dependencies shared by several callers. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use stable package IDs and define source-to-target as dependent to dependency. The force layout positions nodes for display; distance is not version similarity, dependency strength or runtime latency.
+
+## Data model
+
+`GraphNode` has `id`, display `name` and a numeric `value` affecting marker size. Use equal values for topology alone. `GraphEdge` contains source and target IDs; both must resolve to nodes in the same snapshot.
+
+## Authoring from a Fission component
+
+The parent prepares the dependency graph and localized chart labels. Scanning packages belongs in an effect or report-preparation layer.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GraphNode, GraphSeries};
+use fission::charts::series::graph::GraphEdge;
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub PackageDependencyGraph<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            packages: Vec<GraphNode>,
+            dependencies: Vec<GraphEdge>,
+        }
+    }
+    view(graph, _state, _cx) => Chart(
+        title: Some(graph.chart_title.clone()),
+        series: vec![GraphSeries::new(&graph.series_label)
+            .nodes(graph.packages.clone())
+            .edges(graph.dependencies.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test repeated package names with different IDs, missing endpoints and cycles. Provide a readable dependency list and inspect dense graphs for overlapping labels. Selecting a display index must not substitute for resolving a stable package identity.
+
+Tags: `graph`, `network`.
+
+[Relationships and hierarchy family overview](./overview)

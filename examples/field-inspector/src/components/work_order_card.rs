@@ -12,7 +12,7 @@ fn priority_tone(priority: &str) -> BadgeTone {
 }
 fission_component! {
     pub WorkOrderCard<FieldInspectorState> { order: WorkOrder, selected: bool, compact: bool, action: ActionEnvelope }
-    |card, _state, _cx| {} =>
+    view(card, _state, _cx) {} =>
         if card.compact {
             Container(WorkOrderCardSurface(card.order, card.selected, card.action))
                 .width_length(Length::points(COMPACT_CARD_WIDTH))
@@ -23,7 +23,7 @@ fission_component! {
 
 fission_component! {
     WorkOrderCardSurface<FieldInspectorState> { order: WorkOrder, selected: bool, action: ActionEnvelope }
-    |card, _state, cx| {
+    view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens; let typography = &tokens.typography;
     } =>
         Container(

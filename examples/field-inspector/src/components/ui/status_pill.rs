@@ -4,7 +4,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub StatusPill<FieldInspectorState> { label: String, state: CapabilityState }
-    |pill, _state, cx| {
+    view(pill, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let (background, foreground) = match pill.state {
             CapabilityState::Idle => (tokens.colors.surface, tokens.colors.text_secondary),

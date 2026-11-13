@@ -935,12 +935,12 @@
     "github_repos": [
       {
         "url": "https://github.com/fission-ui/fission",
-        "purpose": "The framework itself. fission-theme crate defines the Material 3 token structure; documentation/ is the canonical brand surface.",
+        "purpose": "The framework itself. fission-theme crate defines the Material 3 token structure; docs2/ is the canonical brand surface.",
         "key_files": [
           "crates/core/fission-theme/src/lib.rs",
-          "documentation/site/overrides.css",
-          "documentation/src/components/home_sections.rs",
-          "documentation/static/img/fission_logo.png"
+          "docs2/site/docs2.css",
+          "docs2/src/screens/home.rs",
+          "docs2/site/assets/img/fission_logo.png"
         ]
       }
     ],

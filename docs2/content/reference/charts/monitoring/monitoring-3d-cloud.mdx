@@ -1,0 +1,60 @@
+---
+title: Monitoring 3D cloud
+sidebar_label: Monitoring 3D cloud
+description: Fission Charts reference for Monitoring 3D cloud.
+---
+
+# Monitoring 3D cloud
+
+![Monitoring 3D cloud screenshot](/img/charts/monitoring-3d-cloud.png)
+
+A service observation can contain several measurements which need to be considered together. A point cloud can preserve three of them, but latency, error rate and traffic do not share a unit. Plotting their raw numbers would make the largest numeric scale dominate the view. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use this view to investigate groups of service observations, not to label services as healthy merely because they appear close together. State what each coordinate means and which reporting interval produced the observations. For a single measure, a ranked chart is easier to read.
+
+## Data model
+
+Enable Fission's `three-d` feature. The gallery uses `fission::three_d::Scene3D`, whose primitives are separate from `Chart` series. Supply positions already projected into a documented measurement space. For example, divide each measured value by an intentional reference value, keeping values above the reference visible rather than clamping them away.
+
+## Authoring from a Fission component
+
+This component adds actual sphere primitives instead of constructing an empty scene. The parent supplies a translated heading, validated finite positions and a colour from the design system. Keep the service IDs and original measurements in the source model.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::{Point3D, Primitive3D, Scene3D};
+
+fission_component! {
+    pub ServiceObservationCloud<()> {
+        props {
+            title: TextContent,
+            positions: Vec<Point3D>,
+            point_color: Color,
+        }
+    }
+    view(cloud, _state, _cx) {
+        let mut scene = Scene3D::new().height(320.0);
+        for position in &cloud.positions {
+            scene = scene.add_primitive(Primitive3D::Sphere {
+                center: position.clone(),
+                radius: 0.04,
+                color: cloud.point_color,
+            });
+        }
+    } => Column(children: [
+        Text(cloud.title.clone()),
+        scene,
+    ])
+}
+```
+
+## Testing and accessibility
+
+Test the projection with zero reference values, invalid measurements and observations above each reference. The constant sphere radius represents one observation, not service importance. This scene interface has no per-service chart picking or measurement axes; retain a labelled table and explain the dimensions outside the image. Inspect dense input for hidden points before deciding that a missing visible marker means missing data.
+
+Tags: `monitoring`, `3d`.
+
+[Monitoring family overview](./overview)

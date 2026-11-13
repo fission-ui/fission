@@ -1,0 +1,288 @@
+---
+title: Build a Rust website with dropdown navigation
+description: Create and serve a complete Fission static website with pages, responsive dropdown navigation, crawlable HTML and a production build.
+slug: build-a-rust-website-with-dropdown-navigation
+authors:
+  - fission
+tags:
+  - tutorial
+  - docs
+  - platform
+categories:
+  - Tutorials
+---
+
+# Build a Rust website with dropdown navigation
+
+This tutorial builds a small product site with Rust and Fission: a home page,
+two product pages, an about page, and a responsive **Products** dropdown. The
+pages and links are ordinary generated HTML. JavaScript only enhances the menu
+and its keyboard behaviour.
+
+## What you will build
+
+The final routes are:
+
+```text
+/
+/products/
+/products/desktop/
+/products/mobile/
+/about/
+```
+
+The project stays small because the content files and navigation each have one job:
+
+```text
+harbour-site/
+├── Cargo.toml
+├── fission.toml
+├── src/
+│   ├── lib.rs
+│   ├── main.rs
+│   └── design.rs
+├── build.rs
+├── design/
+├── i18n/
+└── content/
+    ├── index.mdx
+    ├── about.mdx
+    └── products/
+        ├── index.mdx
+        ├── desktop.mdx
+        └── mobile.mdx
+```
+
+## 1. Install Fission and create the website
+
+You need a current stable Rust toolchain. Install the Fission command-line interface once, then create a project from the website template:
+
+```sh
+cargo install cargo-fission --locked
+fission init harbour-site --template website
+cd harbour-site
+```
+
+The website template starts with designed Rust page components. Here we'll use content routes instead: they give every page the same responsive header and let us declare navigation in `fission.toml`. You can mix content routes with custom Fission pages later when one page needs its own layout.
+
+## 2. Use the site builder as the entrypoint
+
+Replace `src/lib.rs` with this small site entrypoint:
+
+```rust
+pub mod design;
+
+use fission::prelude::*;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn build_site() -> anyhow::Result<()> {
+    let site = fission::site::FissionSite::new()
+        .with_env(design::environment()?)
+        .with_design_system::<design::WebsiteDesignSystem>(DesignMode::Light);
+    fission::site::build_from_cli(site)
+}
+```
+
+Leave the generated `src/main.rs` as it is. It calls `build_site()` for the Static site target.
+
+The content renderer now owns the page layout and navigation, so the generated
+`src/footer.rs`, `src/navigation.rs`, `src/page.rs`, and `src/state.rs` are no
+longer used. Keep `src/design.rs`, `build.rs`, `design/`, and `i18n/`: they own
+the generated design system and the English and Spanish translation bundles
+installed above. Markdown content does not require us to throw away the app's
+theme or localisation setup. The five pages below are English content; adding
+a Spanish bundle alone does not translate them.
+
+## 3. Configure the pages and dropdown
+
+In `fission.toml`, keep the generated `targets` and `[app]` values and replace the `[site]` table with this configuration. Change the example URL before you deploy.
+
+```toml
+[site]
+entry = "src/main.rs"
+base_url = "https://example.com"
+base_path = "/"
+out_dir = "dist/site"
+default_locale = "en-GB"
+pretty_urls = true
+generate_sitemap = true
+generate_robots = true
+title = "Harbour"
+description = "Tools that help small teams deliver useful work."
+asset_dirs = ["assets"]
+
+[site.search]
+enabled = false
+
+[[site.nav]]
+title = "Home"
+href = "/"
+
+[[site.nav]]
+title = "Products"
+href = "/products/"
+
+[[site.nav.children]]
+title = "Product overview"
+href = "/products/"
+
+[[site.nav.children]]
+title = "Desktop apps"
+href = "/products/desktop/"
+
+[[site.nav.children]]
+title = "Mobile apps"
+href = "/products/mobile/"
+
+[[site.nav]]
+title = "About"
+href = "/about/"
+
+[[site.routes]]
+kind = "content"
+path = "/"
+source = "content"
+template = "fission::site::documentation"
+```
+
+If the generated file contains `routes = []` inside `[site]`, remove that line before adding `[[site.routes]]`. TOML cannot describe the same setting as both an inline array and a table array.
+
+The **Products** parent has its own `href`, so it works as a normal link as well as the dropdown trigger. Visitors and crawlers can reach the overview page even when the enhanced menu is closed.
+
+## 4. Add the page content
+
+Create `content/index.mdx`:
+
+```mdx
+---
+title: Harbour — useful tools for small teams
+description: Desktop and mobile tools built for small teams that need to move quickly.
+---
+
+# Useful tools for small teams
+
+Harbour helps a team organise work without turning the process into another job.
+
+[Explore the products](/products/)
+```
+
+Create `content/products/index.mdx`:
+
+```mdx
+---
+title: Harbour products
+description: Explore Harbour tools for desktop and mobile teams.
+---
+
+# Choose the product that fits your team
+
+- [Desktop apps](/products/desktop/) for focused work at a desk.
+- [Mobile apps](/products/mobile/) for work that has to move with you.
+```
+
+Create `content/products/desktop.mdx`:
+
+```mdx
+---
+title: Harbour desktop apps
+description: Productive desktop tools for macOS, Windows and Linux.
+---
+
+# Desktop apps
+
+Use the full space of macOS, Windows and Linux for planning, reviewing and delivering work.
+
+[Compare all products](/products/)
+```
+
+Create `content/products/mobile.mdx`:
+
+```mdx
+---
+title: Harbour mobile apps
+description: Mobile tools for Android and iOS.
+---
+
+# Mobile apps
+
+Keep essential work available on Android and iOS without squeezing a desktop workflow onto a phone.
+
+[Compare all products](/products/)
+```
+
+Finally, create `content/about.mdx`:
+
+```mdx
+---
+title: About Harbour
+description: Why Harbour builds straightforward tools for small teams.
+---
+
+# About Harbour
+
+We build calm software that helps a small team finish the work it set out to do.
+
+[See the products](/products/)
+```
+
+The pages are intentionally small. Give each route its own title and description, a clear heading, and ordinary links to the next useful page.
+
+## 5. Check the route set
+
+Check the routes Fission is going to generate:
+
+```sh
+fission site routes --project-dir .
+```
+
+You should see the five routes listed at the start of this tutorial. Then run the site checks:
+
+```sh
+fission site check --project-dir .
+```
+
+This resolves the content, checks internal links, and catches configuration or rendering errors before you open a browser.
+
+## 6. Serve and test the website
+
+Start the local site server:
+
+```sh
+fission site serve \
+  --project-dir . \
+  --host 127.0.0.1 \
+  --port 8123
+```
+
+Open `http://127.0.0.1:8123/` and try the site:
+
+1. Open **Products** and follow each product link.
+2. Use `Tab`, `Shift+Tab`, `Enter`, `Space`, `Escape` and the arrow keys in the navigation.
+3. Narrow the browser to roughly 390 pixels and use the compact menu.
+4. Open `/products/mobile/` directly and refresh it.
+5. Disable scripting temporarily and confirm that the parent navigation links and every page still work.
+
+The site shell builds the dropdown from `[[site.nav.children]]`. You do not need a separate JavaScript menu, a second set of mobile links, or custom focus-state wiring.
+
+## 7. Build the deployable output
+
+Produce the static site:
+
+```sh
+fission site build --project-dir .
+```
+
+The `dist/site` directory now contains the generated HTML, shared CSS, progressive-enhancement assets, `sitemap.xml`, and `robots.txt`. Preview and deploy that directory as a unit. Do not edit the generated files; make changes to the source content and configuration instead.
+
+For a packaged artifact with a manifest, run:
+
+```sh
+fission package \
+  --target static-site \
+  --format static \
+  --project-dir .
+```
+
+## Where to go next
+
+You now have a working Rust website with real pages and responsive dropdown navigation. Continue with the [Static sites guide](/docs/guides/static-sites/) to add custom Rust pages, sidebars, search, themes, or a shared footer. Use [Static site custom pages](/docs/guides/static-site-custom-pages/) when one marketing page needs its own Fission widget layout and the rest of the site can stay content-driven.

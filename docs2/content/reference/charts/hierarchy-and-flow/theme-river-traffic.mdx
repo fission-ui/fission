@@ -1,0 +1,84 @@
+---
+title: Traffic theme river
+sidebar_label: Traffic theme river
+description: Fission Charts reference for Traffic theme river.
+---
+
+# Traffic theme river
+
+![Traffic theme river screenshot](/img/charts/theme-river-traffic.png)
+
+A traffic theme river keeps the contribution of each client visible as total request volume changes. This helps distinguish a shift in client mix from a rise in traffic across every client. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here, bands represent Web and Mobile request counts in fixed hourly buckets. Counts must share the same unit and interval. A requests-per-second value and an hourly count would not form meaningful parts of one total.
+
+## Data model
+
+Supply one time/value/category triple per hour and client. Time labels are sorted lexically and drawn with equal spacing. The example uses sortable ISO timestamps; bucket into regular hours before rendering rather than assuming the chart scales gaps by elapsed time.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `ThemeRiverSeries::data` | `Vec<(&str, f32, &str)>` | Accepts time, value and category, then owns the strings. |
+| `ThemeRiverSeries::data` field | `Vec<(String, f32, String)>` | Stores the prepared samples. |
+| `Chart::series` | `Vec<Series>` | Adds the theme river without Cartesian-axis configuration. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, ThemeRiverSeries};
+
+let chart = Chart::new()
+    .title("Hourly requests by client")
+    .series(vec![ThemeRiverSeries::new("Requests")
+        .data(vec![
+        ("2026-10-01T09:00", 420.0, "Web"),
+        ("2026-10-01T09:00", 180.0, "Mobile"),
+        ("2026-10-01T10:00", 510.0, "Web"),
+        ("2026-10-01T10:00", 230.0, "Mobile"),
+        ("2026-10-01T11:00", 390.0, "Web"),
+        ("2026-10-01T11:00", 310.0, "Mobile"),
+        ])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The component receives the completed aggregate. A reducer or effect completion updates the source state; drawing the chart does not trigger another load.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, Series, ThemeRiverSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub TrafficThemeRiverChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            samples: Vec<(String, f32, String)>,
+        }
+    }
+    view(river, _state, _cx) =>
+        Chart(
+            title: Some(river.chart_title.clone()),
+            series: vec![Series::ThemeRiver(ThemeRiverSeries {
+                name: river.series_label.clone(),
+                data: river.samples.clone(),
+            })],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check a client with zero requests, a missed telemetry hour and duplicate aggregate rows. The current renderer treats absent category values as zero, so resolve missing-data policy before passing the series to it.
+
+Keep a readable summary or exact-value table beside the chart. Colour separates bands visually, but should not be the only means of identifying which category contributed a value.
+
+Tags: `themeRiver`, `time`.
+
+[Hierarchy and flow family overview](./overview)

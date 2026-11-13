@@ -1,0 +1,77 @@
+---
+title: Brush investigation
+sidebar_label: Brush investigation
+description: Fission Charts reference for Brush investigation.
+---
+
+# Brush investigation
+
+![Brush investigation screenshot](/img/charts/monitoring-brush-investigation.png)
+
+During an incident, the useful question may be which observations fall inside a particular load and response-time range. A rectangular brush lets the reader select that region without opening each point separately. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here each point describes one reporting interval: x is CPU utilisation and y is the service's p95 response time. The brush identifies candidate intervals for further investigation. It does not establish that CPU utilisation caused the latency.
+
+## Data model
+
+`ScatterSeries` receives paired numeric values. `ChartBrush::rect()` enables the gesture, and `ChartBrushSelection::from_action_input` decodes the completed selection in a reducer. Resolve selected item indices against the corresponding data snapshot before turning them into incident records or persistent filters.
+
+## Authoring from a Fission component
+
+Retained local state is sufficient for the selected count. The chart's keyed handler reads the brush completion through the normal reducer input; it does not capture a short-lived view handle or perform a request while building the chart.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{
+    Axis, Chart, ChartBrush, ChartBrushSelection, ChartInteraction, ScatterSeries,
+};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub IncidentBrushChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            x_axis_label: String,
+            y_axis_label: String,
+            summary_pattern: String, // Contains the {value} placeholder.
+            observations: Vec<(f32, f32)>,
+        }
+        state { selected_count: usize = 0 }
+    }
+    view(incident, _state, cx) => Column(
+        children: [
+            Chart(
+                key: "incident-interval-brush",
+                title: Some(incident.chart_title.clone()),
+                x_axis: Some(Axis::value().name(&incident.x_axis_label).min(0.0).max(100.0)),
+                y_axis: Some(Axis::value().name(&incident.y_axis_label).min(0.0)),
+                interaction: ChartInteraction::new().brush(ChartBrush::rect()),
+                series: vec![ScatterSeries::new(&incident.series_label)
+                    .data(incident.observations.clone())
+                    .into()],
+                on_brush: reduce {
+                    if let Some((_source, selection)) =
+                        ChartBrushSelection::from_action_input(&cx.input)
+                    {
+                        incident.selected_count = selection.items.len();
+                    }
+                },
+            ),
+            Text(
+                    incident.summary_pattern.replace("{value}", &format!("{}", incident.selected_count)),
+                ),
+        ],
+    )
+}
+```
+
+## Testing and accessibility
+
+Exercise an empty selection, plot boundaries, a cleared brush and data arriving during a drag. If the parent replaces the observations, clear or recompute the displayed selection so the count does not describe an obsolete snapshot. Provide equivalent numeric filters or a list for users who cannot drag a region.
+
+Tags: `monitoring`, `brush`.
+
+[Monitoring family overview](./overview)

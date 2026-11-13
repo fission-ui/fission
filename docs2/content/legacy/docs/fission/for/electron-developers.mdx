@@ -1,0 +1,202 @@
+---
+title: Fission for Electron developers
+description: Map Electron renderer state, IPC, native packaging and tests to Fission's shared Rust UI and typed host boundaries.
+---
+
+# Fission for Electron developers
+
+Moving from Electron is not just replacing JSX with Rust constructors. Electron
+puts a browser renderer beside native host work. Fission puts the interface,
+state transitions and host requests in one shared Rust app model, with a shell
+adapting it to each target.
+
+The operating-system concerns remain: windows, permissions, files, installers
+and release metadata still need explicit handling. The difference is where
+those concerns connect to the app, not whether they exist.
+
+The following excerpts are comparisons, not a complete document editor. Use
+[the complete task app](/blog/build-a-single-page-web-app-in-rust/) for production
+module boundaries and [Compose](/compose/) for the full authoring grammar.
+
+## The state ownership rule
+
+A renderer store and a native process should not both claim authority over the
+same document. In Fission, keep one app model and derive what each screen shows.
+
+- `GlobalState` holds shared document data and request status.
+- Component `state` holds local interface memory.
+- `props` carries parent inputs.
+- Reducers change state; jobs, effects, services and capabilities do I/O.
+- `Env` supplies theme, locale and host context, not a second document store.
+
+A native database or remote service can be the durable authority. The in-memory
+app state then represents its loaded data and explicit edits; calling it global
+does not make it persistent.
+
+## 1. Static UI
+
+A component can accept display data without knowing which process or file
+provided it:
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub DocumentHeading<()> {
+        props { title: String }
+    }
+    view(heading, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Text(heading.title.clone()).size(tokens.typography.heading1_size)
+}
+```
+
+There is no DOM selector or browser class name in that contract. It still has
+text, layout and semantics which the active shell must render.
+
+## 2. Product state and interaction
+
+Suppose `EditorState` owns an editable document title. A field can bind it
+directly rather than add an action struct and setter reducer for this one use:
+
+```rust
+fission_component! {
+    pub DocumentTitle<EditorState>
+    view(_field, state, cx) =>
+    TextInput(
+        label: Some(cx.tr("document.title").into()),
+        bind: state.document.title,
+        required: true,
+        semantics_identifier: Some("document.title".into()),
+    )
+}
+```
+
+This is a contextual excerpt: `EditorState` implements `GlobalState` and owns
+`document`. A draft belongs in component `state` instead when only one
+component should see it until submission. An explicit save transition decides
+when either form reaches persistent storage.
+
+## 3. Outside work
+
+An Electron preload bridge can expose an operation such as exporting a file.
+The Fission equivalent is not a general string channel which any widget can
+call during rendering. Request typed work from a reducer.
+
+For a one-shot component-owned export, an event can use this shape:
+
+```rust
+Button(
+    child: Text(cx.tr("document.export")),
+    key: "export-document",
+    disabled: state.exporting,
+    on_press: effect export_document(state.document.clone()) {
+        on_start {
+            state.exporting = true;
+            state.export_error = None;
+        }
+        on_ok(saved_file) {
+            state.last_export = Some(saved_file);
+            state.exporting = false;
+        }
+        on_err(error) {
+            state.export_error = Some(error);
+            state.exporting = false;
+        }
+    },
+)
+```
+
+Here `export_document` is a project `#[fission_effect]` async function receiving
+an owned serializable document snapshot. The app owns the named status fields.
+The implementation must use a target-appropriate destination or host provider;
+an OS path accepted on Linux is not a browser file permission.
+
+Use the built-in [file-system capability](/docs/capabilities/file-system/) for
+pickers and granted directory handles. Use a service or registered job when the
+operation must continue after the component unmounts. Browser pickers and
+permission prompts also need direct user activation, so do not defer them to
+an unrelated render or timer.
+
+Both success and failure must return to the app. Render a `Spinner` during
+export and a useful error/retry path when it fails. Keep the document snapshot
+available until the operation has really succeeded.
+
+## 4. Styling and theme
+
+Do not translate every CSS class into a manual box override. Install a generated
+design system and use the most specific built-in widget first. `FormControl`
+owns field labels and validation relationships; `Modal` owns dialog behaviour;
+`Card` owns its surface recipe.
+
+Use `cx.view.env().theme.tokens` for a genuine custom layout. Fission's native
+UI does not inherit the browser's DOM/CSS runtime, while Static site and SSR
+can lower the declared tree into HTML and CSS. Those are target choices, not
+two unrelated component catalogues.
+
+## 5. Routing
+
+A hash router is a browser hosting choice. Fission's shell adapts history and
+deep links; one native `Router` matches the app-owned current path:
+
+```rust
+fission_component! {
+    pub EditorRoutes<EditorState>
+    view(_routes, state, _cx) =>
+    Router::<EditorState>::new()
+        .with_path(state.current_path.clone())
+        .route_component("/documents", DocumentList)
+        .route_component("/documents/:id", DocumentRoute)
+}
+```
+
+`DocumentList` and `DocumentRoute` are app components. Install the shell's route
+handler, parse `RouteParams` at the route boundary and handle missing documents.
+Do not scatter pathname checks through editor controls.
+
+## 6. Testing
+
+A browser test can inspect a DOM node. A native Fission app needs its actual
+semantic and input boundaries tested, not guessed browser selectors.
+
+| Requirement | Fission test surface |
+| --- | --- |
+| Edit or export rule | Ordinary Rust transition/reducer test |
+| Widget layout and semantics | `TestHarness` |
+| Typing, focus, clicks and screenshots | `LiveTestClient` and manual `/cmd` |
+| Installer, files and native permissions | Packaged app on the target OS |
+
+Use semantic identifiers such as `document.title`. Follow
+[Write a live UI test](/docs/cookbook/write-a-live-ui-test/) for app launch,
+readiness and cleanup.
+
+## Vocabulary map
+
+| Electron concept | Closest Fission concept | Important difference |
+| --- | --- | --- |
+| Renderer component | Compose component and widget tree | No required DOM/webview substrate. |
+| `ipcRenderer.invoke` | Effect, job, service or capability | Inputs and results have explicit types and lifetimes. |
+| Main process | Shell/provider boundary | The host adapts shared app requests. |
+| CSS | Design-system tokens and widget fields | Rendering remains target-aware. |
+| Electron packaging | Fission targets and artifact manifests | Build, package and publication remain separate steps. |
+| WebDriver/Playwright | `LiveTestClient` and `/cmd` | Semantic selectors can work across shells. |
+
+## Common instincts to adjust
+
+Typed requests are not an authorization policy by themselves. File permissions,
+privileged operations and server authorization remain real boundaries.
+Likewise, a window closing does not automatically establish that a save
+completed. Choose app-owned work when the operation must outlive the view.
+
+Keep native packaging in Fission's declared target configuration. Use package
+hooks for real installer-specific work rather than duplicate the normal build
+path in unrelated scripts.
+
+## What to read next
+
+- [Complete task app](/blog/build-a-single-page-web-app-in-rust/)
+- [Compose API](/compose/)
+- [Resources and async](/docs/guides/resources-and-async/)
+- [Desktop packages](/docs/build-and-package/desktop-packages/)
+- [Testing Fission apps](/docs/learn/testing/)

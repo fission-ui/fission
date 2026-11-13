@@ -1,0 +1,62 @@
+---
+title: Step start line
+sidebar_label: Step start line
+description: Fission Charts reference for Step start line.
+---
+
+# Step start line
+
+![Step start line screenshot](/img/charts/line-step-start.png)
+
+A start step changes to the next sample's value at the left edge of the connecting interval. That is useful only when the source values are intended to describe that whole preceding interval. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here, each label identifies the end of a completed reporting interval and its value is the average active workers during that interval. Drawing that next value across the interval is deliberate. For a snapshot that becomes effective at its timestamp, use an end step instead.
+
+## Data model
+
+LineSeries::step("start") is a drawing choice, not an aggregation function. Compute the interval averages first and supply regularly spaced end-boundary labels. The initial sample provides the leading boundary; define that boundary consistently with the source report.
+
+## Authoring from a Fission component
+
+The component receives the reporting values and labels. Fetch, aggregate and validate those inputs before constructing the chart.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub StepStartLineChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            interval_workers: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.interval_workers.clone())
+                    .step("start")
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check the first change visually with two unequal samples and verify which side holds the new value. Test interval labelling and explain the aggregation; this chart must not be read as a continuously observed worker count.
+
+Tags: `line`, `step`.
+
+[Line family overview](./overview)

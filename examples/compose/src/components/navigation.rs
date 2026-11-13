@@ -1,4 +1,4 @@
-use crate::actions::{Navigate, navigate};
+use crate::actions::{navigate, Navigate};
 use crate::state::AppState;
 use fission::prelude::*;
 

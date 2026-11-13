@@ -1,0 +1,309 @@
+---
+title: Keep a timer or service alive
+description: Keep repeating work under runtime control with timer and service resources instead of hidden loops.
+---
+
+# Keep a timer or service alive
+
+Some work should not happen only because the user pressed a button once.
+
+A clock needs to tick while the screen is visible. A sync connection may need to stay open while a workspace is active. A background watcher might need to keep sending events until the user leaves the screen.
+
+Fission handles these cases with runtime-managed resources.
+
+This matters because repeating work is where user interface code often becomes hard to trust. People start background loops in random places, forget when they stop, or let hidden timers outlive the screen that needed them. Fission keeps the lifetime explicit: the widget declares the resource during component conversion, and the runtime keeps it alive for as long as the declaration stays present.
+
+This recipe starts with a diagnostics heartbeat: count the ticks delivered
+while a panel is mounted. A timer carries the payload you declared; it is not
+a wall-clock API. The second half shows the contract for a workspace sync
+service, whose events carry actual service results.
+
+## Step 1: decide whether you need a timer, a service, or a job
+
+Before writing code, choose the right shape.
+
+A job is for one request and one result. Saving one file is job-shaped.
+
+A timer is for repeated wakeups on a schedule. Updating "Last synced 12 seconds ago" is timer-shaped.
+
+A service is for long-lived work with identity over time. A sync session, watcher, or streaming connection is service-shaped.
+
+Use a timer for repeated ticks and a service for work that stays alive and emits events; the two lifetimes are different.
+
+## Step 2: model a ticking screen in app state
+
+The diagnostics panel reports received ticks. The same app can also show the
+state of the selected workspace's sync session:
+
+```rust
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct DashboardState {
+    pub heartbeat_count: u64,
+    pub workspace_id: Option<String>,
+    pub sync_running: bool,
+    pub sync_connected: bool,
+    pub sync_summary: Option<String>,
+    pub sync_error: Option<String>,
+}
+
+impl GlobalState for DashboardState {}
+```
+
+The state stays product-focused. It stores what the user should see, not the internals of timer scheduling.
+
+## Step 3: use a `TimerResource` for repeated wakeups
+
+A timer resource is the right tool when the runtime should keep delivering ticks while a widget subtree exists.
+
+Start by defining an action that will run on every tick.
+
+```rust
+#[fission_reducer(HeartbeatTick)]
+fn on_clock_tick(
+    state: &mut DashboardState,
+    ctx: &mut ReducerContext<DashboardState>,
+) {
+    if ctx.input.timer_tick::<()>().is_some() {
+        state.heartbeat_count = state.heartbeat_count.saturating_add(1);
+    }
+}
+```
+
+The unit payload identifies a tick; the reducer increments its count. Passing
+`0_u64` to the timer and reading it back would return zero on every tick, not
+the current time or elapsed seconds. Use an actual clock result when the
+product needs time rather than a delivery count.
+
+Now declare the timer during component conversion.
+
+```rust
+fission_component! {
+    pub HeartbeatPanel<DashboardState> {}
+    view(_panel, state, cx) {
+        let tick = cx.bind(HeartbeatTick, reduce!(on_clock_tick));
+        cx.with_resources(|resources| {
+            resources.timer(TimerResource::new(
+                ResourceKey::new("diagnostics-heartbeat"),
+                std::time::Duration::from_secs(1),
+                (),
+            ).on_tick(tick));
+        });
+    } =>
+    Column(children: [
+        Text(cx.tr("diagnostics.heartbeat_ticks")),
+        Text(state.heartbeat_count.to_string()),
+    ])
+}
+```
+This is the key pattern.
+
+The setup block declares a runtime resource; it does not start a thread or
+timer itself. The runtime reconciles declarations after the build and keeps
+the timer alive while the declaration remains present. Add the diagnostics
+label to the app's translation bundles.
+
+The stable `ResourceKey` gives the timer identity across reconversions. The runtime can see that this is still the same timer resource rather than a brand-new unrelated one.
+
+Use a timer when you need scheduled wakeups and nothing more.
+
+## Step 4: know when a timer stops being enough
+
+A timer is not a general background worker. It is just a scheduler.
+
+If your screen needs a real long-lived conversation, such as a background sync loop that can emit events and accept commands over time, you need a service.
+
+That is why services exist at all.
+
+A service is not just "a job that runs for longer." A job gives you one result and then it is done. A service keeps an identity over time. It can start once, stay alive, emit multiple events, receive later commands, and stop cleanly.
+
+That difference matters for production apps because a long-running session should have an explicit lifecycle.
+
+## Step 5: define a service when the work has identity over time
+
+Here is a small sync-style service shape.
+
+```rust
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug)]
+pub struct SyncService;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SyncConfig {
+    pub workspace_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SyncCommand {
+    RefreshNow,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SyncCommandOk;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SyncCommandErr {
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SyncEvent {
+    Connected,
+    SyncFinished { summary: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SyncStartErr {
+    pub message: String,
+}
+
+impl ServiceSpec for SyncService {
+    type Config = SyncConfig;
+    type Command = SyncCommand;
+    type CommandOk = SyncCommandOk;
+    type CommandErr = SyncCommandErr;
+    type Event = SyncEvent;
+    type StartErr = SyncStartErr;
+    const NAME: &'static str = "sync-service";
+}
+
+const SYNC_SERVICE: ServiceType<SyncService> = ServiceType::new("sync-service");
+```
+
+This type definition looks longer than the timer example because a service can do more. It needs a config for startup, an event stream, and command types for later interaction.
+
+That extra shape is the cost of making the lifecycle explicit instead of magical.
+
+## Step 6: mount the service with a `ServiceResource`
+
+If the sync session should exist while a screen is visible, declare it as a resource.
+
+```rust
+fission_component! {
+    pub WorkspaceSyncStatus<DashboardState> {}
+    view(_status, state, cx) {
+        if let Some(workspace_id) = &state.workspace_id {
+            let started = cx.bind(SyncStarted, reduce!(on_sync_started));
+            let event = cx.bind(SyncEventArrived, reduce!(on_sync_event));
+            let failed = cx.bind(SyncStartFailed, reduce!(on_sync_start_failed));
+            cx.with_resources(|resources| {
+                resources.service(ServiceResource::new(
+                    ResourceKey::new(format!("workspace-sync:{workspace_id}")),
+                    ServiceSlot::keyed(SYNC_SERVICE, workspace_id.clone()),
+                    SyncConfig { workspace_id: workspace_id.clone() },
+                ).on_started(started).on_event(event).on_start_failed(failed));
+            });
+        }
+    } =>
+    Column(children: [
+        if state.workspace_id.is_none() { Text(cx.tr("sync.choose_workspace")) }
+        else if let Some(error) = &state.sync_error { Alert(title: error.clone(), kind: AlertKind::Error) }
+        else if state.sync_connected { Text(cx.tr("sync.connected")) }
+        else { Spinner(motion: SpinnerMotion::Default, label: cx.tr("sync.connecting")) },
+        if let Some(summary) = &state.sync_summary { Text(summary.clone()) },
+    ])
+}
+```
+This declaration mounts one service for the current durable workspace id. A
+workspace-keyed slot avoids reusing an unrelated session's singleton. The
+workspace-selection reducer must clear old connection, summary, and error
+state when changing that id.
+
+This is a service contract, not an implemented sync transport. Register an
+actual service implementation on the shell before running it; emit Connected
+only after that implementation has connected, and SyncFinished only after its
+real operation succeeds. Do not emit fake success events to fill the UI.
+
+That is much easier to reason about than starting a background thread from a button handler and hoping you remember to stop it later.
+
+## Step 7: feed service events back into reducers
+
+The service lifecycle still returns to ordinary reducer code.
+
+```rust
+#[fission_reducer(SyncStarted)]
+fn on_sync_started(
+    state: &mut DashboardState,
+    ctx: &mut ReducerContext<DashboardState>,
+) {
+    if ctx.input.service_slot_key() != state.workspace_id.as_deref() { return; }
+    state.sync_running = true;
+    state.sync_error = None;
+}
+
+#[fission_reducer(SyncEventArrived)]
+fn on_sync_event(
+    state: &mut DashboardState,
+    ctx: &mut ReducerContext<DashboardState>,
+) {
+    if ctx.input.service_slot_key() != state.workspace_id.as_deref() { return; }
+    if let Some(event) = ctx.input.service_event(SYNC_SERVICE) {
+        match event {
+            SyncEvent::Connected => {
+                state.sync_connected = true;
+                state.sync_error = None;
+            }
+            SyncEvent::SyncFinished { summary } => {
+                state.sync_summary = Some(summary);
+            }
+        }
+    }
+}
+
+#[fission_reducer(SyncStartFailed)]
+fn on_sync_start_failed(
+    state: &mut DashboardState,
+    ctx: &mut ReducerContext<DashboardState>,
+) {
+    if ctx.input.service_slot_key() != state.workspace_id.as_deref() { return; }
+    state.sync_running = false;
+    state.sync_connected = false;
+    state.sync_error = Some(ctx
+        .input
+        .service_start_error_message(SYNC_SERVICE)
+        .unwrap_or("Sync failed to start")
+        .to_string());
+}
+```
+
+This is the same architectural pattern you have already seen with actions and reducers. Long-running behavior is still explicit, and state changes still happen in one place.
+
+## When to use a reducer-started service instead
+
+Here the screen owns the service lifetime, so `ServiceResource` starts it while the screen is present and stops it when the resource is removed.
+
+If the service should exist because of an explicit product action rather than because a subtree is mounted, start it from a reducer with `ctx.effects.start_service(...)` instead.
+
+That is a good fit when the user deliberately turns sync on, starts a session, or connects to something that should outlive one route's visible widget tree.
+
+The question is always the same: who should own the lifetime?
+
+If the user interface subtree owns it, declare a resource.
+
+If the product flow owns it, start it from the reducer.
+
+## What to avoid
+
+Do not use a one-shot job for something that should keep running over time. You will end up reconverting a fragile service out of repeated job calls.
+
+Do not create ad hoc background loops in `component conversion` or shell hooks when the runtime can own the lifecycle for you.
+
+Do not forget stable resource keys. If a key changes every build, the runtime will treat the resource as new work every time.
+
+## Where to go next
+
+For host permissions or device integrations, continue with [Run typed host
+work](/docs/cookbook/run-typed-host-work). For the runtime details behind
+jobs, services, resources, and `ReducerContext`, read [Resources and
+async](/docs/guides/resources-and-async).
+
+Check that the heartbeat count advances while its declaration is present and
+stops when that declaration is removed. It measures delivered ticks, not wall
+time. With a registered sync implementation, also test workspace changes,
+startup failure, real completion, and removal. A reducer-started service
+should follow the product action that starts it, not the visibility of a
+widget.

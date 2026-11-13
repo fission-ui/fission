@@ -1,0 +1,65 @@
+---
+title: Region comparison bars
+sidebar_label: Region comparison bars
+description: Compare regional order counts across the same periods with grouped Compose bars.
+---
+
+# Region comparison bars
+
+![Region comparison bars screenshot](/img/charts/bar-region-comparison.png)
+
+A regional comparison needs the same measure and reporting window for every region. Otherwise a taller bar may simply mean that one region had more days in its report.
+
+Grouped bars keep each region separate within a period. A stack would instead emphasise their combined total, which is a different question.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Legend, Series};
+
+#[derive(Clone)]
+pub struct RegionalOrders {
+    pub period_label: String,
+    pub north_orders: u32,
+    pub south_orders: u32,
+}
+
+fission_component! {
+    pub RegionalOrderComparison<()> {
+        props {
+            title: String,
+            north_label: String,
+            south_label: String,
+            periods: Vec<RegionalOrders>,
+        }
+    }
+    view(comparison, _state, _cx) {
+        let labels = comparison.periods.iter()
+            .map(|period| period.period_label.as_str()).collect();
+        let north = comparison.periods.iter()
+            .map(|period| period.north_orders as f32).collect();
+        let south = comparison.periods.iter()
+            .map(|period| period.south_orders as f32).collect();
+    } => Chart(
+        title: Some(comparison.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Bar(BarSeries::new(&comparison.north_label).data(north)),
+            Series::Bar(BarSeries::new(&comparison.south_label).data(south)),
+        ],
+    )
+}
+```
+
+Neither series sets a stack key, so the bars remain side by side. The shared period record also prevents a label/value length mismatch between the two regions.
+
+## Keep the interpretation honest
+
+Count orders under the same completion and cancellation rules, and supply translated names from the parent. Raw totals compare workload, not regional effectiveness; use a separately defined rate if the regions have very different populations or operating capacity.
+
+Test that each period maps to both values, then inspect narrow layouts and long regional names. Provide exact counts in the report rather than requiring readers to estimate bar heights. The gallery screenshot uses its own fixture.
+
+[Bar family overview](./overview)

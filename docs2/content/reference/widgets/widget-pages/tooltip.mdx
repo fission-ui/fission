@@ -1,0 +1,71 @@
+---
+title: Tooltip
+description: Show a short non-essential hint near a hovered control.
+slug: /widgets/tooltip
+---
+# Tooltip
+
+`Tooltip` shows a short, non-essential hint beside another widget, such as an
+icon button's meaning or a keyboard shortcut. Don't put required instructions
+or validation messages here: tooltips can be hard to discover and disappear
+quickly.
+
+The runtime can show the tooltip when its trigger is hovered. You can also
+control visibility with `is_visible`; the widget does not own visibility or
+timing state.
+
+## Example
+
+```rust
+use fission::prelude::*;
+use fission::widgets::Tooltip;
+
+fission_component! {
+    pub SaveDraftButton<()> {
+        props { save: ActionEnvelope }
+    }
+
+    view(draft, _state, cx) =>
+        Tooltip(
+            id: WidgetId::explicit("document.save-hint"),
+            child: Button(
+                child: Text(cx.tr("document.save")),
+                on_press: draft.save.clone(),
+            ),
+            text: cx.tr("document.save_without_publish"),
+        )
+}
+```
+
+The explicit import selects the UI tooltip. Apps with the `charts` feature also
+have a chart-tooltip configuration type; the two types serve different purposes.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetId` | Stable identity for the trigger anchor and portal entry. | Required. The widget derives its hover anchor from this id. |
+| `child` | `Widget` | Trigger content rendered inline. | Required. This is the thing the tooltip is attached to. |
+| `text` | `String` | Tooltip message text. | Required. Keep it short. The current implementation caps width at `220.0` logical pixels. |
+| `motion` | `Option<TooltipMotion>` | Entry/exit presentation. | `None` follows standard widget motion. |
+| `is_visible` | `bool` | Force the tooltip visible even without hover. | Defaults to `false`. Useful for demos, audits, or non-hover-driven reveal logic. |
+
+## Overlay behavior
+
+The trigger stays in the normal layout tree. When the tooltip should appear, the widget constructs a small card during component conversion and registers it in the flyout portal layer. The same anchor-positioning rules used by other flyout-based overlays keep it near the trigger and inside the viewport.
+
+## Specific advice
+
+Use tooltips sparingly. If many controls need tooltips before they make sense, the underlying user interface probably needs stronger labels or clearer structure.
+
+Also be realistic about targets. Hover is a desktop and pointer-heavy web concept. On touch-first screens, a tooltip is often the wrong pattern entirely. Prefer inline helper text, a [`Popover`](/reference/widgets/popover), or a clearly labeled control.
+
+## Production checklist
+
+- Verify the trigger remains understandable without the hint.
+- Test pointer placement, explicit visibility, and reduced-motion behaviour.
+- Keep essential instructions visible on touch-first layouts.
+
+## Related
+
+[`Popover`](/reference/widgets/popover), [`flyout`](/reference/widgets/flyout), [`Button`](/reference/widgets/button), and [`FormControl`](/reference/widgets/form-control).

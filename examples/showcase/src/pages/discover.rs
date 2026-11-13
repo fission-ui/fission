@@ -5,5 +5,5 @@ use fission::prelude::*;
 
 fission_component! {
     #[derive(Clone, Debug)] pub(crate) DiscoverPage<ShowcaseState> {}
-    |_component, _state, _cx| {} => Workbench(example_by_slug("inbox"))
+    view(_component, _state, _cx) {} => Workbench(example_by_slug("inbox"))
 }

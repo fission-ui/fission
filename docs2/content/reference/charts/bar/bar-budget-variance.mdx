@@ -1,0 +1,78 @@
+---
+title: Budget variance
+sidebar_label: Budget variance
+description: Compare signed differences from budget on a symmetric horizontal scale.
+---
+
+# Budget variance
+
+![Budget variance screenshot](/img/charts/bar-budget-variance.png)
+
+A variance is a difference from a reference, not another total. Here it means actual spending minus budget: positive values indicate spending above budget and negative values indicate spending below it. State that convention on the screen; reversing the subtraction reverses the meaning of every bar.
+
+A horizontal chart gives department names room and puts zero between the two directions. Equal distances on either side should represent equal amounts.
+
+## Derive the difference once
+
+Convert financial values into the same display unit before constructing these rows. Keep the authoritative amounts in the application's money representation rather than using chart floats as a ledger.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct BudgetResult {
+    pub department: String,
+    pub actual: f32,
+    pub budget: f32,
+}
+
+fission_component! {
+    pub BudgetVarianceChart<()> {
+        props {
+            title: String,
+            variance_label: String,
+            unit_label: String,
+            rows: Vec<BudgetResult>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.rows.iter().map(|row| row.department.as_str()).collect();
+        let variances: Vec<f32> = report.rows.iter()
+            .map(|row| row.actual - row.budget)
+            .collect();
+        let bound = variances.iter()
+            .fold(1.0_f32, |bound, value| bound.max(value.abs()));
+    } => Chart(
+        title: Some(report.title.clone()),
+        x_axis: Some(Axis::value()
+            .min(-bound)
+            .max(bound)
+            .name(report.unit_label.clone())),
+        y_axis: Some(Axis::category(labels)),
+        series: vec![
+            Series::Bar(BarSeries::new(&report.variance_label)
+                .horizontal()
+                .data(variances)),
+        ],
+    )
+}
+```
+
+Enable the `charts` feature. Validate that incoming amounts and derived differences are finite before rendering them. The minimum bound of one display unit keeps an all-zero result from producing a zero-width range.
+
+## Why the axes change
+
+`BarSeries::horizontal()` changes the bar orientation. Consequently, the numeric axis is X and the category axis is Y. Merely swapping labels without changing orientation would not create the same chart.
+
+`Axis::min` and `Axis::max` accept `f32` limits. Setting them to opposite values keeps the scale symmetric. Negative bars already express direction through position, so a red/green colour distinction is unnecessary and should not carry the meaning alone.
+
+## Check the interpretation
+
+Test a department exactly on budget, one above and one below. Verify the subtraction and the axis bounds separately from rendering. Provide actual, budget and variance values in an accessible table so the user can investigate the difference rather than only see its size.
+
+The title, series name and unit are supplied by the parent for localisation. A missing result is not zero variance: show a pending or unavailable state rather than inserting a made-up amount. The gallery screenshot uses its own sample values.
+
+Tags: `bar`, `variance`.
+
+[Bar family overview](./overview)

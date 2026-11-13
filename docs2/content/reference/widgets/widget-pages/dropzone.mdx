@@ -1,0 +1,74 @@
+---
+title: Dropzone
+description: Build a drop surface that can react when a drag enters, leaves, or lands.
+slug: /widgets/dropzone
+---
+# Dropzone
+
+`Dropzone` gives a surface feedback while something is dragged over it, then
+handles the drop. Use it for attachment areas, upload panels, or kanban columns
+that should highlight during a drag.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub AttachmentDropArea<()> {
+        props { receive_files: ActionEnvelope }
+    }
+
+    view(area, _state, cx) =>
+        Dropzone(
+            id: WidgetId::explicit("composer.attachments"),
+            semantics_identifier: Some("composer.attachments.dropzone".into()),
+            child: Text(cx.tr("attachment.drop_files")),
+            active_child: Text(cx.tr("attachment.drag_here")),
+            hover_child: Text(cx.tr("attachment.release_files")),
+            on_drop: area.receive_files.clone(),
+        )
+}
+```
+
+The runtime already chooses `active_child` and `hover_child` from the current
+drag session. No extra global hover flag is needed for these three states.
+The parent binds `receive_files` to a reducer that validates host input and
+requests asynchronous import work; merely appending paths is not an upload.
+
+Use `on_drag_enter` and `on_drag_leave` only when application logic needs those
+transitions beyond the built-in surface swap. An app-owned flag should be
+retained local state for isolated presentation, not global truth by default.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable identity for the drop surface. | Use explicit IDs for repeated or dynamic dropzones. |
+| `semantics_identifier` | `Option<String>` | Stable semantic/test identifier. | Lets tests target this surface without coordinates. |
+| `child` | `Widget` | Visible content wrapped by the drop surface. | Required. |
+| `active_child` | `Option<Widget>` | Alternate child shown while any drag is active in the window. | Defaults to `None`, so `child` remains visible. |
+| `hover_child` | `Option<Widget>` | Alternate child shown while this dropzone is the hovered target. | Defaults to `None`, so `child` remains visible. |
+| `on_drop` | `Option<ActionEnvelope>` | Action dispatched when something is dropped on the surface. | Read external paths with `ctx.input.as_drop_paths()` or internal bytes with `ctx.input.as_internal_drop()`. |
+| `on_drag_enter` | `Option<ActionEnvelope>` | Action dispatched when a drag enters the bounds. | Useful for setting hover state in `GlobalState`. |
+| `on_drag_leave` | `Option<ActionEnvelope>` | Action dispatched when a drag leaves the bounds. | Useful for clearing hover state. |
+
+## Internal drags versus file drops
+
+`Dropzone` sits at the point where two kinds of drag input can meet. Internal drags, started by [`Draggable`](/reference/widgets/draggable), arrive as raw bytes. External file drops arrive as host-provided file paths. The widget does not merge those models for you. Your reducer decides which input it expects and how to decode it.
+
+## Specific advice
+
+Treat dropped paths as untrusted host input. Validate type, size, duplicates,
+and destination permissions before importing, and do not synchronously read
+large files in a reducer. Provide `FileUpload` as a non-drag alternative.
+
+## Production checklist
+
+- Test malformed internal bytes separately from external file paths.
+- Verify idle, drag-active, hover, leave, cancel, and accepted-drop states.
+- Keep file parsing/upload asynchronous and offer a labelled browse action.
+
+## Related
+
+[`Draggable`](/reference/widgets/draggable), [`DragTarget`](/reference/widgets/drag-target), [`FormControl`](/reference/widgets/form-control), and [`GestureDetector`](/reference/widgets/gesture-detector).

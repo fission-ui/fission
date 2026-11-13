@@ -22,7 +22,7 @@ Applications normally enable the facade feature:
 
 ```toml
 [dependencies]
-fission = { version = "0.15.1", features = ["scene3d"] }
+fission = { version = "0.16.0", features = ["scene3d"] }
 ```
 
 `Scene3D` remains a normal Fission widget, so the surrounding application owns routes, state, forms, overlays and accessibility. Run `cargo run -p scene3d-qualification` in the repository for the maintained integration workload.

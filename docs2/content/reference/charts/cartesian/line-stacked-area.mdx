@@ -1,0 +1,61 @@
+---
+title: Stacked area
+sidebar_label: Stacked area
+description: Stack exclusive workload contributions over equal intervals with actual area fills.
+---
+
+# Stacked area
+
+![Stacked area screenshot](/img/charts/line-stacked-area.png)
+
+A stacked area shows how several sources contribute to one changing total. Interactive and scheduled jobs are useful components if each job belongs to exactly one source.
+
+Both the stack key and the fill matter. Several unfilled lines do not demonstrate an area stack, and unrelated measures must not be added merely because the API permits it.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, Chart, Legend, LineSeries, Series};
+
+#[derive(Clone)]
+pub struct WorkloadInterval {
+    pub label: String,
+    pub interactive_jobs: u32,
+    pub scheduled_jobs: u32,
+}
+
+fission_component! {
+    pub WorkloadCompositionArea<()> {
+        props {
+            title: String,
+            interactive_label: String,
+            scheduled_label: String,
+            interactive_colour: Color,
+            scheduled_colour: Color,
+            intervals: Vec<WorkloadInterval>,
+        }
+    }
+    view(workload, _state, _cx) {
+        let labels = workload.intervals.iter().map(|row| row.label.as_str()).collect();
+        let interactive = workload.intervals.iter().map(|row| row.interactive_jobs as f32).collect();
+        let scheduled = workload.intervals.iter().map(|row| row.scheduled_jobs as f32).collect();
+    } => Chart(
+        title: Some(workload.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Line(LineSeries::new(&workload.interactive_label)
+                .stack("job-sources").area_style(workload.interactive_colour).data(interactive)),
+            Series::Line(LineSeries::new(&workload.scheduled_label)
+                .stack("job-sources").area_style(workload.scheduled_colour).data(scheduled)),
+        ],
+    )
+}
+```
+
+Supply design-system colours and translated labels. Use complete equal intervals and reconcile each total with the source report. Counts, rates and cumulative values are different measures; choose one consistently.
+
+The upper area has a changing baseline, so precise source comparisons may be clearer with grouped bars. Test one source at zero, missing reports and a change in mix. Keep exact values and source identity available without colour or hover. The screenshot is a gallery fixture.
+
+[Cartesian family overview](./overview)

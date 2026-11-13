@@ -1,0 +1,34 @@
+---
+title: Expansion plan map
+sidebar_label: Expansion plan map
+description: Map unmet demand without confusing forecasts with completed rollout.
+---
+
+# Expansion plan map
+
+![Expansion plan map screenshot](/img/charts/map-expansion-plan.png)
+
+An expansion plan is a forecast or proposal, not a current service report. Keep the distinction visible so a planned connection does not appear to be already available.
+
+For a simple prioritisation view, show eligible premises not yet covered. Use `RegionMeasure` from [the choropleth component](../geographic-and-route/map-choropleth), in `widgets/regional_report_map.rs`:
+
+```rust
+use crate::widgets::regional_report_map::RegionMeasure;
+
+pub fn unmet_premises(
+    region_id: String,
+    eligible: u32,
+    covered: u32,
+) -> Option<RegionMeasure> {
+    Some(RegionMeasure {
+        region_id,
+        value: eligible.checked_sub(covered)? as f32,
+    })
+}
+```
+
+Pass these values to `RegionalReportMap` with supplied geometry and a consistent colour range. Translate the title and summary to identify this as unmet premises at a given survey date, not a promise of delivery. Keep budget, feasibility and planned dates in the planning model; this one measure cannot decide the investment alone.
+
+An invalid covered total returns no projection rather than wrapping an unsigned subtraction. Surface that error before rendering. Test missing surveys, complete coverage and changing region boundaries, and retain exact counts in a ranked planning list. A large polygon should not acquire higher priority merely because it occupies more screen space. The gallery is separate.
+
+[Geo family overview](./overview)

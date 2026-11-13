@@ -7,7 +7,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) PropertyInfoPanel<AnimationGalleryState> { property: PropertyCase }
-    |panel, _state, cx| {
+    view(panel, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(

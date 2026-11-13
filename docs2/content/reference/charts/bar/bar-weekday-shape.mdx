@@ -1,0 +1,46 @@
+---
+title: Weekday shape bars
+sidebar_label: Weekday shape bars
+description: Show seven ordered weekday observations without replacing the weekly sequence with a ranking.
+---
+
+# Weekday shape bars
+
+![Weekday shape bars screenshot](/img/charts/bar-weekday-shape.png)
+
+A weekly shape can reveal when a service receives work. Sorting the weekdays by volume would answer which day was busiest, but would hide the rhythm of the week.
+
+Use a fixed seven-value order and translate the labels without changing their association with those observations.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+fission_component! {
+    pub WeekdayRequests<()> {
+        props {
+            title: String,
+            request_label: String,
+            weekday_labels: [String; 7],
+            requests: [u32; 7],
+        }
+    }
+    view(week, _state, _cx) {
+        let labels = week.weekday_labels.iter().map(String::as_str).collect();
+        let counts = week.requests.iter().map(|count| *count as f32).collect();
+    } => Chart(
+        title: Some(week.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        series: vec![Series::Bar(
+            BarSeries::new(&week.request_label).data(counts),
+        )],
+    )
+}
+```
+
+The two arrays share one declared order, such as Monday through Sunday. If the locale uses another first day, rotate labels and values together in the reporting projection.
+
+A single week's totals and an average across several weeks are different reports. State which one is shown, use one reporting timezone and avoid comparing an unfinished day with completed days without identifying it. Test ordering and daylight-saving boundaries in aggregation, then inspect long translated weekday names. Keep exact counts available; the gallery screenshot is a separate fixture.
+
+[Bar family overview](./overview)

@@ -8,7 +8,7 @@ use fission::widgets::{Accordion, AccordionItem, AccordionMotion};
 
 fission_component! {
     pub(super) AccordionPreview<AnimationGalleryState> {}
-    |_preview, state, cx| {
+    view(_preview, state, cx) {
         let progress = if state.playing {
             1.0
         } else {

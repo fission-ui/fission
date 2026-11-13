@@ -1,0 +1,35 @@
+---
+title: Sales map
+sidebar_label: Sales map
+description: Compare regional sales without using floating-point chart values as accounts.
+---
+
+# Sales map
+
+![Sales map screenshot](/img/charts/map-sales.png)
+
+A sales map can answer where revenue comes from, but it should not become the accounting model. Keep amounts in their exact representation and only convert them when preparing the display.
+
+```rust
+use crate::widgets::regional_report_map::RegionMeasure;
+
+pub struct TerritoryRevenue {
+    pub region_id: String,
+    pub amount_minor: u64,
+}
+
+pub fn revenue_values(rows: &[TerritoryRevenue]) -> Vec<RegionMeasure> {
+    rows.iter().map(|row| RegionMeasure {
+        region_id: row.region_id.clone(),
+        value: row.amount_minor as f32 / 100.0,
+    }).collect()
+}
+```
+
+This uses `RegionMeasure` from [the choropleth component](../geographic-and-route/map-choropleth), placed in `widgets/regional_report_map.rs`. Its Compose chart accepts these values, supplied GeoJSON and a colour scale. Supply translated title, currency-unit label and explanatory text from the parent.
+
+The conversion assumes one currency with 100 minor units per major unit. A report covering multiple currencies needs an explicit conversion policy before aggregation. Refunds require a signed model rather than forcing them into this unsigned example.
+
+Use comparable reporting periods and stable region IDs. Provide exact formatted totals alongside the map; land area is not revenue share. Test missing territories and the conversion independently of rendering. The gallery image is not a rendering of these records.
+
+[Geo and route family overview](./overview)

@@ -1,0 +1,76 @@
+---
+title: Filtered composition
+sidebar_label: Filtered composition
+description: Filter a real category projection while keeping the pie's changing denominator explicit.
+---
+
+# Filtered composition
+
+![Filtered composition screenshot](/img/charts/dataset-filtered-pie.png)
+
+Filtering a pie changes its whole. A category's share can rise without its count changing because other categories were removed. State which population is shown.
+
+This component owns an isolated chart-local filter. It does not mutate its source rows or claim that hiding slices preserves the original denominator.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries, Series};
+
+#[derive(Clone)]
+pub struct ChannelOrders {
+    pub label: String,
+    pub paid: bool,
+    pub orders: u32,
+}
+
+fission_component! {
+    pub FilteredOrderComposition<()> {
+        props {
+            all_title: String,
+            paid_title: String,
+            orders_label: String,
+            show_all_label: TextContent,
+            show_paid_label: TextContent,
+            empty_label: TextContent,
+            channels: Vec<ChannelOrders>,
+        }
+        state { paid_only: bool = false }
+    }
+    view(composition, _state, _cx) {
+        let values: Vec<(&str, f32)> = composition.channels.iter()
+            .filter(|channel| !composition.paid_only || channel.paid)
+            .map(|channel| (channel.label.as_str(), channel.orders as f32)).collect();
+        let has_orders = values.iter().any(|(_, count)| *count > 0.0);
+        let title = if composition.paid_only {
+            composition.paid_title.clone()
+        } else {
+            composition.all_title.clone()
+        };
+    } => Column(children: [
+        Button(
+            child: Text(if composition.paid_only {
+                composition.show_all_label.clone()
+            } else {
+                composition.show_paid_label.clone()
+            }),
+            on_press: reduce { composition.paid_only = !composition.paid_only; },
+        ),
+        if has_orders {
+            Chart(
+                title: Some(title),
+                series: vec![Series::Pie(
+                    PieSeries::new(&composition.orders_label).data(values),
+                )],
+            )
+        } else {
+            Text(composition.empty_label.clone())
+        },
+    ])
+}
+```
+
+Supply translated labels and exclusive channel attribution for one window. `PieSeries` consumes an explicit label/value projection; it does not implement generic dataset filtering.
+
+If the filter affects the rest of the report, put it in application state instead. Test both populations, an empty paid subset and unchanged counts with changed shares. Retain exact counts and denominator descriptions outside the pie. The image is a gallery fixture.
+
+[Dataset family overview](./overview)

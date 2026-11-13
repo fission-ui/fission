@@ -1,0 +1,59 @@
+---
+title: Clip
+description: Clip one child to its layout bounds.
+slug: /widgets/clip
+---
+# Clip
+
+`Clip` keeps a child's painting inside its layout bounds.
+
+Use it when the child should render normally but overflow must stay hidden, for
+example during a reveal animation or inside a card.
+
+Use `Clip` when overflow is the problem. Do not use it as a substitute for sizing. If the real issue is padding, width, height, or aspect ratio, solve that first with layout widgets.
+
+## Example
+
+```rust
+use fission::core::ui::Clip;
+use fission::prelude::*;
+
+fission_component! {
+    pub ClippedPreview<()> {
+        props { content: Widget }
+    }
+    view(preview, _state, _cx) =>
+    Clip(preview.content.clone())
+}
+```
+
+This keeps the child inside its visible bounds even if another wrapper later translates or animates it.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `path` | `Option<String>` | Optional clip path payload. | Defaults to `None`. The current checked-in shell pipeline clips to rectangular bounds, so custom path behavior is not the portable default today. |
+| `child` | `Widget` | The widget whose painting should be clipped. | Required. `Clip::default()` uses an empty spacer child. |
+
+## Layout and rendering behavior
+
+`Clip` does not change the child's layout size. It forwards the same constraints to the child and then applies clipping at the rendering layer. That makes it a good partner for [`Transform`](/reference/widgets/transform) and [`Composite`](/reference/widgets/composite), where a child might visually move or fade without wanting to escape its frame.
+
+The `path` field exists in the public type, but the current shell path is rectangular clipping by default. If you need guaranteed cross-platform clipping behavior today, design around rectangular bounds rather than assuming arbitrary path clipping.
+
+## Specific advice
+
+Clip as late as practical. If you clip too early, later wrappers may become harder to reason about. A common pattern is `Container` for size and styling, then `Clip`, then a moving or custom-painted child.
+
+## Production checklist
+
+- Check painting at every clipped edge during translation or reveal motion.
+- Verify pointer and keyboard access when an interactive child is partly hidden.
+- Fix unintended layout overflow before adding a clip; hiding a control does
+  not make an incorrect size constraint valid.
+
+## Related
+
+[`Container`](/reference/widgets/container), [`Transform`](/reference/widgets/transform), [`Composite`](/reference/widgets/composite), and [`Scroll`](/reference/widgets/scroll).

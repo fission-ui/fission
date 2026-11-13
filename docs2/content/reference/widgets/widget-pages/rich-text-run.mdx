@@ -1,0 +1,55 @@
+---
+title: RichTextRun
+description: Represent one continuous segment of text that shares a single style.
+slug: /widgets/rich-text-run
+---
+# RichTextRun
+
+`RichTextRun` is the building block for [`RichText`](/reference/widgets/rich-text).
+
+A run is one continuous piece of text with one style. A sentence with a bold
+product name in otherwise plain text needs more than one run.
+
+## Example
+
+```rust
+use fission::prelude::*;
+// In view setup: keep a translated message whole rather than concatenating
+// English fragments whose order may not work in another language.
+let tokens = &cx.view.env().theme.tokens;
+let failed = RichTextRun::new(cx.tr("sync.failed"))
+    .weight(tokens.typography.font_weight_bold)
+    .color(tokens.colors.error);
+
+// In the Compose view:
+RichText(runs: vec![failed])
+```
+
+Other runs can carry differently styled text without creating separate
+layout boxes. For a translated sentence containing emphasis, obtain ordered
+segments from the app's message formatting layer; do not assume English
+fragment order is a universal template.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `text` | `String` | Text for this run. | Required. |
+| `style` | `TextRunStyle` | Fully resolved style for the run. | Defaults to `TextRunStyle::default()`. Builder helpers usually feel nicer than editing this directly. |
+| `semantics_label` | `Option<String>` | Accessibility label override for this run. | Defaults to `None`. |
+| `semantics_identifier` | `Option<String>` | Semantic identifier override for this run. | Defaults to `None`. |
+| `spell_out` | `Option<bool>` | Whether assistive technology should spell out the run. | Defaults to `None`. |
+
+## When to use runs and when not to
+
+Use flat runs when you only need straightforward styling differences across one paragraph. If you need nested semantics, hover or tap actions on subranges, or inline widgets inside the text flow, move up to the span-based `RichText::from_spans(...)` model instead.
+
+## Production checklist
+
+Check fallback fonts, line wrapping, translated segment order, and the spoken
+text. A colour difference is not a substitute for the message saying what
+failed. A run is not an action control; use the span model for subrange actions.
+
+## Related
+
+[`RichText`](/reference/widgets/rich-text), [`TextRunStyle`](/reference/widgets/text-run-style), [`Text`](/reference/widgets/text), and [`TextFontStyle`](/reference/widgets/text-font-style).

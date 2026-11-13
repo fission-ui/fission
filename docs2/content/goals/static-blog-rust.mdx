@@ -1,0 +1,492 @@
+---
+layout: goal
+title: Build a static blog in Rust with Fission
+description: Build a Rust blog from actual Markdown files, with search, category archives, paginated routes and an explicitly maintained RSS feed.
+goal: Help readers find a useful article and continue to related writing
+path: /blog/build-a-static-blog-in-rust/
+order: 4
+difficulty: Beginner
+duration: 50 minutes
+run_command: "fission site serve --project-dir ."
+app: static-blog-rust
+outcomes:
+  - Publish authored Markdown at stable article URLs
+  - Search generated article content and follow category or tag archives
+  - Follow real paginated archive routes
+  - Read a complete article and continue to the next story
+---
+
+An article index, its search results and the article itself should not disagree about what was published. Keeping one copy of a post in Markdown and another in a Rust preview record makes that disagreement likely.
+
+We will build Field Journal from authored Markdown files. The Static site shell generates the articles, archives and taxonomy routes from those same files. Compose supplies the custom homepage; the existing blog template supplies the reading interface. Every preview below is the actual generated site, including its navigation.
+
+## Create the project
+
+```sh
+cargo install cargo-fission
+fission init field-journal --template website
+cd field-journal
+cargo add serde_yaml
+```
+
+Keep the generated launcher, which calls `field_journal::build_site()`, and replace the modules and configuration shown below. Use your real origin before publishing: the example.com address is deliberately not a live publication.
+
+<!-- fission:step id="journal-index" -->
+## Publish the writing before adding an archive interface
+
+Each content file owns a title, search description, taxonomy and complete body. The dated filename supplies its initial route. The examples are authored sample articles, not an in-memory fixture substituted for the published content.
+
+The shell's current front-matter parser does not consume an authors field. Put a byline in the Markdown body if needed; do not promise an author filter that the template does not implement. The translation bundles below cover the custom homepage only, not a translated edition of every article.
+
+<Tabs>
+<TabItem label="fission.toml">
+<!-- fission:file path="fission.toml" -->
+```toml
+targets = ["static-site"]
+
+[app]
+name = "field-journal"
+app_id = "rs.example.field.journal"
+
+[site]
+entry = "crate::site_app"
+title = "Field Journal"
+description = "Practical notes about building and maintaining small software projects."
+base_url = "https://field-journal.example.com"
+out_dir = "dist/site"
+default_locale = "en-US"
+locales = ["en-US", "es-ES"]
+generate_sitemap = true
+generate_robots = true
+
+[site.code_highlighting]
+enabled = true
+
+[[site.nav]]
+title = "Journal"
+href = "/blog/"
+
+[[site.routes]]
+path = "/blog"
+source = "content/blog"
+template = "fission::site::blog"
+```
+</TabItem>
+
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod home;
+mod translations;
+pub fn site_app() -> fission::site::FissionSite {
+    fission::site::FissionSite::new().with_env(translations::create_env())
+        .route_widget::<(), _>("/", "Field Journal",
+            Some("Practical notes about building and maintaining small software projects.".into()),
+            home::JournalHome::new())
+}
+pub fn build_site() -> anyhow::Result<()> {
+    fission::site::build_from_cli(site_app())
+}
+```
+</TabItem>
+
+<TabItem label="src/home.rs">
+<!-- fission:file path="src/home.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub JournalHome<()> {}
+    view(_home, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.l, children: [
+        SemanticsRegion(identifier: Some("site-heading-1:field-journal".into()), child:
+            Text(cx.tr("home.title")).size(tokens.typography.heading1_size)),
+        Text(cx.tr("home.description")),
+        Link::to(cx.tr("home.read"), "blog/"),
+    ])).padding_all(tokens.spacing.l).bg(tokens.colors.background)
+}
+```
+</TabItem>
+
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("checked-in translations must be valid YAML");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+home.title: "Field Journal"
+home.description: "Practical notes about building, explaining and maintaining small software projects."
+home.read: "Read the journal"
+```
+</TabItem>
+
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+home.title: "Field Journal"
+home.description: "Notas prácticas sobre crear, explicar y mantener pequeños proyectos de software."
+home.read: "Leer la revista"
+```
+</TabItem>
+
+<TabItem label="content/blog/2026-09-18-markdown-to-pages.mdx">
+<!-- fission:file path="content/blog/2026-09-18-markdown-to-pages.mdx" -->
+````md
+---
+title: Keep an article at a stable address
+description: How source files, metadata and links identify the same article.
+categories: [Rust guides]
+tags: [markdown, static sites]
+show_adjacent_posts: true
+---
+
+# Keep an article at a stable address
+
+An article can be reached through a shared link, a search result or its archive. Those routes should identify the same piece of writing. A title copied into a separate Rust record becomes another value an editor has to remember to change.
+
+## Keep content together
+Put the title, description and body in one Markdown file. Use the description to state the question the article answers, not a second unrelated marketing claim. Its public URL then gives another writer a stable place to link.
+
+## Change the structure carefully
+A filename-based route can change when the file is renamed. Before reorganising a published archive, record the old URL and arrange an explicit redirect. A fresh sitemap is useful discovery information, but it does not repair someone else's saved link.
+
+[The revision note](../2026-09-11-corrections/) explains what to record when the advice itself changes.
+````
+</TabItem>
+
+<TabItem label="content/blog/2026-09-15-useful-search.mdx">
+<!-- fission:file path="content/blog/2026-09-15-useful-search.mdx" -->
+````md
+---
+title: Search the words a reader can remember
+description: Why a search index needs meaningful article content and an honest no-result path.
+categories: [Product design]
+tags: [search, navigation]
+show_adjacent_posts: true
+---
+
+# Search the words a reader can remember
+
+A reader may remember a problem without remembering its headline. Search needs enough meaningful content to connect that question to the article. Filling descriptions with repeated terms makes the result harder to judge.
+
+## Try more than the headline
+Search for a term from the explanation, then one from a heading. Open the returned route and check that it contains the answer, rather than merely repeating the query.
+
+## Keep the article reachable
+Search is one way into the archive. Category links, article links and direct URLs should remain usable when the search script cannot run. That separates the reading path from an optional discovery enhancement.
+````
+</TabItem>
+
+<TabItem label="content/blog/2026-09-11-corrections.mdx">
+<!-- fission:file path="content/blog/2026-09-11-corrections.mdx" -->
+````md
+---
+title: Record what changed in a correction
+description: Keep original publication facts distinct from a later review.
+categories: [Field notes]
+tags: [maintenance, publishing]
+show_adjacent_posts: true
+---
+
+# Record what changed in a correction
+
+Publication starts an article's maintenance period. Dependencies change and an example that once worked can become misleading. Replacing the text without an explanation leaves a returning reader unable to distinguish a correction from their own mistake.
+
+## State the correction
+Name the behaviour that was wrong, what now happens and whether readers need to act. Keep the original publication date distinct from a later review date.
+
+## Preserve the route
+A correction is normally still the same article. Keep its address and link to a replacement when advice has been retired. [Stable article addresses](../2026-09-18-markdown-to-pages/) explain the navigation consequence.
+````
+</TabItem>
+
+</Tabs>
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Open the journal, follow an article and read its final section. Follow a related link, then return to the archive. Reload an article URL directly; its content must not depend on an earlier selection.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="search-and-pagination" -->
+## Let the collection produce search and archive routes
+
+Add four more complete posts and enable search. The current blog template uses six posts per archive page; the seventh therefore creates a real second-page route. This is the existing template rule, not a setting invented for the example.
+
+Categories and tags create linked archives. Search uses the generated content index; it is not the local title/category/author filter from a separate app. Check the actual results rather than assuming every metadata field has a dedicated search operator.
+
+<Tabs>
+<TabItem label="fission.toml">
+<!-- fission:file path="fission.toml" -->
+```toml
+targets = ["static-site"]
+
+[app]
+name = "field-journal"
+app_id = "rs.example.field.journal"
+
+[site]
+entry = "crate::site_app"
+title = "Field Journal"
+description = "Practical notes about building and maintaining small software projects."
+base_url = "https://field-journal.example.com"
+out_dir = "dist/site"
+default_locale = "en-US"
+locales = ["en-US", "es-ES"]
+generate_sitemap = true
+generate_robots = true
+
+[site.code_highlighting]
+enabled = true
+
+[[site.nav]]
+title = "Journal"
+href = "/blog/"
+
+[[site.routes]]
+path = "/blog"
+source = "content/blog"
+template = "fission::site::blog"
+
+[site.search]
+enabled = true
+output_path = "search"
+min_token_len = 2
+```
+</TabItem>
+
+<TabItem label="content/blog/2026-09-08-reviewable-plan.mdx">
+<!-- fission:file path="content/blog/2026-09-08-reviewable-plan.mdx" -->
+````md
+---
+title: Write a plan someone can review
+description: Make the outcome, owner and next action observable.
+categories: [Product design]
+tags: [planning, teams]
+show_adjacent_posts: true
+---
+
+# Write a plan someone can review
+
+A plan is useful when another person can tell what should happen next. A broad ambition such as “improve support” may be reasonable, but it is not enough to coordinate today's work.
+
+## Name the result
+Write “publish the handover guide reviewed by support”. That identifies an output and a reviewer. It does not prescribe every implementation detail.
+
+## Identify the next action
+Ask support which questions are missing. When that action is complete, replace it with the next decision rather than allowing this small record to become another backlog.
+````
+</TabItem>
+
+<TabItem label="content/blog/2026-09-04-error-outcomes.mdx">
+<!-- fission:file path="content/blog/2026-09-04-error-outcomes.mdx" -->
+````md
+---
+title: Distinguish a failed request from a rejected write
+description: An interrupted response does not always prove that a server changed nothing.
+categories: [Rust guides]
+tags: [errors, network]
+show_adjacent_posts: true
+---
+
+# Distinguish a failed request from a rejected write
+
+A client can lose a response after a server has committed a change. Showing “nothing was saved” in that case claims knowledge the client does not have. Automatically repeating the request may create a duplicate.
+
+## Preserve the user's input
+Keep the draft while explaining that the outcome is uncertain. Reload the authoritative record before deciding whether another write is needed.
+
+## Design a retry contract
+If an operation needs safe automatic retries, define its identity and deduplication behaviour on the server. A spinner or retry button cannot establish that guarantee by itself.
+````
+</TabItem>
+
+<TabItem label="content/blog/2026-09-01-release-notes.mdx">
+<!-- fission:file path="content/blog/2026-09-01-release-notes.mdx" -->
+````md
+---
+title: Write release notes for an upgrade decision
+description: Explain changed behaviour and required actions rather than publishing an unexplained commit list.
+categories: [Field notes]
+tags: [releases, maintenance]
+show_adjacent_posts: true
+---
+
+# Write release notes for an upgrade decision
+
+Someone reading release notes is usually deciding whether to upgrade and what the upgrade will require. A list of internal changes forces them to reconstruct the consequence.
+
+## Put required actions first
+Name a changed default, renamed setting or migration next to the command or edit needed. Separate those changes from improvements that require no action.
+
+## Describe the result
+A fix should identify the behaviour that changed and who encountered it. Avoid calling a release “more reliable” when the evidence only establishes one corrected failure path.
+````
+</TabItem>
+
+<TabItem label="content/blog/2026-08-28-state-ownership.mdx">
+<!-- fission:file path="content/blog/2026-08-28-state-ownership.mdx" -->
+````md
+---
+title: Put a draft where its lifetime belongs
+description: Why an edit that must survive filtering cannot depend only on a mounted row.
+categories: [Rust guides]
+tags: [state, identity]
+show_adjacent_posts: true
+---
+
+# Put a draft where its lifetime belongs
+
+A row's local state is useful while that row remains mounted. Filtering can remove the row entirely. Giving it a stable key does not, by itself, promise to preserve state after unmounting.
+
+## Decide what must survive
+If the user expects an unfinished note to return after clearing a filter, store the draft with the record ID in application state. Let the row observe and edit that value through reducers.
+
+## Keep the boundary small
+Hover state or an isolated open disclosure can remain local. The choice follows the information's lifetime and ownership, rather than a rule that all mutable values belong in one global structure.
+````
+</TabItem>
+
+</Tabs>
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Follow the next archive page and open the seventh article. Follow a Rust guides category link, then a maintenance tag. Search for deduplication, open the result and confirm it contains the explanation. Try a term with no matches, then clear the query.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="read-and-publish" -->
+## Make discovery output an explicit publishing responsibility
+
+Fission generates the sitemap and robots file, but it does not generate an RSS feed. Copying feed.xml is not the same as keeping its entries up to date. This small feed deliberately includes one recent article; update it as part of the publication review, or add a separate generator with an explicit source contract later.
+
+The page's RSS link and the copied feed are real outputs. Use canonical public URLs in the feed, not the local preview address. The adjacent-post flag on each article supplies real previous/next links; no selected_story field is involved.
+
+<Tabs>
+<TabItem label="fission.toml">
+<!-- fission:file path="fission.toml" -->
+```toml
+targets = ["static-site"]
+
+[app]
+name = "field-journal"
+app_id = "rs.example.field.journal"
+
+[site]
+entry = "crate::site_app"
+title = "Field Journal"
+description = "Practical notes about building and maintaining small software projects."
+base_url = "https://field-journal.example.com"
+out_dir = "dist/site"
+default_locale = "en-US"
+locales = ["en-US", "es-ES"]
+generate_sitemap = true
+generate_robots = true
+asset_dirs = ["assets"]
+
+[site.code_highlighting]
+enabled = true
+
+[[site.nav]]
+title = "Journal"
+href = "/blog/"
+
+[[site.routes]]
+path = "/blog"
+source = "content/blog"
+template = "fission::site::blog"
+
+[site.search]
+enabled = true
+output_path = "search"
+min_token_len = 2
+```
+</TabItem>
+
+<TabItem label="assets/feed.xml">
+<!-- fission:file path="assets/feed.xml" -->
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Field Journal</title>
+    <link>https://field-journal.example.com/blog/</link>
+    <description>Practical notes about building and maintaining small software projects.</description>
+    <item>
+      <title>Keep an article at a stable address</title>
+      <link>https://field-journal.example.com/blog/2026-09-18-markdown-to-pages/</link>
+      <guid>https://field-journal.example.com/blog/2026-09-18-markdown-to-pages/</guid>
+      <description>How source files, metadata and links identify the same article.</description>
+    </item>
+  </channel>
+</rss>
+```
+</TabItem>
+
+<TabItem label="src/home.rs">
+<!-- fission:file path="src/home.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub JournalHome<()> {}
+    view(_home, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.l, children: [
+        SemanticsRegion(identifier: Some("site-heading-1:field-journal".into()), child:
+            Text(cx.tr("home.title")).size(tokens.typography.heading1_size)),
+        Text(cx.tr("home.description")),
+        Link::to(cx.tr("home.read"), "blog/"),
+        Link::to("RSS", "feed.xml"),
+    ])).padding_all(tokens.spacing.l).bg(tokens.colors.background)
+}
+```
+</TabItem>
+
+</Tabs>
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Open the RSS link and check its article URL against the actual published route. Follow older/newer article links and both archive pages. Disable JavaScript: articles, taxonomy links and pagination must still work.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Inspect the publication
+
+```sh
+fission site build --project-dir .
+fission site check --project-dir .
+fission site routes --project-dir .
+fission site serve --project-dir . --port 8123
+curl http://127.0.0.1:8123/blog/2026-09-18-markdown-to-pages/
+```
+
+Inspect the article's title, description and body in the returned HTML. Check `dist/site/blog/page/2/index.html`, `dist/site/feed.xml` and `dist/site/sitemap.xml`. A successful build does not establish a useful archive: check long titles, code overflow and article line length at phone and desktop widths before publishing.
+
+The feed is the one deliberate duplication in this small project. Treat its update as a review item rather than claiming that copying an asset synchronises it with Markdown.
+
+- [Content routes](/docs/guides/static-site-content-routes/)
+- [Site configuration](/reference/config/fission-toml/)

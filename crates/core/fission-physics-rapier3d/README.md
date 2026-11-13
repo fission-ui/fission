@@ -12,7 +12,7 @@ Applications should normally enable `physics-rapier3d` on the `fission` facade. 
 
 ```toml
 [dependencies]
-fission = { version = "0.15.1", features = ["physics-rapier3d"] }
+fission = { version = "0.16.0", features = ["physics-rapier3d"] }
 ```
 
 Rapier handles are implementation details, not durable game identity. Keep `PhysicsBodyId` values in application state, run physics from `fission-game`'s fixed simulation step and treat the scene as a presentation of the resulting state.

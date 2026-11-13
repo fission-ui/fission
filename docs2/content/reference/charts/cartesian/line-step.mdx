@@ -1,0 +1,53 @@
+---
+title: Step line
+sidebar_label: Step line
+description: Keep a reservation count unchanged until the next observation with an explicit end step.
+---
+
+# Step line
+
+![Step line screenshot](/img/charts/line-step.png)
+
+A reserved-seat count changes when a reservation is added or removed. A diagonal between observations would suggest the count changed gradually.
+
+An end step keeps the previous value until the next sample position, then jumps to the new value.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries, Series};
+
+#[derive(Clone)]
+pub struct ReservationSample {
+    pub label: String,
+    pub reserved_seats: u32,
+}
+
+fission_component! {
+    pub ReservationSteps<()> {
+        props {
+            title: String,
+            seats_label: String,
+            samples: Vec<ReservationSample>,
+        }
+    }
+    view(reservations, _state, _cx) {
+        let labels = reservations.samples.iter().map(|sample| sample.label.as_str()).collect();
+        let values = reservations.samples.iter().map(|sample| sample.reserved_seats as f32).collect();
+    } => Chart(
+        title: Some(reservations.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        series: vec![Series::Line(
+            LineSeries::new(&reservations.seats_label).step("end").data(values),
+        )],
+    )
+}
+```
+
+`step("start")` jumps at the previous position; `step("middle")` jumps halfway between positions. Pick the convention from the observation meaning rather than appearance.
+
+Categories are equally spaced. Irregular reservation events would make this an ordered event schematic, not elapsed-time geometry; aggregate into equal intervals or choose an explicit coordinate representation.
+
+Test increases, decreases and unchanged values. Do not enable smoothing as well, since it would compete with the discrete-step meaning. Supply translated labels and show exact counts and the sampling rule outside the chart. The gallery screenshot has different data.
+
+[Cartesian family overview](./overview)

@@ -4,6 +4,8 @@ pub mod gpu;
 mod image_decode;
 mod paint_mapping;
 use decoration::decoration_top;
+#[cfg(target_arch = "wasm32")]
+mod browser_text_fallback;
 pub mod painter;
 pub mod text;
 mod text_effects;
@@ -14,6 +16,36 @@ use paint_mapping::*;
 pub use painter::{CpuPainter, GpuImageCache, GpuPainter, GpuUploader, Painter};
 pub use parley;
 pub use text::VelloTextMeasurer;
+
+#[cfg(target_arch = "wasm32")]
+#[inline]
+pub(crate) fn web_test_trace_enabled() -> bool {
+    use wasm_bindgen::JsValue;
+
+    js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("__FISSION_TEST__"))
+        .map(|bridge| !bridge.is_undefined() && !bridge.is_null())
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[inline]
+pub(crate) fn web_test_trace_enabled() -> bool {
+    false
+}
+
+#[cfg(target_arch = "wasm32")]
+#[inline]
+pub(crate) fn trace_web_test_stage(stage: u32, iteration: u32) {
+    use wasm_bindgen::JsValue;
+
+    web_sys::console::log_1(&JsValue::from_str(&format!(
+        "FISSION_WEB_TEST_TRACE {stage} {iteration}"
+    )));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[inline]
+pub(crate) fn trace_web_test_stage(_stage: u32, _iteration: u32) {}
 
 use anyhow::Result;
 use fission_ir::op::{
@@ -1795,6 +1827,13 @@ mod tests {
     }
 
     fn render_ops(ops: Vec<DisplayOp>) -> RecordingPainter {
+        render_ops_with_backdrop_filters(ops, true)
+    }
+
+    fn render_ops_with_backdrop_filters(
+        ops: Vec<DisplayOp>,
+        backdrop_filters_enabled: bool,
+    ) -> RecordingPainter {
         let bounds = LayoutRect::new(0.0, 0.0, 200.0, 200.0);
         let mut list = DisplayList::new(bounds);
         for op in ops {
@@ -1802,6 +1841,7 @@ mod tests {
         }
         let mut painter = RecordingPainter::default();
         test_renderer(&mut painter)
+            .with_backdrop_filters(backdrop_filters_enabled)
             .render_scene(&RenderScene::from_display_list(list))
             .expect("render test scene");
         painter
@@ -1869,6 +1909,27 @@ mod tests {
         assert_eq!(painter.backdrop_filters.len(), 1);
         let clip = painter.backdrop_filters[0];
         assert!((clip.x0 - 20.0).abs() < 0.01 && (clip.x1 - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn software_fallback_can_omit_backdrop_filters() {
+        let rect = LayoutRect::new(0.0, 0.0, 200.0, 200.0);
+        let painter = render_ops_with_backdrop_filters(
+            vec![
+                DisplayOp::BackdropFilter {
+                    rect,
+                    filter: fission_ir::op::BackdropFilter::Blur(4.0),
+                    corner_radius: 0.0,
+                    bounds: rect,
+                    node_id: None,
+                    corner_radii: None,
+                },
+                draw_rect(None, None, None),
+            ],
+            false,
+        );
+        assert!(painter.backdrop_filters.is_empty());
+        assert_eq!(painter.paths, 1, "the modal scrim still paints");
     }
 
     #[test]
@@ -1978,6 +2039,8 @@ pub struct VelloRenderer<'a> {
     current_layer_count: usize,
     clip_stack: Vec<Rect>,
     scale_factor: f64,
+    backdrop_filters_enabled: bool,
+    exact_root_clip_elision: bool,
 }
 
 impl<'a> VelloRenderer<'a> {
@@ -1995,7 +2058,27 @@ impl<'a> VelloRenderer<'a> {
             current_layer_count: 0,
             clip_stack: Vec::new(),
             scale_factor,
+            backdrop_filters_enabled: true,
+            exact_root_clip_elision: false,
         }
+    }
+
+    /// Configure whether backdrop filters are encoded for the painter.
+    ///
+    /// CPU renderers can disable these effects for an interactive fallback: a full-window blur
+    /// is particularly expensive when software rasterization runs inside WebAssembly. Other
+    /// render effects, including the scrim fill drawn over the backdrop, are left unchanged.
+    pub fn with_backdrop_filters(mut self, enabled: bool) -> Self {
+        self.backdrop_filters_enabled = enabled;
+        self
+    }
+
+    /// Omit the painter layer for an exact root viewport clip when the output
+    /// target already enforces that same boundary. CPU fallback callers must
+    /// verify that the target dimensions exactly cover the scene viewport.
+    pub(crate) fn with_exact_root_clip_elision(mut self, enabled: bool) -> Self {
+        self.exact_root_clip_elision = enabled;
+        self
     }
 
     fn layout_rect_to_rect(rect: fission_render::LayoutRect) -> Rect {
@@ -2411,9 +2494,75 @@ impl<'a> VelloRenderer<'a> {
         }
     }
 
+    #[cfg(target_arch = "wasm32")]
+    fn draw_browser_text_fallback(
+        &mut self,
+        text: &str,
+        font_size: f32,
+        width: f32,
+        ascent: f32,
+        descent: f32,
+        color: [u8; 4],
+        family: &str,
+        weight: u16,
+        italic: bool,
+        position: fission_render::LayoutPoint,
+        run_left: f32,
+        baseline: f32,
+        offset: (f64, f64),
+        clip: Option<TextClip>,
+    ) -> bool {
+        let Some(image) = browser_text_fallback::rasterize(
+            text,
+            font_size,
+            width,
+            ascent,
+            descent,
+            self.scale_factor as f32,
+            color,
+            family,
+            weight,
+            italic,
+        ) else {
+            return false;
+        };
+
+        let scale = f64::from(self.scale_factor.max(0.01));
+        let padding = f64::from(browser_text_fallback::RASTER_PADDING);
+        let x = f64::from(position.x + run_left) + offset.0 - padding;
+        let y = f64::from(position.y + baseline - ascent) + offset.1 - padding;
+        let image_width = f64::from(image.width());
+        let image_height = f64::from(image.height());
+        let image_source = self.painter.image_source(&image);
+        let paint = PaintType::from(Image {
+            image: image_source,
+            sampler: ImageSampler::default(),
+        });
+        let transform = self.current_transform
+            * Affine::translate((x, y))
+            * Affine::scale_non_uniform(1.0 / scale, 1.0 / scale);
+        let destination = Rect::new(0.0, 0.0, image_width, image_height);
+
+        if let Some(clip) = clip {
+            let clip_rect = Rect::new(
+                f64::from(position.x + clip.left),
+                f64::from(position.y + clip.top),
+                f64::from(position.x + clip.right),
+                f64::from(position.y + clip.bottom),
+            );
+            self.with_clip_rect(clip_rect, |this| {
+                this.painter.fill_rect(transform, paint, &destination);
+            });
+        } else {
+            self.painter.fill_rect(transform, paint, &destination);
+        }
+        true
+    }
+
     fn draw_paragraph_line(
         &mut self,
         line: &parley::layout::Line<'_, ParleyBrush>,
+        _text: &str,
         position: fission_render::LayoutPoint,
         top_y: f32,
         line_height: f32,
@@ -2446,9 +2595,12 @@ impl<'a> VelloRenderer<'a> {
                     brush_data.0[2],
                     brush_data.0[3],
                 );
+                let glyph_text_range = text::glyph_run_text_range(&glyph_run);
                 let rich_style = styles.iter().find_map(|(range, style)| {
-                    let run_range = run.text_range();
-                    (range.start < run_range.end && range.end > run_range.start).then_some(style)
+                    glyph_text_range
+                        .as_ref()
+                        .filter(|segment| range.start < segment.end && range.end > segment.start)
+                        .map(|_| style)
                 });
                 let paint_bounds = Rect::new(
                     position.x as f64 + run_left as f64,
@@ -2499,35 +2651,104 @@ impl<'a> VelloRenderer<'a> {
                     continue;
                 }
 
-                if let Some(rich_style) = rich_style {
-                    for shadow in &rich_style.typography.shadows {
-                        for (dx, dy, color) in text_effects::shadow_samples(*shadow) {
-                            self.painter.fill_glyphs(
-                                self.current_transform
-                                    * Affine::translate((
-                                        position.x as f64 + dx,
-                                        position.y as f64 + dy,
-                                    )),
-                                PaintType::from(Color::from_rgba8(
-                                    color.r, color.g, color.b, color.a,
-                                )),
-                                font,
-                                font_size,
-                                &glyphs,
-                            );
+                #[cfg(target_arch = "wasm32")]
+                let used_browser_fallback = if glyphs.iter().any(|glyph| glyph.id == 0) {
+                    let fallback_text = glyph_text_range
+                        .clone()
+                        .and_then(|range| _text.get(range))
+                        .unwrap_or_default();
+                    let family = rich_style
+                        .and_then(|style| style.font_family.as_deref())
+                        .unwrap_or_else(|| self.measurer.default_font_family())
+                        .to_owned();
+                    let weight = rich_style.map(|style| style.font_weight).unwrap_or(400);
+                    let italic = rich_style
+                        .map(|style| style.font_style == fission_ir::op::FontStyle::Italic)
+                        .unwrap_or(false);
+                    let metrics = run.metrics();
+
+                    if let Some(rich_style) = rich_style {
+                        for shadow in &rich_style.typography.shadows {
+                            for (dx, dy, shadow_color) in text_effects::shadow_samples(*shadow) {
+                                self.draw_browser_text_fallback(
+                                    fallback_text,
+                                    font_size,
+                                    glyph_run.advance(),
+                                    metrics.ascent,
+                                    metrics.descent,
+                                    [
+                                        shadow_color.r,
+                                        shadow_color.g,
+                                        shadow_color.b,
+                                        shadow_color.a,
+                                    ],
+                                    &family,
+                                    weight,
+                                    italic,
+                                    position,
+                                    run_left,
+                                    glyph_run.baseline() + baseline_shift,
+                                    (dx, dy),
+                                    clip,
+                                );
+                            }
                         }
                     }
-                }
 
-                let paint = foreground.unwrap_or_else(|| PaintType::from(color));
-                self.painter.fill_glyphs(
-                    self.current_transform
-                        * Affine::translate((position.x as f64, position.y as f64)),
-                    paint,
-                    font,
-                    font_size,
-                    &glyphs,
-                );
+                    self.draw_browser_text_fallback(
+                        fallback_text,
+                        font_size,
+                        glyph_run.advance(),
+                        metrics.ascent,
+                        metrics.descent,
+                        brush_data.0,
+                        &family,
+                        weight,
+                        italic,
+                        position,
+                        run_left,
+                        glyph_run.baseline() + baseline_shift,
+                        (0.0, 0.0),
+                        clip,
+                    )
+                } else {
+                    false
+                };
+
+                #[cfg(not(target_arch = "wasm32"))]
+                let used_browser_fallback = false;
+
+                if !used_browser_fallback {
+                    if let Some(rich_style) = rich_style {
+                        for shadow in &rich_style.typography.shadows {
+                            for (dx, dy, color) in text_effects::shadow_samples(*shadow) {
+                                self.painter.fill_glyphs(
+                                    self.current_transform
+                                        * Affine::translate((
+                                            position.x as f64 + dx,
+                                            position.y as f64 + dy,
+                                        )),
+                                    PaintType::from(Color::from_rgba8(
+                                        color.r, color.g, color.b, color.a,
+                                    )),
+                                    font,
+                                    font_size,
+                                    &glyphs,
+                                );
+                            }
+                        }
+                    }
+
+                    let paint = foreground.unwrap_or_else(|| PaintType::from(color));
+                    self.painter.fill_glyphs(
+                        self.current_transform
+                            * Affine::translate((position.x as f64, position.y as f64)),
+                        paint,
+                        font,
+                        font_size,
+                        &glyphs,
+                    );
+                }
 
                 if let Some(decoration) = &style.underline {
                     let offset = decoration.offset.unwrap_or(metrics.underline_offset);
@@ -2687,6 +2908,7 @@ impl<'a> VelloRenderer<'a> {
     fn draw_paragraph_line_with_fade(
         &mut self,
         line: &parley::layout::Line<'_, ParleyBrush>,
+        text: &str,
         position: fission_render::LayoutPoint,
         bounds: fission_render::LayoutRect,
         top_y: f32,
@@ -2709,7 +2931,15 @@ impl<'a> VelloRenderer<'a> {
                         line_bottom as f64,
                     );
                     self.with_clip_rect(clip_rect, |this| {
-                        this.draw_paragraph_line(line, position, top_y, line_height, styles, clip);
+                        this.draw_paragraph_line(
+                            line,
+                            text,
+                            position,
+                            top_y,
+                            line_height,
+                            styles,
+                            clip,
+                        );
                     });
                 }
 
@@ -2727,7 +2957,15 @@ impl<'a> VelloRenderer<'a> {
                         line_bottom as f64,
                     );
                     self.with_alpha_clip_rect(clip_rect, alpha, |this| {
-                        this.draw_paragraph_line(line, position, top_y, line_height, styles, clip);
+                        this.draw_paragraph_line(
+                            line,
+                            text,
+                            position,
+                            top_y,
+                            line_height,
+                            styles,
+                            clip,
+                        );
                     });
                 }
             }
@@ -2740,7 +2978,15 @@ impl<'a> VelloRenderer<'a> {
                         (line_top + start).min(bounds.bottom()) as f64,
                     );
                     self.with_clip_rect(clip_rect, |this| {
-                        this.draw_paragraph_line(line, position, top_y, line_height, styles, clip);
+                        this.draw_paragraph_line(
+                            line,
+                            text,
+                            position,
+                            top_y,
+                            line_height,
+                            styles,
+                            clip,
+                        );
                     });
                 }
 
@@ -2758,7 +3004,15 @@ impl<'a> VelloRenderer<'a> {
                         (line_top + slice_end).min(bounds.bottom()) as f64,
                     );
                     self.with_alpha_clip_rect(clip_rect, alpha, |this| {
-                        this.draw_paragraph_line(line, position, top_y, line_height, styles, clip);
+                        this.draw_paragraph_line(
+                            line,
+                            text,
+                            position,
+                            top_y,
+                            line_height,
+                            styles,
+                            clip,
+                        );
                     });
                 }
             }
@@ -2877,6 +3131,7 @@ impl<'a> VelloRenderer<'a> {
                 self.with_clip_rect(clip_rect, |this| {
                     this.draw_paragraph_line(
                         line,
+                        text,
                         draw_position,
                         top_y,
                         visual_line_height,
@@ -2887,6 +3142,7 @@ impl<'a> VelloRenderer<'a> {
             } else if let Some(fade) = fade {
                 self.draw_paragraph_line_with_fade(
                     line,
+                    text,
                     draw_position,
                     bounds,
                     top_y,
@@ -2898,6 +3154,7 @@ impl<'a> VelloRenderer<'a> {
             } else {
                 self.draw_paragraph_line(
                     line,
+                    text,
                     draw_position,
                     top_y,
                     visual_line_height,
@@ -3133,14 +3390,46 @@ impl<'a> VelloRenderer<'a> {
                             continue;
                         }
 
-                        self.painter.fill_glyphs(
-                            self.current_transform
-                                * Affine::translate((position.x as f64, position.y as f64)),
-                            PaintType::from(color),
-                            font,
-                            font_size,
-                            &glyphs,
-                        );
+                        #[cfg(target_arch = "wasm32")]
+                        let used_browser_fallback = if glyphs.iter().any(|glyph| glyph.id == 0) {
+                            let fallback_text = text::glyph_run_text_range(&glyph_run)
+                                .and_then(|range| text.get(range))
+                                .unwrap_or_default();
+                            let metrics = run.metrics();
+                            let family = self.measurer.default_font_family().to_owned();
+                            self.draw_browser_text_fallback(
+                                fallback_text,
+                                font_size,
+                                glyph_run.advance(),
+                                metrics.ascent,
+                                metrics.descent,
+                                [base_color.r, base_color.g, base_color.b, base_color.a],
+                                &family,
+                                400,
+                                false,
+                                position,
+                                run_left,
+                                glyph_run.baseline(),
+                                (0.0, 0.0),
+                                text_clip,
+                            )
+                        } else {
+                            false
+                        };
+
+                        #[cfg(not(target_arch = "wasm32"))]
+                        let used_browser_fallback = false;
+
+                        if !used_browser_fallback {
+                            self.painter.fill_glyphs(
+                                self.current_transform
+                                    * Affine::translate((position.x as f64, position.y as f64)),
+                                PaintType::from(color),
+                                font,
+                                font_size,
+                                &glyphs,
+                            );
+                        }
 
                         if underline {
                             let metrics = run.metrics();
@@ -3224,7 +3513,15 @@ impl<'a> VelloRenderer<'a> {
                     continue;
                 }
             }
-            self.draw_paragraph_line(&line, position, line_top, line_height, styles, text_clip);
+            self.draw_paragraph_line(
+                &line,
+                text,
+                position,
+                line_top,
+                line_height,
+                styles,
+                text_clip,
+            );
         }
 
         if let Some(idx) = caret_index {
@@ -3509,14 +3806,19 @@ impl<'a> VelloRenderer<'a> {
                     corner_radii,
                     ..
                 } => {
-                    if let Some(filter) = painter::backdrop_filter(filter) {
-                        let r = Self::layout_rect_to_rect(*rect);
-                        let radii = corner_radii.map(kurbo_radii).unwrap_or_else(|| {
-                            RoundedRectRadii::from_single_radius(*corner_radius as f64)
-                        });
-                        let clip = RoundedRect::from_rect(r, radii).to_path(0.1);
-                        self.painter
-                            .apply_backdrop_filter(self.current_transform, &clip, filter);
+                    if self.backdrop_filters_enabled {
+                        if let Some(filter) = painter::backdrop_filter(filter) {
+                            let r = Self::layout_rect_to_rect(*rect);
+                            let radii = corner_radii.map(kurbo_radii).unwrap_or_else(|| {
+                                RoundedRectRadii::from_single_radius(*corner_radius as f64)
+                            });
+                            let clip = RoundedRect::from_rect(r, radii).to_path(0.1);
+                            self.painter.apply_backdrop_filter(
+                                self.current_transform,
+                                &clip,
+                                filter,
+                            );
+                        }
                     }
                 }
                 DisplayOp::DrawRect {
@@ -4206,11 +4508,11 @@ impl<'a> VelloRenderer<'a> {
     fn render_node(&mut self, node: &RenderNode) -> Result<()> {
         match node {
             RenderNode::Paint(list) => self.render_paint_list(list),
-            RenderNode::Layer(layer) => self.render_layer(layer),
+            RenderNode::Layer(layer) => self.render_layer(layer, false),
         }
     }
 
-    fn render_layer(&mut self, layer: &RenderLayer) -> Result<()> {
+    fn render_layer(&mut self, layer: &RenderLayer, elide_clip_layer: bool) -> Result<()> {
         let saved_transform = self.current_transform;
         let saved_layer_count = self.current_layer_count;
         let saved_clip_count = self.clip_stack.len();
@@ -4226,7 +4528,11 @@ impl<'a> VelloRenderer<'a> {
                     (RoundedRect::from_rect(r, *radius as f64).to_path(0.1), r)
                 }
             };
-            self.push_layer_for(path, bounds, BlendMode::default(), 1.0);
+            if elide_clip_layer {
+                self.push_clip_bounds(bounds);
+            } else {
+                self.push_layer_for(path, bounds, BlendMode::default(), 1.0);
+            }
         }
 
         if (layer.style.opacity - 1.0).abs() > 0.001 || !layer.style.blend_mode.is_normal() {
@@ -4259,9 +4565,52 @@ impl<'a> VelloRenderer<'a> {
 
 impl<'a> Renderer for VelloRenderer<'a> {
     fn render_scene(&mut self, scene: &RenderScene) -> Result<()> {
-        for root in &scene.roots {
-            self.render_node(root)?;
+        for (index, root) in scene.roots.iter().enumerate() {
+            let elide_root_clip = self.exact_root_clip_elision
+                && index == 0
+                && matches!(
+                    root,
+                    RenderNode::Layer(layer)
+                        if layer.bounds == scene.bounds
+                            && layer.style.clip == Some(LayerClip::Rect(scene.bounds))
+                            && layer.style.opacity == 1.0
+                            && layer.style.blend_mode.is_normal()
+                            && layer.style.transform.is_none()
+                            && layer_subtree_uses_normal_blending(layer)
+                );
+            if elide_root_clip {
+                if let RenderNode::Layer(layer) = root {
+                    self.render_layer(layer, true)?;
+                }
+            } else {
+                self.render_node(root)?;
+            }
         }
         Ok(())
+    }
+}
+
+fn layer_subtree_uses_normal_blending(layer: &RenderLayer) -> bool {
+    layer.style.blend_mode.is_normal()
+        && layer.children.iter().all(|child| match child {
+            RenderNode::Layer(child) => layer_subtree_uses_normal_blending(child),
+            RenderNode::Paint(_) => true,
+        })
+}
+
+#[cfg(test)]
+mod root_clip_elision_tests {
+    use super::{layer_subtree_uses_normal_blending, RenderLayer, RenderNode};
+    use fission_layout::LayoutRect;
+
+    #[test]
+    fn root_clip_elision_keeps_non_normal_blend_groups() {
+        let bounds = LayoutRect::new(0.0, 0.0, 24.0, 16.0);
+        let mut root = RenderLayer::new(bounds);
+        let mut blended = RenderLayer::new(bounds);
+        blended.style.blend_mode = fission_ir::BlendMode::Multiply;
+        root.children.push(RenderNode::Layer(blended));
+
+        assert!(!layer_subtree_uses_normal_blending(&root));
     }
 }

@@ -1,0 +1,64 @@
+---
+title: Avatar
+description: Show a person or account identity as an image or fallback initials.
+slug: /widgets/avatar
+---
+# Avatar
+
+`Avatar` shows a person, team, or account identity.
+
+When `src` is set it shows the image; otherwise it uses up to two initials
+from `name`. That gives dense lists a visual anchor without leaving a blank
+space when an image is missing.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub ProfileAvatar<AppState>
+    view(_avatar, state, _cx) =>
+    Avatar(
+        name: Some(state.profile.display_name.clone()),
+        src: state.profile.photo_url.clone(),
+    )
+}
+```
+
+Here `AppState` owns a profile with a display name and optional photo URL. When
+`src` is absent, a name such as “Maya Patel” renders `MP`. The initials branch
+is selected by an absent source; it is not an automatic failed-network-image
+replacement.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `name` | `Option<String>` | Display name used to derive fallback initials. | Defaults to `None`. If both `name` and `src` are missing, the fallback becomes `?`. |
+| `src` | `Option<String>` | Image source for the avatar. | Defaults to `None`. When present, it wins over initials. |
+| `size` | `Option<f32>` | Diameter of the avatar circle. | Defaults to `40.0`. |
+
+## Accessibility and responsive notes
+
+When `name` is non-empty, `Avatar` exposes that name with image semantics.
+Omit the name for a decorative avatar whose adjacent text already supplies
+identity. Initials alone still do not disambiguate people with similar names.
+
+Also think about size in context. A small 24px avatar works in tables or compact lists. A 48px or 56px avatar works better in message headers or profile summaries.
+
+## Specific advice
+
+Do not rely on initials alone when the product must disambiguate many similar names. Use adjacent text, secondary metadata, or a richer row layout so identity remains clear.
+
+## Production checklist
+
+- Check an absent source, an empty name and non-Latin display names separately.
+- Verify whether adjacent identity text makes the image decorative or whether
+  the avatar's name should be announced.
+- Test an invalid photo URL; do not assume that branch automatically renders
+  the initials used when no source was supplied.
+
+## Related
+
+[`Image`](/reference/widgets/image), [`Badge`](/reference/widgets/badge), [`Card`](/reference/widgets/card), and [`Text`](/reference/widgets/text).

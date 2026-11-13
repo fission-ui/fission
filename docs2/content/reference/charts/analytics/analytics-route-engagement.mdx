@@ -1,0 +1,61 @@
+---
+title: Engagement routes
+sidebar_label: Engagement routes
+description: Show schematic location-to-location activity without claiming an unsupported map overlay.
+---
+
+# Engagement routes
+
+![Engagement routes screenshot](/img/charts/analytics-route-engagement.png)
+
+Location-to-location activity is a different question from page navigation. Here a route connects two known locations and its value is the number of sessions associated with that connection.
+
+There is an important boundary in the current renderer: `LinesSeries` and `MapSeries` each fit their own coordinates to the plot. Adding both series does not give them a shared geographic projection. This example therefore shows a schematic route view without a basemap.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, LineSegment, LinesSeries, Series};
+
+#[derive(Clone)]
+pub struct LocationRoute {
+    pub from: (f32, f32),
+    pub to: (f32, f32),
+    pub sessions: u32,
+}
+
+fission_component! {
+    pub LocationConnections<()> {
+        props {
+            title: String,
+            route_label: String,
+            explanation: TextContent,
+            routes: Vec<LocationRoute>,
+        }
+    }
+    view(connections, _state, _cx) {
+        let segments = connections.routes.iter().map(|route|
+            LineSegment::new(route.from, route.to, route.sessions as f32)
+        ).collect();
+    } => Column(children: [
+        Text(connections.explanation.clone()),
+        Chart(
+            title: Some(connections.title.clone()),
+            series: vec![Series::Lines(
+                LinesSeries::new(&connections.route_label).data(segments),
+            )],
+        ),
+    ])
+}
+```
+
+Provide finite coordinates in one declared schematic coordinate system, and include location names and counts in a companion route list. The renderer derives line intensity and width from relative values; it does not implement a fixed geographic distance or traffic-width scale.
+
+## Do not overstate the map
+
+The gallery screenshot above may combine map and route elements, but it does not establish geographic alignment for arbitrary data. Do not ship a misleading overlay by assuming matching longitude and latitude values are sufficient.
+
+For a geographic report, use a single region map or a route table until a shared projection is available. Test the endpoint mapping and distinguish no observed traffic from unknown traffic before constructing the view.
+
+[Analytics family overview](./overview)

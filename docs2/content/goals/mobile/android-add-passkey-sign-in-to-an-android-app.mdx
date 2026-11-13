@@ -1,0 +1,699 @@
+---
+layout: goal
+title: Build an Android passkey sign-in flow in Rust
+description: "Model a passkey attempt and inspect the current unsupported native result. Real Android sign-in still needs Credential Manager and relying-party verification."
+goal: "Define a passkey request and result boundary without using fixed challenges, memory credentials or a success state the native provider cannot deliver."
+path: /blog/add-passkey-sign-in-to-an-android-app/
+order: 44
+difficulty: Beginner
+duration: 45 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-add-passkey-sign-in-to-an-android-app
+outcomes:
+  - "Check the active host's support before requesting an assertion"
+  - "Keep challenge and relying-party options owned by a real server"
+  - "Handle unsupported and failed requests without unlocking a pickup order"
+  - "Identify the missing Android provider and server verification needed for complete sign-in"
+---
+
+A passkey prompt returns an assertion: a signed response to a relying party's challenge. It does not, by itself, establish an application session. The server must check that response before returning a pickup token or any other protected data.
+
+Here, the intended flow is a member collecting an order at Cedar Ridge Outfitters. The public order summary can be displayed before sign-in, but the collection code must remain server-side until the member is authenticated and authorised for that order.
+
+**This is an integration outline, not a completed Android sign-in app.** This checkout registers `UnsupportedPasskeyHost` by default, including on Android; declaring the capability does not install Credential Manager. The runnable screen checks that real host and reports its unsupported result. It does not inject fixture credentials, invent a challenge or unlock an order. Completing the advertised sign-in flow requires both a product-owned native provider and a relying-party server. Those implementations are not supplied here.
+
+## Create the Android project
+
+Complete [Android SDK and NDK setup](/blog/set-up-rust-android-gui-development-with-fission/) and either [create an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [connect a phone](/blog/run-a-fission-app-on-a-physical-android-phone/) first. Create the app and add the Android target. Declaring the passkeys capability records that the app needs this host service and lets Fission validate the project configuration:
+
+<Tabs>
+<TabItem label="Create the project">
+```sh
+cargo install cargo-fission
+fission init cedar-ridge-passkey-pickup
+cd cedar-ridge-passkey-pickup
+fission add-target android --project-dir .
+fission add-capability passkeys --project-dir .
+```
+</TabItem>
+<TabItem label="Shared Rust files">
+```text
+cedar-ridge-passkey-pickup/
+├── Cargo.toml
+├── fission.toml
+├── src/
+│   ├── main.rs
+│   ├── lib.rs
+│   ├── app.rs
+│   └── app/
+│       ├── i18n.rs
+│       ├── sign_in.rs
+│       └── widgets.rs
+├── i18n/
+│   ├── en-US.properties
+│   └── es-ES.properties
+└── platforms/
+    └── android/
+        └── AndroidManifest.xml
+```
+</TabItem>
+</Tabs>
+
+The order summary and sign-in attempt belong in app state because several parts of the screen need them. Start with no order loaded; do not put a sample order in the production default. Both entrypoints start without an order. A real app loads an authorised public summary from its service; this outline does not manufacture one. The loading flag and response status also belong in app state because Android’s credential request finishes after the first reducer has returned. The component below renders that state and binds its buttons to reducer actions. It does not start a host request while building the view.
+
+<!-- fission:step id="build-sign-in-flow" -->
+## Model passkey sign-in and protect the pickup order
+
+First model the boundary. The signed-out state has no pickup token and no sign-in options. A completed integration loads the public summary and fresh options from its server through effects. Until then the screen can honestly check host availability, but it cannot request a meaningful assertion.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+pub mod i18n;
+pub mod sign_in;
+pub mod widgets;
+
+pub use i18n::create_env;
+pub use sign_in::{MemberPasskeySignInState, PickupOrder};
+pub use widgets::PickupOrderSignInScreen;
+```
+</TabItem>
+<TabItem label="src/app/sign_in.rs">
+<!-- fission:file path="src/app/sign_in.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PickupOrder {
+    pub reference: String,
+    pub pickup_location: String,
+    pub item_summary: String,
+    pub pickup_window: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServerPasskeyOptions {
+    pub relying_party_id: String,
+    pub challenge: Vec<u8>,
+    pub allowed_credentials: Vec<PasskeyCredentialDescriptor>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MemberPasskeySignInState {
+    pub order: Option<PickupOrder>,
+    /// Loaded from the relying-party server, never generated by this screen.
+    pub options: Option<ServerPasskeyOptions>,
+    pub availability: Option<PasskeyAvailability>,
+    pub checking_support: bool,
+    pub requesting_passkey: bool,
+    /// Retained only until the assertion is sent to the server for verification.
+    pub pending_assertion: Option<PasskeyAuthenticationResult>,
+    pub message_key: Option<String>,
+    pub error_key: Option<String>,
+}
+
+impl GlobalState for MemberPasskeySignInState {}
+
+fn host_can_request_passkey(availability: &PasskeyAvailability) -> bool {
+    availability.supported && availability.secure_context
+}
+
+#[fission_reducer(CheckPasskeySupport)]
+pub fn on_check_passkey_support(
+    state: &mut MemberPasskeySignInState,
+    ctx: &mut ReducerContext<MemberPasskeySignInState>,
+) {
+    if state.checking_support || state.requesting_passkey {
+        return;
+    }
+
+    state.checking_support = true;
+    state.error_key = None;
+    state.message_key = Some("passkey.support.checking".into());
+
+    let on_ok = ctx.effects.bind(
+        PasskeySupportReceived,
+        reduce_with!(on_passkey_support_received),
+    );
+    let on_err = ctx.effects.bind(
+        PasskeySupportCheckFailed,
+        reduce_with!(on_passkey_support_check_failed),
+    );
+
+    ctx.effects.passkeys().availability().on_ok(on_ok).on_err(on_err);
+}
+
+#[fission_reducer(PasskeySupportReceived)]
+pub fn on_passkey_support_received(
+    state: &mut MemberPasskeySignInState,
+    ctx: &mut ReducerContext<MemberPasskeySignInState>,
+) {
+    state.checking_support = false;
+    let Some(availability) = ctx.input.capability_ok(GET_PASSKEY_AVAILABILITY) else {
+        state.availability = None;
+        state.message_key = None;
+        state.error_key = Some("passkey.support.no_result".into());
+        return;
+    };
+
+    let ready = host_can_request_passkey(&availability);
+    state.availability = Some(availability);
+    state.error_key = None;
+    state.message_key = Some(if ready {
+        "passkey.support.ready".into()
+    } else {
+        "passkey.support.unavailable".into()
+    });
+}
+
+#[fission_reducer(PasskeySupportCheckFailed)]
+pub fn on_passkey_support_check_failed(
+    state: &mut MemberPasskeySignInState,
+    ctx: &mut ReducerContext<MemberPasskeySignInState>,
+) {
+    state.checking_support = false;
+    state.availability = None;
+    state.message_key = None;
+    let Some(error) = ctx.input.capability_error(GET_PASSKEY_AVAILABILITY) else {
+        state.error_key = Some("passkey.support.failed".into());
+        return;
+    };
+
+    state.error_key = Some(if error.code == "unsupported" {
+        "passkey.host.unsupported".into()
+    } else {
+        "passkey.support.failed".into()
+    });
+}
+
+#[fission_reducer(SignInWithPasskey)]
+pub fn on_sign_in_with_passkey(
+    state: &mut MemberPasskeySignInState,
+    ctx: &mut ReducerContext<MemberPasskeySignInState>,
+) {
+    if state.checking_support || state.requesting_passkey || state.pending_assertion.is_some() {
+        return;
+    }
+
+    let Some(availability) = state.availability.as_ref() else {
+        state.error_key = Some("passkey.error.check_first".into());
+        state.message_key = None;
+        return;
+    };
+    if !host_can_request_passkey(availability) {
+        state.error_key = Some("passkey.error.unavailable".into());
+        state.message_key = None;
+        return;
+    }
+    let Some(options) = state.options.take() else {
+        state.error_key = Some("passkey.error.challenge_missing".into());
+        state.message_key = None;
+        return;
+    };
+    if options.challenge.is_empty() || options.relying_party_id.trim().is_empty() {
+        state.error_key = Some("passkey.error.challenge_missing".into());
+        state.message_key = None;
+        return;
+    }
+
+    state.requesting_passkey = true;
+    state.error_key = None;
+    state.message_key = Some("passkey.request.waiting".into());
+
+    let on_ok = ctx.effects.bind(
+        PasskeyAssertionReceived,
+        reduce_with!(on_passkey_assertion_received),
+    );
+    let on_err = ctx.effects.bind(
+        PasskeyRequestFailed,
+        reduce_with!(on_passkey_request_failed),
+    );
+
+    ctx.effects
+        .passkeys()
+        .authenticate(PasskeyAuthenticationRequest {
+            relying_party_id: options.relying_party_id,
+            challenge: options.challenge,
+            // An empty list asks for a discoverable credential. The server may
+            // instead return credential ids for an account-first sign-in flow.
+            allow_credentials: options.allowed_credentials,
+            user_verification: PasskeyUserVerification::Required,
+            mediation: PasskeyMediation::Required,
+            timeout_ms: Some(60_000),
+        })
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+#[fission_reducer(PasskeyAssertionReceived)]
+pub fn on_passkey_assertion_received(
+    state: &mut MemberPasskeySignInState,
+    ctx: &mut ReducerContext<MemberPasskeySignInState>,
+) {
+    state.requesting_passkey = false;
+    let Some(assertion) = ctx.input.capability_ok(AUTHENTICATE_PASSKEY) else {
+        state.pending_assertion = None;
+        state.message_key = None;
+        state.error_key = Some("passkey.assertion.no_result".into());
+        return;
+    };
+
+    state.pending_assertion = Some(assertion);
+    state.error_key = None;
+    state.message_key = Some("passkey.assertion.ready".into());
+}
+
+#[fission_reducer(PasskeyRequestFailed)]
+pub fn on_passkey_request_failed(
+    state: &mut MemberPasskeySignInState,
+    ctx: &mut ReducerContext<MemberPasskeySignInState>,
+) {
+    state.requesting_passkey = false;
+    state.pending_assertion = None;
+    state.message_key = None;
+    let Some(error) = ctx.input.capability_error(AUTHENTICATE_PASSKEY) else {
+        state.error_key = Some("passkey.request.failed".into());
+        return;
+    };
+
+    state.error_key = Some(match error.code.as_str() {
+        "cancelled" | "canceled" | "user_cancel" | "not_allowed" => "passkey.error.cancelled".into(),
+        "unsupported" | "unavailable" => "passkey.error.unavailable".into(),
+        "security_error" => "passkey.error.domain_association".into(),
+        _ => "passkey.request.failed".into(),
+    });
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.properties">
+<!-- fission:file path="i18n/en-US.properties" -->
+```properties
+pickup.screen.label=Cedar Ridge pickup order sign-in
+pickup.app.title=Cedar Ridge order pickup
+pickup.brand=CEDAR RIDGE OUTFITTERS
+pickup.title=Pickup passkey sign-in
+pickup.intro=Sign in to open the collection details for this order.
+pickup.order.missing=No order summary is loaded. This outline does not contact an order service.
+pickup.order_label=Order
+pickup.code_locked=Pickup code locked · Sign in before collecting
+pickup.checking=Checking passkey support…
+pickup.check_support=Check passkey support
+pickup.waiting=Waiting for your passkey…
+pickup.assertion_ready=Assertion ready for verification
+pickup.sign_in=Sign in with passkey
+pickup.support_check_first=Check support first. If this Android app has no passkey provider, use your account sign-in instead.
+pickup.server_verification=Only the sign-in server can verify the assertion and unlock the pickup code. This screen stays signed out until that check succeeds.
+passkey.support.checking=Checking whether this app can request a passkey…
+passkey.support.ready=A passkey provider is available. You can request an assertion for this sign-in attempt.
+passkey.support.unavailable=No supported passkey provider is available here. Use account sign-in instead.
+passkey.support.no_result=The passkey host returned no availability result. Use account sign-in instead.
+passkey.support.failed=The app could not check passkey support. Use account sign-in instead.
+passkey.host.unsupported=This Android app does not have a Credential Manager passkey provider registered. Use account sign-in instead.
+passkey.error.check_first=Check passkey support before starting sign-in.
+passkey.error.unavailable=This app cannot request a passkey from the current host. Use account sign-in instead.
+passkey.error.challenge_missing=The sign-in challenge is missing. Ask the server for a fresh challenge before continuing.
+passkey.request.waiting=Waiting for the passkey provider…
+passkey.assertion.no_result=The provider returned no assertion. The order is still locked; try again or use account sign-in.
+passkey.assertion.ready=The provider returned an assertion. Send it to the sign-in server for verification; the order is still locked.
+passkey.request.failed=The passkey request could not be completed. The order is still locked; try again or use account sign-in.
+passkey.error.cancelled=Passkey sign-in was cancelled. The order is still locked; try again or use account sign-in.
+passkey.error.domain_association=The app and relying-party domain are not associated correctly. Check the Android Digital Asset Links setup, then use account sign-in for now.
+```
+</TabItem>
+<TabItem label="i18n/es-ES.properties">
+<!-- fission:file path="i18n/es-ES.properties" -->
+```properties
+pickup.screen.label=Inicio de sesión del pedido de recogida de Cedar Ridge
+pickup.app.title=Recogida de pedido de Cedar Ridge
+pickup.brand=CEDAR RIDGE OUTFITTERS
+pickup.title=Acceso con clave de paso para la recogida
+pickup.intro=Inicia sesión para ver los detalles de recogida de este pedido.
+pickup.order.missing=No hay un resumen cargado. Este esquema no contacta con un servicio de pedidos.
+pickup.order_label=Pedido
+pickup.code_locked=Código de recogida bloqueado · Inicia sesión antes de recogerlo
+pickup.checking=Comprobando la compatibilidad con passkeys…
+pickup.check_support=Comprobar compatibilidad con passkeys
+pickup.waiting=Esperando tu passkey…
+pickup.assertion_ready=Aserción lista para verificar
+pickup.sign_in=Iniciar sesión con passkey
+pickup.support_check_first=Comprueba la compatibilidad primero. Si esta app de Android no tiene un proveedor de passkeys, usa el inicio de sesión de tu cuenta.
+pickup.server_verification=Solo el servidor de inicio de sesión puede verificar la aserción y desbloquear el código de recogida. Esta pantalla seguirá sin iniciar sesión hasta que se complete esa verificación.
+passkey.support.checking=Comprobando si esta app puede solicitar una passkey…
+passkey.support.ready=Hay un proveedor de passkeys disponible. Puedes solicitar una aserción para este intento de inicio de sesión.
+passkey.support.unavailable=No hay un proveedor de passkeys compatible aquí. Usa el inicio de sesión de tu cuenta.
+passkey.support.no_result=El proveedor de passkeys no devolvió la disponibilidad. Usa el inicio de sesión de tu cuenta.
+passkey.support.failed=La app no pudo comprobar la compatibilidad con passkeys. Usa el inicio de sesión de tu cuenta.
+passkey.host.unsupported=Esta app de Android aún no tiene registrado un proveedor de passkeys para Credential Manager. Usa el inicio de sesión de tu cuenta.
+passkey.error.check_first=Comprueba la compatibilidad con passkeys antes de iniciar sesión.
+passkey.error.unavailable=Esta app no puede solicitar una passkey desde el proveedor actual. Usa el inicio de sesión de tu cuenta.
+passkey.error.challenge_missing=Falta el desafío de inicio de sesión. Solicita al servidor un desafío nuevo antes de continuar.
+passkey.request.waiting=Esperando al proveedor de passkeys…
+passkey.assertion.no_result=El proveedor no devolvió una aserción. El pedido sigue bloqueado; inténtalo otra vez o usa el inicio de sesión de tu cuenta.
+passkey.assertion.ready=El proveedor devolvió una aserción. Envíala al servidor de inicio de sesión para verificarla; el pedido sigue bloqueado.
+passkey.request.failed=No se pudo completar la solicitud de passkey. El pedido sigue bloqueado; inténtalo otra vez o usa el inicio de sesión de tu cuenta.
+passkey.error.cancelled=Se canceló el inicio de sesión con passkey. El pedido sigue bloqueado; inténtalo otra vez o usa el inicio de sesión de tu cuenta.
+passkey.error.domain_association=La app y el dominio de la parte de confianza no están asociados correctamente. Comprueba la configuración de Digital Asset Links de Android y usa el inicio de sesión de tu cuenta por ahora.
+```
+</TabItem>
+<TabItem label="src/app/i18n.rs">
+<!-- fission:file path="src/app/i18n.rs" -->
+```rust
+use std::collections::HashMap;
+
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+fn parse_properties(source: &str) -> HashMap<String, String> {
+    source
+        .lines()
+        .filter(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#'))
+        .filter_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            Some((key.trim().to_string(), value.trim().to_string()))
+        })
+        .collect()
+}
+
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: parse_properties(source),
+    }
+}
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(load_bundle(
+        "en-US",
+        include_str!("../../i18n/en-US.properties"),
+    ));
+    env.i18n.add_bundle(load_bundle(
+        "es-ES",
+        include_str!("../../i18n/es-ES.properties"),
+    ));
+    env
+}
+```
+</TabItem>
+</Tabs>
+
+`CheckPasskeySupport` and `SignInWithPasskey` are user actions. Their effect callbacks use unit actions to route completion to a reducer, and each reducer reads the typed result from `ctx.input`. The result is not smuggled through a pretend action payload, so the screen reports what the provider actually returned.
+
+The server supplies the relying-party ID, challenge and any allowed credential IDs as one `ServerPasskeyOptions` value. Its challenge must be fresh, unpredictable and tied to the attempt. The reducer consumes those options when requesting an assertion, including when the request later fails. A retry must load new options; it must not silently replay an old challenge. The server remains the authority for challenge lifetime, replay prevention and verification.
+
+The screen’s messages live in checked-in English and Spanish property files. `create_env` loads both bundles, and the component resolves stable translation keys through the active locale. That keeps translated copy out of the reusable component; the order and item names stay app data.
+
+### Build the reusable pickup sign-in screen
+
+Now put the screen in a named Fission component. The order summary lets Mara check what she is unlocking, and the locked-state message explains why the QR code is still hidden. Both actions are disabled while the host is busy. Even after a real provider returns an assertion, the component must not show a signed-in state. Loading options and submitting the assertion are server integration work, not something a local success flag can replace.
+
+<Tabs>
+<TabItem label="src/app/widgets.rs">
+<!-- fission:file path="src/app/widgets.rs" -->
+```rust
+use fission::prelude::*;
+
+use super::sign_in::{
+    on_check_passkey_support, on_sign_in_with_passkey, CheckPasskeySupport,
+    MemberPasskeySignInState, SignInWithPasskey,
+};
+
+fission_component! {
+    pub PickupOrderSignInScreen<MemberPasskeySignInState> {}
+    view(screen, state, cx) {
+        let env = cx.view.env();
+        let tokens = &env.theme.tokens;
+        let region_label = env.i18n.get(&env.locale, "pickup.screen.label").map(str::to_owned);
+        let check_support = with_reducer!(
+            cx.build,
+            CheckPasskeySupport,
+            on_check_passkey_support,
+        );
+        let sign_in = with_reducer!(
+            cx.build,
+            SignInWithPasskey,
+            on_sign_in_with_passkey,
+        );
+        let can_request_passkey = state.availability.as_ref()
+            .map(|availability| availability.supported && availability.secure_context)
+            .unwrap_or(false);
+        let check_button_key = if state.checking_support { "pickup.checking" } else { "pickup.check_support" };
+        let sign_in_button_key = if state.requesting_passkey {
+            "pickup.waiting"
+        } else if state.pending_assertion.is_some() {
+            "pickup.assertion_ready"
+        } else {
+            "pickup.sign_in"
+        };
+    } =>
+    SemanticsRegion(
+        identifier: Some("pickup-order-passkey-sign-in".into()),
+        label: region_label,
+        child: Container(
+            Column(gap: tokens.spacing.none, children: [
+                Spacer(flex_grow: 1.0),
+                Row(children: [
+                    Spacer(flex_grow: 1.0),
+                    Container(
+                        Column(gap: tokens.spacing.l, children: [
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text(TextContent::Key("pickup.brand".into()))
+                                .weight(tokens.typography.font_weight_bold),
+                            Text(TextContent::Key("pickup.title".into()))
+                                .weight(tokens.typography.font_weight_bold),
+                            Text(TextContent::Key("pickup.intro".into()))
+                                .color(tokens.colors.text_secondary),
+                        ]),
+                        if let Some(order) = &state.order {
+                            Column(gap: tokens.spacing.s, children: [
+                                Row(gap: tokens.spacing.xs, children: [
+                                    Text(TextContent::Key("pickup.order_label".into()))
+                                        .weight(tokens.typography.font_weight_semibold),
+                                    Text(order.reference.clone())
+                                        .weight(tokens.typography.font_weight_semibold),
+                                ]),
+                                Text(order.item_summary.clone()),
+                                Text(order.pickup_location.clone())
+                                    .color(tokens.colors.text_secondary),
+                                Text(order.pickup_window.clone())
+                                    .color(tokens.colors.text_secondary),
+                            ])
+                        } else {
+                            Text(TextContent::Key("pickup.order.missing".into()))
+                                .color(tokens.colors.text_secondary)
+                        },
+                        if state.order.is_some() {
+                            Text(TextContent::Key("pickup.code_locked".into()))
+                                .weight(tokens.typography.font_weight_semibold)
+                        },
+                        Button(
+                            child: Text(TextContent::Key(check_button_key.into())),
+                            key: "check-passkey-support",
+                            variant: ButtonVariant::Outline,
+                            disabled: state.checking_support || state.requesting_passkey,
+                            on_press: check_support,
+                        )
+                        .semantics_identifier("pickup.check-passkey-support"),
+                        if can_request_passkey {
+                            Button(
+                                child: Text(TextContent::Key(sign_in_button_key.into())),
+                                key: "sign-in-with-passkey",
+                                variant: ButtonVariant::Primary,
+                                disabled: state.requesting_passkey || state.pending_assertion.is_some(),
+                                on_press: sign_in,
+                            )
+                            .semantics_identifier("pickup.sign-in-with-passkey")
+                        } else {
+                            Text(TextContent::Key("pickup.support_check_first".into()))
+                                .color(tokens.colors.text_secondary)
+                        },
+                        if state.checking_support || state.requesting_passkey {
+                            Spinner(
+                                motion: Some(SpinnerMotion::Default),
+                                label: cx.tr(if state.requesting_passkey { "pickup.waiting" } else { "pickup.checking" }),
+                            )
+                        },
+                        if let Some(message_key) = &state.message_key {
+                            Text(TextContent::Key(message_key.clone())).color(tokens.colors.text_secondary)
+                        },
+                        if let Some(error_key) = &state.error_key {
+                            Text(TextContent::Key(error_key.clone())).color(tokens.colors.error)
+                        },
+                        Text(TextContent::Key("pickup.server_verification".into()))
+                            .color(tokens.colors.text_secondary),
+                        ])
+                    )
+                    .padding_all(tokens.spacing.l)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(680.0),
+                    ))
+                    .bg(tokens.colors.surface)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.large),
+                    Spacer(flex_grow: 1.0),
+                ]),
+                Spacer(flex_grow: 1.0),
+            ]),
+        )
+        .width_length(Length::percent(100.0))
+        .height_length(Length::vh(100.0)),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+
+use app::PickupOrderSignInScreen;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<app::MemberPasskeySignInState, _>::new(PickupOrderSignInScreen)
+        .with_env(app::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<app::MemberPasskeySignInState, PickupOrderSignInScreen> {
+    let app = MobileApp::<app::MemberPasskeySignInState, _>::new(PickupOrderSignInScreen)
+        .with_env(app::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<app::MemberPasskeySignInState, _>::new(PickupOrderSignInScreen)
+        .with_env(app::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<app::MemberPasskeySignInState, _>::new(app::PickupOrderSignInScreen)
+        .with_env(app::create_env())
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+
+This is shared Rust UI: it reads the order and sign-in state without importing Android classes. The same component therefore works in the browser preview and on other Fission targets. The provider stays behind the host boundary. If a host does not support passkeys, the app can show a recovery message without unlocking the order. On Android, install the same environment on `MobileApp` so both language bundles are available there too.
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Select **Check passkey support**. Trace the real unavailable result through the effect callback and confirm that the screen shows no sign-in success, assertion or pickup code. No order is marked loading when no request is in flight. Testing a successful assertion requires an actual provider and server-supplied options.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="prepare-android-provider" -->
+## Prepare Android Credential Manager
+
+Android uses Credential Manager for passkeys. The app gets sign-in options from its relying-party server, passes them to Credential Manager, then sends the returned assertion back. The server checks the challenge, relying-party identity, credential, authenticator data, and signature before creating a session. Android’s [passkey sign-in guide](https://developer.android.com/identity/passkeys/sign-in-with-passkeys) explains the full exchange.
+
+For a native Android app to share credentials with its website, the production website must also publish a Digital Asset Links file. Replace the placeholders below with the real application id and signing certificate fingerprint; do not copy these example values into a release app.
+
+```json
+[
+  {
+    "relation": [
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.example.cedarridge",
+      "sha256_cert_fingerprints": [
+        "REPLACE_WITH_THE_RELEASE_SIGNING_CERTIFICATE_SHA256"
+      ]
+    }
+  }
+]
+```
+
+Replace `members.example.com` with the real HTTPS domain used by your relying party, then host this file at `https://<your-domain>/.well-known/assetlinks.json`. The package name and SHA-256 fingerprint must match the Android app you sign. Android requires the association URL to return HTTP 200 with `Content-Type: application/json`; redirects or a mismatched signing certificate prevent verification. See Android’s [Credential Manager prerequisites](https://developer.android.com/identity/credential-manager/prerequisites) for the complete Digital Asset Links requirements.
+
+The project command declares `passkeys`, but this checkout’s generated Android shell does not include a Credential Manager implementation of Fission’s `PasskeyHost`. Register an adapter with `MobileApp::with_passkey_host(...)`. Until you provide one, the native shell reports passkeys as unsupported. The Web preview deliberately retains that same real unsupported boundary instead of installing a fixture provider.
+
+<Tabs>
+<TabItem label="Provider registration contract">
+```rust
+use fission::prelude::*;
+
+fn app_with_passkey_host<H: PasskeyHost>(
+    host: H,
+) -> MobileApp<app::MemberPasskeySignInState, app::PickupOrderSignInScreen> {
+    MobileApp::new(app::PickupOrderSignInScreen)
+        .with_env(app::create_env())
+        .with_passkey_host(host)
+}
+```
+</TabItem>
+</Tabs>
+
+This function accepts a real implementation of the public `PasskeyHost` trait; it does not invent an Android adapter type that the reader could import. Such an adapter must map Fission’s typed request to Android’s `GetCredentialRequest`, convert `PublicKeyCredential` into `PasskeyAuthenticationResult`, and report cancellation or unsupported cases as typed errors. If native adapters are new to you, start with [Integrate an Android SDK through a Fission native module](/blog/integrate-an-android-sdk-through-a-fission-native-module/), then come back to the [PasskeyHost reference](/reference/capabilities/passkeys/).
+
+<!-- /fission:step -->
+
+## Verify the app and the sign-in boundary
+
+Compiling this outline checks Rust types and the availability/error path. It does not verify Digital Asset Links, Android Credential Manager, or the server’s signature checks. Keep those checks separate; otherwise a passing browser build can look like stronger proof than it is.
+
+<Tabs>
+<TabItem label="Build the Android target">
+```sh
+fission doctor android --project-dir .
+fission build --target android --project-dir .
+fission run --target android --project-dir .
+```
+</TabItem>
+<TabItem label="Check the association file">
+```sh
+RP_DOMAIN=members.your-company.com
+curl -i "https://${RP_DOMAIN}/.well-known/assetlinks.json"
+```
+</TabItem>
+<TabItem label="Inspect the capability declaration">
+```sh
+rg -n "passkeys" fission.toml
+```
+</TabItem>
+</Tabs>
+
+Replace `members.your-company.com` in the shell command with a domain you control and deploy the file before running the check. The Android build validates the project and generated configuration; it cannot supply the missing `PasskeyHost`. Once your adapter is installed, test the successful and recovery paths: accept the prompt, cancel it, try a device with no available credential, and try an incorrect domain association. Unless the server returns a verified session, order CR-7712 and its pickup code must stay locked.
+
+For the request fields and host contract, see the [Passkeys reference](/reference/capabilities/passkeys/) and the [capability support matrix](/reference/capabilities/matrix/). For a working example of how Fission keeps Android host behavior behind a shared component, continue with [the Android native module tutorial](/blog/integrate-an-android-sdk-through-a-fission-native-module/).

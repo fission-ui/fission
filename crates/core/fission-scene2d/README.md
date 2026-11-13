@@ -16,7 +16,7 @@ Applications normally enable `scene2d` through the facade:
 
 ```toml
 [dependencies]
-fission = { version = "0.15.1", features = ["scene2d"] }
+fission = { version = "0.16.0", features = ["scene2d"] }
 ```
 
 `Scene2D` is a normal retained Fission widget and can sit beside forms, navigation and overlays. Use stable node and asset IDs, validate imported data before presentation, and treat rendering resources as rebuildable projections.

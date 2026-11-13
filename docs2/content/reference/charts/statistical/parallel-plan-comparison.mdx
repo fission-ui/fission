@@ -1,0 +1,57 @@
+---
+title: Plan comparison parallel
+sidebar_label: Plan comparison parallel
+description: Fission Charts reference for Plan comparison parallel.
+---
+
+# Plan comparison parallel
+
+![Plan comparison parallel screenshot](/img/charts/parallel-plan-comparison.png)
+
+Subscription plans often trade price against capacity and support. Raw prices, seats and storage amounts cannot share the renderer's score scale without an intentional conversion. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Compare four explicit fit-to-requirement scores for one user's needs, not an unexplained overall plan ranking. Keep actual prices, limits and billing periods visible in the surrounding comparison.
+
+## Data model
+
+`ParallelSeries` expects equal-length rows and renders values on 0–100. It does not choose per-axis scales or add dimension labels. Scores must use the same requirement baseline and direction across plans.
+
+## Authoring from a Fission component
+
+The parent supplies the validated plan scores and localized dimension description.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, ParallelSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub PlanRequirementFitParallel<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            scores: Vec<[f32; 4]>,
+            dimension_description: TextContent,
+        }
+    }
+    view(report, _state, _cx) {
+        let rows = report.scores.iter().map(|row| row.to_vec()).collect();
+    } => Column(children: [
+        Text(report.dimension_description.clone()),
+        Chart(
+            title: Some(report.chart_title.clone()),
+            series: vec![ParallelSeries::new(&report.series_label).data(rows).into()],
+        ),
+    ])
+}
+```
+
+## Testing and accessibility
+
+Test a plan that fails a mandatory limit despite strong other scores. Do not imply it meets the user's needs by averaging that failure away. Provide a clear exact-value comparison and accessible plan selection outside the chart.
+
+Tags: `parallel`, `comparison`.
+
+[Statistical family overview](./overview)

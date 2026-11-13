@@ -1,0 +1,157 @@
+---
+title: Resources and capabilities
+description: The reference contract for build-time resources and reducer-triggered capabilities.
+---
+
+# Resources and capabilities
+
+Capabilities ask a host to perform an operation. Resources declare work whose lifetime follows a widget subtree. Both are runtime-managed, but they start and stop for different reasons.
+
+A capability is a typed request for host-owned work, usually emitted from a reducer.
+
+A resource is a build-time declaration that tells the runtime some work should stay mounted while a widget subtree exists.
+
+## Capabilities
+
+A capability is a typed contract for asking the active host to perform work that shared app code should not do directly.
+
+Examples include opening a web address, opening a user-granted file picker, capturing a photo, scanning a barcode, requesting geolocation, or asking the host for biometric authentication. Fission ships low-level built-ins such as `OPEN_URL` and `PICK_OPEN_FILES` plus platform capability groups for notifications, deep links, NFC, biometrics, passkeys, barcode scanning, camera and flashlight, clipboard, geolocation, haptics, microphone, Bluetooth, Wi-Fi, and volume control.
+
+The public types behind this surface include `OperationCapability`, `CapabilityType<C>`, and `CapabilityCtx`.
+
+Large binary capability payloads use `FissionDataStream`, `DataStreamId`, and `DataStreamRegistry` instead of `Vec<u8>`. A host provider registers a stream with `CapabilityCtx::register_data_stream(...)` and returns the resulting `DataStreamId` in the typed success payload. Reducers stay synchronous: they store the handle or pass it to a job or service. The async side then calls `JobCtx::open_data_stream(...)`, `ServiceCtx::open_data_stream(...)`, or `CapabilityCtx::open_data_stream(...)` and consumes the standard `Stream<Item = Result<Bytes, FissionDataStreamError>>` implementation.
+
+Built-in APIs that can carry large binary data follow this rule: file picker results, camera captures, microphone captures, rich clipboard content, and barcode image decode requests carry stream handles. Small bounded protocol values such as passkey challenges, NFC records, Bluetooth characteristic values, barcode raw payloads, action payloads, and internal test/control messages can still use byte vectors because they are protocol data, not large user-owned files.
+
+Native operating-system alerts are deliberately not built in as a generic alert capability. If you need an in-app alert, use normal Fission UI such as `Modal`, `Drawer`, `Toast`, or your own overlay. If you need a true host-owned prompt or a product-specific host flow, define a custom capability and register a shell provider for the hosts that support it.
+
+A reducer requests a capability through `ctx.effects.capability(...)` with a typed payload. The runtime sends the request to the host provider, then routes its success or error through follow-up actions.
+
+Use a capability when the host must perform the operation. For ordinary app-owned background work, use a job or service instead.
+
+### Defining your own operation capability
+
+Application and library authors can add capabilities without changing Fission core crates. A capability is just a typed contract plus a shell-side provider.
+
+```rust
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StartPaymentRequest {
+    pub checkout_id: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StartPaymentOk {
+    pub receipt_id: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StartPaymentErr {
+    pub message: String,
+}
+
+pub struct StartPaymentCapability;
+
+impl OperationCapability for StartPaymentCapability {
+    type Request = StartPaymentRequest;
+    type Ok = StartPaymentOk;
+    type Err = StartPaymentErr;
+}
+
+pub const START_PAYMENT: CapabilityType<StartPaymentCapability> =
+    CapabilityType::new("com.example.payment.start");
+```
+
+Reducers invoke it the same way they invoke built-ins:
+
+```rust
+let finished = ctx.effects.bind(PaymentFinished, reduce!(on_payment_finished));
+let failed = ctx.effects.bind(PaymentFailed, reduce!(on_payment_failed));
+ctx.effects
+    .capability(
+        START_PAYMENT,
+        StartPaymentRequest {
+            checkout_id: state.checkout_id.clone(),
+        },
+    )
+    .on_ok(finished)
+    .on_err(failed);
+```
+
+The host shell chooses whether to support that capability and registers the provider:
+
+```rust
+app.with_async(|asyncs| {
+    asyncs.register_operation_capability(
+        START_PAYMENT,
+        |request: StartPaymentRequest, _ctx| async move {
+            let receipt_id = run_host_payment_flow(request.checkout_id).await?;
+            Ok(StartPaymentOk { receipt_id })
+        },
+    );
+});
+```
+
+`run_host_payment_flow` is the app's platform adapter, returning
+`Result<String, StartPaymentErr>`; declaring the capability does not implement
+that adapter. The completion reducers are also app-owned: decode the result
+with `ctx.input.capability_ok(START_PAYMENT)` or the typed error with
+`capability_error(START_PAYMENT)`. A client-visible receipt id is not independent
+proof of settlement. The server must validate the payment provider's result
+before granting a paid entitlement.
+
+Use reverse-DNS names such as `com.example.payment.start` for application-specific capabilities. That avoids collisions with framework-owned names such as `fission.ui.open_url`.
+
+## Resources
+
+A resource is declared during component conversion through
+`cx.with_resources(|resources| ...)`, using `resources.job(...)`,
+`resources.service(...)`, or `resources.timer(...)`. It tells the runtime which
+work should exist while that declaration remains in the widget tree. The build
+handle has no public `resources` field to mutate directly.
+
+Use resources for timers, mounted polling, jobs owned by a subtree, or long-lived services whose lifetime should match that subtree.
+
+The public types in this area include `ResourceRegistry`, `ResourceKey`, `ResourcePolicy`, `RuntimeResourceDeclaration`, `JobResource`, `ServiceResource`, and `TimerResource`.
+
+## Resource kinds
+
+`JobResource` is the build-owned version of one-shot work. Use it when a job should be mounted because the current user interface state requires it, not because one user action happened at one moment.
+
+`ServiceResource` is the build-owned version of a long-lived service. Use it when the service lifetime should follow the widget tree.
+
+`TimerResource` is the periodic wakeup resource. Use it when a subtree needs deterministic ticks while it is mounted.
+
+## Resource keys
+
+Every resource has a key, represented by `ResourceKey`.
+
+The runtime compares a resource's key with the previous build to decide whether it is the same logical resource. An unstable key can make it restart or stop work unexpectedly.
+
+Stable keys are part of the public contract for correct resource usage.
+
+## Resource policy
+
+A resource policy is the rule that tells the runtime how to behave when a resource declaration changes.
+
+Today, the public policy values are `RestartOnChange` and `PreserveOnChange`.
+
+`RestartOnChange` means a meaningful declaration change should restart the resource. This is the default and is usually the right choice when dependency changes mean the work itself must refresh.
+
+`PreserveOnChange` means keep the live instance even though the declaration changed. Use it carefully when continuity matters more than immediate restart.
+
+## Resource reconciliation
+
+The runtime reconciles resources by comparing the key, declaration kind, dependency payload, and policy.
+
+Declaring a resource during component conversion does not start the work immediately. It gives the runtime what it needs to start, preserve, restart, or stop the resource after conversion.
+
+## Choosing between capabilities and resources
+
+Use a capability for work the host owns. Use a job or command for app-owned work requested by a reducer. Use a resource when the work should stay active for as long as a widget subtree is mounted.
+
+## Related reference pages
+
+For reducer-side jobs, services, and commands, continue to [Commands, services, and jobs](/reference/core/commands-services-jobs). For built-in device and host capability groups, see [Platform capabilities](/reference/core/platform-capabilities/). For the component conversion contract that declares resources, pair this page with [Widget authoring boundary](/reference/core/widget-authoring-boundary). For the broader async teaching guide, see [Resources and async](/docs/guides/resources-and-async/). For file-picker streams, see [How do I do file uploads in Fission?](/docs/guides/file-uploads/). For the reducer boundary, see [Why reducers are synchronous](/docs/guides/why-reducers-are-synchronous/).

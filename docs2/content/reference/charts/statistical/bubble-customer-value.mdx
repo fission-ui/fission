@@ -1,0 +1,57 @@
+---
+title: Customer value bubbles
+sidebar_label: Customer value bubbles
+description: Fission Charts reference for Customer value bubbles.
+---
+
+# Customer value bubbles
+
+![Customer value bubbles screenshot](/img/charts/bubble-customer-value.png)
+
+Customer value needs a concrete definition before it controls a bubble's size. Recognised revenue, profit and contract value describe different facts. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This report uses active seats on x, support minutes on y and recognised revenue as size for one reporting period. It can reveal accounts to investigate, not rank their worth or establish causation.
+
+## Data model
+
+`BubbleSeries` takes `(x, y, size)` triples with finite values and non-negative size. Radius uses bounded relative square-root scaling, so its painted area is not exactly proportional to revenue. Keep financial amounts exact in the report model.
+
+## Authoring from a Fission component
+
+The parent supplies validated display projections and localized labels, retaining stable account identities.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, BubbleSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub AccountValueSupportBubbles<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            axis_label_2: String,
+            observations: Vec<(f32, f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::value().name(&report.axis_label)),
+        y_axis: Some(Axis::value().name(&report.axis_label_2)),
+        series: vec![BubbleSeries::new(&report.series_label)
+            .data(report.observations.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test zero revenue, dominant accounts and points sharing coordinates. Provide exact values and a stable named table; numeric labels drawn on large bubbles are display indices, not customer IDs.
+
+Tags: `bubble`, `customer`.
+
+[Statistical family overview](./overview)

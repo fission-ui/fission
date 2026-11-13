@@ -1,0 +1,76 @@
+---
+title: Capacity bars
+sidebar_label: Capacity bars
+description: Compare usage against a known shared limit with visible background tracks.
+---
+
+# Capacity bars
+
+![Capacity bars screenshot](/img/charts/bar-capacity.png)
+
+A usage value and a limit answer different questions. A bar shows what is used; its background track shows how much is available. This works well for storage quotas or inventory locations with the same capacity because the end of each track then has a consistent meaning.
+
+Do not use the current maximum reading as the capacity. That makes the busiest location appear full regardless of its real limit.
+
+## One scale, one limit
+
+The example assumes each location has the same positive capacity and that the supplied usage values are finite and within it. Validate that contract before constructing the chart. If limits differ, normalise the data into a clearly labelled percentage or show the separate limits; identical tracks must not imply identical capacities when that is untrue.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct LocationUsage {
+    pub location: String,
+    pub used: f32,
+}
+
+fission_component! {
+    pub StorageCapacityChart<()> {
+        props {
+            title: String,
+            used_label: String,
+            unit_label: String,
+            capacity: f32,
+            track_color: Color,
+            rows: Vec<LocationUsage>,
+        }
+    }
+    view(storage, _state, _cx) {
+        let labels = storage.rows.iter().map(|row| row.location.as_str()).collect();
+        let used = storage.rows.iter().map(|row| row.used).collect();
+    } => Chart(
+        title: Some(storage.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value()
+            .min(0.0)
+            .max(storage.capacity)
+            .name(storage.unit_label.clone())),
+        series: vec![
+            Series::Bar(BarSeries::new(&storage.used_label)
+                .background(storage.track_color)
+                .data(used)),
+        ],
+    )
+}
+```
+
+Enable Fission's `charts` feature. `BarSeries::background(Color)` draws the track across the plot's numeric range; `Axis::max(f32)` makes the top of that range the shared capacity. The track colour is supplied by the parent from its design system, not fixed inside this reusable component.
+
+## Handle exceptional readings explicitly
+
+A reading above capacity may indicate over-allocation or bad source data. Do not clamp it down to the limit and present the result as healthy usage. This bounded-track presentation is intended for valid in-range values; show the exceptional condition in the surrounding UI or choose a comparison which can display it honestly.
+
+The same applies to missing readings. No reading means unavailable, not empty. Load data through effects and reducers, then render this chart only when the required measurements and limit are available.
+
+## Accessibility and checks
+
+Include the usage, capacity and unit in accessible text or a table. The length of a track is not an adequate replacement for those values.
+
+Test zero usage, exact capacity, missing data and a rejected above-capacity reading. Inspect the chart with long location names and at narrow widths. The screenshot is the gallery fixture rather than output from this component's props.
+
+Tags: `bar`, `capacity`.
+
+[Bar family overview](./overview)

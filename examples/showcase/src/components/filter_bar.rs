@@ -9,7 +9,7 @@ fission_component! {
 ///
 /// Each filter is a selectable tag, which reports whether it is the active one.
     #[derive(Clone, Debug)] pub(crate) FilterBar<ShowcaseState> {}
-    |_component, state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(_component, state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         Row(
             children: [
                 for filter in TargetFilter::ALL.iter().copied() {

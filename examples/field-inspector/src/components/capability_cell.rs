@@ -3,7 +3,7 @@ use crate::model::{CapabilityLine, FieldInspectorState};
 use fission::prelude::*;
 fission_component! {
     pub CapabilityCell<FieldInspectorState> { line: CapabilityLine }
-    |cell, _state, cx| {
+    view(cell, _state, cx) {
         let tokens = &cx.view.env().theme.tokens; let typography = &tokens.typography;
         let semantic_identifier = format!("field-inspector.capability.{}", cell.line.title.to_ascii_lowercase().replace([' ', '/'], "-"));
         let semantic_label = cell.line.title;

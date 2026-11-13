@@ -1,0 +1,90 @@
+---
+title: Quarter waterfall
+sidebar_label: Quarter waterfall
+description: Explain an opening balance, sequential quarterly changes and the resulting closing balance.
+---
+
+# Quarter waterfall
+
+![Quarter waterfall screenshot](/img/charts/bar-quarter-waterfall.png)
+
+A waterfall explains how an opening value becomes a closing value. Each intermediate bar starts at the previous cumulative result rather than at zero. Drawing a list of positive and negative deltas from zero is a change chart, not the same construction.
+
+For a quarterly financial bridge, preserve the order and meaning of the adjustments. The opening and closing bars are totals; the bars between them are changes. They should not be summed together as if every category were another contribution.
+
+## Construct the offsets explicitly
+
+Fission has no separate waterfall-series type here. A transparent base series supplies the starting height and a visible series supplies each change. They share one stack key. The gallery screenshot is illustrative sample output; the component below makes the cumulative construction explicit.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct QuarterAdjustment {
+    pub label: String,
+    pub change: f32,
+}
+
+fission_component! {
+    pub QuarterBridgeChart<()> {
+        props {
+            title: String,
+            opening_label: String,
+            closing_label: String,
+            change_label: String,
+            opening: f32,
+            adjustments: Vec<QuarterAdjustment>,
+        }
+    }
+    view(bridge, _state, _cx) {
+        let mut labels = vec![bridge.opening_label.as_str()];
+        let mut offsets = vec![0.0];
+        let mut changes = vec![bridge.opening];
+        let mut running = bridge.opening;
+
+        for adjustment in &bridge.adjustments {
+            labels.push(adjustment.label.as_str());
+            offsets.push(running);
+            changes.push(adjustment.change);
+            running += adjustment.change;
+        }
+
+        labels.push(bridge.closing_label.as_str());
+        offsets.push(0.0);
+        changes.push(running);
+
+        let transparent = Color { r: 0, g: 0, b: 0, a: 0 };
+    } => Chart(
+        title: Some(bridge.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value()),
+        series: vec![
+            Series::Bar(BarSeries::new("")
+                .stack("quarter-bridge")
+                .color(transparent)
+                .data(offsets)),
+            Series::Bar(BarSeries::new(&bridge.change_label)
+                .stack("quarter-bridge")
+                .data(changes)),
+        ],
+    )
+}
+```
+
+Enable the `charts` feature. A negative change draws downwards from its offset because the stack adds that signed value to the preceding base. The transparent colour is an implementation detail for geometry, not a user-facing status colour.
+
+## Keep financial authority outside the chart
+
+The example calculates display offsets in scene values. Calculate the authoritative closing balance using the application's money type, then test that the display projection agrees within the chosen display precision. Validate finite inputs and cumulative results.
+
+Do not add an ordinary legend for the invisible base: it is not a business measure. Likewise, a custom tooltip must expose the adjustment and cumulative balance rather than misleadingly presenting the offset as another transaction.
+
+## Checks
+
+Test an increase, a decrease, no changes and a balance crossing zero. Verify that the closing total equals opening plus adjustments, then inspect the actual rendered offsets. Provide the same reconciliation in an accessible table with translated labels. The screenshot above is a gallery fixture, not output from this component's props.
+
+Tags: `bar`, `waterfall`.
+
+[Bar family overview](./overview)

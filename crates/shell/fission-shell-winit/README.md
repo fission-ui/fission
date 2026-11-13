@@ -115,7 +115,7 @@ The render pipeline (`Pipeline`) manages incremental updates:
 | `FISSION_MAX_FPS` | `60` | Maximum frame rate (throttled via `WaitUntil`). |
 | `FISSION_RENDERER` | `auto` | Select the renderer. Native targets accept `auto`, `native-vello-gpu`, `native-vello-cpu`, or `native-software`. Web accepts `auto`, `webgpu-vello`, or `canvas2d-software` via `globalThis.FISSION_RENDERER` or the `?fission_renderer=` query parameter. |
 | `FISSION_VELLO_USE_CPU` | `false` | Native compatibility escape hatch that asks Vello to use its CPU mode while still presenting through the GPU surface. |
-| `FISSION_TEXTINPUT_BLINK` | `true` | Enable/disable cursor blinking in text inputs. |
+| `FISSION_TEXTINPUT_BLINK` | Renderer-dependent | Enable/disable cursor blinking in text inputs. Blinking defaults on for GPU renderers and off for CPU software renderers; set to `1` to opt into blinking on a software renderer. |
 | `FISSION_TEXTINPUT_BLINK_MS` | `530` | Cursor blink period in milliseconds. |
 | `FISSION_USE_SYSTEM_FONTS` | `false` | Include system fonts in the font collection. |
 | `FISSION_TEXT_TRACE` | `false` | Enable text input latency tracing to stderr. |
@@ -135,6 +135,36 @@ shell build script makes the switch part of Cargo's artifact fingerprint so
 test and production outputs cannot collide in the cache.
 
 ## Platform support
+
+### Native documents and printing
+
+Request file picking and PDF printing through reducer effects. Android document
+URIs and iOS security-scoped document URLs remain host-owned: use the returned
+`SaveFileDestination` rather than treating a display name as a filesystem path.
+An expired one-shot input stream fails before Android opens or truncates a saved
+document. A provider or I/O failure during a write is still an error, not an
+atomic-save guarantee.
+
+iOS save destinations use the document picker's move operation, which returns
+an accessible security-scoped URL. Import reads use the coordinator's supplied
+URL and take a private snapshot while access is coordinated; consuming that
+snapshot does not keep an external document open.
+
+Android printing stages the PDF in the application's private cache, copies it
+to the system spooler on a bounded background writer, and honours cancellation
+during the copy. The original PDF is not rasterised. The adapter reports that
+it wrote all pages; Android's spooler applies the user's selected print range.
+The staged file is removed when the print adapter finishes. Application-supplied
+page/copy overrides remain unsupported on Android; choose them in the system
+print sheet. A successful `Presented` result means that sheet opened, not that
+paper has been printed.
+
+Use the matching Fission CLI when upgrading Android apps. Normal Android
+packaging refreshes known, unmodified generated Java capability bridges. It
+preserves custom Java: if that bridge is obsolete, packaging stops and writes a
+`.java.fission-new` candidate alongside it. Merge that implementation, including
+its API signatures, before rebuilding; changing only the version marker is not
+an upgrade.
 
 - **Desktop**: used by `fission-shell-desktop`
 - **iOS / Android**: used by `fission-shell-mobile`

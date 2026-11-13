@@ -1,0 +1,21 @@
+---
+title: Migration flow
+sidebar_label: Migration flow
+description: Show aggregate migration relationships without treating curves as observed journeys.
+---
+
+# Migration flow
+
+![Migration flow screenshot](/img/charts/geo-migration-flow.png)
+
+A migration report describes movement between origins and destinations during a defined period. It does not establish the path taken between them, and gross inward movement is not the same as net population change.
+
+The [migration connection projection](../geo-and-route/geo-migration) shows the actual `ServiceConnection` mechanism using completed warehouse transfers. For population movement, retain the same origin/destination/count structure but name the measure and population explicitly. Do not add opposing flows into a single unsigned value if direction matters.
+
+Use [NetworkRegionReport](../geo-and-route/geo-network) when region-level context is also required. The map and schematic remain separate because their renderers fit bounds independently; a line crossing a region in the gallery does not prove a valid geographical overlay.
+
+Keep counts and region IDs in the data model, translate visible place names and captions separately, and make the reporting period clear. Missing movement records are not evidence of zero migration. For small populations, consider the disclosure and privacy policy before publishing granular routes.
+
+Test both directions, absent regions and changed geographical boundaries between reporting periods. A route table is necessary for exact comparison; curve width is a relative indication and distance is schematic. Gallery fixtures are not the example's report.
+
+[Geo family overview](./overview)

@@ -24,7 +24,7 @@ fn select_quality_role(state: &mut GalleryState, role: String) {
 
 fission_component! {
     pub(super) RoleField<GalleryState> { compact: bool }
-    |field, state, cx| {
+    view(field, state, cx) {
         let selected = state.select_value.as_deref().unwrap_or("Editor");
 
         let mut options = Vec::new();

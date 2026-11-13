@@ -1,0 +1,141 @@
+---
+title: Fission 0.12.0: Interactive canvas and complete Web input
+description: Pan, zoom, and author infinite retained canvases while Fission brings multi-pointer input and reliable WebGPU presentation under one cross-platform contract.
+authors:
+  - fission
+categories:
+  - Releases
+tags:
+  - release
+  - authoring
+  - platform
+  - web
+  - accessibility
+show_adjacent_posts: true
+---
+
+# Fission 0.12.0: Interactive canvas and complete Web input
+
+Fission 0.12.0 adds a retained camera and a declarative infinite canvas. Both
+use the same rendering and state systems as the rest of Fission. To make them
+work across targets, this release also adds multiple pointer identities, pinch
+and magnification, cancellation, detailed scrolling, browser editing shortcuts,
+context menus, and reliable WebGPU presentation at real app sizes.
+
+This is a minor release with new public capabilities and changes to the pointer
+and scoped-action contracts.
+
+## One camera for ordinary retained widgets
+
+`InteractiveViewer` pans and scales an ordinary Fission widget subtree. The
+runtime can own the camera, or your app can control it through state. Its
+backend-neutral policies cover boundaries, clipping, axes, minimum and maximum
+scale, wheel behaviour, and inertia.
+
+```rust
+let viewer: Widget = InteractiveViewer {
+    id: Some(WidgetId::explicit("floor-plan")),
+    child: Image::asset("floor-plan.png").into(),
+    min_scale: 0.25,
+    max_scale: 8.0,
+    zoom_policy: ViewportZoomPolicy::WheelWithModifier,
+    ..Default::default()
+}
+.into();
+```
+
+Mouse, touch, stylus, modifier-wheel, macOS magnification, and browser pinch all
+use the same controller. A draggable child keeps an ordinary one-pointer drag.
+Add a second contact and the nearest viewer takes over for a two-pointer pan and
+zoom, without the camera jumping when one contact is released.
+
+Callbacks keep the action payload you bound. Reducers read the current camera,
+focal point, pan delta, scale factor, input type, modifiers, and gesture
+lifecycle from `ctx.input.viewport_interaction()`.
+
+## InfiniteCanvas stays declarative
+
+`InfiniteCanvas` builds on `InteractiveViewer`; it does not introduce a second,
+imperative source of truth. Your app still owns its nodes, edges, selection, and
+any camera state it chooses to control.
+
+The initial widget includes:
+
+- stable node and edge identities with negative and positive world coordinates;
+- straight and cubic edges, retained labels, grids, and stable z-order;
+- single, toggle, and marquee selection;
+- node movement, eight constant-screen-size resize handles, and symmetric grid snapping;
+- precise transformed hit testing and transformed accessibility bounds; and
+- visible-world batching for grid and edge paths.
+
+The new `interactive-canvas` example demonstrates both widgets with responsive
+desktop and compact layouts. The public widgets are available through the
+normal `desktop`, `android`, `ios`, `mobile`, and `web` features. Static site,
+SSR, and Terminal-only builds intentionally do not expose them.
+
+## Complete pointer facts across shells
+
+Fission no longer treats every touch contact as the same synthetic mouse
+pointer. `PointerEvent` now carries `PointerId` and `PointerKind`, explicit
+cancellation, line-versus-pixel scroll mode, scroll lifecycle, and
+multiplicative magnification. Native and Web tests use the same event details,
+so multi-contact behaviour is deterministic.
+
+This is a source change for code that directly constructs or exhaustively
+matches `PointerEvent`.
+
+## Web behaves like a Fission application
+
+Web apps now get platform-correct secondary clicks and Fission-managed keyboard
+editing, selection, copy, cut, paste, and context menus. Browser defaults remain
+suppressed unless you opt in. Choose which keyboard, pointer, touch, wheel,
+context-menu, or clipboard behaviour to delegate with `BrowserDefaults`:
+
+```rust
+WebApp::<AppState, _>::new(App)
+    .with_browser_defaults(
+        BrowserDefaults::CONTEXT_MENU | BrowserDefaults::WHEEL,
+    );
+```
+
+This release also fixes blank or transparent WebGPU output at larger window
+sizes. Fission checks WebGPU work before presentation, configures the browser
+canvas surface, sizes Vello buffers for the actual frame, and sends framework
+diagnostics to the browser console.
+
+## Authoring-tree and scoped-action contracts
+
+Integrations can inspect the authoring tree read-only and depth-first with
+`Widget::kind()` and `Widget::visit()`. Scoped handlers now return a
+`ScopedActionResolution`: handle an action locally, or forward its envelope
+once through normal dispatch. Fission rejects multiple forwards and stops a
+forwarded action from re-entering the handler that forwarded it.
+
+## Migration
+
+Update the framework and CLI:
+
+```toml
+fission = { version = "0.12.0", default-features = false, features = ["desktop"] }
+```
+
+```sh
+cargo install cargo-fission --version 0.12.0 --locked
+```
+
+Then make these source updates where applicable:
+
+1. Add `pointer_id` and `kind` to direct `Down`, `Move`, and `Up` constructors.
+2. Handle `PointerEvent::Cancel` and `PointerEvent::Magnify`, and add scroll
+   `delta_mode` and `phase`.
+3. Return `ScopedActionResolution::Handled` from existing scoped handlers, or
+   `Forward(envelope)` when dispatch should continue.
+4. Use `ctx.input.viewport_interaction()` and
+   `ctx.input.canvas_interaction()` for runtime event facts while keeping stable
+   application context in the bound action.
+
+Browser autocorrect, autofill, and soft-keyboard replacement/deletion still
+need full hidden-textarea value and selection synchronization. Hardware keyboard
+shortcuts, clipboard operations, context menus, and composition commits are
+implemented; the remaining work is tracked in
+[issue #168](https://github.com/fission-ui/fission/issues/168).

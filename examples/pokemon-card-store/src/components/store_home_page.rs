@@ -13,7 +13,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub StoreHomePage<StoreState>
-    |_page, state, cx| {
+    view(_page, state, cx) {
         let catalog_loaded = with_reducer!(cx.build, CatalogLoaded, on_catalog_loaded);
         let catalog_failed = with_reducer!(cx.build, CatalogFailed, on_catalog_failed);
         cx.build.register::<AddToCart, _>(reduce_with!(on_add_to_cart));

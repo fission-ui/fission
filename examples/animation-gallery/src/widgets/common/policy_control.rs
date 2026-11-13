@@ -5,7 +5,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub PolicyControl<AnimationGalleryState> {}
-    |_control, state, cx| {
+    view(_control, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Wrap(

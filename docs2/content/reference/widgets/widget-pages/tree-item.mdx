@@ -1,0 +1,64 @@
+---
+title: TreeItem
+description: Describe one node inside a TreeView hierarchy.
+slug: /widgets/tree-item
+---
+# TreeItem
+
+`TreeItem` is the recursive data record used by [`TreeView`](/reference/widgets/tree-view).
+
+Each item represents one node in a hierarchy. It can have its own label, optional icon, child items, and selection or expansion actions.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+// App-owned filesystem labels are data; the parent supplies bound actions.
+let item = TreeItem {
+    id: "src".into(),
+    icon: None,
+    label: "src/".into(),
+    children: vec![TreeItem {
+        id: "main_rs".into(),
+        icon: None,
+        label: "main.rs".into(),
+        children: vec![],
+        on_toggle: None,
+        on_select: Some(open_main_file_action),
+    }],
+    on_toggle: None,
+    on_select: Some(open_src_folder_action),
+};
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `String` | Stable item identifier. | Required. Used by `TreeView.expanded_ids` and `selected_id`. |
+| `icon` | `Option<String>` | Optional leading icon source. | Defaults to `None`. |
+| `label` | `String` | Visible node label. | Required. |
+| `children` | `Vec<TreeItem>` | Child widgets nested under this item. | Defaults to an empty list. |
+| `on_toggle` | `Option<ActionEnvelope>` | Intended expansion-toggle action. | Present in the public struct, but see note below. |
+| `on_select` | `Option<ActionEnvelope>` | Action fired when the row is selected. | Defaults to `None`. |
+
+## Current implementation note
+
+`TreeItem` exposes `on_toggle`, but the current `TreeView` renderer does not
+render a separate expansion affordance or invoke that action. In this example,
+the app's `open_src_folder_action` uses the working row-selection path to
+select and expand the folder by updating `selected_id` and `expanded_ids`.
+If your product requires separate disclosure and selection controls, the
+compact widget does not yet supply that interaction; do not make a decorative
+chevron look clickable or assume `on_toggle` alone wires it.
+
+## Check tree items in context
+
+- Give each item a stable id that is unique within the tree; `TreeView` uses it for selection and expansion state.
+- Use `on_select` for the row-selection action. The current `TreeView` renderer does not provide an expansion control for `on_toggle`, so do not rely on that field alone to make expand/collapse interactive.
+- Test nested labels and selected-state semantics with the actual tree data.
+
+## Related
+
+[`TreeView`](/reference/widgets/tree-view), [`Breadcrumb`](/reference/widgets/breadcrumb), [`Icon`](/reference/widgets/icon), and [`Text`](/reference/widgets/text).

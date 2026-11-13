@@ -1,0 +1,45 @@
+---
+title: 3D cluster scatter
+sidebar_label: 3D cluster scatter
+description: Show an existing observation grouping without mistaking perspective for a clustering rule.
+---
+
+# 3D cluster scatter
+
+![3D cluster scatter screenshot](/img/charts/scene3d-scatter-clusters.png)
+
+A cluster classification belongs to the data model, not the camera angle. Points which overlap from one viewpoint may be separated in space, and changing the scale of one measurement can alter their apparent distance.
+
+This gallery entry uses the same sphere geometry as [3D scatter](./scatter3d-basic). The [cluster reference](./scatter3d-cluster) supplies a helper which highlights one already classified group without moving or removing the other observations.
+
+## Compose the classification projection
+
+Place `SpatialSample` and `SpatialScatter` in `widgets/spatial_scatter.rs`. Generate their samples from validated observations and the selected cluster, with colours supplied by the design system.
+
+```rust
+use fission::prelude::*;
+use crate::widgets::spatial_scatter::{SpatialSample, SpatialScatter};
+
+fission_component! {
+    pub ObservationClusters<()> {
+        props {
+            title: TextContent,
+            classified_samples: Vec<SpatialSample>,
+        }
+    }
+    view(clusters, _state, _cx) => SpatialScatter {
+        title: clusters.title.clone(),
+        samples: clusters.classified_samples.clone(),
+    }
+}
+```
+
+Enable the `three-d` feature. This view does not calculate membership or encode it into sphere identity. Keep cluster IDs, names and member counts in the original records and provide them outside the image.
+
+## Checks
+
+Test that a different selection changes emphasis without changing the classification or coordinates. Inspect overlap and hidden samples in a rendered target. Use a labelled observation list for selection unless the scene API explicitly supports picking; `ChartInteractionEvent` does not identify these spheres. The screenshot is a gallery fixture.
+
+Tags: `3d`, `scatter`.
+
+[3D and GL family overview](./overview)

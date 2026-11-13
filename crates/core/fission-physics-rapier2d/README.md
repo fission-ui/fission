@@ -11,7 +11,7 @@ Applications should normally enable `physics-rapier2d` on the `fission` facade. 
 
 ```toml
 [dependencies]
-fission = { version = "0.15.1", features = ["physics-rapier2d"] }
+fission = { version = "0.16.0", features = ["physics-rapier2d"] }
 ```
 
 Do not persist Rapier handles or expose them as game identity. `PhysicsBodyId` remains authoritative so the world can be recreated or another provider selected. Use the fixed-step runtime from `fission-game`; variable render-frame timing should not drive physics directly.

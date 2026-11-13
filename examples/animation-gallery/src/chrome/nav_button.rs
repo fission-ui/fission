@@ -2,7 +2,7 @@ use super::*;
 
 fission_component! {
     pub(super) NavButton<AnimationGalleryState> { item: &'static NavItem }
-    |button, state, cx| {} =>
+    view(button, state, cx) {} =>
         Button(
             variant: if state.current_path == button.item.path {
                 ButtonVariant::Filled

@@ -1,0 +1,57 @@
+---
+title: Product parallel coordinates
+sidebar_label: Product parallel coordinates
+description: Fission Charts reference for Product parallel coordinates.
+---
+
+# Product parallel coordinates
+
+![Product parallel coordinates screenshot](/img/charts/parallel-products.png)
+
+Product comparisons often combine criteria with different units. Converting them to documented assessment scores allows a parallel profile, but the conversion must remain visible rather than being treated as objective fact. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here each product has four 0–100 scores under one evaluation rubric. Keep higher values consistently meaning a better match to the stated requirements, and retain price or raw benchmark values separately.
+
+## Data model
+
+`ParallelSeries` maps every dimension to a fixed 0–100 range. The first row determines axis count; the renderer does not label axes or attach names to individual rows. Arrays keep the four-dimension shape consistent.
+
+## Authoring from a Fission component
+
+The parent provides validated scores and a localized explanation naming the dimensions and observation identities.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, ParallelSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ProductEvaluationParallel<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            scores: Vec<[f32; 4]>,
+            dimension_description: TextContent,
+        }
+    }
+    view(report, _state, _cx) {
+        let rows = report.scores.iter().map(|row| row.to_vec()).collect();
+    } => Column(children: [
+        Text(report.dimension_description.clone()),
+        Chart(
+            title: Some(report.chart_title.clone()),
+            series: vec![ParallelSeries::new(&report.series_label).data(rows).into()],
+        ),
+    ])
+}
+```
+
+## Testing and accessibility
+
+Test an unassessed criterion and a changed rubric. Provide a named value table and do not infer an overall winner merely from a line's height or shape.
+
+Tags: `parallel`, `dimensions`.
+
+[Scatter and statistical family overview](./overview)

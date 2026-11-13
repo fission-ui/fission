@@ -1,0 +1,21 @@
+---
+title: Network overlay
+sidebar_label: Network overlay
+description: Explain why connection geography needs a shared projection before an overlay can be trusted.
+---
+
+# Network overlay
+
+![Network overlay screenshot](/img/charts/geo-network-overlay.png)
+
+A network diagram can link two correctly identified sites and still draw that link in the wrong place on a map. Identity determines which records are related; projection determines where the geometry appears. One does not establish the other.
+
+The existing `MapSeries` and `LinesSeries` renderers independently fit their source bounds to the plot. There is no shared geographical transform in this composition, so this page does not promise a production-ready overlay.
+
+Use [NetworkRegionReport](../geo-and-route/geo-network) to display a region map and the connection schematic as separately labelled panels. Its Compose example accepts complete component descriptions, preserving the data and presentation boundary without introducing custom drawing code.
+
+Match the network records through durable site and region IDs, validate every endpoint, and read both panels from the same completed snapshot. Keep translated captions explicit about units: regional site counts and link throughput should not share an unexplained colour scale.
+
+If exact geographical placement is essential, the missing shared projection needs framework work rather than a different arrangement of series. Test the record joins and displayed snapshots independently, and keep an exact link list available. The gallery's visual arrangement is not qualification of an aligned overlay.
+
+[Geo family overview](./overview)

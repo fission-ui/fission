@@ -1,0 +1,57 @@
+---
+title: Team balance radar
+sidebar_label: Team balance radar
+description: Fission Charts reference for Team balance radar.
+---
+
+# Team balance radar
+
+![Team balance radar screenshot](/img/charts/radar-team-balance.png)
+
+A team capability profile can identify areas where support or training is needed. It should describe the agreed assessment, not pretend to measure a person's worth or an objective overall team quality. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This report uses four capability scores under one documented rubric. Keep the assessment scope and date visible, and use the chart to start a discussion about particular dimensions rather than rank teams by filled area.
+
+## Data model
+
+`RadarSeries` uses a fixed 0–100 radius and draws values in the supplied order. It does not add dimension labels or infer missing capabilities. A four-element array makes the expected profile shape explicit.
+
+## Authoring from a Fission component
+
+The parent supplies validated scores and a localized description naming the dimensions and their order.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, RadarSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub TeamCapabilityBalance<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            scores: [f32; 4],
+            dimension_description: TextContent,
+        }
+    }
+    view(report, _state, _cx) => Column(children: [
+        Text(report.dimension_description.clone()),
+        Chart(
+            title: Some(report.chart_title.clone()),
+            series: vec![RadarSeries::new(&report.series_label)
+                .data(vec![report.scores.to_vec()])
+                .into()],
+        ),
+    ])
+}
+```
+
+## Testing and accessibility
+
+Test an unassessed dimension and changes to the rubric. Do not turn missing information into an artificially low score. Keep named values, evidence and next actions accessible outside the graphic.
+
+Tags: `radar`, `team`.
+
+[Radial family overview](./overview)

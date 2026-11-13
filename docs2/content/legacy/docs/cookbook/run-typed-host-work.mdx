@@ -1,0 +1,283 @@
+---
+title: Run typed host work
+description: Ask the host to do platform-specific work without hiding side effects inside widgets or reducers.
+---
+
+# Run typed host work
+
+Sooner or later, every real app needs something that the operating system, browser, or device must do on its behalf. Opening a native file picker, opening an external web address, or handing a product-specific flow to the host are common examples.
+
+Fission calls this host work: a reducer decides when a file picker should open, but the shell opens it and returns a typed result. This keeps platform-specific execution at the host boundary while reducers handle the state transition.
+
+This recipe walks through a practical case: letting the user import a text file. Along the way, it also answers an important design question: when should you use a capability, when should you use a job, and when should you use a resource?
+
+## The problem we are solving
+
+Imagine a notes app with an **Import file** button.
+
+When the user presses it, three different kinds of work may happen.
+
+First, the app needs the host to show a native picker so the user can choose a file. That is host work.
+
+Second, once the picker returns a stream handle, the app may want to parse the file contents or transform them into domain data. That is ordinary app-owned async work.
+
+Third, if the import screen later needs something that should stay alive while the screen is mounted, such as a polling timer or a background watch session, that becomes resource-owned work.
+
+Fission keeps those concerns separate on purpose.
+
+## Step 1: keep the screen state explicit
+
+Start by storing only the product-level data the screen needs to show.
+
+```rust
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct ImportState {
+    pub importing: bool,
+    pub imported_text: Option<String>,
+    pub error_message: Option<String>,
+}
+
+impl GlobalState for ImportState {}
+```
+
+This state does not try to store platform picker internals. It stores what your product cares about: whether an import is in progress, the imported text if it succeeded, and an error message if it failed.
+
+## Step 2: define the actions in app language
+
+The events are ImportPressed, FilesPicked, FilePickFailed, ImportParsed, and
+ImportParseFailed. Their reducers below use `#[fission_reducer(...)]` to generate
+the unit actions and registration shape. Separate handwritten action structs
+would repeat that declaration without adding product meaning.
+
+## Step 3: use a capability for the host-owned step
+
+When the user presses **Import**, the first thing you need is a native picker. That belongs to the host, so the reducer requests a capability.
+
+```rust
+#[fission_reducer(ImportPressed)]
+fn on_import_pressed(
+    state: &mut ImportState,
+    ctx: &mut ReducerContext<ImportState>,
+) {
+    if state.importing { return; }
+    state.importing = true;
+    state.error_message = None;
+    let picked = ctx.effects.bind(FilesPicked, reduce!(on_files_picked));
+    let failed = ctx.effects.bind(FilePickFailed, reduce!(on_file_pick_failed));
+
+    ctx.effects
+        .capability(
+            PICK_OPEN_FILES,
+            PickOpenFilesRequest {
+                allow_multiple: false,
+                mime_types: vec!["text/plain".into()],
+                extensions: vec!["txt".into(), "md".into()],
+                preferred_chunk_bytes: None,
+            },
+        )
+        .on_ok(picked)
+        .on_err(failed);
+}
+```
+
+The reducer does not open the file picker directly. Instead, it records a typed request through `ctx.effects.capability(...)`. After the reducer returns, the shell host performs the work. When the host finishes, the runtime dispatches the success or failure action you bound with `on_ok(...)` or `on_err(...)`.
+
+The reducer stays synchronous and deterministic; the host operation runs after it returns.
+
+## Step 4: read the capability result and hand off app-owned work
+
+When the picker completes, the reducer receives the callback action together with typed input in `ctx.input`.
+
+```rust
+pub struct ParseImportedText;
+
+impl JobSpec for ParseImportedText {
+    type Request = ParseImportedTextRequest;
+    type Ok = String;
+    type Err = String;
+    const NAME: &'static str = "notes::parse-imported-text";
+}
+
+pub const PARSE_IMPORTED_TEXT_JOB: JobRef<ParseImportedText> = JobRef::new(ParseImportedText::NAME);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParseImportedTextRequest {
+    stream: DataStreamId,
+}
+
+#[fission_reducer(FilesPicked)]
+fn on_files_picked(
+    state: &mut ImportState,
+    ctx: &mut ReducerContext<ImportState>,
+) {
+    let Some(files) = ctx.input.capability_ok(PICK_OPEN_FILES) else {
+        state.importing = false;
+        state.error_message = Some("No file was returned by the picker.".into());
+        return;
+    };
+
+    let Some(file) = files.files.into_iter().next() else {
+        state.importing = false;
+        // A dismissed picker is not a failed import; keep the previous note.
+        return;
+    };
+
+    let parsed = ctx.effects.bind(ImportParsed, reduce!(on_import_parsed));
+    let failed = ctx.effects.bind(ImportParseFailed, reduce!(on_import_parse_failed));
+    ctx.effects
+        .app(PARSE_IMPORTED_TEXT_JOB, ParseImportedTextRequest { stream: file.stream })
+        .on_ok(parsed)
+        .on_err(failed);
+}
+
+#[fission_reducer(FilePickFailed)]
+fn on_file_pick_failed(state: &mut ImportState, ctx: &mut ReducerContext<ImportState>) {
+    state.importing = false;
+    state.error_message = Some(ctx.input.capability_error(PICK_OPEN_FILES)
+        .map(|error| error.message)
+        .or_else(|| ctx.input.capability_error_message(PICK_OPEN_FILES).map(str::to_owned))
+        .unwrap_or_else(|| "The host could not open the file picker".into()));
+}
+```
+
+This step is where the distinction between capability and job becomes useful.
+
+The file picker was host-owned, so it was a capability.
+
+Parsing the stream is app work, so it becomes a job. This notes app accepts at
+most 256 KiB of UTF-8 text; the worker checks the bytes actually read, including
+when the host did not know a file length. Add `futures-util` for `StreamExt` and
+register this job on the shell:
+
+```rust
+use futures_util::StreamExt;
+
+const MAX_IMPORT_BYTES: usize = 256 * 1024;
+
+async fn parse_imported_text(request: ParseImportedTextRequest, ctx: JobCtx) -> Result<String, String> {
+    let mut stream = ctx.open_data_stream(request.stream).map_err(|error| error.to_string())?;
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| error.to_string())?;
+        if chunk.len() > MAX_IMPORT_BYTES.saturating_sub(bytes.len()) {
+            return Err("This note exceeds the 256 KiB import limit".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    String::from_utf8(bytes).map_err(|error| error.to_string())
+}
+
+// App is the app-owned Compose root containing ImportScreen.
+DesktopApp::<ImportState, _>::new(App)
+    .with_async(|asyncs| { asyncs.register_job(PARSE_IMPORTED_TEXT_JOB, parse_imported_text); })
+    .run()?;
+```
+
+The buffer is deliberately bounded because a text editor needs a complete
+string. A large upload should stream onward instead; see
+[File uploads](/docs/guides/file-uploads/) for that different boundary.
+
+Why not keep using a capability here? Because the host is no longer the right owner. Once the host has granted a stream handle, parsing belongs to your application logic.
+
+## Step 5: finish the reducer loop cleanly
+
+When the parse job succeeds or fails, update state in one obvious place.
+
+```rust
+#[fission_reducer(ImportParsed)]
+fn on_import_parsed(
+    state: &mut ImportState,
+    ctx: &mut ReducerContext<ImportState>,
+) {
+    state.importing = false;
+    match ctx.input.job_ok(PARSE_IMPORTED_TEXT_JOB) {
+        Some(text) => state.imported_text = Some(text),
+        None => state.error_message = Some("The import job returned no text result".into()),
+    }
+}
+
+#[fission_reducer(ImportParseFailed)]
+fn on_import_parse_failed(
+    state: &mut ImportState,
+    ctx: &mut ReducerContext<ImportState>,
+) {
+    state.importing = false;
+    state.error_message = ctx
+        .input
+        .job_error_message(PARSE_IMPORTED_TEXT_JOB)
+        .map(str::to_string)
+        .or_else(|| Some("The selected file could not be imported.".into()));
+}
+```
+
+These reducers are plain state updates again. That is the architectural payoff. Even though the feature crosses the platform boundary and performs asynchronous work, the state changes still happen in normal reducer code.
+
+## Step 6: render the user interface like an ordinary screen
+
+The widget does not need special platform logic. It only binds actions and renders from state.
+
+```rust
+fission_component! {
+    pub ImportScreen<ImportState> {}
+    view(_screen, state, cx) {
+        let import = cx.bind(ImportPressed, reduce!(on_import_pressed));
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.m, children: [
+        Button(
+            child: Text(cx.tr("notes.import_text")),
+            disabled: state.importing,
+            on_press: import,
+        ),
+        if state.importing { Spinner(motion: SpinnerMotion::Default, label: cx.tr("notes.importing")) },
+        if let Some(error) = &state.error_message { Alert(title: error.clone(), kind: AlertKind::Error) },
+        if let Some(text) = &state.imported_text {
+            Scroll(semantic_label: cx.tr("notes.imported_content"), child: Text(text.clone(), selectable: true))
+        } else {
+            EmptyState(title: cx.tr("notes.choose_text_file"))
+        },
+    ])
+}
+```
+This is worth noticing. The widget tree stays simple because host work is not hidden inside it. The screen shows current state. The reducer owns transitions. The shell performs platform operations.
+
+Define the `notes.*` messages in the translation bundles. Imported content is
+displayed as plain selectable text, not trusted HTML. Test with non-private
+fixture files when capturing screenshots or publishing QA artifacts; a stream
+handle keeps bytes out of actions, but showing a note still exposes it in the
+rendered screen.
+
+## When to choose a capability, a job, or a resource
+
+This recipe used both a capability and a job because the feature crosses two boundaries.
+
+Use a capability when only the host can do the work. Native file pickers, opening external web addresses, payment handoffs, authentication handoffs, and similar device or operating-system tasks belong here. Fission ships `OPEN_URL` and `PICK_OPEN_FILES`; app-specific operations should define their own `OperationCapability` and register a provider in the shell.
+
+Use a job when the work is app-owned, one-shot, and request-and-response shaped. Parsing an imported data stream, saving a document, loading one response from a web service, or generating one export all fit that shape.
+
+Use a resource when the work should exist while a widget subtree exists. A timer that keeps a dashboard fresh, a background watcher that should stay mounted while a screen is visible, or a long-lived service session tied to one route are resource-shaped problems.
+
+The easiest way to remember the difference is to ask who owns the lifetime.
+
+If the host owns the operation, use a capability.
+
+If the app owns one finite task, use a job.
+
+If the runtime should keep work alive for as long as the user interface subtree exists, declare a resource.
+
+## What to avoid
+
+Do not put platform calls directly in `component conversion`. That will make reconversions unsafe and unpredictable.
+
+Do not use capabilities as a generic async escape hatch. If the work is really application logic, keep it in a job or service.
+
+Do not store raw platform callback state all over your widget tree. Convert it into app-level state updates in reducers.
+
+## Where to go next
+
+If your next feature needs repeated background work instead of a one-shot host action, continue with [Keep a timer or service alive](/docs/cookbook/keep-a-timer-or-service-alive). If you want the deeper architecture behind effects, jobs, services, and resources, read [Resources and async](/docs/guides/resources-and-async).
+
+Run the example and confirm that the host operation starts only after its action is dispatched. Test the returned value and the error path with a memory host before trying the real device or service.

@@ -3,7 +3,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(crate) GalleryContent<GalleryState> { chart: Widget, controls: Widget, instance: &'static str }
-    |content, state, cx| {
+    view(content, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let title = if state.selected_category == SHOWCASE_CATEGORY { "Showcase overview" } else { "Interactive Demo" };
     } =>

@@ -6,7 +6,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub InspectorPanel<AnimationGalleryState> { case: GalleryCase }
-    |panel, _state, cx| {
+    view(panel, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(

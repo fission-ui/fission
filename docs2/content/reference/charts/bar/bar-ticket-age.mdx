@@ -1,0 +1,51 @@
+---
+title: Ticket age distribution
+sidebar_label: Ticket age distribution
+description: Project a support queue into mutually exclusive, ordered age buckets.
+---
+
+# Ticket age distribution
+
+![Ticket age distribution screenshot](/img/charts/bar-ticket-age.png)
+
+A queue total does not distinguish recent work from tickets that have waited too long. Age buckets make that distinction visible, provided each ticket belongs to exactly one bucket.
+
+Define whether age means time since creation or time since the last customer response. Those are different operational questions.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct TicketAgeBucket {
+    pub label: String,
+    pub tickets: u32,
+}
+
+fission_component! {
+    pub QueueAgeDistribution<()> {
+        props {
+            title: String,
+            count_label: String,
+            buckets: Vec<TicketAgeBucket>,
+        }
+    }
+    view(queue, _state, _cx) {
+        let labels = queue.buckets.iter().map(|bucket| bucket.label.as_str()).collect();
+        let counts = queue.buckets.iter().map(|bucket| bucket.tickets as f32).collect();
+    } => Chart(
+        title: Some(queue.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        series: vec![Series::Bar(
+            BarSeries::new(&queue.count_label).data(counts),
+        )],
+    )
+}
+```
+
+Aggregate before building the view. For example, use half-open age intervals such as less than one day, one to less than three days, then three days or more. Test tickets exactly on each boundary.
+
+Keep buckets in age order, not count order. These are category bars, not a density histogram: unequal interval widths still get equal category space. Reconcile the bucket sum to the eligible queue total and identify the snapshot time. Provide counts in text; the gallery screenshot uses its own sample queue.
+
+[Bar family overview](./overview)

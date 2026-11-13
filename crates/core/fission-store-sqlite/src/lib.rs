@@ -8,7 +8,12 @@ pub use native::SqliteStore;
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
 mod web;
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
-pub use web::WebSqliteStore;
+pub use web::{
+    WebSqliteAuthorizerAction, WebSqliteAuthorizerDecision, WebSqliteAuthorizerPolicy,
+    WebSqliteAuthorizerRule, WebSqliteChangesetConflictPolicy, WebSqliteJobResult,
+    WebSqliteJobStep, WebSqliteOperationContext, WebSqliteSession, WebSqliteStore,
+    WebSqliteTransaction, WebSqliteTransactionOptions,
+};
 
 pub const FISSION_STORE_SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS fission (
@@ -54,8 +59,13 @@ mod tests {
         assert!(bridge.contains("new BroadcastChannel"));
         assert!(bridge.contains("nextRelayId"));
         assert!(bridge.contains("fission_app_id"));
+        assert!(bridge.contains("databaseDigest"));
+        assert!(bridge.contains("fission_database_id"));
+        assert!(bridge.contains("__fissionSqliteCloseDatabase"));
         assert!(worker.contains("OpfsWlDb"));
         assert!(worker.contains("/fission-apps/${namespace}/store.sqlite3"));
+        assert!(worker.contains("store-${databaseId}.sqlite3"));
+        assert!(worker.contains("if (!databaseId) await migrateLegacyDatabase();"));
         assert!(worker.contains("navigator.locks.request"));
         assert!(worker.contains("navigator.storage.getDirectory"));
         assert!(!worker.contains("sqlite3.opfs.entryExists"));

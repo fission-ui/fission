@@ -4,7 +4,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub Metric<FieldInspectorState> { label: String, value: String }
-    |metric, _state, cx| {
+    view(metric, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
     } =>

@@ -1,0 +1,47 @@
+---
+title: Stepper
+description: Show where the user is inside a multi-step process without making the steps interactive.
+slug: /widgets/stepper
+---
+# Stepper
+
+`Stepper` shows progress through a known sequence, such as onboarding,
+checkout, or setup.
+
+It is informational: it displays step state but does not handle clicks or
+navigation. Your app owns those actions.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+// In view; state.current_step belongs to the account setup workflow.
+Stepper(
+    steps: vec![
+        cx.tr("setup.account"), cx.tr("setup.profile"), cx.tr("setup.confirm"),
+    ],
+    active_index: state.current_step,
+)
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `steps` | `Vec<String>` | Labels for each step in order. | Required. Empty input renders a spacer. |
+| `active_index` | `usize` | Current step position. | Steps before this index render as completed. |
+
+## State ownership
+
+`Stepper` reads step state from `active_index` every build. It does not decide when the user is allowed to advance, go backward, or skip steps. Those rules belong in your reducers and surrounding controls.
+
+## Production checklist
+
+Only advance `current_step` after the corresponding validation or operation
+succeeds. Keep it within the actual step list, test Back without losing draft
+data, and check that long translated labels remain readable on a phone.
+
+## Related
+
+[`Tabs`](/reference/widgets/tabs), [`Pagination`](/reference/widgets/pagination), [`Alert`](/reference/widgets/alert), and [`ProgressBar`](/reference/widgets/progress-bar).

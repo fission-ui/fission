@@ -8,7 +8,7 @@ const EXTERNAL_PANEL_MIN_HEIGHT: f32 = 86.0;
 
 fission_component! {
     pub(super) ExternalFileDropPanel<GalleryState> { hovered: bool }
-    |panel, state, cx| {
+    view(panel, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(VStack(

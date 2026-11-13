@@ -103,6 +103,15 @@ fn identical_developer_trees_receive_identical_complete_identity_snapshots() {
 }
 
 #[test]
+fn owned_identity_resolution_matches_borrowed_resolution() {
+    let tree = typical_developer_tree(false);
+    let borrowed = internal::resolve_widget_identities(&tree, WidgetId::app_root());
+    let owned = internal::resolve_widget_identities_owned(tree, WidgetId::app_root());
+
+    assert_eq!(identity_snapshot(&borrowed), identity_snapshot(&owned));
+}
+
+#[test]
 fn embedded_widget_surfaces_receive_automatic_identities() {
     let tree = resolved(
         Column {
@@ -606,6 +615,43 @@ fn dispatch_action(runtime: &mut Runtime, context: BuildCtx<()>, action: ActionE
     runtime
         .dispatch(action, WidgetId::from_u128(0))
         .expect("local-state action should dispatch");
+}
+
+#[test]
+fn keyed_lazy_rows_build_and_register_local_reducers_before_lowering() {
+    let build = |runtime: &Runtime, labels: Vec<&'static str>| {
+        let env = Env::default();
+        let view = View::new(&(), &runtime.runtime_state, &env, None);
+        let mut context = BuildCtx::new();
+        let keys = labels.clone();
+        let widget = build::enter(&mut context, &view, || {
+            fission_core::ui::LazyColumn::with_keyed_item_builder(
+                labels.len(),
+                48.0,
+                move |index| WidgetId::explicit(keys[index]),
+                move |index| {
+                    StatefulItem {
+                        label: labels[index].to_owned(),
+                    }
+                    .into()
+                },
+            )
+            .id(WidgetId::explicit("stateful-lazy-list"))
+            .into()
+        });
+        // Normal shells lower only after the authoring scope has closed.
+        let _ = internal::lower_widget_to_ir(&widget);
+        (widget, context)
+    };
+    let mut runtime = Runtime::default();
+    let (widget, context) = build(&runtime, vec!["a", "b"]);
+    let action = button_actions(&widget).remove(1);
+    dispatch_action(&mut runtime, context, action);
+    let (reordered, _) = build(&runtime, vec!["b", "a"]);
+    assert_eq!(
+        item_values(&reordered),
+        vec![("b".into(), 1), ("a".into(), 0)]
+    );
 }
 
 #[test]

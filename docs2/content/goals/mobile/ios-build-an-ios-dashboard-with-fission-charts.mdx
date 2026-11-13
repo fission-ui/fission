@@ -1,0 +1,609 @@
+---
+layout: goal
+title: Build an iOS transit dashboard with Fission Charts
+description: "Import route/day departure counts and build an iOS punctuality report whose chart, weighted percentage and route review use the same selected records."
+goal: "Compare reported on-time departures across seven- and thirty-day windows without averaging unequal daily percentages or inventing live dispatch data."
+path: /blog/build-an-ios-dashboard-with-fission-charts/
+order: 104
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target ios --project-dir ."
+app: ios-build-an-ios-dashboard-with-fission-charts
+outcomes:
+  - "Import real route/day counts with duplicate and bounds checks"
+  - "Calculate percentages from actual departure totals rather than mean daily rates"
+  - "Keep missing-day coverage visible and include every selected day offset"
+  - "Share one range between the chart and written review on native and Web"
+---
+
+## Give the dispatcher a report they can reason about
+
+A punctuality chart is useful only if its percentages mean the same thing. Averaging a quiet day's rate with a busy day's rate gives both days equal weight, even though they represent different numbers of departures. A fleet headline needs the total on-time departures divided by the total scheduled departures.
+
+This dashboard imports actual route/day counts and derives both the written review and chart from them. It does not invent a live shift, delayed vehicles or reasons for disruption. A route with late departures is a reason to inspect the source report, not evidence that the app knows which vehicle needs dispatching.
+
+## Create the iOS project
+
+Complete the [iOS development setup](/blog/set-up-rust-ios-development-with-fission/) before using Xcode's Simulator or a connected phone. Run iOS build commands on macOS with the required Apple tooling.
+
+```sh
+cargo install cargo-fission
+fission init ios-build-an-ios-dashboard-with-fission-charts
+cd ios-build-an-ios-dashboard-with-fission-charts
+fission add-target ios --project-dir .
+cargo add fission@0.16.0 --features charts
+cargo add serde_yaml
+```
+
+Keep the generated main entrypoint. Both native and Web launch the shared library below; neither seeds a separate fixture dataset.
+
+<!-- fission:step id="start-screen" -->
+## Import one report atomically
+
+The import has four tab-separated columns, without a header:
+
+```text
+days_ago    route    scheduled    on_time
+```
+
+The spaces above describe the columns; the input requires actual tab separators. Day 0 is the supplied report's endpoint, not the computer's current date. All rows must use that same endpoint and the same definition of on-time, such as departures within the operator's agreed five-minute window.
+
+Each route/day pair occurs once. Counts must be non-negative, scheduled departures must be positive, and on-time departures cannot exceed them. Validation builds a new report first; one bad row leaves the existing report intact. The bounds are intentional: 30 days, 1,000 rows and 128 KiB of input.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use std::collections::{BTreeMap, BTreeSet};
+use fission::prelude::*;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DepartureDay {
+    pub days_ago: u8,
+    pub route: String,
+    pub scheduled: u32,
+    pub on_time: u32,
+}
+#[derive(Debug, Clone)]
+pub struct TransitReport { pub endpoint: String, pub rows: Vec<DepartureDay> }
+#[derive(Debug, Default)]
+pub struct TransitDashboardState {
+    pub report: Option<TransitReport>,
+    pub import_issue: Option<&'static str>,
+}
+impl GlobalState for TransitDashboardState {}
+
+pub fn parse_report(endpoint: &str, raw: &str) -> Result<TransitReport, &'static str> {
+    if endpoint.trim().is_empty() || endpoint.chars().count() > 80 || raw.len() > 128 * 1024 {
+        return Err("transit.invalid");
+    }
+    let mut rows = Vec::new();
+    let mut keys = BTreeSet::new();
+    for line in raw.lines().filter(|line| !line.trim().is_empty()) {
+        let fields: Vec<&str> = line.split('\t').collect();
+        if fields.len() != 4 || rows.len() >= 1_000 { return Err("transit.invalid"); }
+        let days_ago: u8 = fields[0].trim().parse().map_err(|_| "transit.invalid")?;
+        let route = fields[1].trim();
+        let scheduled: u32 = fields[2].trim().parse().map_err(|_| "transit.invalid")?;
+        let on_time: u32 = fields[3].trim().parse().map_err(|_| "transit.invalid")?;
+        if days_ago >= 30 || route.is_empty() || route.chars().count() > 64
+            || scheduled == 0 || scheduled > 1_000_000 || on_time > scheduled
+            || !keys.insert((days_ago, route.to_owned())) { return Err("transit.invalid"); }
+        rows.push(DepartureDay { days_ago, route: route.to_owned(), scheduled, on_time });
+    }
+    if rows.is_empty() { return Err("transit.empty_import"); }
+    Ok(TransitReport { endpoint: endpoint.trim().to_owned(), rows })
+}
+
+impl TransitDashboardState {
+    pub fn import(&mut self, endpoint: &str, raw: &str) -> bool {
+        match parse_report(endpoint, raw) {
+            Ok(report) => { self.report = Some(report); self.import_issue = None; true }
+            Err(key) => { self.import_issue = Some(key); false }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Counts { pub scheduled: u64, pub on_time: u64 }
+impl Counts {
+    pub fn rate(self) -> Option<f32> {
+        (self.scheduled > 0).then(|| self.on_time as f64 / self.scheduled as f64 * 100.0)
+            .map(|value| value as f32)
+    }
+    fn add(&mut self, row: &DepartureDay) {
+        self.scheduled += u64::from(row.scheduled);
+        self.on_time += u64::from(row.on_time);
+    }
+}
+impl TransitReport {
+    pub fn daily_counts(&self, days: u8) -> BTreeMap<u8, Counts> {
+        let mut grouped: BTreeMap<u8, Counts> = BTreeMap::new();
+        for row in self.rows.iter().filter(|row| row.days_ago < days) {
+            grouped.entry(row.days_ago).or_default().add(row);
+        }
+        grouped
+    }
+    pub fn chart_counts(&self, days: u8) -> BTreeMap<u8, Counts> {
+        let step = if days == 30 { 5 } else { 1 };
+        let mut grouped: BTreeMap<u8, Counts> = BTreeMap::new();
+        for row in self.rows.iter().filter(|row| row.days_ago < days) {
+            grouped.entry(row.days_ago / step).or_default().add(row);
+        }
+        grouped
+    }
+    pub fn routes(&self, days: u8) -> BTreeMap<String, Counts> {
+        let mut grouped: BTreeMap<String, Counts> = BTreeMap::new();
+        for row in self.rows.iter().filter(|row| row.days_ago < days) {
+            grouped.entry(row.route.clone()).or_default().add(row);
+        }
+        grouped
+    }
+    pub fn counts(&self, days: u8) -> Counts {
+        let mut counts = Counts::default();
+        for row in self.rows.iter().filter(|row| row.days_ago < days) { counts.add(row); }
+        counts
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn rates_weight_departures_and_ranges_include_the_oldest_day() {
+        let report = parse_report("Reporting endpoint", "0\tA\t10\t10\n1\tB\t90\t0\n29\tA\t20\t20").unwrap();
+        assert_eq!(report.counts(7).rate(), Some(10.0));
+        assert_eq!(report.counts(30).scheduled, 120);
+        assert_eq!(report.chart_counts(30).get(&0).unwrap().rate(), Some(10.0));
+        assert_eq!(report.chart_counts(30).get(&5).unwrap().rate(), Some(100.0));
+        assert_eq!(report.daily_counts(7).len(), 2);
+        assert_eq!(report.daily_counts(30).len(), 3);
+        assert_eq!(Counts::default().rate(), None);
+    }
+    #[test]
+    fn invalid_replacement_preserves_the_previous_report() {
+        let mut state = TransitDashboardState::default();
+        assert!(state.import("First report", "0\tA\t10\t9"));
+        assert!(!state.import("Invalid", "0\tA\t10\t11"));
+        assert_eq!(state.report.as_ref().unwrap().endpoint, "First report");
+        assert!(parse_report("Duplicate", "0\tA\t10\t9\n0\tA\t10\t9").is_err());
+    }
+}
+
+```
+</TabItem>
+<TabItem label="src/import_form.rs">
+<!-- fission:file path="src/import_form.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::TransitDashboardState;
+
+fission_component! {
+    pub ImportTransitReport<TransitDashboardState> {
+        state { endpoint: String = String::new(), source: String = String::new() }
+    }
+    view(form, state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
+    Column(gap: tokens.spacing.s, children: [
+        Text(cx.tr("transit.import")).weight(tokens.typography.font_weight_bold),
+        TextInput(label: Some(cx.tr("transit.endpoint").into()), bind: form.endpoint,
+            semantics_identifier: "transit.endpoint".to_owned()),
+        TextInput(label: Some(cx.tr("transit.tsv").into()), bind: form.source,
+            helper_text: Some(cx.tr("transit.columns").into()), multiline: true,
+            semantics_identifier: "transit.tsv".to_owned()),
+        Button(
+            child: Text(cx.tr("transit.replace")), key: "transit.import",
+            on_press: reduce { state.import(&form.endpoint, &form.source); },
+        ),
+        if let Some(issue) = state.import_issue {
+            Text(cx.tr(issue)).color(tokens.colors.error)
+        },
+    ])
+}
+```
+</TabItem>
+<TabItem label="src/route_row.rs">
+<!-- fission:file path="src/route_row.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::Counts;
+
+fission_component! {
+    pub RouteReviewRow<()> {
+        props { route: String, counts: Counts }
+    }
+    view(row, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
+    Container(
+        Column(gap: tokens.spacing.s, children: [
+            Text(row.route.clone()).weight(tokens.typography.font_weight_bold),
+            Text(format!("{}: {}", cx.tr("transit.scheduled"), row.counts.scheduled)),
+            Text(format!("{}: {}", cx.tr("transit.late"),
+                row.counts.scheduled - row.counts.on_time)),
+            Text(cx.tr(if row.counts.on_time < row.counts.scheduled {
+                "transit.review"
+            } else { "transit.no_late" })),
+        ])
+    ).padding_all(tokens.spacing.m).bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0).border_radius(tokens.radii.medium)
+}
+```
+</TabItem>
+<TabItem label="src/summary.rs">
+<!-- fission:file path="src/summary.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{route_row::RouteReviewRow, state::TransitDashboardState};
+
+fission_component! {
+    pub TransitSummary<TransitDashboardState> { props { days: u8 } }
+    view(summary, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    if let Some(report) = &state.report {
+        Column(gap: tokens.spacing.m, children: [
+            Text(report.endpoint.clone()).weight(tokens.typography.font_weight_bold),
+            Text(format!("{}: {}", cx.tr("transit.scheduled"), report.counts(summary.days).scheduled)),
+            if let Some(rate) = report.counts(summary.days).rate() {
+                Text(format!("{}: {rate:.1}%", cx.tr("transit.on_time")))
+            } else { Text(cx.tr("transit.no_window")) },
+            Text(cx.tr("transit.routes")),
+            Column(gap: tokens.spacing.s, children: [
+                for (route, counts) in report.routes(summary.days) {
+                    RouteReviewRow(route.clone(), counts, key: route.clone())
+                        .id(WidgetId::explicit(&format!("transit.route.{route}")))
+                },
+            ]),
+        ])
+    } else { Text(cx.tr("transit.empty")) }
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{import_form::ImportTransitReport, state::TransitDashboardState, summary::TransitSummary};
+
+fission_component! {
+    pub TransitDashboardPage<TransitDashboardState> {
+        state { thirty_days: bool = false }
+    }
+    view(page, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let days: u8 = if page.thirty_days { 30 } else { 7 };
+    } =>
+    SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.l, children: [
+            Text(cx.tr("transit.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("transit.scope")),
+            ImportTransitReport(),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(
+                    child: Text(cx.tr("transit.seven")), key: "transit.seven",
+                    variant: if page.thirty_days { ButtonVariant::Outline } else { ButtonVariant::Primary },
+                    on_press: reduce { page.thirty_days = false; },
+                ),
+                Button(
+                    child: Text(cx.tr("transit.thirty")), key: "transit.thirty",
+                    variant: if page.thirty_days { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { page.thirty_days = true; },
+                ),
+            ]),
+            TransitSummary(days),
+        ])
+    ).padding_all(tokens.spacing.l)))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+transit.title: "Transit punctuality report"
+transit.scope: "Import a report from one reporting endpoint. This is a historical review, not live dispatch, vehicle location or a safety instruction. Data stays in this session."
+transit.import: "Import or replace a report"
+transit.endpoint: "Reporting endpoint or export label"
+transit.tsv: "Tab-separated route/day counts"
+transit.columns: "No header: days before endpoint (0–29), route, scheduled departures, on-time departures. All rows must share the same endpoint and on-time definition."
+transit.replace: "Validate and replace report"
+transit.invalid: "The report is invalid. Check four tab-separated columns, unique route/day rows, days 0–29 and on-time counts no greater than scheduled counts. The previous report is unchanged."
+transit.empty_import: "Enter at least one report row."
+transit.scheduled: "Reported scheduled departures"
+transit.on_time: "On-time departures"
+transit.late: "Reported departures outside the on-time window"
+transit.review: "Review the exceptions in the source report; this screen does not know their cause."
+transit.no_late: "No late departures reported for this route in the selected rows."
+transit.routes: "Route review"
+transit.empty: "No report loaded. Import actual route/day counts above."
+transit.no_window: "No reported departures in this selected window."
+transit.chart: "On-time share across reported days"
+transit.days_before: "Day −{days}"
+transit.percent: "Percent"
+transit.day_axis: "Days before report endpoint"
+transit.coverage: "Days with supplied counts"
+transit.missing: "Bars use only supplied counts. Missing days are not zero, and partial route coverage is not the whole service."
+transit.seven: "7-day window"
+transit.thirty: "30-day window"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+transit.title: "Informe de puntualidad del transporte"
+transit.scope: "Importa un informe con un único punto de referencia. Es una revisión histórica, no despacho en directo, localización de vehículos ni instrucción de seguridad. Los datos solo duran esta sesión."
+transit.import: "Importar o sustituir un informe"
+transit.endpoint: "Fecha de referencia o etiqueta de exportación"
+transit.tsv: "Recuentos por ruta y día separados por tabulaciones"
+transit.columns: "Sin cabecera: días anteriores (0–29), ruta, salidas previstas y salidas puntuales. Todas las filas deben compartir referencia y definición de puntualidad."
+transit.replace: "Validar y sustituir el informe"
+transit.invalid: "El informe no es válido. Comprueba cuatro columnas, filas únicas por ruta/día, días 0–29 y recuentos coherentes. Se conserva el informe anterior."
+transit.empty_import: "Introduce al menos una fila."
+transit.scheduled: "Salidas previstas comunicadas"
+transit.on_time: "Salidas puntuales"
+transit.late: "Salidas comunicadas fuera del intervalo de puntualidad"
+transit.review: "Revisa las excepciones en el informe original; esta pantalla no conoce su causa."
+transit.no_late: "No se comunicaron retrasos para esta ruta en las filas seleccionadas."
+transit.routes: "Revisión por ruta"
+transit.empty: "No hay informe. Importa recuentos reales por ruta y día."
+transit.no_window: "No hay salidas comunicadas en este intervalo."
+transit.chart: "Proporción puntual de los días comunicados"
+transit.days_before: "Día −{days}"
+transit.percent: "Porcentaje"
+transit.day_axis: "Días anteriores a la referencia"
+transit.coverage: "Días con recuentos aportados"
+transit.missing: "Solo se dibujan los días aportados. Un día ausente no equivale a cero; las rutas incompletas no representan todo el servicio."
+transit.seven: "Intervalo de 7 días"
+transit.thirty: "Intervalo de 30 días"
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+pub mod state;
+mod import_form;
+mod route_row;
+mod summary;
+mod translations;
+
+use app::TransitDashboardPage;
+use state::TransitDashboardState;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<TransitDashboardState, _>::new(TransitDashboardPage::new())
+        .with_env(translations::create_env())
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<TransitDashboardState, TransitDashboardPage> {
+    let app = MobileApp::<TransitDashboardState, _>::new(TransitDashboardPage::new())
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<TransitDashboardState, _>::new(TransitDashboardPage::new())
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+include!("../src/lib.rs");
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Import a small export you can verify by hand. The route rows and total must describe those entered counts. Replace it with an invalid export: the previous report should remain visible, with an explicit import error. A row's route label is data, not a translation key.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Plot the same counts without inventing missing days
+
+The seven-day chart groups supplied route rows by day. At thirty days it uses six five-day buckets, so the labels remain readable on a phone. Each bar divides the on-time count by the scheduled count for its own bucket; the headline uses those counts across the whole selected window. It is not an arithmetic mean of bar heights. A label such as `29–25` means days 29 through 25 before the reporting endpoint.
+
+A seven-day window includes offsets 0–6, and a thirty-day window includes 0–29. Four weekly samples would not be a thirty-day daily series. Missing days are omitted and coverage is shown, rather than drawing them as zero-percent punctuality. Missing routes within a supplied day remain a source-data limitation, so the display consistently says reported departures.
+
+Only the page owns the retained range choice. It supplies that choice to the chart and written summary, preventing them from quietly describing different windows.
+
+<Tabs>
+<TabItem label="src/analytics.rs">
+<!-- fission:file path="src/analytics.rs" -->
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+use crate::state::TransitDashboardState;
+
+fission_component! {
+    pub RoutePunctualityTrend<TransitDashboardState> { props { days: u8 } }
+    view(trend, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let daily = state.report.as_ref().map(|report| report.chart_counts(trend.days))
+            .unwrap_or_default();
+        let labels: Vec<String> = daily.keys().rev().map(|bucket| {
+            if trend.days == 30 {
+                format!("{}–{}", bucket * 5 + 4, bucket * 5)
+            } else {
+                cx.tr("transit.days_before").replace("{days}", &bucket.to_string())
+            }
+        }).collect();
+        let rates: Vec<f32> = daily.values().rev().filter_map(|counts| counts.rate()).collect();
+        let coverage = state.report.as_ref().map(|report| report.daily_counts(trend.days).len()).unwrap_or(0);
+        let title = cx.tr("transit.chart");
+        let series_label = cx.tr("transit.on_time");
+    } =>
+    if coverage == 0 {
+        Text(cx.tr("transit.no_window"))
+    } else {
+        SemanticsRegion(
+            identifier: Some("transit.punctuality".to_owned()),
+            label: Some(cx.tr("transit.chart")),
+            child: Column(gap: tokens.spacing.s, children: [
+                Chart(
+                    title: Some(title),
+                    x_axis: Some(Axis::category(labels.iter().map(String::as_str).collect()).name(cx.tr("transit.day_axis"))),
+                    y_axis: Some(Axis::value().min(0.0).max(100.0).name(cx.tr("transit.percent"))),
+                    height: Some(300.0),
+                    series: vec![Series::Bar(BarSeries::new(&series_label).data(rates))],
+                ),
+                Text(format!("{}: {coverage}/{}", cx.tr("transit.coverage"), trend.days)),
+                Text(cx.tr("transit.missing")),
+            ]),
+        )
+    }
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{import_form::ImportTransitReport, state::TransitDashboardState, summary::TransitSummary, analytics::RoutePunctualityTrend};
+
+fission_component! {
+    pub TransitDashboardPage<TransitDashboardState> {
+        state { thirty_days: bool = false }
+    }
+    view(page, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let days: u8 = if page.thirty_days { 30 } else { 7 };
+    } =>
+    SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.l, children: [
+            Text(cx.tr("transit.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("transit.scope")),
+            ImportTransitReport(),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(
+                    child: Text(cx.tr("transit.seven")), key: "transit.seven",
+                    variant: if page.thirty_days { ButtonVariant::Outline } else { ButtonVariant::Primary },
+                    on_press: reduce { page.thirty_days = false; },
+                ),
+                Button(
+                    child: Text(cx.tr("transit.thirty")), key: "transit.thirty",
+                    variant: if page.thirty_days { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { page.thirty_days = true; },
+                ),
+            ]),
+            RoutePunctualityTrend(days),
+            TransitSummary(days),
+        ])
+    ).padding_all(tokens.spacing.l)))
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+pub mod state;
+mod import_form;
+mod route_row;
+mod summary;
+mod analytics;
+mod translations;
+
+use app::TransitDashboardPage;
+use state::TransitDashboardState;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<TransitDashboardState, _>::new(TransitDashboardPage::new())
+        .with_env(translations::create_env())
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<TransitDashboardState, TransitDashboardPage> {
+    let app = MobileApp::<TransitDashboardState, _>::new(TransitDashboardPage::new())
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<TransitDashboardState, _>::new(TransitDashboardPage::new())
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Change the range and verify the bars, coverage count, headline and route review all use the same selected rows. The chart's percentage axis stays at 0–100. An empty selected window is unavailable data, not a zero-percent result.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Check the data and the iPhone layout separately
+
+```sh
+cargo test
+fission doctor ios --project-dir .
+fission devices --project-dir .
+fission run --target ios --project-dir .
+fission test --target ios --project-dir .
+fission build --target ios --project-dir . --release
+```
+
+The tests cover unequal daily denominators, offset 29, duplicate rows and preserving a valid report after a failed replacement. They do not establish that an operator's export is complete or that its definition of on-time is appropriate.
+
+In the Simulator, test an iPhone and a wider iPad layout. Increase text size, import long route names, change the range and scroll through the full review. On a real device, inspect safe areas and the soft keyboard. The text supplies exact counts and the same weighted percentage, so colour or bar height is not the only way to understand the result.
+
+The report remains in memory for this app session. Loading from a dispatch service later requires an effect, pending/error states and a decision about which report endpoint is current. It does not justify starting a request during component conversion or labelling historical counts as live vehicle status.
+
+The [Fission Charts reference](/reference/charts/overview/) covers chart configuration; the [state, handles and providers guide](/docs/guides/state-handles-and-providers/) explains the ownership used here. Simulator startup, physical-device behaviour and a signed release remain separate checks.
+<!-- /fission:step -->

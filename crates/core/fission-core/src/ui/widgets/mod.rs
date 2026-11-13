@@ -69,7 +69,7 @@ pub use interactive_viewer::{
     ViewportTransform, ViewportZoomPolicy, DEFAULT_MAX_VIEWPORT_SCALE, DEFAULT_MIN_VIEWPORT_SCALE,
     DEFAULT_VIEWPORT_FRICTION,
 };
-pub use lazy_column::LazyColumn;
+pub use lazy_column::{LazyColumn, LazyColumnBuilder};
 pub use overlay::Overlay;
 pub use positioned::Positioned;
 pub use pressable::{Pressable, PressableRole, PressableStyle};

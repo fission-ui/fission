@@ -1,0 +1,58 @@
+---
+title: Rose by radius
+sidebar_label: Rose by radius
+description: Fission Charts reference for Rose by radius.
+---
+
+# Rose by radius
+
+![Rose by radius screenshot](/img/charts/pie-rose-radius.png)
+
+Radius-style rose rendering deliberately exaggerates category differences compared with a plain pie. The choice should serve the report, not make small changes appear more important than they are. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example compares the number of completed inspections in a few facility areas. A bar chart is clearer for exact ranking; the rose is a compact composition view with the counts available alongside it.
+
+## Data model
+
+`PieSeries::rose_type("radius")` scales each outer radius linearly relative to the largest value, with a non-zero baseline. The angle also varies with share of the total. Do not read radius or painted area as an independently proportional count.
+
+## Authoring from a Fission component
+
+The parent supplies inspection totals for the same reporting period and localizes the area names. The example explicitly chooses radius mode.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub InspectionAreaRose<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            inspections_by_area: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.inspections_by_area.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .rose_type("radius")
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test a dominant area, equal counts and no completed inspections. State whether each inspection has one owning area to avoid double counting. Keep the counts accessible and inspect labels before adding more categories.
+
+Tags: `pie`, `rose`.
+
+[Radial and polar family overview](./overview)

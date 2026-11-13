@@ -1,0 +1,65 @@
+---
+title: Cohort heatmap
+sidebar_label: Cohort heatmap
+description: Compare mature retention observations by signup cohort and elapsed week.
+---
+
+# Cohort heatmap
+
+![Cohort heatmap screenshot](/img/charts/analytics-cohort-heatmap.png)
+
+A cohort groups accounts that started in the same period. Comparing them at the same age separates the product's retention pattern from the fact that one cohort has simply existed for longer.
+
+For example, week three means the third week after signup for every row, not the same calendar week. A cohort that has not reached that age has no observation yet. It does not have zero retention.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, HeatmapSeries, Series, VisualMap};
+
+#[derive(Clone)]
+pub struct RetentionCell {
+    pub age_index: usize,
+    pub cohort_index: usize,
+    pub retained_percent: f32,
+}
+
+fission_component! {
+    pub CohortRetention<()> {
+        props {
+            title: String,
+            metric_label: String,
+            age_labels: Vec<String>,
+            cohort_labels: Vec<String>,
+            observed: Vec<RetentionCell>,
+            colour_scale: VisualMap,
+        }
+    }
+    view(retention, _state, _cx) {
+        let ages = retention.age_labels.iter().map(String::as_str).collect();
+        let cohorts = retention.cohort_labels.iter().map(String::as_str).collect();
+        let values = retention.observed.iter()
+            .map(|cell| (cell.age_index, cell.cohort_index, cell.retained_percent))
+            .collect();
+    } => Chart(
+        title: Some(retention.title.clone()),
+        x_axis: Some(Axis::category(ages)),
+        y_axis: Some(Axis::category(cohorts)),
+        visual_map: Some(retention.colour_scale.clone()),
+        series: vec![Series::Heatmap(
+            HeatmapSeries::new(&retention.metric_label).data(values),
+        )],
+    )
+}
+```
+
+Supply a fixed 0–100 colour scale from the application theme. Validate that indices refer to the supplied axes, percentages are finite and within range, and each cohort/age pair appears at most once.
+
+## Keep the denominator stable
+
+Calculate retention against the original eligible cohort, with an explicit rule for eligibility. Changing the denominator each week produces a different measure.
+
+Omit unobserved future cells; the component should only receive measured cells. Explain that blank region beside the chart and expose the counts used to calculate each percentage. Test young cohorts and cohorts with no eligible accounts rather than dividing by zero. The gallery screenshot uses its own fixture.
+
+[Analytics family overview](./overview)

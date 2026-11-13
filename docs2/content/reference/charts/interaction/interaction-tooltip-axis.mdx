@@ -1,0 +1,79 @@
+---
+title: Axis tooltip
+sidebar_label: Axis tooltip
+description: Fission Charts reference for Axis tooltip.
+---
+
+# Axis tooltip
+
+![Axis tooltip screenshot](/img/charts/interaction-tooltip-axis.png)
+
+An axis tooltip compares values at the same category position. In an order report, that lets a reader inspect delivery and collection counts for one day without trying to hover over two separate marks. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use the axis trigger when the comparison is across series at a common day. All series must use the same category ordering; otherwise the tooltip would place unrelated values next to one another.
+
+## Data model
+
+Each vector contains one count per weekday in the displayed order. ChartInteraction::tooltips(ChartTooltipTrigger::Axis) enables the built-in feedback. The chart tracks hover state; a reducer is only needed if the product also wants to act on those events.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `ChartInteraction::tooltips` | `ChartTooltipTrigger` | Chooses item-level or common-axis feedback. |
+| `ChartInteraction::keyboard_focus` | `bool` | Enables focusable chart navigation. |
+| `Chart::interaction` | `ChartInteraction` | Installs the configured behaviour. |
+
+## Authoring from a Fission component
+
+The component receives prepared counts as props. There is no request or state mutation during a build.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{
+    Axis, Chart, ChartInteraction, ChartTooltipTrigger, Legend, LineSeries,
+};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub AxisTooltipChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            comparison_series_label: String,
+            category_labels: Vec<String>,
+            delivery: Vec<f32>,
+            collection: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                report.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            legend: Some(Legend::top_right()),
+            interaction: ChartInteraction::tooltips(ChartTooltipTrigger::Axis)
+                .keyboard_focus(true),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.delivery.clone())
+                    .into(),
+                LineSeries::new(&report.comparison_series_label)
+                    .data(report.collection.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Move between categories and verify that both series report values for the same day. Check keyboard focus and narrow layouts, and keep exact counts available without requiring hover.
+
+Tags: `tooltip`, `axis`.
+
+[Interaction family overview](./overview)

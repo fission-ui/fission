@@ -1,0 +1,61 @@
+---
+title: Radar profile B
+sidebar_label: Radar profile B
+description: Fission Charts reference for Radar profile B.
+---
+
+# Radar profile B
+
+![Radar profile B screenshot](/img/charts/radar-profile-b.png)
+
+Two profiles are comparable only when each position describes the same dimension on the same scale. A radar can show the shape of a supplier's current assessment against its earlier assessment, but the order must remain fixed. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use this view to discuss which capabilities changed, not to compare polygon areas. Reordering the dimensions changes the shape and area without changing any score. Retain the underlying named values and assessment dates.
+
+## Data model
+
+Supply two four-value rows on a 0–100 scale. The current renderer fills and outlines each row with a palette colour, but `RadarSeries` does not attach an individual name to each row or draw spoke labels. Explain row order and dimension order outside the image.
+
+## Authoring from a Fission component
+
+The component receives fixed-length current and previous assessments. Its parent supplies a localized explanation naming the dimensions and which profile is shown first.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, RadarSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub SupplierAssessmentComparison<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            previous_scores: [f32; 4],
+            current_scores: [f32; 4],
+            profile_description: TextContent,
+        }
+    }
+    view(review, _state, _cx) => Column(children: [
+        Text(review.profile_description.clone()),
+        Chart(
+            title: Some(review.chart_title.clone()),
+            series: vec![RadarSeries::new(&review.series_label)
+                .data(vec![
+                    review.previous_scores.to_vec(),
+                    review.current_scores.to_vec(),
+                ])
+                .into()],
+        ),
+    ])
+}
+```
+
+## Testing and accessibility
+
+Test identical profiles, a changed dimension and an incomplete assessment before rendering. Check overlap without relying on colour alone. Provide a table with previous/current values and dates; the renderer's unnamed rows are not an adequate accessible comparison on their own.
+
+Tags: `radar`, `profile`.
+
+[Pie and radial family overview](./overview)

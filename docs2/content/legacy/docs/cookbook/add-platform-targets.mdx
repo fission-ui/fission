@@ -1,0 +1,92 @@
+---
+title: Add platform targets
+description: Add web, Android, and iOS hosts to a Fission app without changing the shared app model.
+---
+
+# Add platform targets
+
+This recipe adds Web, Android, or iOS hosts to an existing app. Your state, reducers, widgets, and effects stay in shared Rust code; Fission generates the platform files needed to build and launch them.
+
+## The problem we are solving
+
+Use `fission add-target` when you want to run the same app in a browser, Android app, or iOS app without splitting it into separate codebases.
+
+## Step 1: choose the first target by product need
+
+Choose the target that can answer your next product question. Add Web early for browser behavior; add Android or iOS when touch layout, safe areas, keyboard behavior, or mobile packaging matter. Desktop is a quick loop for shared state and layout, but it does not replace testing the host your users will run.
+
+## Step 2: understand what target generation changes
+
+Target generation updates [`fission.toml`](/reference/config/fission-toml/) and creates the host files under `platforms/`, including scripts, manifests, and setup notes. Your shared code under `src/` remains unchanged.
+
+## Step 3: add the targets with the command-line interface
+
+From the project root, run:
+
+```bash
+fission add-target web ios android --project-dir .
+```
+
+The dot means the current project root. From its parent directory, use
+`--project-dir my-app` instead. You can add targets separately too:
+
+```bash
+fission add-target web --project-dir .
+```
+
+The example adds three targets. If you only need one now, pass just that target.
+
+## Step 4: inspect what the command-line interface generated
+
+The command does not move existing app logic. In the standard scaffold,
+`src/main.rs` is the thin desktop entrypoint and `src/lib.rs` exposes the
+shared app. Keep screens, widgets, state, and services in focused shared
+modules rather than assuming adding a target reorganises them for you.
+
+You should now see `platforms/web/`, `platforms/android/`, or `platforms/ios/` for the targets you added. Read their README files before using the helper scripts: Web builds and serves WebAssembly, while Android and iOS use the documented emulator and simulator flows.
+
+## Step 5: run the web target when browser behavior matters
+
+If your next question is about the browser host, run:
+
+```bash
+./platforms/web/run-browser.sh
+```
+
+The script builds and serves the browser app. Check resizing, keyboard and pointer input, and any browser-specific behavior your product depends on.
+
+## Step 6: run the Android target when mobile behavior matters
+
+If your next question is about Android packaging or mobile presentation, run:
+
+```bash
+./platforms/android/run-emulator.sh
+```
+
+Install the Android SDK and NDK and follow `platforms/android/README.md` for the required environment variables. Then check touch targets, viewport size, text entry, and emulator behavior in the Android host.
+
+## Step 7: run the iOS target when iOS host behavior matters
+
+If your next question is about the iOS host path, run:
+
+```bash
+./platforms/ios/run-sim.sh
+```
+
+This script uses the iOS simulator. Install the required Xcode tools and check `platforms/ios/README.md` for current setup details. Validate safe areas, smaller viewports, and text entry in the simulator.
+
+## Step 8: know what stays shared and what must be validated per host
+
+State, reducers, components, and selectors stay shared. Packaging, launch scripts, and platform-facing behavior differ, so validate those in each host you ship.
+
+## Step 9: validate the right things on each target
+
+Do more than confirm that the app starts. Walk through a real user path and check startup, the primary action, text input and focus, realistic window sizes, and any host-specific feature such as file picking or external links.
+
+## What to avoid
+
+Do not fork the shared app just to add a host. Do read the generated target notes, and do not assume that passing on one host proves browser behavior, Android packaging, or iOS presentation works on the others.
+
+## Where to go next
+
+For shell and CLI details, read [Platform shells, command-line interface, and testing](/docs/guides/platform-shells-cli-and-testing). For target requirements, see [Target reference](/reference/platform/targets).

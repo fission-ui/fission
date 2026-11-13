@@ -1,0 +1,43 @@
+---
+title: Grouped bar
+sidebar_label: Grouped bar
+description: Build a real grouped comparison of previous and current store orders.
+---
+
+# Grouped bar
+
+![Grouped bar screenshot](/img/charts/bar-grouped.png)
+
+Grouped bars compare related measures independently against the same zero baseline. That is useful when comparing a store's current orders with its previous-period orders.
+
+Adding a second measure is essential: a single series does not demonstrate grouping. Likewise, assigning both series one stack key would add them rather than place them side by side.
+
+The [store comparison](../bar/bar-store-comparison) defines `StoreOrders` and `StorePeriodComparison`. Place those definitions in `widgets/store_comparison.rs` and compose the report:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::store_comparison::{StoreOrders, StorePeriodComparison};
+
+fission_component! {
+    pub StoreOrdersReport<()> {
+        props {
+            title: String,
+            previous_label: String,
+            current_label: String,
+            stores: Vec<StoreOrders>,
+        }
+    }
+    view(report, _state, _cx) => StorePeriodComparison {
+        title: report.title.clone(),
+        previous_label: report.previous_label.clone(),
+        current_label: report.current_label.clone(),
+        stores: report.stores.clone(),
+    }
+}
+```
+
+The reused component constructs two `Series::Bar` values, both aligned to the same category axis, with no stack key. A legend identifies their translated period labels.
+
+Keep reporting windows comparable and handle a newly opened store's absent previous result explicitly. Test that sorting keeps each store's two values together, and inspect the layout when translated names grow. Provide exact counts rather than relying on colour or relative height alone. The gallery screenshot uses separate fixture values.
+
+[Cartesian family overview](./overview)

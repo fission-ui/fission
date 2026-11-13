@@ -1,0 +1,74 @@
+---
+title: SimpleGrid
+description: Build a responsive wrapping grid by giving each child a minimum width.
+slug: /widgets/simple-grid
+---
+# SimpleGrid
+
+`SimpleGrid` wraps children into a responsive grid using a minimum width for
+each child, so you do not have to define tracks like
+[`Grid`](/reference/widgets/grid).
+
+Use it for galleries, settings cards, attachment previews, or dashboard tiles
+that should reflow as the viewport changes.
+
+Use `SimpleGrid` when the goal is responsive card wrapping. Do not use it when you need named rows and columns or explicit placement rules. That is what `Grid` and [`GridItem`](/reference/widgets/grid-item) are for.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub AttachmentGallery<()> {
+        props {
+            previews: Vec<Widget>,
+            minimum_preview_width: f32,
+        }
+    }
+
+    view(gallery, _state, cx) {
+        let spacing = &cx.view.env().theme.tokens.spacing;
+    } =>
+        SimpleGrid(
+            min_child_width: gallery.minimum_preview_width,
+            gap: spacing.m,
+            children: gallery.previews.clone(),
+        )
+}
+```
+
+Each preview is a real independently constructed child with an id derived from
+its attachment. The parent chooses a readable minimum width and constructs
+a separate gallery tree for each responsive branch instead of cloning one tree
+into several simultaneously retained layouts.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `min_child_width` | `f32` | Minimum width each child should try to keep. | Required. Each child is wrapped in a container with this minimum width. |
+| `gap` | `Option<f32>` | Spacing between children. | Defaults to `None`. |
+| `children` | `Vec<Widget>` | Items to place in the wrapping grid. | Defaults to an empty list. |
+
+## Layout behavior
+
+`SimpleGrid` is implemented as a wrapping `Row`. Each child is wrapped in a [`Container`](/reference/widgets/container) with `flex_grow: 1.0` and `min_width(min_child_width)`. That is why it feels grid-like without requiring explicit track definitions.
+
+This also means `SimpleGrid` is intentionally opinionated and approximate. It is about responsive card flow, not strict spreadsheet-style layout.
+
+## Specific advice
+
+`SimpleGrid` works especially well when child cards already know how to size themselves vertically. If you also want the media inside those cards to keep consistent proportions, combine it with [`AspectRatio`](/reference/widgets/aspect-ratio).
+
+When exact placement matters more than natural wrapping, stop using `SimpleGrid` and switch to `Grid`.
+
+## Production checklist
+
+- Check minimum child width against the narrowest supported parent.
+- Keep attachment ids stable through filtering and deletion.
+- Use explicit Grid tracks when rows and columns carry meaning, not only card flow.
+
+## Related
+
+[`Grid`](/reference/widgets/grid), [`Wrap`](/reference/widgets/wrap), [`Container`](/reference/widgets/container), and [`AspectRatio`](/reference/widgets/aspect-ratio).

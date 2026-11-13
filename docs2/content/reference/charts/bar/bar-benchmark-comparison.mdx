@@ -1,0 +1,75 @@
+---
+title: Benchmark comparison
+sidebar_label: Benchmark comparison
+description: Compare measured results with a benchmark using paired bars and a shared scale.
+---
+
+# Benchmark comparison
+
+![Benchmark comparison screenshot](/img/charts/bar-benchmark-comparison.png)
+
+A measured value has little context without something to compare it with. For a service team, an average response time of twelve minutes may be acceptable for one queue and unacceptable for another. Put the measured value next to the relevant benchmark so the reader can make that distinction.
+
+Both bars must use the same unit, period and scale. A benchmark from a different workload is not made comparable by drawing it beside the result.
+
+## Keep each comparison together
+
+Store the category, result and benchmark in one row. Building the two series from independent lists makes it easy to compare the result for one queue with the target for another after sorting or filtering.
+
+The component accepts display-ready measurements; the application should validate their units and finite values before reaching this view. Enable Fission's `charts` feature.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Legend, Series};
+
+#[derive(Clone)]
+pub struct QueueBenchmark {
+    pub queue: String,
+    pub measured_minutes: f32,
+    pub benchmark_minutes: f32,
+}
+
+fission_component! {
+    pub ResponseTimeComparison<()> {
+        props {
+            title: String,
+            measured_label: String,
+            benchmark_label: String,
+            minutes_label: String,
+            rows: Vec<QueueBenchmark>,
+        }
+    }
+    view(comparison, _state, _cx) {
+        let labels = comparison.rows.iter().map(|row| row.queue.as_str()).collect();
+        let measured = comparison.rows.iter().map(|row| row.measured_minutes).collect();
+        let benchmark = comparison.rows.iter().map(|row| row.benchmark_minutes).collect();
+    } => Chart(
+        title: Some(comparison.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0).name(comparison.minutes_label.clone())),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Bar(BarSeries::new(&comparison.measured_label).data(measured)),
+            Series::Bar(BarSeries::new(&comparison.benchmark_label).data(benchmark)),
+        ],
+    )
+}
+```
+
+These series are grouped rather than stacked: neither sets `BarSeries::stack`. Adding the benchmark to the measurement would produce a total with no useful meaning. Labels and title are props so the parent can provide translated strings instead of fixing a language inside the reusable chart.
+
+## Relevant API
+
+`Chart::series` accepts `Vec<Series>`; `Series::Bar` wraps a `BarSeries` whose `data` is `Vec<f32>`. A category axis takes labels in the same order as those values. The chart's `x_axis` and `y_axis` fields are `Option<Axis>`, and its `title` is `Option<String>`.
+
+Without explicit series colours, Fission uses its chart palette. Retain a legend and supply an accessible list or table of the paired values so colour is not the only way to identify the benchmark.
+
+## Check the comparison
+
+Test that sorting or filtering rows changes both series together. Check equal values, a result above the benchmark and a result below it. Keep the numeric baseline at zero: truncating a bar axis exaggerates small differences.
+
+If selection has a useful action, enable chart interaction and handle `ChartInteractionEvent` in a reducer. Otherwise the comparison can remain read-only. Inspect the rendered chart at narrow widths, especially with long translated queue names; the gallery screenshot is a fixture rather than this component's output.
+
+Tags: `bar`, `benchmark`.
+
+[Bar family overview](./overview)

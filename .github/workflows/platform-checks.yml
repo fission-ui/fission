@@ -42,7 +42,7 @@ jobs:
       - name: Check release automation scripts
         run: |
           bash -n scripts/publish_release_crates.sh scripts/smoke_published_release.sh
-          test "$(scripts/publish_release_crates.sh --list | wc -l)" -eq 47
+          test "$(scripts/publish_release_crates.sh --list | wc -l)" -eq 49
           test "$(scripts/publish_release_crates.sh --list | tail -1)" = cargo-fission
 
       - name: Check scene and physics feature boundaries
@@ -100,6 +100,9 @@ jobs:
       - name: Install Linux native build dependencies
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
 
+      - name: Test Web save-file handle reuse
+        run: node --test crates/shell/fission-shell-winit/tests/web_file_picker.test.mjs
+
       - name: Check wasm core crates
         run: |
           cargo check -p fission-core --target wasm32-unknown-unknown
@@ -129,6 +132,14 @@ jobs:
           trap 'kill "$server_pid"' EXIT
           FISSION_WEB_SMOKE_URL='http://127.0.0.1:8126/?fission_renderer=canvas2d-software' \
             cargo test --locked -p web-smoke --test text_input_browser -- --nocapture
+
+      - name: Package Rust Web SQLite cancellation fixture
+        run: |
+          bindgen_version=$(python3 -c 'import tomllib; data=tomllib.load(open("Cargo.lock", "rb")); print(next(p["version"] for p in data["package"] if p["name"] == "wasm-bindgen"))')
+          cargo install wasm-bindgen-cli --version "$bindgen_version" --locked
+          cargo build --locked -p fission-store-sqlite --features web --example web_transaction_cancellation --target wasm32-unknown-unknown
+          wasm-bindgen "${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/debug/examples/web_transaction_cancellation.wasm" \
+            --target web --out-dir crates/core/fission-store-sqlite/tests/web/pkg
 
       - name: Run Web SQLite multi-context conformance in Chromium
         run: |

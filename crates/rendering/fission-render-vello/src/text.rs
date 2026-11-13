@@ -10,7 +10,7 @@ use fission_layout::{
     TextMeasurer,
 };
 use fission_render::TextStyle as RenderTextStyle;
-use parley::layout::{Affinity, Cursor, Layout, PositionedLayoutItem};
+use parley::layout::{Affinity, Cluster, GlyphRun, Layout, PositionedLayoutItem};
 use parley::style::{
     FontFamily, FontFeatures, FontStyle as ParleyFontStyle, FontVariations, FontWeight, Language,
     LineHeight, OverflowWrap, StyleProperty, WordBreak,
@@ -34,17 +34,57 @@ impl Default for ParleyBrush {
     }
 }
 
+/// Text belonging to this positioned style segment, rather than the whole
+/// shaping run. Keep complete clusters so combining sequences remain intact.
+pub(crate) fn glyph_run_text_range(
+    glyph_run: &GlyphRun<'_, ParleyBrush>,
+) -> Option<std::ops::Range<usize>> {
+    let style_index = glyph_run.glyphs().next()?.style_index;
+    let left = glyph_run.offset();
+    let right = left + glyph_run.advance();
+    let run = glyph_run.run();
+    let first = run.visual_clusters().next()?;
+    let mut offset = first.visual_offset()? + first.line().metrics().inline_min_coord;
+    let epsilon = run.font_size() * 0.00001;
+    let mut range: Option<std::ops::Range<usize>> = None;
+    for cluster in run.visual_clusters() {
+        let cluster_left = offset;
+        offset += cluster.advance();
+        if offset <= left + epsilon || cluster_left >= right - epsilon {
+            continue;
+        }
+        if !cluster
+            .glyphs()
+            .any(|glyph| glyph.style_index == style_index)
+        {
+            continue;
+        }
+        let text = cluster.text_range();
+        range = Some(match range {
+            Some(current) => current.start.min(text.start)..current.end.max(text.end),
+            None => text,
+        });
+    }
+    range
+}
+
 const SIMPLE_CACHE_CAP: usize = 4096;
 const RICH_CACHE_CAP: usize = 2048;
+const RICH_SHAPE_CACHE_CAP: usize = 512;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct RichCacheKey {
+struct RichShapeKey {
     text: String,
     base_size_bits: u32,
     base_color_rgba: [u8; 4],
-    width_bits: Option<u32>,
     styles: Vec<RichStyleKey>,
     inline_boxes: Vec<InlineBoxKey>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct RichCacheKey {
+    shape: Arc<RichShapeKey>,
+    width_bits: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -69,6 +109,18 @@ struct InlineBoxKey {
     index: usize,
     width_bits: u32,
     height_bits: u32,
+}
+
+fn emit_text_layout_performance(text_len: usize, is_rich: bool, start: Instant) {
+    diag::emit(
+        diag::DiagCategory::Paint,
+        diag::DiagLevel::Debug,
+        diag::DiagEventKind::TextLayoutPerformance {
+            text_len: text_len as u32,
+            is_rich,
+            duration_ns: start.elapsed().as_nanos() as u64,
+        },
+    );
 }
 
 #[derive(Clone, Debug)]
@@ -126,13 +178,173 @@ pub(crate) fn typography_baseline_shift(
     baseline + leading
 }
 
+#[derive(Clone, Copy)]
+struct CaretCluster {
+    x: f32,
+    advance: f32,
+    block_min: f32,
+    block_max: f32,
+    is_rtl: bool,
+    is_end_of_line: bool,
+    is_soft_line_break: bool,
+    is_hard_line_break: bool,
+    previous_visual_start: Option<usize>,
+    next_visual_start: Option<usize>,
+}
+
+fn cursor_rect_from_clusters(
+    layout: &Layout<ParleyBrush>,
+    index: usize,
+    affinity: Affinity,
+    clusters_by_start: &HashMap<usize, CaretCluster>,
+    clusters_by_end: &HashMap<usize, CaretCluster>,
+) -> (f32, f32, f32) {
+    let downstream = clusters_by_start.get(&index).copied();
+    let upstream = clusters_by_end.get(&index).copied();
+    let affinity = if downstream.is_none() {
+        // Parley's byte-index constructor uses upstream affinity at the end of
+        // the text, regardless of the requested affinity.
+        Affinity::Upstream
+    } else if index == 0 {
+        // There is no upstream caret at the start of the text.
+        Affinity::Downstream
+    } else {
+        affinity
+    };
+
+    let (left, right) = match affinity {
+        Affinity::Upstream => {
+            if let Some(cluster) = upstream {
+                if cluster.is_rtl {
+                    (
+                        cluster
+                            .previous_visual_start
+                            .and_then(|start| clusters_by_start.get(&start).copied()),
+                        Some(cluster),
+                    )
+                } else {
+                    (
+                        Some(cluster),
+                        cluster
+                            .next_visual_start
+                            .and_then(|start| clusters_by_start.get(&start).copied()),
+                    )
+                }
+            } else if let Some(cluster) = downstream {
+                if cluster.is_rtl {
+                    (None, Some(cluster))
+                } else {
+                    (Some(cluster), None)
+                }
+            } else {
+                (None, None)
+            }
+        }
+        Affinity::Downstream => {
+            if let Some(cluster) = downstream {
+                if cluster.is_rtl {
+                    (
+                        Some(cluster),
+                        cluster
+                            .next_visual_start
+                            .and_then(|start| clusters_by_start.get(&start).copied()),
+                    )
+                } else {
+                    (
+                        cluster
+                            .previous_visual_start
+                            .and_then(|start| clusters_by_start.get(&start).copied()),
+                        Some(cluster),
+                    )
+                }
+            } else if let Some(cluster) = upstream {
+                if cluster.is_rtl {
+                    (None, Some(cluster))
+                } else {
+                    (Some(cluster), None)
+                }
+            } else {
+                (None, None)
+            }
+        }
+    };
+
+    match (left, right) {
+        (Some(left), Some(right)) => {
+            if left.is_end_of_line {
+                if left.is_soft_line_break {
+                    let (cluster, at_end) = if left.is_rtl && affinity == Affinity::Downstream
+                        || !left.is_rtl && affinity == Affinity::Upstream
+                    {
+                        (left, true)
+                    } else {
+                        (right, false)
+                    };
+                    cluster_cursor_rect(cluster, at_end)
+                } else {
+                    cluster_cursor_rect(right, false)
+                }
+            } else {
+                cluster_cursor_rect(left, true)
+            }
+        }
+        (Some(left), None) if left.is_hard_line_break => last_line_cursor_rect(layout),
+        (Some(left), _) => cluster_cursor_rect(left, true),
+        (_, Some(right)) => cluster_cursor_rect(right, false),
+        (None, None) => last_line_cursor_rect(layout),
+    }
+}
+
+fn cluster_cursor_rect(cluster: CaretCluster, at_end: bool) -> (f32, f32, f32) {
+    let x = cluster.x + if at_end { cluster.advance } else { 0.0 };
+    (x, cluster.block_min, cluster.block_max)
+}
+
+fn cache_caret_cluster(cluster: &Cluster<'_, ParleyBrush>) -> CaretCluster {
+    let line = cluster.line();
+    let metrics = line.metrics();
+    CaretCluster {
+        x: cluster.visual_offset().unwrap_or_default(),
+        advance: cluster.advance(),
+        block_min: metrics.block_min_coord,
+        block_max: metrics.block_max_coord,
+        is_rtl: cluster.is_rtl(),
+        is_end_of_line: cluster.is_end_of_line(),
+        is_soft_line_break: cluster.is_soft_line_break(),
+        is_hard_line_break: cluster.is_hard_line_break(),
+        previous_visual_start: cluster
+            .previous_visual()
+            .map(|neighbor| neighbor.text_range().start),
+        next_visual_start: cluster
+            .next_visual()
+            .map(|neighbor| neighbor.text_range().start),
+    }
+}
+
+fn last_line_cursor_rect(layout: &Layout<ParleyBrush>) -> (f32, f32, f32) {
+    layout
+        .get(layout.len().saturating_sub(1))
+        .map(|line| {
+            let metrics = line.metrics();
+            (
+                metrics.offset,
+                metrics.block_min_coord,
+                metrics.block_max_coord,
+            )
+        })
+        .unwrap_or_default()
+}
+
 pub struct VelloTextMeasurer {
     font_cx: Arc<Mutex<FontContext>>,
     layout_cx: Mutex<LayoutContext<ParleyBrush>>,
     // Simple cache for single-style text grouped by metrics key.
     simple_cache: Mutex<HashMap<(u32, Option<u32>), HashMap<String, Arc<Layout<ParleyBrush>>>>>,
-    // Cache for rich text layouts
+    // Width-specific rich text layouts.
     rich_cache: Mutex<HashMap<RichCacheKey, Arc<Layout<ParleyBrush>>>>,
+    // Shaped runs can be reused when intrinsic and constrained measurements ask
+    // for the same text at different widths; only line breaking depends on width.
+    rich_shape_cache: Mutex<HashMap<Arc<RichShapeKey>, Arc<Layout<ParleyBrush>>>>,
     default_family: String,
 }
 
@@ -143,6 +355,7 @@ impl VelloTextMeasurer {
             layout_cx: Mutex::new(LayoutContext::new()),
             simple_cache: Mutex::new(HashMap::new()),
             rich_cache: Mutex::new(HashMap::new()),
+            rich_shape_cache: Mutex::new(HashMap::new()),
             default_family: "system-ui".to_string(),
         }
     }
@@ -156,12 +369,18 @@ impl VelloTextMeasurer {
             layout_cx: Mutex::new(LayoutContext::new()),
             simple_cache: Mutex::new(HashMap::new()),
             rich_cache: Mutex::new(HashMap::new()),
+            rich_shape_cache: Mutex::new(HashMap::new()),
             default_family: family.into(),
         }
     }
 
     pub fn font_cx(&self) -> Arc<Mutex<FontContext>> {
         self.font_cx.clone()
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn default_font_family(&self) -> &str {
+        &self.default_family
     }
 
     fn width_bits(width: Option<f32>) -> Option<u32> {
@@ -550,191 +769,232 @@ impl VelloTextMeasurer {
             .map(Self::inline_box_key)
             .collect::<Vec<_>>();
 
-        let cache_key = RichCacheKey {
+        let shape_key = Arc::new(RichShapeKey {
             text: text.to_string(),
             base_size_bits: base_size.to_bits(),
             base_color_rgba: [base_color.r, base_color.g, base_color.b, base_color.a],
-            width_bits: Self::width_bits(width),
             styles: style_keys,
             inline_boxes: inline_box_keys,
+        });
+        let cache_key = RichCacheKey {
+            shape: shape_key.clone(),
+            width_bits: Self::width_bits(width),
         };
 
         {
             let cache = self.rich_cache.lock().unwrap();
             if let Some(layout) = cache.get(&cache_key) {
-                let duration = start.elapsed().as_nanos() as u64;
-                diag::emit(
-                    diag::DiagCategory::Paint,
-                    diag::DiagLevel::Debug,
-                    diag::DiagEventKind::TextLayoutPerformance {
-                        text_len: text.len() as u32,
-                        is_rich: true,
-                        duration_ns: duration,
-                    },
-                );
+                emit_text_layout_performance(text.len(), true, start);
                 return layout.clone();
             }
         }
 
-        let mut font_cx = self.font_cx.lock().unwrap();
-        let mut layout_cx = self.layout_cx.lock().unwrap();
+        let cached_shape = {
+            self.rich_shape_cache
+                .lock()
+                .unwrap()
+                .get(&shape_key)
+                .cloned()
+        };
+        let shaped_layout = if let Some(layout) = cached_shape {
+            layout
+        } else {
+            let mut font_cx = self.font_cx.lock().unwrap();
+            let mut layout_cx = self.layout_cx.lock().unwrap();
 
-        let mut builder = layout_cx.ranged_builder(&mut font_cx, text, 1.0, false);
-        builder.push_default(StyleProperty::FontSize(base_size));
-        builder.push_default(StyleProperty::FontFamily(FontFamily::Source(Cow::Owned(
-            self.default_family.clone(),
-        ))));
-        let brush = ParleyBrush([base_color.r, base_color.g, base_color.b, base_color.a]);
-        builder.push_default(StyleProperty::Brush(brush));
-        for inline_box in inline_boxes {
-            builder.push_inline_box(InlineBox {
-                kind: InlineBoxKind::InFlow,
-                id: inline_box.id,
-                index: inline_box.index,
-                width: inline_box.width,
-                height: inline_box.height,
-            });
-        }
-
-        for (range, style) in styles {
-            let brush = ParleyBrush([style.color.r, style.color.g, style.color.b, style.color.a]);
-            builder.push(StyleProperty::Brush(brush), range.clone());
-            builder.push(StyleProperty::FontSize(style.font_size), range.clone());
-            if style.font_family.is_some() || !style.typography.font_fallback.is_empty() {
-                let stack = self.font_stack_with_default(
-                    style.font_family.as_deref(),
-                    style.typography.font_fallback.iter().map(String::as_str),
-                );
-                builder.push(
-                    StyleProperty::FontFamily(FontFamily::Source(Cow::Owned(stack))),
-                    range.clone(),
-                );
-            }
-            if let Some(locale) = &style.locale {
-                builder.push(
-                    StyleProperty::Locale(Language::parse(locale).ok()),
-                    range.clone(),
-                );
-            }
-            builder.push(
-                StyleProperty::FontWeight(FontWeight::new(style.font_weight as f32)),
-                range.clone(),
-            );
-            builder.push(
-                StyleProperty::FontStyle(parley_font_style(style.font_style)),
-                range.clone(),
-            );
-            if let Some(line_height) = style.line_height {
-                builder.push(
-                    StyleProperty::LineHeight(LineHeight::Absolute(line_height)),
-                    range.clone(),
-                );
-            }
-            if style.letter_spacing != 0.0 {
-                builder.push(
-                    StyleProperty::LetterSpacing(style.letter_spacing),
-                    range.clone(),
-                );
-            }
-            if style.typography.word_spacing != 0.0 {
-                builder.push(
-                    StyleProperty::WordSpacing(style.typography.word_spacing),
-                    range.clone(),
-                );
-            }
-            let (word_break, overflow_wrap) = match style.typography.line_break {
-                fission_ir::op::TextLineBreakPolicy::Auto
-                | fission_ir::op::TextLineBreakPolicy::Normal => {
-                    (WordBreak::Normal, OverflowWrap::Normal)
-                }
-                fission_ir::op::TextLineBreakPolicy::Strict => {
-                    (WordBreak::KeepAll, OverflowWrap::Normal)
-                }
-                fission_ir::op::TextLineBreakPolicy::Loose => {
-                    (WordBreak::Normal, OverflowWrap::Anywhere)
-                }
-                fission_ir::op::TextLineBreakPolicy::Anywhere => {
-                    (WordBreak::BreakAll, OverflowWrap::Anywhere)
-                }
+            // Another caller may have shaped this text while this one waited
+            // for the shared Parley contexts.
+            let cached_shape = {
+                self.rich_shape_cache
+                    .lock()
+                    .unwrap()
+                    .get(&shape_key)
+                    .cloned()
             };
-            builder.push(StyleProperty::WordBreak(word_break), range.clone());
-            builder.push(
-                StyleProperty::OverflowWrap(
-                    if matches!(
-                        style.typography.hyphenation,
-                        fission_ir::op::TextHyphenation::Auto
-                    ) && overflow_wrap == OverflowWrap::Normal
-                    {
-                        OverflowWrap::BreakWord
-                    } else {
-                        overflow_wrap
-                    },
-                ),
-                range.clone(),
-            );
-            if style.underline || style.typography.decoration.lines.underline {
-                builder.push(StyleProperty::Underline(true), range.clone());
-            }
-            if style.typography.decoration.lines.line_through {
-                builder.push(StyleProperty::Strikethrough(true), range.clone());
-            }
-            if let Some(thickness) = style.typography.decoration.thickness {
-                if style.underline || style.typography.decoration.lines.underline {
-                    builder.push(StyleProperty::UnderlineSize(Some(thickness)), range.clone());
+            if let Some(layout) = cached_shape {
+                layout
+            } else {
+                let mut builder = layout_cx.ranged_builder(&mut font_cx, text, 1.0, false);
+                builder.push_default(StyleProperty::FontSize(base_size));
+                builder.push_default(StyleProperty::FontFamily(FontFamily::Source(Cow::Owned(
+                    self.default_family.clone(),
+                ))));
+                let brush = ParleyBrush([base_color.r, base_color.g, base_color.b, base_color.a]);
+                builder.push_default(StyleProperty::Brush(brush));
+                for inline_box in inline_boxes {
+                    builder.push_inline_box(InlineBox {
+                        kind: InlineBoxKind::InFlow,
+                        id: inline_box.id,
+                        index: inline_box.index,
+                        width: inline_box.width,
+                        height: inline_box.height,
+                    });
                 }
-                if style.typography.decoration.lines.line_through {
-                    builder.push(
-                        StyleProperty::StrikethroughSize(Some(thickness)),
-                        range.clone(),
-                    );
-                }
-            }
-            if let Some(color) = style.typography.decoration.color {
-                let brush = ParleyBrush([color.r, color.g, color.b, color.a]);
-                if style.underline || style.typography.decoration.lines.underline {
-                    builder.push(
-                        StyleProperty::UnderlineBrush(Some(brush.clone())),
-                        range.clone(),
-                    );
-                }
-                if style.typography.decoration.lines.line_through {
-                    builder.push(
-                        StyleProperty::StrikethroughBrush(Some(brush)),
-                        range.clone(),
-                    );
-                }
-            }
-            if !style.typography.font_features.is_empty() {
-                let source = style
-                    .typography
-                    .font_features
-                    .iter()
-                    .map(|feature| format!("'{}' {}", feature.tag, feature.value))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                builder.push(
-                    StyleProperty::FontFeatures(FontFeatures::Source(Cow::Owned(source))),
-                    range.clone(),
-                );
-            }
-            if !style.typography.font_variations.is_empty() {
-                let source = style
-                    .typography
-                    .font_variations
-                    .iter()
-                    .map(|variation| format!("'{}' {}", variation.axis, variation.value))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                builder.push(
-                    StyleProperty::FontVariations(FontVariations::Source(Cow::Owned(source))),
-                    range.clone(),
-                );
-            }
-        }
 
-        let mut layout = builder.build(text);
-        layout.break_all_lines(width);
-        let layout_arc = Arc::new(layout);
+                for (range, style) in styles {
+                    let brush =
+                        ParleyBrush([style.color.r, style.color.g, style.color.b, style.color.a]);
+                    builder.push(StyleProperty::Brush(brush), range.clone());
+                    builder.push(StyleProperty::FontSize(style.font_size), range.clone());
+                    if style.font_family.is_some() || !style.typography.font_fallback.is_empty() {
+                        let stack = self.font_stack_with_default(
+                            style.font_family.as_deref(),
+                            style.typography.font_fallback.iter().map(String::as_str),
+                        );
+                        builder.push(
+                            StyleProperty::FontFamily(FontFamily::Source(Cow::Owned(stack))),
+                            range.clone(),
+                        );
+                    }
+                    if let Some(locale) = &style.locale {
+                        builder.push(
+                            StyleProperty::Locale(Language::parse(locale).ok()),
+                            range.clone(),
+                        );
+                    }
+                    builder.push(
+                        StyleProperty::FontWeight(FontWeight::new(style.font_weight as f32)),
+                        range.clone(),
+                    );
+                    builder.push(
+                        StyleProperty::FontStyle(parley_font_style(style.font_style)),
+                        range.clone(),
+                    );
+                    if let Some(line_height) = style.line_height {
+                        builder.push(
+                            StyleProperty::LineHeight(LineHeight::Absolute(line_height)),
+                            range.clone(),
+                        );
+                    }
+                    if style.letter_spacing != 0.0 {
+                        builder.push(
+                            StyleProperty::LetterSpacing(style.letter_spacing),
+                            range.clone(),
+                        );
+                    }
+                    if style.typography.word_spacing != 0.0 {
+                        builder.push(
+                            StyleProperty::WordSpacing(style.typography.word_spacing),
+                            range.clone(),
+                        );
+                    }
+                    let (word_break, overflow_wrap) = match style.typography.line_break {
+                        fission_ir::op::TextLineBreakPolicy::Auto
+                        | fission_ir::op::TextLineBreakPolicy::Normal => {
+                            (WordBreak::Normal, OverflowWrap::Normal)
+                        }
+                        fission_ir::op::TextLineBreakPolicy::Strict => {
+                            (WordBreak::KeepAll, OverflowWrap::Normal)
+                        }
+                        fission_ir::op::TextLineBreakPolicy::Loose => {
+                            (WordBreak::Normal, OverflowWrap::Anywhere)
+                        }
+                        fission_ir::op::TextLineBreakPolicy::Anywhere => {
+                            (WordBreak::BreakAll, OverflowWrap::Anywhere)
+                        }
+                    };
+                    builder.push(StyleProperty::WordBreak(word_break), range.clone());
+                    builder.push(
+                        StyleProperty::OverflowWrap(
+                            if matches!(
+                                style.typography.hyphenation,
+                                fission_ir::op::TextHyphenation::Auto
+                            ) && overflow_wrap == OverflowWrap::Normal
+                            {
+                                OverflowWrap::BreakWord
+                            } else {
+                                overflow_wrap
+                            },
+                        ),
+                        range.clone(),
+                    );
+                    if style.underline || style.typography.decoration.lines.underline {
+                        builder.push(StyleProperty::Underline(true), range.clone());
+                    }
+                    if style.typography.decoration.lines.line_through {
+                        builder.push(StyleProperty::Strikethrough(true), range.clone());
+                    }
+                    if let Some(thickness) = style.typography.decoration.thickness {
+                        if style.underline || style.typography.decoration.lines.underline {
+                            builder
+                                .push(StyleProperty::UnderlineSize(Some(thickness)), range.clone());
+                        }
+                        if style.typography.decoration.lines.line_through {
+                            builder.push(
+                                StyleProperty::StrikethroughSize(Some(thickness)),
+                                range.clone(),
+                            );
+                        }
+                    }
+                    if let Some(color) = style.typography.decoration.color {
+                        let brush = ParleyBrush([color.r, color.g, color.b, color.a]);
+                        if style.underline || style.typography.decoration.lines.underline {
+                            builder.push(
+                                StyleProperty::UnderlineBrush(Some(brush.clone())),
+                                range.clone(),
+                            );
+                        }
+                        if style.typography.decoration.lines.line_through {
+                            builder.push(
+                                StyleProperty::StrikethroughBrush(Some(brush)),
+                                range.clone(),
+                            );
+                        }
+                    }
+                    if !style.typography.font_features.is_empty() {
+                        let source = style
+                            .typography
+                            .font_features
+                            .iter()
+                            .map(|feature| format!("'{}' {}", feature.tag, feature.value))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        builder.push(
+                            StyleProperty::FontFeatures(FontFeatures::Source(Cow::Owned(source))),
+                            range.clone(),
+                        );
+                    }
+                    if !style.typography.font_variations.is_empty() {
+                        let source = style
+                            .typography
+                            .font_variations
+                            .iter()
+                            .map(|variation| format!("'{}' {}", variation.axis, variation.value))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        builder.push(
+                            StyleProperty::FontVariations(FontVariations::Source(Cow::Owned(
+                                source,
+                            ))),
+                            range.clone(),
+                        );
+                    }
+                }
+
+                let mut layout = builder.build(text);
+                // Shape independent of the wrapping constraint. A later
+                // intrinsic or bounded measurement can clone this shaped data
+                // and only recompute its line breaks.
+                layout.break_all_lines(None);
+                let layout = Arc::new(layout);
+                let mut cache = self.rich_shape_cache.lock().unwrap();
+                if cache.len() >= RICH_SHAPE_CACHE_CAP {
+                    if let Some(first_key) = cache.keys().next().cloned() {
+                        cache.remove(&first_key);
+                    }
+                }
+                cache.insert(shape_key.clone(), layout.clone());
+                layout
+            }
+        };
+
+        let layout_arc = if width.is_none() {
+            shaped_layout
+        } else {
+            let mut layout = (*shaped_layout).clone();
+            layout.break_all_lines(width);
+            Arc::new(layout)
+        };
 
         {
             let mut cache = self.rich_cache.lock().unwrap();
@@ -746,16 +1006,7 @@ impl VelloTextMeasurer {
             cache.insert(cache_key, layout_arc.clone());
         }
 
-        let duration = start.elapsed().as_nanos() as u64;
-        diag::emit(
-            diag::DiagCategory::Paint,
-            diag::DiagLevel::Debug,
-            diag::DiagEventKind::TextLayoutPerformance {
-                text_len: text.len() as u32,
-                is_rich: true,
-                duration_ns: duration,
-            },
-        );
+        emit_text_layout_performance(text.len(), true, start);
 
         layout_arc
     }
@@ -935,6 +1186,8 @@ impl TextMeasurer for VelloTextMeasurer {
         let mut clusters = Vec::new();
         let mut glyphs = Vec::new();
         let mut selection_boxes = Vec::new();
+        let mut clusters_by_start = HashMap::new();
+        let mut clusters_by_end = HashMap::new();
         let mut caret_indices = vec![0, rich.text.len()];
         for (line_index, line) in layout.lines().enumerate() {
             let metrics = line.metrics();
@@ -967,6 +1220,9 @@ impl TextMeasurer for VelloTextMeasurer {
                 );
                 for cluster in run.visual_clusters() {
                     let range = cluster.text_range();
+                    let caret_cluster = cache_caret_cluster(&cluster);
+                    clusters_by_start.insert(range.start, caret_cluster);
+                    clusters_by_end.insert(range.end, caret_cluster);
                     let cluster_index = clusters.len();
                     let cluster_x = cluster.visual_offset().unwrap_or(metrics.offset);
                     let cluster_rect = LayoutRect::new(
@@ -1024,7 +1280,13 @@ impl TextMeasurer for VelloTextMeasurer {
         for index in caret_indices {
             for (upstream, affinity) in [(false, Affinity::Downstream), (true, Affinity::Upstream)]
             {
-                let rect = Cursor::from_byte_index(&layout, index, affinity).geometry(&layout, 0.0);
+                let (caret_x, caret_y, caret_bottom) = cursor_rect_from_clusters(
+                    &layout,
+                    index,
+                    affinity,
+                    &clusters_by_start,
+                    &clusters_by_end,
+                );
                 let baseline_shift = rich
                     .styles
                     .iter()
@@ -1050,8 +1312,8 @@ impl TextMeasurer for VelloTextMeasurer {
                 caret_stops.push(ParagraphCaretStop {
                     index,
                     upstream,
-                    position: LayoutPoint::new(rect.x0 as f32, rect.y0 as f32 + baseline_shift),
-                    height: (rect.y1 - rect.y0) as f32,
+                    position: LayoutPoint::new(caret_x, caret_y + baseline_shift),
+                    height: caret_bottom - caret_y,
                 });
             }
         }
@@ -1272,6 +1534,7 @@ mod tests {
     use super::*;
     use fission_ir::op::{encode_inline_widget_marker, Color, FontStyle, TextStyle};
     use fission_layout::TextMeasurer;
+    use parley::layout::Cursor;
 
     fn measurer() -> VelloTextMeasurer {
         VelloTextMeasurer::new(Arc::new(Mutex::new(FontContext::new())))
@@ -1293,6 +1556,56 @@ mod tests {
                 background_color: None,
                 typography: Default::default(),
             },
+        }
+    }
+
+    #[test]
+    fn positioned_glyph_text_ranges_do_not_repeat_adjacent_style_segments() {
+        let measurer = measurer();
+        for (first, second) in [("Hello", " world"), ("مرحبا", " بكم")] {
+            let mut second_run = text_run(second, 18.0, 24.0);
+            second_run.style.color = Color {
+                r: 200,
+                g: 20,
+                b: 10,
+                a: 255,
+            };
+            second_run.style.underline = true;
+            let rich = VelloTextMeasurer::rich_layout_input_from_ir_runs(&[
+                text_run(first, 18.0, 24.0),
+                second_run,
+            ]);
+            let layout = measurer.layout_rich(
+                &rich.text,
+                rich.base_size,
+                rich.base_color,
+                &rich.styles,
+                &rich.inline_boxes,
+                None,
+            );
+            let mut covered = Vec::new();
+            for line in layout.lines() {
+                for item in line.items() {
+                    if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                        let range =
+                            glyph_run_text_range(&glyph_run).expect("positioned text range");
+                        let boundary = first.len();
+                        assert!(
+                            range.end <= boundary || range.start >= boundary,
+                            "one style segment must not include its neighbour: {range:?}"
+                        );
+                        covered.push(range);
+                    }
+                }
+            }
+            covered.sort_by_key(|range| range.start);
+            assert_eq!(
+                covered
+                    .iter()
+                    .map(|range| &rich.text[range.clone()])
+                    .collect::<String>(),
+                rich.text
+            );
         }
     }
 
@@ -1329,6 +1642,69 @@ mod tests {
             wrapped_height > one_line_height * 1.5,
             "wrapped text should report multi-line height; one_line={one_line_height}, wrapped={wrapped_height}"
         );
+    }
+
+    #[test]
+    fn rich_layout_reuses_shaping_when_only_the_wrap_width_changes() {
+        let measurer = measurer();
+        let runs = vec![text_run(
+            "A field service team keeps each technician's work in one clear timeline.",
+            18.0,
+            24.0,
+        )];
+        let rich = VelloTextMeasurer::rich_layout_input_from_ir_runs(&runs);
+
+        let natural = measurer.layout_rich(
+            &rich.text,
+            rich.base_size,
+            rich.base_color,
+            &rich.styles,
+            &rich.inline_boxes,
+            None,
+        );
+        let shape_key = measurer
+            .rich_shape_cache
+            .lock()
+            .unwrap()
+            .keys()
+            .next()
+            .cloned()
+            .expect("unwrapped rich text should be cached");
+        let wrapped = measurer.layout_rich(
+            &rich.text,
+            rich.base_size,
+            rich.base_color,
+            &rich.styles,
+            &rich.inline_boxes,
+            Some(200.0),
+        );
+        let width_first = VelloTextMeasurer::new(Arc::new(Mutex::new(FontContext::new())));
+        let independently_wrapped = width_first.layout_rich(
+            &rich.text,
+            rich.base_size,
+            rich.base_color,
+            &rich.styles,
+            &rich.inline_boxes,
+            Some(200.0),
+        );
+
+        assert!(wrapped.len() > natural.len());
+        assert!(wrapped.width() <= 200.5);
+        assert_eq!(wrapped.len(), independently_wrapped.len());
+        assert!((wrapped.width() - independently_wrapped.width()).abs() < 0.01);
+        assert!((wrapped.height() - independently_wrapped.height()).abs() < 0.01);
+        assert_eq!(measurer.rich_shape_cache.lock().unwrap().len(), 1);
+        assert_eq!(measurer.rich_cache.lock().unwrap().len(), 2);
+        assert!(Arc::ptr_eq(
+            &shape_key,
+            measurer
+                .rich_shape_cache
+                .lock()
+                .unwrap()
+                .keys()
+                .next()
+                .unwrap()
+        ));
     }
 
     #[test]
@@ -1412,6 +1788,60 @@ mod tests {
             assert!(text.is_char_boundary(line.end_index));
             assert!(line.start_index <= line.end_index);
             assert!(line.height > 0.0);
+        }
+    }
+
+    #[test]
+    fn fast_rich_text_caret_geometry_matches_parley_for_wrapped_unicode() {
+        let measurer = measurer();
+        let text = "A paragraph wraps here; cafe\u{301} 👩🏽‍💻\nمرحبا بالعالم; עברית";
+        let rich = VelloTextMeasurer::rich_layout_input_from_ir_runs(&[text_run(text, 18.0, 24.0)]);
+        let layout = measurer.layout_rich(
+            &rich.text,
+            rich.base_size,
+            rich.base_color,
+            &rich.styles,
+            &rich.inline_boxes,
+            Some(110.0),
+        );
+        let mut clusters_by_start = HashMap::new();
+        let mut clusters_by_end = HashMap::new();
+        let mut caret_indices = vec![0, text.len()];
+        for line in layout.lines() {
+            for run in line.runs() {
+                for cluster in run.visual_clusters() {
+                    let range = cluster.text_range();
+                    caret_indices.extend([range.start, range.end]);
+                    let caret_cluster = cache_caret_cluster(&cluster);
+                    clusters_by_start.insert(range.start, caret_cluster);
+                    clusters_by_end.insert(range.end, caret_cluster);
+                }
+            }
+        }
+        caret_indices.sort_unstable();
+        caret_indices.dedup();
+
+        for index in caret_indices {
+            for affinity in [Affinity::Downstream, Affinity::Upstream] {
+                let actual = cursor_rect_from_clusters(
+                    &layout,
+                    index,
+                    affinity,
+                    &clusters_by_start,
+                    &clusters_by_end,
+                );
+                let expected =
+                    Cursor::from_byte_index(&layout, index, affinity).geometry(&layout, 0.0);
+                assert!(
+                    (actual.0 - expected.x0 as f32).abs() < 0.01
+                        && (actual.1 - expected.y0 as f32).abs() < 0.01
+                        && (actual.2 - expected.y1 as f32).abs() < 0.01,
+                    "caret geometry differs at byte {index} with {affinity:?}: fast={actual:?}, Parley=({}, {}, {})",
+                    expected.x0,
+                    expected.y0,
+                    expected.y1,
+                );
+            }
         }
     }
 

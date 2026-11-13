@@ -92,7 +92,7 @@ fn host_input(
 
 fission_component! {
     pub QualificationApp<QualificationState>
-    |_app, state, cx| {
+    view(_app, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let move_action = cx.build.bind(
             MovePlayer(Direction::Up),

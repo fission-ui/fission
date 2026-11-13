@@ -1,0 +1,81 @@
+---
+title: Graphic band
+sidebar_label: Graphic band
+description: Fission Charts reference for Graphic band.
+---
+
+# Graphic band
+
+![Graphic band screenshot](/img/charts/interaction-graphic-band.png)
+
+A graphic band can reserve a visible region for report context, such as a note about a reporting change. This is useful only if its position has a clear meaning and does not hide the data being discussed. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example draws a translucent band across part of the plot and places a supplied note inside it. It is a plot-relative graphic, not a threshold defined in the series' units. Use MarkArea for a band that must track a numeric data range.
+
+## Data model
+
+ChartGraphic::rect takes x, y, width and height as fractions of the plot. The graphic is drawn over the series, so use a translucent fill and check the contrast against both light and dark themes. The note comes from the parent rather than being fixed inside a reusable widget.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `ChartGraphic::text` | Constructor | Creates a text graphic from a position, string and colour. |
+| `ChartGraphic::rect` | Constructor | Creates a plot-relative rectangular graphic. |
+| `ChartGraphic::line` | Constructor | Creates a line from a plot-relative position and extent. |
+| `Chart::graphics` field | `Vec<ChartGraphic>` | Supplies the overlay graphics. |
+
+## Authoring from a Fission component
+
+This component receives prepared data and a note. The short series has a fixed reporting week; change the labels alongside the values when the period changes.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, ChartGraphic, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub GraphicBandChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            category_labels: Vec<String>,
+            values: Vec<f32>,
+            note: String,
+        }
+    }
+    view(report, _state, cx) {
+        let colors = &cx.view.env().theme.tokens.colors;
+        let band = ChartGraphic::rect(
+            0.10, 0.05, 0.55, 0.18, colors.primary_subtle.with_alpha(80),
+        ).stroke(colors.primary);
+        let note = ChartGraphic {
+            width: 0.50,
+            height: 0.12,
+            ..ChartGraphic::text(0.12, 0.08, report.note.clone(), colors.text_primary)
+        };
+        let graphics = vec![band, note];
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                report.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            graphics: graphics,
+            series: vec![LineSeries::new(&report.series_label)
+                .data(report.values.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Inspect the band over the actual samples to ensure points remain visible. Test resizing, theme changes and long translated notes; a fractional box can still be too short to contain its text.
+
+Tags: `graphic`, `band`.
+
+[Interaction family overview](./overview)

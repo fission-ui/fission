@@ -21,7 +21,7 @@ fission_component! {
         state: LanePanelState,
         instance: &'static str,
     }
-    |panel, state, cx| {
+    view(panel, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let hovered = matches!(panel.state, LanePanelState::Hovered);
         let (border, border_width, background) = match panel.state {

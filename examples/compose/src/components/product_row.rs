@@ -1,4 +1,4 @@
-use crate::actions::{Navigate, navigate};
+use crate::actions::{navigate, Navigate};
 use crate::components::StatusPill;
 use crate::state::{Product, Products};
 use fission::prelude::*;

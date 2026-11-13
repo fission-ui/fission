@@ -1,0 +1,59 @@
+---
+title: Source theme river
+sidebar_label: Source theme river
+description: Compare acquisition-source composition over complete, equal reporting periods with ThemeRiverSeries.
+---
+
+# Source theme river
+
+![Source theme river screenshot](/img/charts/analytics-source-river.png)
+
+A source river shows how several contributions change together. Its moving baseline keeps the total composition compact, but makes precise comparisons harder than they would be against a fixed zero line.
+
+Use it to identify broad changes in source mix. Use stacked bars when the reader needs to compare exact contributions between weeks.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, Series, ThemeRiverSeries};
+
+#[derive(Clone)]
+pub struct SourcePeriod {
+    pub period_key: String,
+    pub source_label: String,
+    pub activated_accounts: u32,
+}
+
+fission_component! {
+    pub AcquisitionSourceRiver<()> {
+        props {
+            title: String,
+            measure_label: String,
+            observations: Vec<SourcePeriod>,
+        }
+    }
+    view(river, _state, _cx) {
+        let values = river.observations.iter().map(|row| (
+            row.period_key.as_str(),
+            row.activated_accounts as f32,
+            row.source_label.as_str(),
+        )).collect();
+    } => Chart(
+        title: Some(river.title.clone()),
+        series: vec![Series::ThemeRiver(
+            ThemeRiverSeries::new(&river.measure_label).data(values),
+        )],
+    )
+}
+```
+
+Use sortable period keys such as ISO dates. The renderer sorts those strings and spaces periods equally; it is not a continuous elapsed-time scale. Supply at least two complete, equal-length periods.
+
+## Aggregate before projecting
+
+Each period/source pair must be unique because repeated pairs overwrite rather than sum inside the renderer. Aggregate them in the reporting layer and use one attribution rule so source counts remain additive.
+
+The renderer treats an absent source-period pair as zero. Only use that convention for a complete report where absence really means no activations. Keep source order stable and show the period totals and source values in a labelled table. The gallery screenshot uses its own data.
+
+[Analytics family overview](./overview)

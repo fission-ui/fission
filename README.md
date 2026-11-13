@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="documentation/static/img/fission-mark.svg" alt="Fission" width="72" />
+  <img src="docs2/site/assets/img/fission-mark.svg" alt="Fission" width="72" />
 </p>
 
 <h1 align="center">Fission</h1>
@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <img src="documentation/static/img/examples/inbox.png" alt="The Fission inbox example: folders, a filtered message list and a quick-actions rail" width="100%" />
+  <img src="docs2/site/assets/img/examples/inbox.png" alt="The Fission inbox example: folders, a filtered message list and a quick-actions rail" width="100%" />
 </p>
 
 ---
@@ -124,16 +124,16 @@ Every image below is a checked-in example you can run with `cargo run -p <name>`
 
 <table>
   <tr>
-    <td width="50%"><img src="documentation/static/img/examples/editor.png" alt="Code editor example with a file tree, tabs and an integrated terminal" /><br /><strong>fission-editor</strong>: a code editor with a file tree, tabs and a terminal</td>
-    <td width="50%"><img src="documentation/static/img/examples/widget-gallery.png" alt="Widget gallery example" /><br /><strong>widget-gallery</strong>: every built-in widget, live</td>
+    <td width="50%"><img src="docs2/site/assets/img/examples/editor.png" alt="Code editor example with a file tree, tabs and an integrated terminal" /><br /><strong>fission-editor</strong>: a code editor with a file tree, tabs and a terminal</td>
+    <td width="50%"><img src="docs2/site/assets/img/examples/widget-gallery.png" alt="Widget gallery example" /><br /><strong>widget-gallery</strong>: every built-in widget, live</td>
   </tr>
   <tr>
-    <td><img src="documentation/static/img/examples/chart-gallery.png" alt="Chart gallery example" /><br /><strong>chart-gallery</strong>: line, bar, map, hierarchy and 3D charts</td>
-    <td><img src="documentation/static/img/examples/terminal.png" alt="Terminal example" /><br /><strong>terminal</strong>: a terminal emulator widget</td>
+    <td><img src="docs2/site/assets/img/examples/chart-gallery.png" alt="Chart gallery example" /><br /><strong>chart-gallery</strong>: line, bar, map, hierarchy and 3D charts</td>
+    <td><img src="docs2/site/assets/img/examples/terminal.png" alt="Terminal example" /><br /><strong>terminal</strong>: a terminal emulator widget</td>
   </tr>
   <tr>
-    <td><img src="documentation/static/img/examples/inbox-compose.png" alt="Inbox compose dialog" /><br /><strong>inbox</strong>: forms, validation, dialogs and filters</td>
-    <td><img src="documentation/static/img/examples/text-lab.png" alt="Text lab example" /><br /><strong>text-lab</strong>: rich text, selection and editing</td>
+    <td><img src="docs2/site/assets/img/examples/inbox-compose.png" alt="Inbox compose dialog" /><br /><strong>inbox</strong>: forms, validation, dialogs and filters</td>
+    <td><img src="docs2/site/assets/img/examples/text-lab.png" alt="Text lab example" /><br /><strong>text-lab</strong>: rich text, selection and editing</td>
   </tr>
 </table>
 
@@ -165,7 +165,7 @@ cargo run -p fission-editor
 ```
 
 The documentation site at [fission.rs](https://fission.rs) is itself a Fission static site; its
-source is in [`documentation`](documentation).
+source is in [`docs2`](docs2).
 
 ## Learn more
 

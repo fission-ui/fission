@@ -52,7 +52,7 @@ fission_component! {
         layout: GallerySidebarLayout,
         instance: &'static str,
     }
-    |sidebar, state, cx| {
+    view(sidebar, state, cx) {
         let categories = sidebar_categories();
     } => if matches!(sidebar.layout, GallerySidebarLayout::Expanded) {
         ExpandedSidebar(sidebar.select_chart_id, sidebar.instance, categories)
@@ -68,7 +68,7 @@ fission_component! {
 
 fission_component! {
     ExpandedSidebar<GalleryState> { select_chart_id: ActionId, instance: &'static str, categories: Vec<SidebarCategory> }
-    |sidebar, state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(sidebar, state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
     Container(Scroll(
         id: WidgetId::explicit(&format!("chart-gallery.sidebar-scroll.{}", sidebar.instance)),
         direction: FlexDirection::Column,
@@ -95,7 +95,7 @@ fission_component! {
 
 fission_component! {
     ExpandedCategory<GalleryState> { select_chart_id: ActionId, instance: &'static str, category: SidebarCategory }
-    |category, state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(category, state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
     Column(gap: tokens.spacing.xs, children: [
         Text(category.category.name).size(tokens.typography.label_large_size).color(tokens.colors.text_secondary),
         for (chart_index, chart_name) in category.category.charts.iter().enumerate() {
@@ -114,7 +114,7 @@ fission_component! {
 
 fission_component! {
     CompactSidebar<GalleryState> { select_chart_id: ActionId, toggle: ActionEnvelope, instance: &'static str, categories: Vec<SidebarCategory> }
-    |sidebar, state, cx| {
+    view(sidebar, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let mut options = vec![(SHOWCASE_CATEGORY, SHOWCASE_LABEL)];
         options.extend(sidebar.categories.iter().map(|category| (category.index, category.name)));

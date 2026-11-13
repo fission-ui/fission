@@ -1,0 +1,54 @@
+---
+title: Build confidence gauge
+sidebar_label: Build confidence gauge
+description: Fission Charts reference for Build confidence gauge.
+---
+
+# Build confidence gauge
+
+![Build confidence gauge screenshot](/img/charts/gauge-build-confidence.png)
+
+A build summary can report how much of a required check suite has completed successfully. Calling that percentage “confidence” risks implying a probability which the checks do not establish. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use this example for passed required checks, not a predicted chance that a release is defect-free. A failed security or migration check can block release even when the overall pass percentage is high. Keep that blocking status explicit.
+
+## Data model
+
+Derive passed/required checks as a percentage only when the required set is known. Keep pending, skipped and unavailable checks separate. The gauge renders the first value on a 0–100 arc; it does not calculate the score or apply release policy.
+
+## Authoring from a Fission component
+
+The parent owns the check report and policy decision. This component presents a factual proportion, with display labels resolved by the parent.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GaugeSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub RequiredBuildChecksGauge<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            value_label: String,
+            passed_percent: f32,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![GaugeSeries::new(&report.series_label)
+            .data(vec![(&report.value_label, report.passed_percent)])
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test a blocking failure, skipped checks and a still-running suite. A skipped check must not count as passing merely to complete the dial. Provide the passed/required counts and remaining failures outside the chart, and never label the result as a calibrated success probability.
+
+Tags: `gauge`, `build`.
+
+[Radial family overview](./overview)

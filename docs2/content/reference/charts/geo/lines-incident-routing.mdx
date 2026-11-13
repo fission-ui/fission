@@ -1,0 +1,36 @@
+---
+title: Incident routing lines
+sidebar_label: Incident routing lines
+description: Represent dispatched response relationships without presenting schematic curves as navigation.
+---
+
+# Incident routing lines
+
+![Incident routing lines screenshot](/img/charts/lines-incident-routing.png)
+
+An incident response report should distinguish an assignment from a completed response. A line between a station and an incident means one was assigned to the other; it does not establish where a responder is now or which roads are safe.
+
+Use the actual [ServiceConnections component](../geographic-and-route/lines-basic) and retain one durable response ID per assignment:
+
+```rust
+use crate::widgets::service_connections::ServiceConnection;
+
+pub fn response_assignment(
+    response_id: String,
+    station: (f32, f32),
+    incident: (f32, f32),
+) -> ServiceConnection {
+    ServiceConnection {
+        id: response_id,
+        from: station,
+        to: incident,
+        traffic: 1.0,
+    }
+}
+```
+
+Place the linked type in `widgets/service_connections.rs`. Equal values deliberately show equal assignment emphasis, rather than pretending severity is a continuous traffic measure. Keep priority, dispatch time and completion status in the underlying incident model and an accessible list.
+
+Supply finite coordinates, translated panel captions and a clear schematic explanation. The curve is not a calculated route, an arrival estimate or an emergency navigation tool, and it does not align automatically with a region map. Test reassignment, cancellation and missing positions. A failed location lookup must not invent a plausible endpoint. The gallery uses unrelated fixtures.
+
+[Geo family overview](./overview)

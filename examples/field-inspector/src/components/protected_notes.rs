@@ -3,7 +3,7 @@ use crate::model::FieldInspectorState;
 use fission::prelude::*;
 fission_component! {
     pub ProtectedNotes<FieldInspectorState> {}
-    |_notes, state, cx| {
+    view(_notes, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
     } =>

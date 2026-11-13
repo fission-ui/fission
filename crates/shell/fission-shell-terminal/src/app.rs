@@ -402,8 +402,11 @@ where
                 self.last_snapshot.as_ref(),
             );
             let shell_root_id = fission_core::internal::shell_root_id(self.root_id);
-            let root_id =
-                fission_core::internal::lower_widget_with_root(&node_tree, &mut cx, shell_root_id);
+            let root_id = fission_core::internal::lower_widget_with_root_owned(
+                node_tree,
+                &mut cx,
+                shell_root_id,
+            );
             cx.set_root(root_id);
             (cx.into_ir(), root_id)
         };
@@ -414,7 +417,6 @@ where
         let layout_input_nodes = build_layout_tree(&ir, &self.env);
         self.layout_engine
             .set_layout_direction(self.env.layout_direction);
-        self.layout_engine.update(&layout_input_nodes);
         self.layout_engine
             .verify_post_update(&layout_input_nodes, root_id)?;
         let snapshot =
@@ -793,7 +795,7 @@ where
         let tree = fission_core::build::enter_with_root(&mut ctx, &view, self.root_id, || {
             self.root.clone().into()
         });
-        let tree = fission_core::internal::resolve_widget_identities(&tree, self.root_id);
+        let tree = fission_core::internal::resolve_widget_identities_owned(tree, self.root_id);
 
         self.runtime.clear_reducers();
         let motion_declarations = ctx.take_motion_declarations();

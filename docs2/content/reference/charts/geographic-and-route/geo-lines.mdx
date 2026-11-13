@@ -1,0 +1,21 @@
+---
+title: Geo lines
+sidebar_label: Geo lines
+description: Explain the coordinate boundary when combining areas and connections.
+---
+
+# Geo lines
+
+![Geo lines screenshot](/img/charts/geo-lines.png)
+
+Geographical context and movement can belong in the same report without being the same coordinate system. A regional polygon is fitted from all supplied boundaries, whilst route lines are fitted from their own endpoints. Their positions may disagree even when the original coordinates look compatible.
+
+The [network region report](../geo-and-route/geo-network) composes the actual map and connection widgets in separate panels. Follow that example when users need both regional demand and origin-to-destination relationships. It uses concrete component descriptions with translated captions, not a blank chart presented as a working overlay.
+
+For a route projection, use [migration routes](../geo-and-route/geo-migration) or [traffic rates](../geo-and-route/lines-traffic). They retain route IDs and keep exact values in the source model. The region side follows [choropleth joins](./map-choropleth), using supplied GeoJSON and stable region IDs.
+
+A correctly aligned combined overlay requires a shared projection that this API does not currently expose. Do not infer geographical location, route length or intersection from where a schematic line appears to cross a region. That is an implementation boundary, not something changing a chart title can fix.
+
+Test the joins and report snapshots separately, then inspect the rendered report at the intended sizes. Provide a text/list representation of routes and regional values. The gallery image is a visual example, not proof of shared coordinates or an interactive navigation feature.
+
+[Geographic and route family overview](./overview)

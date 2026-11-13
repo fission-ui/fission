@@ -1,0 +1,98 @@
+---
+title: Service risk matrix
+sidebar_label: Service risk matrix
+description: Fission Charts reference for Service risk matrix.
+---
+
+# Service risk matrix
+
+![Service risk matrix screenshot](/img/charts/heatmap-service-risk.png)
+
+A service-risk matrix keeps the assessed weakness and the affected service visible together. A single score per service would hide whether the concern is storage, networking or something else. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use this as a way into a review, not as an automatic deployment decision. Higher scores mean more concern in this example; an unreviewed cell needs a distinct state rather than a reassuring zero.
+
+## Data model
+
+Each cell maps a service index and dependency-area index to a review score from zero to five. The assessment belongs to the application's risk model, not to the chart. Store the evidence and assessment date with the source record.
+
+`HeatmapSeries::data` takes `Vec<(usize, usize, f32)>`. The first two values are category indices; they must refer to the same ordered labels used by the axes.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `Chart::x_axis` | `Axis` | Supplies the column categories. |
+| `Chart::y_axis` | `Axis` | Supplies the row categories, not the cell-value range. |
+| `HeatmapSeries::data` | `Vec<(usize, usize, f32)>` | Supplies the indexed cells and their values. |
+| `Chart::visual_map` | `VisualMap` | Sets the numeric range used for colour. |
+
+## Example
+
+```rust
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+let chart = Chart::new()
+    .title("Service review scores by dependency area")
+    .x_axis(Axis::category(vec!["API", "Worker", "Scheduler"]))
+    .y_axis(Axis::category(vec!["Storage", "Network"]))
+    .visual_map(VisualMap::new().min(0.0).max(5.0))
+    .series(vec![HeatmapSeries::new("Review score (0–5)")
+        .data(vec![
+            (0, 0, 4.0),
+            (1, 0, 3.0),
+            (2, 0, 1.0),
+            (0, 1, 2.0),
+            (1, 1, 5.0),
+            (2, 1, 2.0),
+        ])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+Pass the prepared samples into the component. Fetching, aggregation and failure handling stay outside the build; the component presents values already available to its parent.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ServiceRiskMatrixChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            column_labels: Vec<String>,
+            row_labels: Vec<String>,
+            samples: Vec<(usize, usize, f32)>,
+        }
+    }
+    view(chart, _state, _cx) =>
+        Chart(
+            title: Some(chart.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                chart.column_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::category(
+                chart.row_labels.iter().map(String::as_str).collect(),
+            )),
+            visual_map: Some(VisualMap::new().min(0.0).max(5.0)),
+            series: vec![HeatmapSeries::new(&chart.series_label)
+                .data(chart.samples.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check service filtering and reordering so scores retain their correct category. Test expired or missing assessments, and keep a readable list of the highest concerns available without relying on colour.
+
+Give the matrix a text summary and an exact-value view when decisions depend on its cells. Inspect the actual rendered width and label lengths; a correctly indexed matrix is still unusable if its category names cannot be read.
+
+Tags: `heatmap`, `risk`.
+
+[Heatmap family overview](./overview)

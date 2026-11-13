@@ -1,0 +1,220 @@
+---
+title: Toggle theme and locale
+description: Load translation files, keep theme and locale in app state, and synchronize them into Env with with_sync_env.
+---
+
+# Toggle theme and locale
+
+A language choice should change the whole interface, not only the settings
+screen that contains the control. The same applies to theme. Keep the choices
+in app state and mirror them into the environment that every component reads.
+
+The translation files are checked-in assets, loaded at startup rather than
+fetched during a build. That makes the first frame independent of a network
+request and uses the same messages on each target.
+
+## The problem we are solving
+
+This screen selects light or dark appearance and English or Spanish. There is
+one owner for each choice: `SettingsState`. `Env` presents those values to the
+widget tree; it is not another independent settings store.
+
+This example changes preferences for the current session. Persisting them is
+a separate Store effect and startup-hydration flow, not something a view should
+do whenever it rebuilds.
+
+## Step 1: put theme and locale in app state
+
+Use the framework's `DesignMode` rather than declaring another enum for the
+same two values:
+
+```rust
+use fission::i18n::Locale;
+use fission::prelude::*;
+
+#[derive(Debug, Clone)]
+pub struct SettingsState {
+    pub theme_mode: DesignMode,
+    pub locale: Locale,
+}
+
+impl Default for SettingsState {
+    fn default() -> Self {
+        Self {
+            theme_mode: DesignMode::Light,
+            locale: Locale::from("en-US"),
+        }
+    }
+}
+
+impl GlobalState for SettingsState {}
+```
+
+App state is appropriate because the choice affects distant components and may
+later be saved. A retained local flag in this settings widget would give the
+preference the wrong lifetime.
+
+## Step 2: load translation files into the environment
+
+Create `i18n/en-US.yaml`:
+
+```yaml
+settings.title: "Settings"
+settings.theme: "Theme"
+settings.locale: "Language"
+settings.theme.light: "Light"
+settings.theme.dark: "Dark"
+settings.language.english: "English"
+settings.language.spanish: "Spanish"
+```
+
+And `i18n/es-ES.yaml`:
+
+```yaml
+settings.title: "Configuración"
+settings.theme: "Tema"
+settings.locale: "Idioma"
+settings.theme.light: "Claro"
+settings.theme.dark: "Oscuro"
+settings.language.english: "Inglés"
+settings.language.spanish: "Español"
+```
+
+Add `serde_yaml = "0.9"` to the app and load its embedded files once:
+
+```rust
+use std::collections::HashMap;
+use fission::i18n::TranslationBundle;
+
+fn load_bundle(locale: &str, yaml: &str) -> anyhow::Result<TranslationBundle> {
+    let messages: HashMap<String, String> = serde_yaml::from_str(yaml)?;
+    Ok(TranslationBundle {
+        locale: Locale::from(locale),
+        messages,
+    })
+}
+
+fn create_env() -> anyhow::Result<Env> {
+    let mut env = Env::default();
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("../i18n/en-US.yaml"))?);
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("../i18n/es-ES.yaml"))?);
+    Ok(env)
+}
+```
+
+The relative paths assume this code is in `src/presentation.rs` or another
+direct child of `src`. Invalid YAML fails startup with an error; it does not
+leave half the interface silently untranslated.
+
+## Step 3: mirror state into `Env` with `.with_sync_env(...)`
+
+The shell owns the synchronisation point:
+
+```rust
+fn main() -> anyhow::Result<()> {
+    DesktopApp::<SettingsState, _>::new(SettingsApp)
+        .with_env(create_env()?)
+        .with_sync_env(|state: &SettingsState, env: &mut Env| {
+            env.locale = state.locale.clone();
+            env.theme = match state.theme_mode {
+                DesignMode::Light => Theme::default(),
+                DesignMode::Dark => Theme::dark(),
+            };
+        })
+        .run()
+}
+```
+
+This small recipe uses Fission's default design system. With a generated custom
+design system, select `AppDesignSystem::theme(state.theme_mode)` here instead,
+and install that design system on the shell. Otherwise a theme toggle would
+replace the product's design with the framework default.
+
+Use the same synchronisation hook on the other interactive shells. Static
+builds seed an environment for each rendered locale; a static document cannot
+run this app-state transition without a browser runtime.
+
+## Step 4: define actions and reducers for the toggles
+
+These four transitions belong only to this component, so they do not need four
+handwritten action structs and four setter functions. The inline `reduce`
+blocks below generate that registration and update the current app state.
+
+If another entrypoint must perform the same transition, extract a shared
+reducer or domain helper. Do not duplicate theme mutation throughout the tree.
+In either case, the reducer changes the preference and `with_sync_env` derives
+presentation inputs from it.
+
+## Step 5: render keyed text and bind the controls
+
+```rust
+fission_component! {
+    pub SettingsApp<SettingsState> {}
+    view(_settings, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.m, children: [
+        Text(cx.tr("settings.title"), font_size: tokens.typography.heading1_size),
+        Text(cx.tr("settings.theme")),
+        Wrap(spacing: tokens.spacing.s, run_spacing: tokens.spacing.s, children: [
+            Button(
+                child: Text(cx.tr("settings.theme.light")),
+                key: "light",
+                disabled: state.theme_mode == DesignMode::Light,
+                on_press: reduce { state.theme_mode = DesignMode::Light; },
+            ),
+            Button(
+                child: Text(cx.tr("settings.theme.dark")),
+                key: "dark",
+                disabled: state.theme_mode == DesignMode::Dark,
+                on_press: reduce { state.theme_mode = DesignMode::Dark; },
+            ),
+        ]),
+        Text(cx.tr("settings.locale")),
+        Wrap(spacing: tokens.spacing.s, run_spacing: tokens.spacing.s, children: [
+            Button(
+                child: Text(cx.tr("settings.language.english")),
+                key: "english",
+                disabled: state.locale == Locale::from("en-US"),
+                on_press: reduce { state.locale = Locale::from("en-US"); },
+            ),
+            Button(
+                child: Text(cx.tr("settings.language.spanish")),
+                key: "spanish",
+                disabled: state.locale == Locale::from("es-ES"),
+                on_press: reduce { state.locale = Locale::from("es-ES"); },
+            ),
+        ]),
+    ])
+}
+```
+
+`cx.tr(...)` resolves each key using the active locale. After a reducer updates
+`state.locale`, the shell synchronises `env.locale` before the next build, so
+every label sees the new choice together. The Wrap layouts allow longer
+translations to move onto another line instead of clipping them.
+
+## Keep presentation settings in `Env`
+
+Use the environment for app-wide presentation inputs such as theme and locale.
+Message lists, editor drafts, and other domain data still belong in app state.
+Do not use `with_sync_env` to fetch translations, write preferences, or start
+jobs; repeated builds must not repeat those operations.
+
+## What to test before you ship
+
+Change both settings and verify labels outside this component as well as
+inside it. Test long translations at a narrow width and both themes against the
+same content. A dark theme is not complete merely because the background
+changed; inputs, overlays, disabled states, and text must remain readable.
+
+When preferences persist, restore them once through a startup reducer and
+explicit effect completions. The saved preference belongs to the normal app
+model, not a hidden mutable global.
+
+## Where to go next
+
+Read [Theming and internationalisation](/docs/guides/theming-and-i18n) for the
+shared environment setup and [Input, text, and environment](/docs/guides/input-events-text-and-env)
+for how components consume it. The `inbox` example shows app-wide theme and
+locale choices alongside a larger routed interface.

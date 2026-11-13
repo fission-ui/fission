@@ -6,7 +6,7 @@ const EXPRESSION_MAX_WIDTH: f32 = 820.0;
 
 fission_component! {
     pub(super) ExpressionPanel<AnimationGalleryState> { expression: String }
-    |panel, _state, cx| {
+    view(panel, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(

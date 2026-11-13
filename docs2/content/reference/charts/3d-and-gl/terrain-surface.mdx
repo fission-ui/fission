@@ -1,0 +1,53 @@
+---
+title: Terrain surface
+sidebar_label: Terrain surface
+description: Render an elevation grid with explicit units, local coordinates and a documented vertical scale.
+---
+
+# Terrain surface
+
+![Terrain surface screenshot](/img/charts/terrain-surface.png)
+
+Terrain height has a physical meaning. A raised part of the picture should correspond to elevation, not merely to a convenient value range. Keep the survey's coordinate reference, horizontal spacing and vertical unit explicit before projecting it into a mesh.
+
+A local scene origin can make large survey coordinates easier to handle, but retain that origin in the source projection. Otherwise a point selected elsewhere in the application cannot be related back to its original location.
+
+## Build and render the mesh
+
+Use `regular_surface` from [3D surface](./surface3d-basic) for a complete regular elevation grid. The helper returns validated vertices and triangle indices; `SurveySurface` from [Mesh surface](./mesh-surface) renders them.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::survey_surface::SurveySurface;
+
+fission_component! {
+    pub ElevationPreview<()> {
+        props {
+            title: TextContent,
+            elevation_vertices: Vec<Point3D>,
+            triangles: Vec<u32>,
+            surface_color: Color,
+        }
+    }
+    view(terrain, _state, _cx) => SurveySurface {
+        title: terrain.title.clone(),
+        vertices: terrain.elevation_vertices.clone(),
+        indices: terrain.triangles.clone(),
+        surface_color: terrain.surface_color,
+    }
+}
+```
+
+Place the shared component in `widgets/survey_surface.rs` and enable the `three-d` feature. The parent supplies translated text and a design-system colour after loading and validating the survey through the application's normal effect/reducer flow.
+
+## Preserve the survey's limits
+
+A missing elevation is not sea level. Keep holes or the chosen interpolation policy explicit instead of filling unavailable cells with zero. If the vertical scale is exaggerated to reveal shallow differences, say so beside the scene.
+
+Test a known slope, a flat grid and rejected invalid measurements. Inspect triangle winding, ridges and the largest intended viewport in a real rendering. Keep exact elevations and a useful accessible description outside the image. The screenshot is a gallery fixture, not survey evidence.
+
+Tags: `3d`, `terrain`.
+
+[3D and GL family overview](./overview)

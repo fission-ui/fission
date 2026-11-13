@@ -1,0 +1,58 @@
+---
+title: Examples and targets
+description: Learn what Fission examples are for, what a target host is, and how to choose a practical validation path for your app.
+---
+
+# Examples and targets
+
+Examples and targets answer different questions. An example is a small app that shows how a feature works. A target is a host that runs your shared app on macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, or SSR.
+
+Look at an example to understand reducers, widgets, selectors, or layout. Look at a target when you need to know how the app launches in a browser, installs in an Android emulator, or runs in an iOS simulator.
+
+## What examples are for
+
+Examples are runnable references, not replacement documentation. Each has a narrow focus so you can find the relevant code without working through a whole product. Start with `counter` for the app loop, `widget-gallery` for built-in widgets, or `text-lab` for text entry, focus, menus, and input methods. For more product-shaped examples, look at `inbox`, `terminal`, or `fission-editor`.
+
+They all use the same app model you use in your own project.
+
+## What a target is
+
+Your shared code owns app state, actions, reducers, widgets, layout, and product behavior. The target host handles platform startup, packaging, serving, and shell integration. Adding a target means adding the host needed to run the same app there—not rewriting the app for that platform.
+
+## What a host project or host script is
+
+The CLI can generate host folders such as `platforms/web/`, `platforms/android/`, `platforms/ios/`, `platforms/static-site/`, and `platforms/ssr/`. They hold platform files and launch scripts. Terminal uses its own shell and package path rather than a generated mobile-style host folder.
+
+A host script runs the repeated commands for that target. The Web script builds and serves WebAssembly; Android and iOS scripts use the documented emulator or simulator flow.
+
+## One app model, multiple real hosts
+
+All of these are real targets; the development setup and validation differ. Desktop is often the quickest place to learn the shared app model. If your product is browser-first, validate Web early. Bring Android or iOS in early when touch or mobile behavior matters. Use Static site for crawlable content, SSR for request-time behavior, and Terminal for terminal workflows.
+
+## A practical beginner strategy
+
+Start with the host that makes the next question easiest to answer. That may be desktop, but use Web, Android, iOS, Terminal, Static site, or SSR from the start when your product depends on their specific behavior. Add each host when you need to validate browser integration, mobile packaging, terminal interaction, generated content, or request-time behavior.
+
+## The checked-in target proofs in this repo
+
+The repository includes runnable examples for the target paths:
+
+`web-smoke` covers the browser path, including a generated-host-style launcher at `examples/web-smoke/platforms/web/run-browser.sh`.
+
+`mobile-smoke` includes Android emulator and iOS simulator launchers under `examples/mobile-smoke/platforms/`.
+
+`examples/terminal` and `fission ui` cover Terminal.
+
+The documentation site is the Static site example, with Fission widgets, Markdown routes, search, metadata, and assets.
+
+`examples/pokemon-card-store` covers SSR routes, sessions, signed actions, cache policy, server jobs, workers, and islands.
+
+Use `fission add-target ...` to generate host folders for your own project.
+
+## What to keep in mind as you grow
+
+Use examples to see a concept in an app. Use target and shell docs when you need launch, packaging, or validation details.
+
+## Where to go next
+
+For the first run, go to [Quickstart](/docs/learn/quickstart). For host and CLI details, read [Platform shells, command-line interface, and testing](/docs/guides/platform-shells-cli-and-testing).

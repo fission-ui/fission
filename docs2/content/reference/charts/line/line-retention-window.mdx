@@ -1,0 +1,62 @@
+---
+title: Retention zoom window
+sidebar_label: Retention zoom window
+description: Fission Charts reference for Retention zoom window.
+---
+
+# Retention zoom window
+
+![Retention zoom window screenshot](/img/charts/line-retention-window.png)
+
+A retention window can focus attention on the early days after activation whilst keeping the full cohort history available. The visible window and the cohort definition are independent choices. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example shows a percentage of one fixed cohort that meets the app's return criterion on each day. Zooming does not change the cohort denominator or calculate retention; it only changes the part of the supplied series in view.
+
+## Data model
+
+Provide regularly ordered day-since-activation labels and retention percentages. DataZoom bounds are percentages of that ordered series, not day numbers. Aggregate the cohort outside the component and keep unobserved future days distinct from zero retention.
+
+## Authoring from a Fission component
+
+The parent supplies prepared values and matching reporting labels. Keep loading and calculation errors in that parent workflow.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, DataZoom, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub RetentionZoomWindowChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            retained_percent: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value().min(0.0).max(100.0)),
+            data_zoom: Some(DataZoom::new().start_percent(0.0).end_percent(40.0)),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.retained_percent.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check an incomplete cohort window and the first and last visible day. Ensure zoom cannot make an unavailable future measurement look like a known zero, and provide a readable way to inspect the whole window.
+
+Tags: `line`, `zoom`.
+
+[Line family overview](./overview)

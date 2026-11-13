@@ -1,0 +1,47 @@
+---
+title: Sorted horizontal bars
+sidebar_label: Sorted horizontal bars
+description: Select a deterministic top-N backlog view without separating location labels from their values.
+---
+
+# Sorted horizontal bars
+
+![Sorted horizontal bars screenshot](/img/charts/bar-sorted-horizontal.png)
+
+A top-N chart is a deliberate summary, not the full collection. Select the rows with the highest outstanding workload, then give the reader a route to the complete list if the omitted locations still matter.
+
+The [ranked bar example](./bar-ranked) already defines `LocationBacklog` and `LocationRankingChart`. Put them in `widgets/location_ranking.rs` and reuse that component rather than creating another chart API.
+
+```rust
+use fission::prelude::*;
+use crate::widgets::location_ranking::{LocationBacklog, LocationRankingChart};
+
+fission_component! {
+    pub LargestBacklogs<()> {
+        props {
+            title: String,
+            orders_label: String,
+            locations: Vec<LocationBacklog>,
+            limit: usize,
+        }
+    }
+    view(backlogs, _state, _cx) {
+        let mut selected = backlogs.locations.clone();
+        selected.sort_by(|a, b|
+            b.outstanding_orders.total_cmp(&a.outstanding_orders)
+                .then_with(|| a.id.cmp(&b.id))
+        );
+        selected.truncate(backlogs.limit);
+    } => LocationRankingChart {
+        title: backlogs.title.clone(),
+        orders_label: backlogs.orders_label.clone(),
+        rows: selected,
+    }
+}
+```
+
+The input is a validated snapshot with unique durable location IDs and finite, non-negative counts. The same tie-break rule is used for selection and display, so a tied row does not move in and out arbitrarily.
+
+Name the limit and reporting window in the translated title. Decide whether ties at the boundary should all be included; this example deliberately returns no more than `limit` rows. Test zero limits, ties and a collection smaller than the limit. Provide exact counts and inspect long labels. The gallery screenshot is a separate fixture.
+
+[Bar family overview](./overview)

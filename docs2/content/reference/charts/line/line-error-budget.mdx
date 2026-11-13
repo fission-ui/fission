@@ -1,0 +1,64 @@
+---
+title: Error budget burn
+sidebar_label: Error budget burn
+description: Fission Charts reference for Error budget burn.
+---
+
+# Error budget burn
+
+![Error budget burn screenshot](/img/charts/line-error-budget.png)
+
+An error-budget line makes the amount of permitted failure remaining in a reporting window visible. A declining line shows budget being consumed, but its slope alone is not a complete burn-rate calculation. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example shows remaining budget as a percentage. A burn-rate ratio is a different measure, based on observed error rate relative to the allowed rate. Do not label one as the other merely because both relate to the same service objective.
+
+## Data model
+
+Calculate the budget from the service's actual objective and reporting window before drawing the chart. The zero mark identifies exhaustion. The example assumes values from zero to 100; if the app tracks overspend below zero, extend the displayed range and name that policy explicitly.
+
+## Authoring from a Fission component
+
+The parent supplies prepared values and matching labels. This component does not start work or mutate application state while building.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries, MarkLine};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ErrorBudgetBurnChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            annotation_label: String,
+            labels: Vec<String>,
+            remaining_percent: Vec<f32>,
+        }
+    }
+    view(report, _state, cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+        let colors = &cx.view.env().theme.tokens.colors;
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value().min(0.0).max(100.0)),
+            mark_lines: vec![MarkLine::y(&report.annotation_label, 0.0).color(colors.primary)],
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.remaining_percent.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test a full budget, exhaustion and a reporting-window reset. Verify the underlying calculation against the same request population used by the SLO, and show the current percentage and cut-off time in readable text.
+
+Tags: `line`, `slo`.
+
+[Line family overview](./overview)

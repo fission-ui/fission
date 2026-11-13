@@ -1,0 +1,42 @@
+---
+title: Migration routes
+sidebar_label: Migration routes
+description: Project measured transfers into schematic source-to-destination connections.
+---
+
+# Migration routes
+
+![Migration routes screenshot](/img/charts/geo-migration.png)
+
+Movement between sites is a set of relationships, not a sequence of revenue samples. For a warehouse transfer report, each row needs an origin, a destination and the number of completed transfers in the reporting window.
+
+Reuse `ServiceConnection` and the Compose component from [lines](../geographic-and-route/lines-basic), placed in `widgets/service_connections.rs`:
+
+```rust
+use crate::widgets::service_connections::ServiceConnection;
+
+pub struct CompletedTransferRoute {
+    pub id: String,
+    pub origin: (f32, f32),
+    pub destination: (f32, f32),
+    pub completed_transfers: u32,
+}
+
+pub fn transfer_connections(routes: &[CompletedTransferRoute]) -> Vec<ServiceConnection> {
+    routes.iter()
+        .filter(|route| route.completed_transfers > 0)
+        .map(|route| ServiceConnection {
+            id: route.id.clone(),
+            from: route.origin,
+            to: route.destination,
+            traffic: route.completed_transfers as f32,
+        })
+        .collect()
+}
+```
+
+Pass this projection as the component's `connections`, with translated title, series label and explanatory text. Coordinates must be finite and share a coordinate system. The original counts and route IDs remain authoritative.
+
+These curves communicate relative movement; their length is not road distance and their bend is not a recorded journey. The renderer fits the endpoint bounds itself, so this is a schematic, not a map overlay. Test reversed routes, zero transfers and coincident endpoints. State the reporting window near the exact-value list. The gallery screenshot uses separate records.
+
+[Geo and route family overview](./overview)

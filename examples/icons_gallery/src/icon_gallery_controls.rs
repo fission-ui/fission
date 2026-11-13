@@ -54,7 +54,7 @@ fission_component! {
 
 fission_component! {
     CategoryChips<State> { categories: Vec<&'static str>, wrap: bool }
-    |chips, state, cx| {
+    view(chips, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Row(

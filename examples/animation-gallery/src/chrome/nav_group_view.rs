@@ -3,7 +3,7 @@ use crate::style;
 
 fission_component! {
     pub(super) NavGroupView<AnimationGalleryState> { group: &'static NavGroup }
-    |group, _state, cx| {
+    view(group, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Column(

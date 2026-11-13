@@ -1,0 +1,92 @@
+---
+title: Cost center treemap
+sidebar_label: Cost center treemap
+description: Fission Charts reference for Cost center treemap.
+---
+
+# Cost center treemap
+
+![Cost center treemap screenshot](/img/charts/treemap-cost-centers.png)
+
+A cost-centre treemap makes the largest cost groups visible within a reporting total. It is useful for understanding composition before inspecting individual transactions. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example uses booked cost for one month in GBP. Keep allocated shared costs and direct costs under a declared rule so an invoice cannot be counted in several centres without explanation.
+
+## Data model
+
+Map the reconciled cost aggregate into nested TreemapNode records. Parent totals should agree with child totals. Credits or negative adjustments need a deliberate reporting treatment rather than being passed blindly into an area-based chart.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `TreemapSeries::data` | `Vec<TreemapNode>` | Supplies the roots of the hierarchy. |
+| `TreemapNode::children` | `Vec<TreemapNode>` | Supplies each node's next level. |
+| `TreemapNode::value` | `f32` | Carries the numeric value associated with the node. |
+| `Chart::series` | `Vec<Series>` | Presents the hierarchy without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, TreemapSeries, TreemapNode};
+
+let nodes = vec![TreemapNode {
+    name: "Operating cost".into(),
+    value: 60000.0,
+    children: vec![
+        TreemapNode {
+            name: "Hosting".into(),
+            value: 22000.0,
+            children: vec![],
+        },
+        TreemapNode {
+            name: "Support".into(),
+            value: 38000.0,
+            children: vec![],
+        },
+    ],
+}];
+
+let chart = Chart::new()
+    .title("Monthly cost by centre (GBP)")
+    .series(vec![TreemapSeries::new("Cost (GBP)")
+        .data(nodes)
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The parent prepares the hierarchy and its loading or error state. The chart component only presents the records supplied to it.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, TreemapSeries, TreemapNode};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub CostCenterTreemapChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<TreemapNode>,
+        }
+    }
+    view(hierarchy, _state, _cx) =>
+        Chart(
+            title: Some(hierarchy.chart_title.clone()),
+            series: vec![TreemapSeries::new(&hierarchy.series_label)
+                .data(hierarchy.nodes.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check shared-invoice allocation, zero-cost centres and corrections. Keep the underlying transaction report available for exact comparisons; a large rectangle explains magnitude, not whether a cost was justified.
+
+Tags: `treemap`, `cost`.
+
+[Hierarchy family overview](./overview)

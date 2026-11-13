@@ -1,0 +1,58 @@
+---
+title: Quality dataset parallel
+sidebar_label: Quality dataset parallel
+description: Compare ordered quality percentages with the actual parallel-coordinate renderer.
+---
+
+# Quality dataset parallel
+
+![Quality dataset parallel screenshot](/img/charts/dataset-parallel-quality.png)
+
+A quality profile compares several rates without combining them into an unexplained score. The dimensions need compatible scales and declared definitions.
+
+The current parallel renderer expects 0–100 values. It has no per-dimension labels or row identities, so a surrounding key and table remain part of the report.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, ParallelSeries, Series};
+
+#[derive(Clone)]
+pub struct BatchQuality {
+    pub batch_id: String,
+    pub first_pass_percent: f32,
+    pub retest_pass_percent: f32,
+    pub on_time_percent: f32,
+}
+
+fission_component! {
+    pub BatchQualityProfiles<()> {
+        props {
+            title: String,
+            batches_label: String,
+            dimension_key: TextContent,
+            batches: Vec<BatchQuality>,
+        }
+    }
+    view(quality, _state, _cx) {
+        let rows = quality.batches.iter().map(|batch| vec![
+            batch.first_pass_percent,
+            batch.retest_pass_percent,
+            batch.on_time_percent,
+        ]).collect();
+    } => Column(children: [
+        Text(quality.dimension_key.clone()),
+        Chart(
+            title: Some(quality.title.clone()),
+            series: vec![Series::Parallel(
+                ParallelSeries::new(&quality.batches_label).data(rows),
+            )],
+        ),
+    ])
+}
+```
+
+Translate the title and key and name the dimension order explicitly. Keep batch IDs and rates in an adjacent table. This is a typed row-to-series projection, not arbitrary `Dataset` encoding.
+
+Validate finite percentages and denominators, particularly when no units required a retest. An unavailable rate is not zero. Test row order and a small selected set before overlaying many batches. The gallery image is not a statistical quality assessment.
+
+[Dataset family overview](./overview)

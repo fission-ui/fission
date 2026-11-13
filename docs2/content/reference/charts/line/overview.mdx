@@ -1,0 +1,103 @@
+---
+title: Line
+sidebar_label: Overview
+description: Fission Charts reference for the Line family.
+---
+
+# Line
+
+A line chart puts ordered measurements on a common scale so changes become visible. The order is part of the meaning: joining categories that have no meaningful sequence creates a trend that the source data does not contain.
+
+Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
+
+![Alert annotations screenshot](/img/charts/line-alert-annotations.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Alert annotations](./line-alert-annotations) | Ordered values with event markers. | Use it when incidents or milestones need to stay attached to the trend. |
+| [Annotated line](./line-annotation) | LineSeries plus ChartGraphic. | Use it to explain a visible change directly on the chart. |
+| [API throughput line](./line-api-throughput) | Dense ordered samples from a service counter. | Use it for telemetry panels with many points. |
+| [Capacity forecast band](./line-capacity-forecast) | Forecast values with a fixed planning interval. | Use it when a forecast needs a declared planning range. |
+| [Conversion stack area](./line-conversion-stack) | Several ordered series sharing a stack key. | Use it to explain how categories make up a total over time. |
+| [Demand sparkline](./line-demand-spark) | Compact dense ordered values. | Use it inside dense dashboard cards. |
+| [Dense spark line](./line-spark-dense) | Long Vec&lt;f32&gt; on ordered categories. | Use it for monitoring and telemetry surfaces. |
+| [Deployment event line](./line-deployment-events) | Trend values with deployment markers. | Use it to connect product changes to metric movement. |
+| [Dual line comparison](./line-dual-series) | Two Vec&lt;f32&gt; series on shared axes. | Use it to compare two trends without changing units. |
+| [Error budget burn](./line-error-budget) | Budget percentage samples plus threshold marks. | Use it when teams need to see whether a service is inside its operating band. |
+| [Forecast band](./line-forecast-band) | Vec&lt;f32&gt; plus MarkArea. | Use it for a fixed expected interval, not varying uncertainty. |
+| [Gradient area line](./line-gradient-area) | Vec&lt;f32&gt; with area style. | Use it when magnitude and trend should be read together. |
+| [Inventory end-step](./line-inventory-end-step) | Discrete samples that update at the end of each interval. | Use it when the value changes after the period closes. |
+| [Line with alert events](./line-alert-events) | LineSeries plus MarkPoint. | Use it to label incidents or releases on a metric. |
+| [Line with threshold](./line-threshold) | Vec&lt;f32&gt; plus MarkLine and MarkArea. | Use it for service levels, quotas, and alert thresholds. |
+| [Log-shaped line](./line-log-shaped) | Vec&lt;f32&gt; with nonlinear values. | Use it for adoption curves and saturation effects. |
+| [Market index line](./line-market-index) | Indexed ordered values on a value axis. | Use it when direction and volatility matter more than individual samples. |
+| [Min/max band](./line-minmax-band) | Vec&lt;f32&gt; plus mark lines. | Use it to show expected bounds around a metric. |
+| [Operational step series](./line-operational-steps) | Discrete states represented as stepped values. | Use it for state changes, quotas, or inventory counts. |
+| [Product mix area](./line-product-mix-area) | Stacked product series over ordered buckets. | Use it when the total and category mix both matter. |
+| [Quality operating band](./line-quality-band) | Samples with a target and acceptable range. | Use it for production quality metrics with explicit guardrails. |
+| [Regional trend comparison](./line-region-comparison) | Two regional series on shared axes. | Use it when teams compare regions over the same period. |
+| [Release window annotation](./line-release-window) | Ordered samples with a graphic callout over the plot. | Use it to put recorded release context beside a metric. |
+| [Retention zoom window](./line-retention-window) | Long ordered samples with a visible zoom window. | Use it when the primary view should focus on one time range. |
+| [Revenue seasonality](./line-revenue-seasonality) | Ordered samples over a repeated seasonal interval. | Use it when weekly or monthly rhythm is the main signal. |
+| [Rolling average line](./line-rolling-average) | Two Vec&lt;f32&gt; series. | Use it when readers need both movement and trend. |
+| [Seasonal line](./line-seasonal) | Vec&lt;f32&gt; over ordered periods. | Use it for seasonal demand and capacity planning. |
+| [Service latency trend](./line-service-latency) | Latency samples over ordered time buckets. | Use it for operations screens that need drift and spikes in one glance. |
+| [Signup cohort comparison](./line-signup-cohorts) | Two ordered series sharing the same axis. | Use it when users need to compare cohorts over the same time range. |
+| [Stacked stream area](./line-stacked-stream) | Multiple LineSeries with one stack key. | Use it for composition over time. |
+| [Step end line](./line-step-end) | Vec&lt;f32&gt; with end step behavior. | Use it when values settle at the end of each interval. |
+| [Step start line](./line-step-start) | Vec&lt;f32&gt; with start step behavior. | Use it when values jump at the start of each interval. |
+| [Support volume area](./line-support-volume) | Support counts with an area fill. | Use it when volume should be visible at a glance. |
+| [Traffic rolling average](./line-traffic-rolling-average) | Raw and smoothed ordered series. | Use it when the user needs the current signal and the trend baseline. |
+| [Weekly cycle line](./line-weekly-cycle) | Vec&lt;f32&gt; aligned to weekdays. | Use it for operational rhythms and weekly dashboards. |
+| [Zoomed line window](./line-zoomed-window) | LineSeries plus DataZoom. | Use it for long series with local inspection. |
+
+## Choosing within this family
+
+Start with the measure and reporting interval. Counts, rates and percentiles require different preparation even though each becomes a vector of numbers. Use steps for discrete transitions, a shared stack only for disjoint parts of a total, and marks for declared events or limits. Neither smoothing a path nor drawing a band calculates a statistical average, forecast or confidence interval.
+
+## Authoring from a Fission component
+
+This component receives the values and their reporting labels. Loading, aggregation and failures stay in the parent workflow; chart construction does not start another request.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub LineChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            completed_jobs: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.completed_jobs.clone())
+                    .into(),
+            ],
+        )
+}
+```
+Keep a readable statement of the current value and reporting period alongside the visual. Test the source calculation independently from rendering, then inspect the actual plot at the widths where the app will use it.
+
+## Options, accessibility, and diagnostics
+
+| Area | What to decide | How to check it |
+| --- | --- | --- |
+| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
+| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
+| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
+| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
+| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |

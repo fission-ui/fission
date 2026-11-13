@@ -6,7 +6,7 @@ const PANEL_MIN_WIDTH: f32 = 280.0;
 
 fission_component! {
     pub(super) PropertyLayout<AnimationGalleryState> { property: super::PropertyCase }
-    |layout, _state, cx| {
+    view(layout, _state, cx) {
         let gap = cx.view.env().theme.tokens.spacing.s;
     } =>
         Grid(

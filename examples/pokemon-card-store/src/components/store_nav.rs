@@ -5,7 +5,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub StoreNav<StoreState> {}
-    |_nav, _state, cx| {
+    view(_nav, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
     } =>

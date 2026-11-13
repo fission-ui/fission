@@ -1,0 +1,60 @@
+---
+title: Device mix donut
+sidebar_label: Device mix donut
+description: Show mutually exclusive device sessions as a small part-to-whole comparison.
+---
+
+# Device mix donut
+
+![Device mix donut screenshot](/img/charts/analytics-device-donut.png)
+
+Device share is useful when deciding which layouts deserve testing, but only if the unit being counted is clear. A person may use both a phone and a laptop. Sessions can be assigned to one device class; unique people generally cannot be split that way without an additional rule.
+
+This example therefore compares sessions, not people.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, Legend, PieSeries, Series};
+
+#[derive(Clone)]
+pub struct DeviceSessions {
+    pub label: String,
+    pub sessions: u32,
+}
+
+fission_component! {
+    pub DeviceMix<()> {
+        props {
+            title: String,
+            metric_label: String,
+            devices: Vec<DeviceSessions>,
+            hole_radius: f32,
+        }
+    }
+    view(mix, _state, _cx) {
+        let values = mix.devices.iter()
+            .map(|device| (device.label.as_str(), device.sessions as f32))
+            .collect();
+    } => Chart(
+        title: Some(mix.title.clone()),
+        legend: Some(Legend::top_right()),
+        series: vec![Series::Pie(
+            PieSeries::new(&mix.metric_label)
+                .inner_radius(mix.hole_radius)
+                .data(values),
+        )],
+    )
+}
+```
+
+`inner_radius` is a geometric radius, not a percentage of the data. Supply it from the application's presentation settings and check that it leaves a readable ring at small sizes.
+
+## Keep the whole meaningful
+
+Use a small set of exclusive categories and retain an unknown category rather than quietly dropping unclassified sessions. If the total is zero, render an empty state instead of implying a distribution exists.
+
+Show counts and percentages outside the ring and test that the category sum matches the report total. When close comparisons matter, a ranked bar chart is easier to read than several similar arcs. The gallery image is not a claim about the sample data supplied by your application.
+
+[Analytics family overview](./overview)

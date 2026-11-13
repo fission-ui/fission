@@ -1,0 +1,46 @@
+---
+title: Bar with background
+sidebar_label: Bar with background
+description: Use a known shared capacity to give background bar tracks a truthful endpoint.
+---
+
+# Bar with background
+
+![Bar with background screenshot](/img/charts/bar-background.png)
+
+A background track is useful only when its endpoint means something. For storage locations with the same capacity, the full track can show the available space whilst the foreground shows usage.
+
+The [capacity bars example](../bar/bar-capacity) defines `StorageCapacityChart` and `LocationUsage`. Put them in `widgets/storage_capacity.rs` and reuse that bounded presentation.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use crate::widgets::storage_capacity::{LocationUsage, StorageCapacityChart};
+
+fission_component! {
+    pub WarehouseStorageOverview<()> {
+        props {
+            title: String,
+            used_label: String,
+            unit_label: String,
+            shared_capacity: f32,
+            track_colour: Color,
+            locations: Vec<LocationUsage>,
+        }
+    }
+    view(warehouse, _state, _cx) => StorageCapacityChart {
+        title: warehouse.title.clone(),
+        used_label: warehouse.used_label.clone(),
+        unit_label: warehouse.unit_label.clone(),
+        capacity: warehouse.shared_capacity,
+        track_color: warehouse.track_colour,
+        rows: warehouse.locations.clone(),
+    }
+}
+```
+
+The underlying series sets `background(Color)` and the numeric axis maximum is the shared capacity. The background otherwise fills whatever numeric range the plot happens to have; it does not calculate a capacity by itself.
+
+Use finite in-range readings and a positive limit. For unequal limits or over-allocation, choose the [usage/capacity comparison](../bar/bar-utilization-capacity) instead of clipping the source values. Supply colours from the design system and labels from translations. Test empty, full and unavailable locations and keep exact usage and capacity in text. The screenshot is the gallery fixture.
+
+[Cartesian family overview](./overview)

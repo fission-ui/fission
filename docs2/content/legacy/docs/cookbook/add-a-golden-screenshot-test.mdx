@@ -1,0 +1,44 @@
+---
+title: Add a golden screenshot test
+description: Capture and compare a Fission screen with a golden image.
+---
+
+# Add a golden screenshot test
+
+This test drives a real Fission app to a known state, captures its screen, and
+compares it with a checked-in image. Run it when layout or styling changes; the
+diff image shows which pixels moved.
+
+```rust
+#[test]
+#[ignore]
+fn settings_phone_matches_golden() -> anyhow::Result<()> {
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(15_000)?;
+    client.simulate_resize(390, 844)?;
+    client.wait_for_idle(2_000, false)?;
+    client.tap_semantic_identifier("settings.open")?;
+    client.wait_for_idle(2_000, false)?;
+
+    client.compare_golden(
+        "tests/goldens/settings-phone.png",
+        Some(".artifacts/diffs/settings-phone.png"),
+        GoldenOptions {
+            channel_tolerance: 2,
+            max_changed_percent: 0.2,
+        },
+    )?;
+    Ok(())
+}
+```
+
+The app must be running with LiveTest enabled, and `control_port` must point to
+its test-control port. Use semantic identifiers to get to the screen you want
+to compare. `compare_golden` returns an error when the changed-pixel budget is
+exceeded, so a second threshold assertion is unnecessary.
+
+The `0.2` budget means 0.2 percent of pixels, not 20 percent. Choose it for the
+actual rendering environment, review the diff when it fails, and update the
+baseline only after deciding the visual change is intended. Fix theme, locale,
+font availability, scale, and content for the capture; idle by itself does not
+freeze a continuously animated screen.

@@ -1,0 +1,92 @@
+---
+title: Storage treemap
+sidebar_label: Storage treemap
+description: Fission Charts reference for Storage treemap.
+---
+
+# Storage treemap
+
+![Storage treemap screenshot](/img/charts/treemap-storage.png)
+
+A storage treemap puts the largest consumers of space in view first. Nesting preserves which class or folder owns the data, so an operator can relate a large rectangle to a meaningful part of the system. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example uses logical stored size in GiB. Physical disk allocation, compressed bytes and logical file sizes are different measures. Choose one before aggregating or the total will not describe a consistent quantity.
+
+## Data model
+
+Map the storage aggregate to nested TreemapNode records. Parent values should agree with their children. If the source counts shared data or hard links, define whether that storage is counted once or once per logical owner.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `TreemapSeries::data` | `Vec<TreemapNode>` | Supplies the root nodes and their nested children. |
+| `TreemapNode::children` | `Vec<TreemapNode>` | Describes the next level of the hierarchy. |
+| `TreemapNode::value` | `f32` | Carries the node's numeric measure. |
+| `Chart::series` | `Vec<Series>` | Adds this hierarchy without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, TreemapSeries, TreemapNode};
+
+let nodes = vec![TreemapNode {
+    name: "Application data".into(),
+    value: 120.0,
+    children: vec![
+        TreemapNode {
+            name: "Documents".into(),
+            value: 85.0,
+            children: vec![],
+        },
+        TreemapNode {
+            name: "Images".into(),
+            value: 35.0,
+            children: vec![],
+        },
+    ],
+}];
+
+let chart = Chart::new()
+    .title("Stored data by class (GiB)")
+    .series(vec![TreemapSeries::new("Storage (GiB)")
+        .data(nodes)
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The parent supplies the prepared hierarchy. Keep loading, aggregation and any errors outside this presentation component.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, TreemapSeries, TreemapNode};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub StorageTreemapChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<TreemapNode>,
+        }
+    }
+    view(hierarchy, _state, _cx) =>
+        Chart(
+            title: Some(hierarchy.chart_title.clone()),
+            series: vec![TreemapSeries::new(&hierarchy.series_label)
+                .data(hierarchy.nodes.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check empty categories and shared data so the total does not double-count storage. Measure or fetch sizes before rendering; a component build must not block on a filesystem scan.
+
+Tags: `treemap`, `storage`.
+
+[Hierarchy and flow family overview](./overview)

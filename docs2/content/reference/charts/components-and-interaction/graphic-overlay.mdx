@@ -1,0 +1,48 @@
+---
+title: Graphic overlay
+sidebar_label: Graphic overlay
+description: Keep plot-relative graphics distinct from data annotations and accessible explanatory content.
+---
+
+# Graphic overlay
+
+![Graphic overlay screenshot](/img/charts/graphic-overlay.png)
+
+Chart graphics add typed rectangles, circles, lines and text over the plot. Their coordinates and dimensions are fractions of plot size, so they are useful for presentation overlays rather than automatically tracking a particular data value.
+
+For a provisional queue report, the [graphic callout](./component-graphic-callout) defines `QualifiedQueueReport`. Put it in `widgets/qualified_queue_report.rs`:
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use crate::widgets::qualified_queue_report::QualifiedQueueReport;
+
+fission_component! {
+    pub ProvisionalQueueOverview<()> {
+        props {
+            title: String,
+            jobs_label: String,
+            note: String,
+            note_colour: Color,
+            intervals: Vec<String>,
+            waiting_jobs: Vec<f32>,
+        }
+    }
+    view(overview, _state, _cx) => QualifiedQueueReport {
+        title: overview.title.clone(),
+        jobs_label: overview.jobs_label.clone(),
+        note: overview.note.clone(),
+        note_colour: overview.note_colour,
+        intervals: overview.intervals.clone(),
+        waiting_jobs: overview.waiting_jobs.clone(),
+    }
+}
+```
+
+The component supplies explicit text-graphic bounds and repeats the qualification in an ordinary `Text` widget. The actual chart field is `graphics: Vec<ChartGraphic>`, not a single graphic field.
+
+Supply translated explanations and design-system colours. Do not pass pixel dimensions into the fraction-based rendering path or expect the text constructor's defaults to provide responsive layout.
+
+Use `MarkPoint`, `MarkLine` or `MarkArea` for data-coordinate annotations. Test resizing, long translations and overlap with observations; custom-painted notes must not be the only accessible explanation. The gallery screenshot is illustrative.
+
+[Components and interaction family overview](./overview)

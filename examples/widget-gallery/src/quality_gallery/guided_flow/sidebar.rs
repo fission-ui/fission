@@ -3,7 +3,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) GuidedSidebar<()> {}
-    |_sidebar, _state, _cx| {} => Container(Column(
+    view(_sidebar, _state, _cx) {} => Container(Column(
             gap: 12.0_f32,
             align_items: fission::op::AlignItems::Center,
             children: [
@@ -37,7 +37,7 @@ fission_component! {
 
 fission_component! {
     pub(super) GuidedNavIcon<()> { destination: NavDestination, active: bool }
-    |item, _state, _cx| {
+    view(item, _state, _cx) {
         let source = item.destination.icon();
     } => Container(
             Icon::svg(source)

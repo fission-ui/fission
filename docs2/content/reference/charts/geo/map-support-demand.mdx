@@ -1,0 +1,32 @@
+---
+title: Support demand map
+sidebar_label: Support demand map
+description: Choose support workload rather than geography as the staffing authority.
+---
+
+# Support demand map
+
+![Support demand map screenshot](/img/charts/map-support-demand.png)
+
+A regional support map can show where work originates. It cannot establish staffing needs from geography alone: request complexity, service hours and existing backlog also affect the work.
+
+For the simplest view, use open request totals from [region value joins](../geo-and-route/map-region-values) with the [choropleth component](../geographic-and-route/map-choropleth). If comparing service pressure across differently sized customer populations, project a rate instead:
+
+```rust
+pub fn requests_per_thousand_accounts(
+    open_requests: u32,
+    active_accounts: u32,
+) -> Option<f32> {
+    (active_accounts > 0).then(||
+        1000.0 * open_requests as f32 / active_accounts as f32
+    )
+}
+```
+
+Supply the chosen measure to `RegionMeasure`, keeping exact counts and account totals in the data model. Translate captions to identify whether the map shows totals or rates and keep the reporting window explicit. A missing account estimate is not zero pressure.
+
+Join stable region IDs to supplied geometry and keep a consistent colour scale across comparisons. Provide a ranked queue/workload list for actual allocation decisions; a large region does not necessarily need more staff.
+
+Test absent populations, changing territory assignment and a refresh failure. The gallery fixture does not establish a workforce plan or a live support integration.
+
+[Geo family overview](./overview)

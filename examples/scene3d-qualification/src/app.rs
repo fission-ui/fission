@@ -130,7 +130,7 @@ fn pick_viewport(state: &mut QualificationState, ctx: &mut ReducerContext<Qualif
 
 fission_component! {
     pub QualificationApp<QualificationState>
-    |_app, state, cx| {
+    view(_app, state, cx) {
         let tick = with_reducer!(cx.build, SimulateFrame, simulate_frame);
         let forward = with_reducer!(cx.build, MoveForward, move_forward);
         let back = with_reducer!(cx.build, MoveBack, move_back);

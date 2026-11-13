@@ -7,7 +7,7 @@ use fission::prelude::*;
 const COMPACT_BREAKPOINT: f32 = 760.0;
 fission_component! {
     pub EvidencePanel<FieldInspectorState> {}
-    |_panel, _state, cx| {} =>
+    view(_panel, _state, cx) {} =>
         PanelCard(
             Column(
                 gap: cx.view.env().theme.tokens.spacing.m,

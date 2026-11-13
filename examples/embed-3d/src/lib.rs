@@ -8,7 +8,7 @@ impl GlobalState for Scene3DEmbedState {}
 
 fission_component! {
     pub Scene3DEmbedApp<Scene3DEmbedState>
-    |_app, _state, cx| {
+    view(_app, _state, cx) {
         let colours = &cx.view.env().theme.tokens.colors;
         let scene = Scene3D::new()
             .width(480.0)

@@ -1,0 +1,67 @@
+---
+title: Sales target track
+sidebar_label: Sales target track
+description: Show bounded target completion while keeping actual sales and over-target results explicit.
+---
+
+# Sales target track
+
+![Sales target track screenshot](/img/charts/bar-sales-target-track.png)
+
+A target track answers how much of a target has been completed. It is not the same as a comparison of raw sales: two teams with different targets can both be halfway there whilst contributing quite different amounts.
+
+Use percentages for the track and retain the actual sales and targets in the report. Completion reaches one hundred percent; sales do not have to stop there.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct SalesTargetProgress {
+    pub label: String,
+    pub achieved_percent: f32,
+}
+
+fission_component! {
+    pub SalesTargetTracks<()> {
+        props {
+            title: String,
+            completion_label: String,
+            summary: TextContent,
+            teams: Vec<SalesTargetProgress>,
+            track_colour: Color,
+        }
+    }
+    view(track, _state, _cx) {
+        let labels = track.teams.iter().map(|team| team.label.as_str()).collect();
+        let completed = track.teams.iter()
+            .map(|team| team.achieved_percent.min(100.0)).collect();
+    } => Column(children: [
+        Text(track.summary.clone()),
+        Chart(
+            title: Some(track.title.clone()),
+            x_axis: Some(Axis::value().min(0.0).max(100.0)),
+            y_axis: Some(Axis::category(labels)),
+            series: vec![Series::Bar(
+                BarSeries::new(&track.completion_label)
+                    .horizontal()
+                    .background(track.track_colour)
+                    .data(completed),
+            )],
+        ),
+    ])
+}
+```
+
+The parent provides a theme-derived track colour and translated labels. Validate finite, non-negative percentages calculated from positive targets. A missing or zero target needs an unavailable state rather than division by zero.
+
+## Capping the track is deliberate
+
+The background fills the numeric plot range, so fixing that range at 0–100 makes it a target track. The projection caps only the completion geometry. Keep the actual uncapped percentage, sales amount and target in the summary or companion value list, including explicit over-target results.
+
+If comparing the amount of overperformance is the main question, use grouped actual/target bars instead. Test zero, partial, complete and over-target results; identical full tracks must not imply identical sales. The gallery screenshot uses a separate fixture.
+
+[Bar family overview](./overview)

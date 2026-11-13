@@ -1,0 +1,79 @@
+---
+title: Grouped tooltip
+sidebar_label: Grouped tooltip
+description: Fission Charts reference for Grouped tooltip.
+---
+
+# Grouped tooltip
+
+![Grouped tooltip screenshot](/img/charts/interaction-tooltip-grouped.png)
+
+A grouped tooltip gives several related measures at one reporting position. For support tickets, opened and resolved counts need to be read together before a user can judge how a day's work changed. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example uses grouped bars and an axis tooltip, so a day is the comparison unit. Counts of opened and resolved tickets are different events; their difference alone does not account for re-openings or transfers.
+
+## Data model
+
+Supply two vectors aligned to the same weekday labels. Use ChartTooltipTrigger::Axis to inspect the group together rather than configuring two independent item tooltips.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `ChartInteraction::tooltips` | `ChartTooltipTrigger` | Chooses item-level or common-axis feedback. |
+| `ChartInteraction::keyboard_focus` | `bool` | Enables focusable chart navigation. |
+| `Chart::interaction` | `ChartInteraction` | Installs the configured behaviour. |
+
+## Authoring from a Fission component
+
+The component receives prepared counts as props. There is no request or state mutation during a build.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{
+    Axis, BarSeries, Chart, ChartInteraction, ChartTooltipTrigger, Legend,
+};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub GroupedTooltipChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            comparison_series_label: String,
+            category_labels: Vec<String>,
+            opened: Vec<f32>,
+            resolved: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                report.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            legend: Some(Legend::top_right()),
+            interaction: ChartInteraction::tooltips(ChartTooltipTrigger::Axis)
+                .keyboard_focus(true),
+            series: vec![
+                BarSeries::new(&report.series_label)
+                    .data(report.opened.clone())
+                    .into(),
+                BarSeries::new(&report.comparison_series_label)
+                    .data(report.resolved.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check a day with opened but no resolved tickets and ensure zeros remain visible as known values. Verify that the tooltip labels cannot be confused when colours are difficult to distinguish.
+
+Tags: `tooltip`, `grouped`.
+
+[Interaction family overview](./overview)

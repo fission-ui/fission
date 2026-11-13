@@ -1,0 +1,69 @@
+---
+title: Monitoring annotation
+sidebar_label: Monitoring annotation
+description: Fission Charts reference for Monitoring annotation.
+---
+
+# Monitoring annotation
+
+![Monitoring annotation screenshot](/img/charts/monitoring-annotation.png)
+
+An operational metric often needs context which is not another measurement. A collection change, maintenance period or deployment note can explain what the reader should check before comparing the values. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Keep the note separate from the conclusion. A deployment followed by higher response times establishes an order of events, not proof of causation. This example places a short note inside the plot; an essential incident explanation should also remain available outside it.
+
+## Data model
+
+`ChartGraphic::text` adds an annotation using plot-relative coordinates. Its bounds need explicit fractional width and height, as shown below. The note does not attach itself to a timestamp or follow a sample when the data window changes. Use a `MarkPoint` when a particular observation must carry the annotation.
+
+## Authoring from a Fission component
+
+The parent supplies response times and matching ordered reporting labels, plus a resolved note. Collection and incident lookup belong in the parent's effect workflow, not in chart construction.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, ChartGraphic, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub MonitoringAnnotationChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            response_ms: Vec<f32>,
+            note: String,
+        }
+    }
+    view(report, _state, cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+        let colors = &cx.view.env().theme.tokens.colors;
+        let note = ChartGraphic {
+            width: 0.60,
+            height: 0.12,
+            ..ChartGraphic::text(0.05, 0.05, report.note.clone(), colors.text_primary)
+        };
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            graphics: vec![note],
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.response_ms.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check long notes at narrow widths and after changing the visible reporting range. Ensure the note does not cover the values needed to understand the incident. Keep the full text and relevant time outside the chart for readers who cannot use the visual annotation.
+
+Tags: `monitoring`, `annotation`.
+
+[Monitoring family overview](./overview)

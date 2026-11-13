@@ -1,0 +1,70 @@
+---
+title: DragTarget
+description: Accept a drop without also taking on full drag-over surface behavior.
+slug: /widgets/drag-target
+---
+# DragTarget
+
+`DragTarget` wraps a child and dispatches an action when a drop completes.
+Use it when you do not need separate drag-enter or drag-leave feedback. For a
+surface that highlights while something is dragged over it, use
+[`Dropzone`](/reference/widgets/dropzone).
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub BoardColumnDropTarget<()> {
+        props {
+            column_id: String,
+            accept_card: ActionEnvelope,
+        }
+    }
+
+    view(target, _state, cx) =>
+        DragTarget(
+            id: WidgetId::explicit(&format!("board.column.{}", target.column_id)),
+            semantics_identifier: Some(format!("board.column.{}", target.column_id)),
+            child: Text(cx.tr("board.drop_to_move")),
+            hover_child: Text(cx.tr("board.release_to_move")),
+            on_drop: target.accept_card.clone(),
+        )
+}
+```
+
+The parent binds `accept_card` with this column's durable id. Its reducer reads
+`cx.input.as_internal_drop()`, decodes UTF-8 fallibly, confirms that the card and
+column still exist and the move is allowed, then changes the authoritative board.
+Invalid bytes or a removed card must not panic or create a phantom pending move.
+
+The dropped payload travels through `ctx.input`, not through the action type itself. That keeps the drag payload explicit and lets the reducer decide how to decode it.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable identity for the drop target. | Use explicit IDs for repeated or dynamic targets. |
+| `semantics_identifier` | `Option<String>` | Stable semantic/test identifier. | Lets tests target this drop surface without coordinates. |
+| `child` | `Widget` | The visible drop target surface. | Required. |
+| `hover_child` | `Option<Widget>` | Alternate surface while this target is hovered by a drag. | Defaults to `None`, so `child` remains visible. |
+| `on_drop` | `Option<ActionEnvelope>` | Action dispatched when the runtime delivers a drop to this target. | Defaults to `None`. Read payloads from `ReducerContext::input`. |
+
+## How drop data reaches your reducer
+
+Internal drags started by [`Draggable`](/reference/widgets/draggable) arrive as opaque bytes that you read with `ctx.input.as_internal_drop()`. External file drops can arrive as file paths, which you read with `ctx.input.as_drop_paths()`. In both cases the action itself is just the trigger; the extra drop data lives alongside it in `ActionInput`.
+
+## Specific advice
+
+Keep the drag payload small and stable. A database id, path, or serialized enum is usually enough. Do not serialize half your app state into the payload just because it is available.
+
+## Production checklist
+
+- Reject malformed or stale payloads and unauthorised moves in the reducer.
+- Test an interrupted drag and a source removed during dragging.
+- Supply a keyboard-accessible move action as an alternative to pointer dragging.
+
+## Related
+
+[`Draggable`](/reference/widgets/draggable), [`Dropzone`](/reference/widgets/dropzone), [`GestureDetector`](/reference/widgets/gesture-detector), and [`Overlay`](/reference/widgets/overlay).

@@ -1,0 +1,49 @@
+---
+title: Flow dataset sankey
+sidebar_label: Flow dataset sankey
+description: Project explicit node relationships into the current unweighted Sankey layout.
+---
+
+# Flow dataset sankey
+
+![Flow dataset sankey screenshot](/img/charts/dataset-flow-sankey.png)
+
+A quantitative flow report needs quantities on its edges. The current `GraphEdge` has only source and target IDs, and Sankey ribbons have fixed width. It cannot show weighted flow volumes from a table.
+
+Use it only for a simple relationship overview, with that limitation stated clearly.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GraphNode, SankeySeries, Series};
+use fission::charts::series::graph::GraphEdge;
+
+fission_component! {
+    pub EntryExitRelationships<()> {
+        props {
+            title: String,
+            relationship_label: String,
+            explanation: TextContent,
+            nodes: Vec<GraphNode>,
+            links: Vec<GraphEdge>,
+        }
+    }
+    view(flow, _state, _cx) => Column(children: [
+        Text(flow.explanation.clone()),
+        Chart(
+            title: Some(flow.title.clone()),
+            series: vec![Series::Sankey(
+                SankeySeries::new(&flow.relationship_label)
+                    .nodes(flow.nodes.clone()).edges(flow.links.clone()),
+            )],
+        ),
+    ])
+}
+```
+
+Supply stable unique node IDs and validate every endpoint. Translate node names and the explanation; putting quantities in names does not change ribbon width.
+
+The layout puts source-only nodes in one column and others in another. It is not a general multi-stage flow-conserving Sankey. `Chart.dataset` does not add a missing weighted-edge contract.
+
+Test disconnected and dangling records, and provide relationships and counts in accessible text or a table. The screenshot illustrates the renderer, not support for quantitative flow analysis.
+
+[Dataset family overview](./overview)

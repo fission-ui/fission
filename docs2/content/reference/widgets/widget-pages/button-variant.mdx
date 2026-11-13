@@ -1,0 +1,98 @@
+---
+title: ButtonVariant
+description: Choose the visual emphasis level for a Button.
+slug: /widgets/button-variant
+---
+# ButtonVariant
+
+`ButtonVariant` is the visual emphasis setting for [`Button`](/reference/widgets/button).
+
+Use it to distinguish the main action from secondary or low-emphasis actions.
+The selected variant changes the presentation, not the action itself.
+
+## Example
+
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub DocumentActions<()> {
+        props {
+            save: ActionEnvelope,
+            preview: ActionEnvelope,
+            delete: ActionEnvelope,
+        }
+    }
+    view(actions, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Wrap(
+        spacing: tokens.spacing.s,
+        run_spacing: tokens.spacing.s,
+        children: [
+            Button(
+                variant: ButtonVariant::Primary,
+                child: Text(cx.tr("document.save")),
+                on_press: actions.save.clone(),
+            ),
+            Button(
+                variant: ButtonVariant::SecondaryGray,
+                child: Text(cx.tr("document.preview")),
+                on_press: actions.preview.clone(),
+            ),
+            Button(
+                variant: ButtonVariant::Destructive,
+                child: Text(cx.tr("document.delete")),
+                on_press: actions.delete.clone(),
+            ),
+        ],
+    )
+}
+```
+
+The parent supplies already bound actions because this reusable group does not
+own persistence or deletion policy. All three buttons use the same runtime
+action path. The variant changes visual hierarchy, not how the action is
+dispatched. A destructive colour does not add a confirmation step; the app
+must implement that policy where required.
+
+## Choice table
+
+| Choice | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `Filled` / `Primary` | `ButtonVariant` | Primary action hierarchy. | `Filled` is the default compatibility name; both resolve the design system's primary recipe. |
+| `Outline` / `SecondaryGray` | `ButtonVariant` | Neutral secondary hierarchy. | Use for an alternative that should remain clearly actionable without competing with the primary action. |
+| `Ghost` / `TertiaryGray` | `ButtonVariant` | Neutral tertiary hierarchy. | Use for toolbars and low-emphasis utility actions. |
+| `SecondaryColor` | `ButtonVariant` | Brand-colored secondary hierarchy. | Keeps brand emphasis while remaining subordinate to `Primary`. |
+| `TertiaryColor` | `ButtonVariant` | Brand-colored tertiary hierarchy. | Appropriate for a quiet action that still benefits from brand color. |
+| `LinkColor` | `ButtonVariant` | Brand-colored link hierarchy. | Use only when an action should visually read as a link-like control. |
+| `LinkGray` | `ButtonVariant` | Neutral link hierarchy. | Quietest link-like action treatment. |
+| `Destructive` | `ButtonVariant` | Destructive action hierarchy. | Reserve for actions with harmful or difficult-to-reverse consequences. |
+
+## How to choose
+
+Use `Primary` for the action you most want the user to notice right now. Use a
+secondary hierarchy when the action is important but not dominant. Use a
+tertiary hierarchy when the action should stay available without pulling focus
+away from the main task. The `Filled`, `Outline`, and `Ghost` names remain useful
+shorthands for the primary, neutral-secondary, and neutral-tertiary choices.
+
+Do not treat variants as random styling choices. If every action on a screen is filled, nothing feels primary. If every action is ghost, important flows can disappear into the interface.
+
+## Specific advice
+
+Keep the meaning of each variant stable across your product. If `Filled` means "commit the main action" on one screen but "tiny utility action" on another, users have to relearn the hierarchy every time.
+
+## Check the button in context
+
+Make the action hierarchy visible without making every button compete for
+attention.
+
+- Check the complete action group rather than a primary button in isolation;
+  several primary treatments defeat the intended hierarchy.
+- Verify destructive, disabled, focus and hover treatments in both theme modes.
+- Keep the semantic label explicit when the action has no visible text; a
+  colour or hierarchy variant is not an accessible name.
+
+## Related
+
+[`Button`](/reference/widgets/button), [`ButtonContentAlign`](/reference/widgets/button-content-align), [`MenuButton`](/reference/widgets/menu-button), and [`SegmentedControl`](/reference/widgets/segmented-control).

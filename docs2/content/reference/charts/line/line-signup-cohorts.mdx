@@ -1,0 +1,67 @@
+---
+title: Signup cohort comparison
+sidebar_label: Signup cohort comparison
+description: Fission Charts reference for Signup cohort comparison.
+---
+
+# Signup cohort comparison
+
+![Signup cohort comparison screenshot](/img/charts/line-signup-cohorts.png)
+
+Cohort comparison aligns people by how long they have been using the app. That is different from comparing all users on the same calendar day: each cohort reaches its seventh day on different dates. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example compares daily return percentages for September and October signup cohorts. Each cohort keeps its own original denominator and the same return definition. Different cohort sizes should not silently turn the chart into a comparison of raw user counts.
+
+## Data model
+
+Pass percentages aligned to day-since-signup labels, not calendar labels. Prepare both cohorts with a shared age window that has actually elapsed. The component should not fill unobserved future days with zero and make a newer cohort appear worse.
+
+## Authoring from a Fission component
+
+Prepare the source aggregate before building the chart. The component receives labels and values as props, with no asynchronous work hidden in the view.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, Legend, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub SignupCohortComparisonChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            comparison_series_label: String,
+            labels: Vec<String>,
+            september_cohort: Vec<f32>,
+            october_cohort: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value().min(0.0).max(100.0)),
+            legend: Some(Legend::top_right()),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.september_cohort.clone())
+                    .into(),
+                LineSeries::new(&report.comparison_series_label)
+                    .data(report.october_cohort.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check denominator changes, deleted accounts under the product's reporting policy and an incomplete newer cohort. Show cohort sizes and exact return values alongside the visual when interpreting small differences.
+
+Tags: `line`, `comparison`.
+
+[Line family overview](./overview)

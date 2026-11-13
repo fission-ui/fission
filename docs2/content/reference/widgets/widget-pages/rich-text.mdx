@@ -1,0 +1,103 @@
+---
+title: RichText
+description: Render one text block that contains multiple styles, inline annotations, or inline widgets.
+slug: /widgets/rich-text
+---
+# RichText
+
+`RichText` handles one text block that needs mixed styles, inline emphasis,
+or inline widgets. If the whole block shares one style, use
+[`Text`](/reference/widgets/text).
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub SearchExcerpt<()> {
+        props {
+            before_match: String,
+            matched_text: String,
+            after_match: String,
+        }
+    }
+
+    view(excerpt, _state, cx) {
+        let accent = cx.view.env().theme.tokens.colors.primary;
+    } =>
+        RichText(vec![
+            RichTextRun::new(excerpt.before_match.clone()),
+            RichTextRun::new(excerpt.matched_text.clone())
+                .weight(700)
+                .color(accent),
+            RichTextRun::new(excerpt.after_match.clone()),
+        ])
+}
+```
+
+The three fragments are document content supplied by the search model, not
+three translated UI labels forced into English sentence order. The parent
+splits on valid text boundaries; all three runs remain one paragraph so
+wrapping and selection follow the text rather than a row of separate widgets.
+
+The matched text has weight as well as colour, so emphasis does not depend
+on distinguishing the accent hue.
+
+## Content table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `runs` | `Vec<RichTextRun>` | The styled runs that make up the text block. | `RichText::new(...)` fills this for you. |
+| `inline_widgets` | `Vec<InlineWidgetSpan>` | Inline widgets embedded in the text flow. | Usually produced through `RichText::from_spans(...)`, not built manually. |
+| `annotations` | `Vec<RichTextAnnotation>` | Advanced semantic and interaction annotations over byte ranges. | Usually generated from span builders rather than authored by hand. |
+| `semantics` | `Option<Semantics>` | Optional wrapper semantics for the whole block. | Defaults to `None`. |
+
+## Layout and typography table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `width` | `Option<f32>` | Fixed width. | Defaults to `None`. |
+| `height` | `Option<f32>` | Fixed height. | Defaults to `None`. |
+| `min_width` | `Option<f32>` | Minimum width. | Defaults to `None`. |
+| `max_width` | `Option<f32>` | Maximum width. | Defaults to `None`. |
+| `min_height` | `Option<f32>` | Minimum height. | Defaults to `None`. |
+| `max_height` | `Option<f32>` | Maximum height. | Defaults to `None`. |
+| `wrap` | `bool` | Whether lines may wrap. | `RichText::new(...)` and `from_spans(...)` set this to `true`. Raw `Default` construction does not. |
+| `text_align` | `IrTextAlign` | Paragraph alignment. | Defaults to the intermediate representation (IR) default. |
+| `text_direction` | `IrTextDirection` | Paragraph direction. | Defaults to the IR default. |
+| `text_width_basis` | `IrTextWidthBasis` | Width calculation policy. | Defaults to the IR default. |
+| `max_lines` | `Option<usize>` | Maximum number of visible lines. | Defaults to `None`. |
+| `overflow` | `IrTextOverflow` | Overflow behavior for clipped text. | Defaults to visible overflow. |
+| `strut_line_height` | `Option<f32>` | Paragraph strut line height. | Defaults to `None`. |
+| `text_height_behavior` | `IrTextHeightBehavior` | Paragraph height trimming behavior. | Defaults to the IR default. |
+| `selection_range` | `Option<(usize, usize)>` | Highlighted text selection range. | Defaults to `None`. |
+| `selection_color` | `Option<IrColor>` | Selection highlight color override. | Defaults to `None`. |
+| `selection_text_color` | `Option<IrColor>` | Selected text color override. | Defaults to `None`. |
+| `selectable` | `bool` | Enables native pointer/keyboard selection for the whole rich-text block. | Defaults to `false`; provide a stable `id` when selection should survive rebuilds. |
+| `context_menu` | `TextContextMenuConfig` | Configures the built-in selected-text menu. | Defaults to Copy and Select All for read-only text. |
+| `flex_grow` | `f32` | Extra width or height the text block may absorb in flex layout. | Defaults to `0.0`. |
+| `flex_shrink` | `f32` | How much the block may shrink in tight layouts. | Defaults to `0.0`. |
+
+## Practical model
+
+There are two common ways to build rich text. For simple styling changes, `RichText::new(vec![...runs...])` is enough. For more advanced cases such as inline widgets, hoverable spans, or nested semantics, the span-based constructors are the better fit because they generate the annotations and inline-widget bookkeeping for you.
+
+In both cases, the widget stays declarative. Use `.selectable(true)` when the rendered rich text should behave like selectable read-only document text with the standard Copy / Select All context menu.
+
+The paragraph is still derived from content and state, not a mutable text object.
+
+## Specific advice
+
+Reach for `RichText` because the content truly needs mixed styling or inline semantics, not because it feels more powerful. When uniform text is enough, `Text` is easier to read and maintain.
+
+## Production checklist
+
+- Check grapheme-safe content splits, long lines, bidi text, and selection.
+- Keep translated sentences whole unless the translation system owns fragment ordering.
+- Verify inline widgets/annotations preserve readable and accessible text.
+
+## Related
+
+[`Text`](/reference/widgets/text), [`RichTextRun`](/reference/widgets/rich-text-run), [`TextRunStyle`](/reference/widgets/text-run-style), and [`TextContent`](/reference/widgets/text-content).

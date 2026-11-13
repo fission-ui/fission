@@ -1,0 +1,45 @@
+---
+title: Quarter timeline
+sidebar_label: Quarter timeline
+description: Switch quarter snapshots through explicit retained navigation.
+---
+
+# Quarter timeline
+
+![Quarter timeline screenshot](/img/charts/dynamic-timeline-quarters.png)
+
+Quarter comparison means selecting a complete report for a particular period. Drawing quarter labels alone does not change the chart's values.
+
+The [snapshot browser](../components-and-interaction/component-timeline-release) supplies real previous/next buttons and retained selection. Put it in `widgets/snapshot_browser.rs`:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::snapshot_browser::{ReportSnapshot, SnapshotBrowser};
+
+fission_component! {
+    pub QuarterlyOrdersBrowser<()> {
+        props {
+            heading: TextContent,
+            previous_label: TextContent,
+            next_label: TextContent,
+            empty_label: TextContent,
+            orders_label: String,
+            quarters: Vec<ReportSnapshot>,
+        }
+    }
+    view(report, _state, _cx) => SnapshotBrowser {
+        heading: report.heading.clone(),
+        previous_label: report.previous_label.clone(),
+        next_label: report.next_label.clone(),
+        empty_label: report.empty_label.clone(),
+        measure_label: report.orders_label.clone(),
+        snapshots: report.quarters.clone(),
+    }
+}
+```
+
+Sort snapshots chronologically and give each translated period caption an unambiguous year. The browser derives the selected title, data and timeline index from the same local value. `ChartTimeline.current_index` is a visual indicator; its play interval does not itself schedule playback or fetch another dataset.
+
+Keep navigation local when it only affects this component. Store the selected quarter in application state instead when routes or other screens share it. Test both ends of the list, no quarters and a shortened report after refresh. Do not interpret different quarter totals as growth without checking comparable period coverage. The gallery screenshot uses separate snapshots.
+
+[Dataset family overview](./overview)

@@ -8,7 +8,7 @@ use crate::model::{
 use fission::prelude::*;
 fission_component! {
     pub VerifyPanel<FieldInspectorState> {}
-    |_panel, state, cx| {
+    view(_panel, state, cx) {
         let order = state.selected_order();
         let scan_barcode = with_reducer!(cx.build, VerifyWithBarcode, on_verify_with_barcode);
         let scan_nfc = with_reducer!(cx.build, VerifyWithNfc, on_verify_with_nfc);

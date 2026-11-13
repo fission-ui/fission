@@ -1,0 +1,69 @@
+---
+title: Conversion stack area
+sidebar_label: Conversion stack area
+description: Fission Charts reference for Conversion stack area.
+---
+
+# Conversion stack area
+
+![Conversion stack area screenshot](/img/charts/line-conversion-stack.png)
+
+A stacked area can show how several disjoint categories contribute to completed conversions over time. It is valid only when the series really are parts of the same total. The screenshot is from Fission's chart gallery.
+
+## Data model
+
+This example separates completed orders by their primary acquisition channel. Search and email counts can be added because each order has one primary attribution. Funnel stages such as visited, added to basket and purchased overlap; stacking those stage counts would double-count people rather than show total conversions.
+
+LineSeries::stack gives both series the same stack key. area_style supplies the filled area, using theme colours rather than a separate hard-coded palette. Values in each vector align with the same reporting days.
+
+## Authoring from a Fission component
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, Legend, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ConversionStackAreaChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            comparison_series_label: String,
+            category_labels: Vec<String>,
+            search_orders: Vec<f32>,
+            email_orders: Vec<f32>,
+        }
+    }
+    view(report, _state, cx) {
+        let colors = &cx.view.env().theme.tokens.colors;
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                report.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            legend: Some(Legend::top_right()),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.search_orders.clone())
+                    .stack("completed-orders")
+                    .area_style(colors.primary.with_alpha(80))
+                    .into(),
+                LineSeries::new(&report.comparison_series_label)
+                    .data(report.email_orders.clone())
+                    .stack("completed-orders")
+                    .area_style(colors.text_secondary.with_alpha(80))
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check that channel sums reconcile with completed orders and that every series has the same day ordering. Provide named values in a table or tooltip; upper stacked bands do not share a zero baseline, so their individual changes are harder to compare precisely.
+
+Tags: `area`, `stack`.
+
+[Line family overview](./overview)

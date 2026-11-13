@@ -1,0 +1,80 @@
+---
+title: 3D globe status
+sidebar_label: 3D globe status
+description: Show site status on a globe whilst preserving unknown status as a distinct state.
+---
+
+# 3D globe status
+
+![3D globe status screenshot](/img/charts/scene3d-globe-status.png)
+
+An operational map needs more than online and offline. A site whose status could not be checked is unknown, not automatically healthy or unavailable. Keep that state explicit so the presentation cannot turn a failed observation into a misleading conclusion.
+
+A globe helps with geographic context, but its hidden hemisphere prevents it from being a complete status list. Keep site names, status and observation time available outside the scene.
+
+## Compose example
+
+Positions use the unit-sphere convention from [Globe](./globe-basic), including the slight radial offset for markers. The parent supplies validated positions and theme colours with sufficient contrast.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::{Point3D, Primitive3D, Scene3D};
+
+#[derive(Clone, Copy)]
+pub enum SiteStatus { Operational, Unavailable, Unknown }
+
+#[derive(Clone)]
+pub struct SiteMarker {
+    pub position: Point3D,
+    pub status: SiteStatus,
+}
+
+fission_component! {
+    pub SiteStatusGlobe<()> {
+        props {
+            title: TextContent,
+            sites: Vec<SiteMarker>,
+            globe_color: Color,
+            operational_color: Color,
+            unavailable_color: Color,
+            unknown_color: Color,
+        }
+    }
+    view(globe, _state, _cx) {
+        let mut scene = Scene3D::new().height(320.0)
+            .add_primitive(Primitive3D::Sphere {
+                center: Point3D::new(0.0, 0.0, 0.0),
+                radius: 1.0,
+                color: globe.globe_color,
+            });
+        for site in &globe.sites {
+            let color = match site.status {
+                SiteStatus::Operational => globe.operational_color,
+                SiteStatus::Unavailable => globe.unavailable_color,
+                SiteStatus::Unknown => globe.unknown_color,
+            };
+            scene = scene.add_primitive(Primitive3D::Sphere {
+                center: site.position.clone(),
+                radius: 0.06,
+                color,
+            });
+        }
+    } => Column(children: [
+        Text(globe.title.clone()),
+        scene,
+    ])
+}
+```
+
+Enable the `three-d` feature. This is native scene geometry, not a `Chart` series with automatically generated site labels or `ChartInteractionEvent` selection.
+
+## Status is not just a colour
+
+Use a labelled list or table to expose each status and its freshness; colour alone is not an accessible status mechanism. Update the model through effects and reducers rather than requesting status checks while constructing the scene.
+
+Test unknown and stale observations separately from confirmed unavailability. Inspect overlapping and hidden markers in a real rendering. The gallery screenshot is sample geometry rather than a live service-health claim.
+
+Tags: `3d`, `globe`.
+
+[3D and GL family overview](./overview)

@@ -8,7 +8,7 @@ const CONTENT_MAX_WIDTH: f32 = 672.0;
 
 fission_component! {
     pub TextLabApp<TextLabState>
-    |_app, _state, cx| {
+    view(_app, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SafeArea(

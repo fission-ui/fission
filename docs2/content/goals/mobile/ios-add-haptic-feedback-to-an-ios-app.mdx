@@ -1,0 +1,399 @@
+---
+layout: goal
+title: Add haptic feedback to an iOS app
+description: "Complete a task and request an optional haptic cue. An unavailable device response must not undo the completion."
+goal: "Record a user-entered task before requesting optional feedback, whilst keeping the visible confirmation sufficient on its own."
+path: /blog/add-haptic-feedback-to-an-ios-app/
+order: 96
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target ios --project-dir ."
+app: ios-add-haptic-feedback-to-an-ios-app
+outcomes:
+  - Keep task completion in app state and decode the actual haptic response
+  - Show pending feedback without blocking entry of the next task
+  - Distinguish host acceptance from a physical cue somebody can feel
+---
+
+Completing a task and feeling a vibration are two different outcomes. The first changes the app's record; the second helps the person notice the change. If feedback is unavailable or suppressed by the device, the task should remain complete.
+
+Here, the user enters a task they have finished and marks it complete. That gives the example an actual input rather than a pre-filled work order whose only purpose is to trigger a device API. The shared state records the completion before requesting optional feedback. It is session-local task data, not a claim of server persistence.
+
+## Create the project and add the target
+
+Complete [iOS setup](/blog/set-up-rust-ios-development-with-fission/) and [simulator setup](/blog/install-and-select-xcodes-ios-simulator-tools/) first. Use [a physical iPhone](/blog/install-a-fission-app-on-a-physical-iphone/) to judge how the feedback feels.
+
+```sh
+cargo install cargo-fission
+fission init ios-add-haptic-feedback-to-an-ios-app
+cd ios-add-haptic-feedback-to-an-ios-app
+fission add-target ios --project-dir .
+fission add-capability haptics --project-dir .
+cargo add serde_yaml
+```
+
+Keep Fission's generated `src/main.rs`. Replace `src/lib.rs` as well as the screen below, otherwise the normal iOS launch would still use the generated counter. The shared app, state transitions and translations belong under `src/`; native and Web entrypoints only install that app.
+
+<!-- fission:step id="start-screen" -->
+## Complete a task and request optional feedback
+
+The screen starts empty. A whitespace-only task cannot be completed, and another completion is disabled whilst the current feedback request is pending. Editing the next task remains possible. Because there is at most one request in flight, these callbacks do not need a second operation-ID mechanism.
+
+The two completion actions are unit actions. They decode the host result from `cx.input`; no success value is invented in the button handler. Each request binds its own callbacks through `cx.effects.bind`, so neither shell needs a manually assembled callback registry.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+pub mod screen;
+pub mod state;
+
+pub use screen::TaskCompletionScreen;
+pub use state::TaskState;
+```
+</TabItem>
+<TabItem label="src/app/state.rs">
+<!-- fission:file path="src/app/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Feedback {
+    #[default]
+    Idle,
+    Pending,
+    Accepted,
+    Unavailable,
+    InvalidResult,
+}
+
+impl Feedback {
+    pub fn message_key(&self) -> &'static str {
+        match self {
+            Self::Idle => "feedback.optional",
+            Self::Pending => "feedback.pending",
+            Self::Accepted => "feedback.accepted",
+            Self::Unavailable => "feedback.unavailable",
+            Self::InvalidResult => "feedback.invalid",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TaskState {
+    pub draft: String,
+    pub completed: Option<String>,
+    pub feedback: Feedback,
+    pub locale: Locale,
+}
+
+impl Default for TaskState {
+    fn default() -> Self {
+        Self {
+            draft: String::new(),
+            completed: None,
+            feedback: Feedback::Idle,
+            locale: Locale::from("en-US"),
+        }
+    }
+}
+
+impl GlobalState for TaskState {}
+
+pub fn complete_task(state: &mut TaskState, cx: &mut ReducerContext<TaskState>) {
+    if state.feedback == Feedback::Pending {
+        return;
+    }
+    let task = state.draft.trim();
+    if task.is_empty() {
+        return;
+    }
+    state.completed = Some(task.to_owned());
+    state.draft.clear();
+    state.feedback = Feedback::Pending;
+
+    let ok = cx
+        .effects
+        .bind(HapticAccepted, reduce_with!(on_haptic_accepted));
+    let err = cx
+        .effects
+        .bind(HapticUnavailable, reduce_with!(on_haptic_unavailable));
+    cx.effects
+        .haptics()
+        .notification(HapticNotificationRequest {
+            kind: HapticNotificationKind::Success,
+        })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(HapticAccepted)]
+fn on_haptic_accepted(state: &mut TaskState, cx: &mut ReducerContext<TaskState>) {
+    state.feedback = if cx.input.capability_ok(HAPTIC_NOTIFICATION).is_some() {
+        Feedback::Accepted
+    } else {
+        Feedback::InvalidResult
+    };
+}
+
+#[fission_reducer(HapticUnavailable)]
+fn on_haptic_unavailable(state: &mut TaskState, cx: &mut ReducerContext<TaskState>) {
+    state.feedback = if cx.input.capability_error(HAPTIC_NOTIFICATION).is_some() {
+        Feedback::Unavailable
+    } else {
+        Feedback::InvalidResult
+    };
+}
+```
+</TabItem>
+<TabItem label="src/app/screen.rs">
+<!-- fission:file path="src/app/screen.rs" -->
+```rust
+use super::state::{complete_task, Feedback, TaskState};
+use fission::prelude::*;
+
+fission_component! {
+    pub TaskCompletionScreen<TaskState> {}
+    view(_screen, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let pending = state.feedback == Feedback::Pending;
+    } => SafeArea(
+        child: Scroll(
+            child: Container(
+                Column(gap: tokens.spacing.m, children: [
+                    Text(cx.tr("task.title"))
+                        .size(tokens.typography.heading2_size),
+                    Text(cx.tr("task.explanation"))
+                        .color(tokens.colors.text_secondary),
+                    Row(gap: tokens.spacing.s, children: [
+                        Button(
+                            child: Text(cx.tr("language.english")),
+                            key: "english",
+                            on_press: reduce { state.locale = Locale::from("en-US"); },
+                        ),
+                        Button(
+                            child: Text(cx.tr("language.spanish")),
+                            key: "spanish",
+                            on_press: reduce { state.locale = Locale::from("es-ES"); },
+                        ),
+                    ]),
+                    FormControl(
+                        label: Some(cx.tr("task.label")),
+                        required: true,
+                        child: TextInput(
+                            value: state.draft.clone(),
+                            bind(on_input): to(state.draft),
+                            placeholder: Some(TextContent::Key("task.placeholder".into())),
+                            semantics_identifier: Some("task.draft".into()),
+                        ),
+                    ),
+                    Button(
+                        child: Text(cx.tr("task.complete")),
+                        key: "complete-task",
+                        disabled: pending || state.draft.trim().is_empty(),
+                        on_press: reduce { complete_task(state, cx); },
+                    )
+                    .semantics_identifier("task.complete"),
+                    if let Some(task) = &state.completed {
+                        Text(cx.tr("task.completed").replace("{task}", task))
+                    },
+                    if pending {
+                        Spinner(
+                            motion: Some(SpinnerMotion::Default),
+                            label: Some(cx.tr("feedback.pending")),
+                        )
+                    },
+                    Text(cx.tr(state.feedback.message_key())),
+                    Text(cx.tr("task.persistence"))
+                        .color(tokens.colors.text_secondary),
+                ]),
+            )
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface),
+        ),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/i18n.rs">
+<!-- fission:file path="src/i18n.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid task translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+
+pub fn sync_env(state: &crate::app::TaskState, env: &mut Env) {
+    env.locale = state.locale.clone();
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod i18n;
+
+use app::{TaskCompletionScreen, TaskState};
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<TaskState, _>::new(TaskCompletionScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    MobileApp::<TaskState, _>::new(TaskCompletionScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = MobileApp::<TaskState, _>::new(TaskCompletionScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<TaskState, _>::new(TaskCompletionScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod i18n;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<app::TaskState, _>::new(app::TaskCompletionScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+task.title: "Finish a task"
+task.explanation: "Enter a task you have finished. Its completion stays visible even when haptic feedback is unavailable."
+task.label: "Completed task"
+task.placeholder: "For example, send the supplier invoice"
+task.complete: "Mark complete"
+task.completed: "Completed: {task}"
+task.persistence: "Tasks are kept in memory for this session. This example does not save them."
+language.english: "English"
+language.spanish: "Español"
+feedback.optional: "Haptic feedback is an optional confirmation."
+feedback.pending: "Task completed. Waiting for optional haptic feedback…"
+feedback.accepted: "Task completed. The host accepted the haptic request."
+feedback.unavailable: "Task completed. Haptic feedback is unavailable on this host."
+feedback.invalid: "Task completed. The host returned an unexpected feedback result."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+task.title: "Finaliza una tarea"
+task.explanation: "Escribe una tarea que hayas terminado. La confirmación permanece visible aunque la respuesta háptica no esté disponible."
+task.label: "Tarea terminada"
+task.placeholder: "Por ejemplo, enviar la factura al proveedor"
+task.complete: "Marcar como terminada"
+task.completed: "Terminada: {task}"
+task.persistence: "Las tareas se conservan en memoria durante esta sesión. Este ejemplo no las guarda."
+language.english: "Inglés"
+language.spanish: "Español"
+feedback.optional: "La respuesta háptica es una confirmación opcional."
+feedback.pending: "Tarea terminada. Esperando la respuesta háptica opcional…"
+feedback.accepted: "Tarea terminada. El host ha aceptado la solicitud háptica."
+feedback.unavailable: "Tarea terminada. La respuesta háptica no está disponible en este host."
+feedback.invalid: "Tarea terminada. El host ha devuelto un resultado inesperado."
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Enter a task, mark it complete, then switch language. The task text remains your input whilst the interface labels change. A browser may accept vibration or report it unavailable; either result leaves the completed task visible. Reloading clears the session because persistence is outside this example.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Understand the result rather than assuming vibration happened
+
+The reducer records the task synchronously, clears the draft and queues `HAPTIC_NOTIFICATION`. It returns whilst the host performs the operation. The real `Spinner` and status message describe pending feedback without blocking the app.
+
+On iOS, Fission's native haptic provider uses `UINotificationFeedbackGenerator` for this operation. On Web, the normal provider calls the browser's vibration API and reports an unsupported/rejected operation when that API is unavailable. This preview does not install `MemoryHapticHost` or a simulated success provider.
+
+An accepted request establishes that the host accepted the operation, not that a person felt it. Hardware, settings and the environment still affect perception. Haptics are not an authentication prompt, and notification-style haptics do not require asking for notification permission.
+
+If the typed result is absent, the callback reports an unexpected result instead of treating it as success. A host error leaves the task complete with a translated unavailable message. In a persisted task app, request this optional cue after the actual save succeeds; do not use vibration to imply a save that has not happened.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Try the same action with vibration unavailable. The text confirmation must still be sufficient to understand what changed. Browser acceptance does not qualify iPhone hardware feedback.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Verify the native experience separately
+
+Run from the generated project root on macOS:
+
+```sh
+fission doctor ios --project-dir .
+fission devices --project-dir .
+fission run --target ios --project-dir .
+fission test --target ios --project-dir .
+fission build --target ios --project-dir . --release
+```
+
+The run/test paths launch the simulator. They check launch and UI behavior, not the presence or quality of a physical haptic. For an iPhone, follow the [signing and installation tutorial](/blog/install-a-fission-app-on-a-physical-iphone/); packaging a signed IPA is a separate workflow.
+
+Test a blank task, a normal completion, fast repeated presses, editing whilst feedback is pending, unavailable feedback and a language change. Inspect the narrow layout and VoiceOver labels. On a physical phone, confirm that the cue is brief and does not replace the visible completion.
+
+No native build or hardware interaction is established merely by compiling the Web preview. The simulator, iPhone and browser checks provide different evidence.
+
+- [Haptics capability guide](/docs/capabilities/haptics/)
+- [Haptics capability reference](/reference/capabilities/haptics/)
+- [State, handles and providers](/docs/guides/state-handles-and-providers/)
+<!-- /fission:step -->

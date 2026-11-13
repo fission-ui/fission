@@ -12,7 +12,7 @@ const MODAL_WIDTH: f32 = 420.0;
 
 fission_component! {
     pub(super) ModalPreview<AnimationGalleryState> {}
-    |_preview, state, cx| {
+    view(_preview, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let close = cx.bind(ResetTimeline, reduce_with!(reset_timeline));
     } =>

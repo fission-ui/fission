@@ -1,0 +1,368 @@
+---
+layout: goal
+title: Route Android App Links and deep links into Fission
+description: "Map a document URL into a Fission route and reject ambiguous identifiers. Identify the missing Android intent bridge before claiming verified App Links."
+goal: "Implement and test one document-link mapper and Router destination, while making the unfinished Android cold-start and onNewIntent handoff explicit."
+path: /blog/route-android-app-links-and-deep-links-into-fission/
+order: 41
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-route-android-app-links-and-deep-links-into-fission
+outcomes:
+  - "Map canonical custom-scheme and HTTPS links to the same document route"
+  - "Reject lookalike hosts, path escapes and unsupported identifiers"
+  - "Keep URL acceptance separate from document loading and access control"
+  - "Identify the native intent forwarding and domain verification still required for Android App Links"
+---
+
+## A URL has to cross two boundaries
+
+An Android App Link first has to reach the application through Android's intent system. Only then can the application turn that external value into a Fission route. Registering a route does not configure Android, and accepting a domain in Rust does not prove the installed app owns that domain.
+
+The current generated Android host does not complete that first boundary: it does not generate an App Links intent filter or forward cold-start and `onNewIntent` URL data into the running Fission application. Consequently, this is an integration outline with a working shared URL-to-route example, not a completed verified Android App Links tutorial. That native handoff remains an upstream requirement.
+
+## Create the shared routing example
+
+Complete [Android SDK/NDK setup](/blog/set-up-rust-android-gui-development-with-fission/), then use [an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [a phone](/blog/run-a-fission-app-on-a-physical-android-phone/).
+
+```sh
+cargo install cargo-fission
+fission init android-route-android-app-links-and-deep-links-into-fission
+cd android-route-android-app-links-and-deep-links-into-fission
+fission add-target android --project-dir .
+cargo add serde_yaml
+```
+
+Keep the generated main entrypoint. The example uses `links.example.com` as a reserved illustrative host, not a domain verified for your app. Replace the host consistently with one you control before implementing a real integration.
+
+<!-- fission:step id="main-flow" -->
+## Use one route mapper for the external value
+
+The mapper deliberately accepts only two canonical forms with a bounded ASCII identifier. It rejects query strings, fragments, escapes and additional path segments rather than pretending to be a general URL parser. If your product needs richer URLs, use an appropriate URL parser and retain explicit origin and identifier validation.
+
+The manual inspector calls that same mapper as the registered deep-link handler. Its button is a contract exerciser, not a forged Android intent. Both paths request normal navigation, and one shell route handler updates the path read by Fission's native `Router`.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Debug)]
+pub struct LinkState { pub current_path: String, pub invalid_link: bool }
+impl Default for LinkState {
+    fn default() -> Self { Self { current_path: "/".into(), invalid_link: false } }
+}
+impl GlobalState for LinkState {}
+
+pub fn valid_document_id(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 64
+        && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
+
+// This is intentionally a small, exact link grammar, not a general URL parser.
+pub fn document_route(url: &str) -> Option<String> {
+    let id = url.strip_prefix("https://links.example.com/documents/")
+        .or_else(|| url.strip_prefix("fission://app/documents/"))?;
+    valid_document_id(id).then(|| format!("/documents/{id}"))
+}
+
+pub fn open_link(state: &mut LinkState, url: &str, cx: &mut ReducerContext<LinkState>) {
+    if let Some(route) = document_route(url) {
+        state.invalid_link = false;
+        cx.effects.navigate(route);
+    } else {
+        state.invalid_link = true;
+    }
+}
+
+pub fn deep_link_received(
+    state: &mut LinkState, action: DeepLinkReceived, cx: &mut ReducerContext<LinkState>,
+) {
+    open_link(state, &action.link.url, cx);
+}
+
+pub fn route_changed(
+    state: &mut LinkState, action: fission::core::action::ShellRouteChanged,
+    _cx: &mut ReducerContext<LinkState>,
+) {
+    state.current_path = action.location.pathname;
+}
+
+pub fn link_config() -> DeepLinkConfig {
+    DeepLinkConfig::new().scheme("fission").domain("links.example.com")
+        .path_prefix("/documents/")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn canonical_links_share_one_route_and_reject_ambiguous_identifiers() {
+        assert_eq!(
+            document_route("fission://app/documents/WO-1048"),
+            document_route("https://links.example.com/documents/WO-1048"),
+        );
+        for url in [
+            "https://links.example.com.evil.test/documents/WO-1048",
+            "https://links.example.com@evil.test/documents/WO-1048",
+            "https://links.example.com/documents/../private",
+            "https://links.example.com/documents/%2fprivate",
+            "https://links.example.com/documents/WO-1048?admin=true",
+            "https://links.example.com/documents/",
+        ] { assert!(document_route(url).is_none()); }
+    }
+}
+
+```
+</TabItem>
+<TabItem label="src/inspector.rs">
+<!-- fission:file path="src/inspector.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::{open_link, LinkState};
+
+fission_component! {
+    pub LinkInspector<LinkState> {
+        state { url: String = String::new() }
+    }
+    view(inspector, state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
+    SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("links.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("links.scope")),
+            TextInput(
+                label: Some(cx.tr("links.url").into()),
+                helper_text: Some(cx.tr("links.grammar").into()),
+                bind: inspector.url, semantics_identifier: "links.url".to_owned(),
+            ),
+            Button(
+                child: Text(cx.tr("links.inspect")), key: "links.inspect",
+                disabled: inspector.url.is_empty(),
+                on_press: reduce { open_link(state, &inspector.url, cx); },
+            ),
+            if state.invalid_link { Text(cx.tr("links.invalid")).color(tokens.colors.error) },
+        ])
+    ).padding_all(tokens.spacing.l)))
+}
+```
+</TabItem>
+<TabItem label="src/destination.rs">
+<!-- fission:file path="src/destination.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::{valid_document_id, LinkState};
+
+fission_component! {
+    pub DocumentDestination<LinkState> {}
+    view(_destination, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let params = fission::build::read::<RouteParams>();
+        let id = params.get("id").filter(|value| valid_document_id(value));
+    } =>
+    SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            if let Some(id) = id {
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("links.destination")).size(tokens.typography.heading2_size),
+                    Text(id.clone()),
+                    Text(cx.tr("links.not_loaded")),
+                ])
+            } else {
+                Text(cx.tr("links.invalid"))
+            },
+            Button(
+                child: Text(cx.tr("links.back")), key: "links.back",
+                on_press: reduce { cx.effects.navigate("/"); },
+            ),
+        ])
+    ).padding_all(tokens.spacing.l)))
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{destination::DocumentDestination, inspector::LinkInspector, state::LinkState};
+
+fission_component! {
+    pub DocumentLinksApp<LinkState> {}
+    view(_app, state, cx) {
+        let missing = cx.tr("links.invalid");
+        let router = Router::<LinkState>::new()
+            .with_path(state.current_path.clone())
+            .route_component("/", LinkInspector::new())
+            .route_component("/documents/:id", DocumentDestination)
+            .not_found(move || Text::new(missing.clone()));
+    } =>
+    router
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+links.title: "Inspect a document link"
+links.scope: "This screen tests URL mapping and Fission routing. It does not verify an Android App Link, receive an Android intent or load a private document."
+links.url: "Document URL"
+links.grammar: "Use https://links.example.com/documents/ID or fission://app/documents/ID. ID accepts letters, digits, hyphen and underscore."
+links.inspect: "Open the mapped route"
+links.invalid: "That link or route is not supported. Check the exact host, path and document ID."
+links.destination: "Accepted document identifier"
+links.not_loaded: "No document service is connected. A valid identifier does not prove this document exists or that you can access it."
+links.back: "Back to link inspection"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+links.title: "Inspeccionar un enlace de documento"
+links.scope: "Esta pantalla prueba la conversión de URL y las rutas de Fission. No verifica App Links, recibe intents de Android ni carga documentos privados."
+links.url: "URL del documento"
+links.grammar: "Usa https://links.example.com/documents/ID o fission://app/documents/ID. El ID admite letras, números, guion y guion bajo."
+links.inspect: "Abrir la ruta correspondiente"
+links.invalid: "El enlace o la ruta no son compatibles. Comprueba el dominio, la ruta y el ID exactos."
+links.destination: "Identificador de documento aceptado"
+links.not_loaded: "No hay un servicio de documentos conectado. Un ID válido no demuestra que el documento exista o que tengas acceso."
+links.back: "Volver a inspeccionar enlaces"
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+pub mod state;
+mod inspector;
+mod destination;
+mod translations;
+
+use app::DocumentLinksApp;
+use state::LinkState;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<LinkState, _>::new(DocumentLinksApp)
+        .with_env(translations::create_env())
+        .with_route_handler(state::route_changed)
+        .with_deep_link_config(state::link_config())
+        .on_deep_link(state::deep_link_received as fn(
+            &mut LinkState, DeepLinkReceived, &mut ReducerContext<LinkState>,
+        ))
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<LinkState, DocumentLinksApp> {
+    let app = MobileApp::<LinkState, _>::new(DocumentLinksApp)
+        .with_env(translations::create_env())
+        .with_route_handler(state::route_changed)
+        .with_deep_link_config(state::link_config())
+        .on_deep_link(state::deep_link_received as fn(
+            &mut LinkState, DeepLinkReceived, &mut ReducerContext<LinkState>,
+        ));
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<LinkState, _>::new(DocumentLinksApp)
+        .with_env(translations::create_env())
+        .with_route_handler(state::route_changed)
+        .with_deep_link_config(state::link_config())
+        .on_deep_link(state::deep_link_received as fn(
+            &mut LinkState, DeepLinkReceived, &mut ReducerContext<LinkState>,
+        ))
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+include!("../src/lib.rs");
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Enter either canonical URL with an identifier you choose. The route must show that exact identifier, not a hard-coded document. A lookalike host, an empty ID or an extra path segment must leave the inspector on an explicit error. No document has been fetched, authenticated or authorised by this exercise.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Complete and qualify the missing Android adapter
+
+Android requires a browsable VIEW intent filter with the intended HTTP(S) host, plus website association for verified links. The website's `/.well-known/assetlinks.json` must name the real application ID and the certificate fingerprint of the installed distribution. A Rust `DeepLinkConfig` is only a runtime filter; it does not write either declaration. Follow [Android's App Links configuration](https://developer.android.com/training/app-links/add-applinks).
+
+The native adapter must read launch-intent data, forward later `onNewIntent` data into the active runtime, and dispatch `DeepLinkReceived` through the registered handler without starting a second application. Passing a constant to `with_startup_deep_link` can test that handler, but cannot supply this OS handoff. Do not edit generated files and call it a durable project configuration.
+
+The existing shell accepts startup links from process arguments or `FISSION_DEEP_LINK_URL`/`FISSION_DEEP_LINKS`. Those are useful controlled inputs for native testing; they are not Android intent delivery. The generated host gap must be resolved before the following OS-level checks can pass.
+
+```sh
+cargo test
+fission doctor android --project-dir .
+adb devices -l
+fission run --target android --device <adb-serial> --project-dir .
+fission test --target android --project-dir .
+fission build --target android --project-dir . --release
+```
+
+Once a real adapter and owned-domain association exist, check domain verification on Android 12 or later with your actual package name:
+
+```sh
+adb shell pm verify-app-links --re-verify <application-id>
+adb shell pm get-app-links <application-id>
+adb shell am start -W -a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d "https://<owned-domain>/documents/<document-id>"
+```
+
+Allow verification to complete before inspecting its result, as described in [Android's verification guide](https://developer.android.com/training/app-links/verify-applinks). Repeat from a stopped app and whilst it is already open, then test a malformed or unsupported link. Compare the route with the manual inspector, but record OS delivery and route parsing as separate results.
+
+An accepted URL is not an access decision. A service-backed document screen must load the record through effects, show pending/not-found/error states, and independently enforce server authentication and authorisation. Use `ProtectedRoute` for the UI prerequisite before constructing protected content; never infer access from an external URL or its `source` classification.
+
+<!-- fission:checkpoint -->
+Shared routing can be checked now. Verified Android cold-start and already-open delivery remain incomplete until the native handoff exists and is exercised with the actual signing identity and domain.
+<!-- /fission:checkpoint -->
+
+### Current references
+
+- [Deep Links capability reference](/reference/capabilities/deep-links/)
+- [Capability matrix](/reference/capabilities/matrix/)
+- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
+- [Fission component and widget reference](/reference/widgets/catalog/)
+<!-- /fission:step -->

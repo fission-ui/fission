@@ -1,0 +1,425 @@
+---
+layout: goal
+title: Persist iOS app state with Fission Store and SQLite
+description: Save a compact-layout preference through real Store effects, restore it at startup, and keep an unsuccessful write distinct from a saved setting.
+goal: Restore a saved preference without confusing an empty database with a failed read
+path: /blog/persist-ios-app-state-with-fission-store-and-sqlite/
+order: 101
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target ios --project-dir ."
+app: ios-persist-ios-app-state-with-fission-store-and-sqlite
+outcomes:
+  - Hydrate a typed preference through a registered startup reducer
+  - Save through the real SQLite provider with explicit failure handling
+  - Verify the same preference after a process restart
+---
+
+A setting can change on screen before it has been saved. If the process closes
+between those events, restoring the previous value is correct; telling the user
+the new value was saved is not. Keep the edited value separate from the last
+value confirmed by Store.
+
+This app stores one compact-layout preference for a field-work interface. The
+switch changes the spacing immediately, while Save commits that choice to
+SQLite. An empty database uses the default. A failed read is an error, not an
+empty database.
+
+## Create the project and add the target
+
+Complete the [iOS setup](/blog/set-up-rust-ios-development-with-fission/) first.
+
+```sh
+cargo install cargo-fission
+fission init field-preferences
+cd field-preferences
+cargo add serde_yaml
+fission add-target ios --project-dir .
+fission add-capability storage --project-dir .
+```
+
+The capability command configures the provider as well as its Cargo features.
+The browser preview uses Web SQLite, not a memory substitute. Web hosting must
+serve the worker assets with the required cross-origin-isolation headers; an
+unavailable provider produces the visible error path below.
+
+## Files created by Fission
+
+Keep the generated native entrypoint and replace the shared modules as shown:
+
+```text
+src/
+├── main.rs
+├── lib.rs
+├── state.rs
+├── storage.rs
+├── app.rs
+└── translations.rs
+i18n/
+├── en-US.yaml
+└── es-ES.yaml
+platforms/ios/
+```
+
+<!-- fission:step id="start-screen" -->
+## Load once, then allow editing
+
+The startup reducer asks whether the key exists. Only a confirmed absence selects
+the default. A successful read still needs decoding; a missing or malformed
+completion must not turn into a successful load.
+
+The root binds the startup action before the first dispatch. Each storage
+operation binds its success and failure reducers before borrowing its builder.
+The reducer attribute generates an action and function; it does not register
+either one automatically.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase { Loading, Ready, Saving, Failed }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PreferencesState {
+    pub compact: bool,
+    pub saved_compact: bool,
+    pub pending: Option<bool>,
+    pub phase: Phase,
+    pub status: &'static str,
+    pub error: Option<String>,
+}
+impl Default for PreferencesState {
+    fn default() -> Self {
+        Self {
+            compact: false, saved_compact: false, pending: None,
+            phase: Phase::Loading, status: "prefs.loading", error: None,
+        }
+    }
+}
+impl GlobalState for PreferencesState {}
+```
+</TabItem>
+<TabItem label="src/storage.rs">
+<!-- fission:file path="src/storage.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::{Phase, PreferencesState};
+
+fn preference_key() -> StoreKey<bool> {
+    StoreKey::new("field-preferences", "compact-layout")
+}
+
+pub fn save(state: &mut PreferencesState, cx: &mut ReducerContext<PreferencesState>) {
+    if state.phase != Phase::Ready || state.compact == state.saved_compact { return; }
+    let ok = cx.effects.bind(PreferenceSaved, reduce!(preference_saved));
+    let err = cx.effects.bind(StorageFailed, reduce!(storage_failed));
+    let value = state.compact;
+    match cx.effects.store().set(preference_key(), &value) {
+        Ok(effect) => {
+            state.pending = Some(value);
+            state.phase = Phase::Saving;
+            state.error = None;
+            state.status = "prefs.saving";
+            effect.on_ok(ok).on_err(err);
+        }
+        Err(error) => state.error = Some(error.to_string()),
+    }
+}
+
+#[fission_reducer(LoadPreferences)]
+pub fn load(state: &mut PreferencesState, cx: &mut ReducerContext<PreferencesState>) {
+    if state.phase == Phase::Saving { return; }
+    state.phase = Phase::Loading;
+    state.error = None;
+    state.status = "prefs.loading";
+    let ok = cx.effects.bind(PreferenceExists, reduce!(preference_exists));
+    let err = cx.effects.bind(StorageFailed, reduce!(storage_failed));
+    cx.effects.store().contains(preference_key()).on_ok(ok).on_err(err);
+}
+
+#[fission_reducer(PreferenceExists)]
+fn preference_exists(state: &mut PreferencesState, cx: &mut ReducerContext<PreferencesState>) {
+    match cx.input.store_contains() {
+        Some(false) => {
+            state.compact = false;
+            state.saved_compact = false;
+            state.phase = Phase::Ready;
+            state.status = "prefs.default";
+        }
+        Some(true) => {
+            let ok = cx.effects.bind(PreferenceLoaded, reduce!(preference_loaded));
+            let err = cx.effects.bind(StorageFailed, reduce!(storage_failed));
+            cx.effects.store().get(preference_key()).on_ok(ok).on_err(err);
+        }
+        None => {
+            state.phase = Phase::Failed;
+            state.error = Some("Store returned no contains result".into());
+        }
+    }
+}
+
+#[fission_reducer(PreferenceLoaded)]
+fn preference_loaded(state: &mut PreferencesState, cx: &mut ReducerContext<PreferencesState>) {
+    match cx.input.store_value::<bool>() {
+        Some(Ok(value)) => {
+            state.compact = value;
+            state.saved_compact = value;
+            state.phase = Phase::Ready;
+            state.status = "prefs.loaded";
+        }
+        result => {
+            state.phase = Phase::Failed;
+            state.error = Some(match result {
+                Some(Err(error)) => error.to_string(),
+                _ => "Store returned no preference value".into(),
+            });
+        }
+    }
+}
+
+#[fission_reducer(PreferenceSaved)]
+fn preference_saved(state: &mut PreferencesState) {
+    let Some(value) = state.pending.take() else { return; };
+    state.saved_compact = value;
+    state.phase = Phase::Ready;
+    state.status = "prefs.saved";
+}
+
+#[fission_reducer(StorageFailed)]
+fn storage_failed(state: &mut PreferencesState, cx: &mut ReducerContext<PreferencesState>) {
+    let was_saving = state.phase == Phase::Saving;
+    state.pending = None;
+    state.phase = if was_saving { Phase::Ready } else { Phase::Failed };
+    state.status = "prefs.failed";
+    state.error = Some(cx.input.store_error()
+        .map(|error| error.to_string())
+        .unwrap_or_else(|| "Store operation failed without a typed error".into()));
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{state::{Phase, PreferencesState}, storage::{load, save, LoadPreferences}};
+
+fission_component! {
+    pub FieldPreferences<PreferencesState> {}
+    view(_screen, state, cx) {
+        let load_preferences = cx.bind(LoadPreferences, reduce!(load));
+        let tokens = &cx.view.env().theme.tokens;
+        let gap = if state.compact { tokens.spacing.s } else { tokens.spacing.l };
+        let ready = state.phase == Phase::Ready;
+    } =>
+    SafeArea(child: Scroll(child: Container(
+        Column(gap: gap, children: [
+            Text(cx.tr("prefs.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("prefs.summary")).color(tokens.colors.text_secondary),
+            FormControl(
+                label: Some(cx.tr("prefs.compact")),
+                child: Switch(bind: state.compact, disabled: !ready),
+            ),
+            Text(cx.tr(if state.compact { "prefs.dense" } else { "prefs.roomy" })),
+            if matches!(state.phase, Phase::Loading | Phase::Saving) {
+                Spinner(motion: SpinnerMotion::Default, label: Some(cx.tr(state.status)))
+            },
+            Text(cx.tr(state.status)),
+            if state.compact != state.saved_compact && ready { Text(cx.tr("prefs.unsaved")) },
+            if let Some(error) = &state.error {
+                Column(gap: tokens.spacing.s, children: [
+                    Alert(kind: AlertKind::Error, title: cx.tr("prefs.failed")),
+                    Code(text: error.clone()),
+                ])
+            },
+            Button(
+                child: Text(cx.tr("prefs.save")),
+                key: "save-preference",
+                disabled: !ready || state.compact == state.saved_compact,
+                on_press: reduce { save(state, cx); },
+            ).semantics_identifier("preferences.save"),
+            if state.phase == Phase::Failed {
+                Button(
+                    child: Text(cx.tr("prefs.retry")),
+                    key: "reload-preference",
+                    on_press: load_preferences.clone(),
+                )
+            },
+        ])
+    ).padding_all(tokens.spacing.l).max_width(680.0)))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::prelude::*;
+use fission::i18n::{Locale, TranslationBundle};
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages: serde_yaml::from_str(source).expect("checked-in translations"),
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod state;
+mod storage;
+mod app;
+mod translations;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::PreferencesState, _>::new(app::FieldPreferences)
+        .with_env(translations::create_env()).with_title("Field preferences")
+        .with_startup_action(storage::LoadPreferences).run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<state::PreferencesState, app::FieldPreferences> {
+    MobileApp::new(app::FieldPreferences).with_env(translations::create_env())
+        .with_title("Field preferences").with_startup_action(storage::LoadPreferences)
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) { let _ = mobile_app().run_with_android_app(app_handle); }
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    WebApp::<state::PreferencesState, _>::new(app::FieldPreferences)
+        .with_env(translations::create_env()).with_title("Field preferences")
+        .with_startup_action(storage::LoadPreferences).run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod state;
+mod storage;
+mod app;
+mod translations;
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::PreferencesState, _>::new(app::FieldPreferences)
+        .with_env(translations::create_env()).with_title("Field preferences")
+        .with_startup_action(storage::LoadPreferences)
+        .mount("#fission-web-mount").run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+prefs.title: "Field-work preferences"
+prefs.summary: "Choose the spacing you prefer. Save confirms the change on this device."
+prefs.compact: "Use compact spacing"
+prefs.dense: "Compact spacing is active."
+prefs.roomy: "Comfortable spacing is active."
+prefs.loading: "Opening saved preferences…"
+prefs.saving: "Saving this preference…"
+prefs.default: "No saved preference; using comfortable spacing."
+prefs.loaded: "Saved preference loaded."
+prefs.saved: "Saved on this device."
+prefs.unsaved: "The visible choice has not been saved."
+prefs.failed: "Preferences could not be read or saved."
+prefs.save: "Save preference"
+prefs.retry: "Try opening preferences again"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+prefs.title: "Preferencias de trabajo de campo"
+prefs.summary: "Elige el espaciado. Guardar confirma el cambio en este dispositivo."
+prefs.compact: "Usar espaciado compacto"
+prefs.dense: "El espaciado compacto está activo."
+prefs.roomy: "El espaciado cómodo está activo."
+prefs.loading: "Abriendo las preferencias guardadas…"
+prefs.saving: "Guardando la preferencia…"
+prefs.default: "No hay preferencia guardada; se usa el espaciado cómodo."
+prefs.loaded: "Preferencia guardada cargada."
+prefs.saved: "Guardada en este dispositivo."
+prefs.unsaved: "La opción visible aún no se ha guardado."
+prefs.failed: "No se han podido leer o guardar las preferencias."
+prefs.save: "Guardar preferencia"
+prefs.retry: "Volver a abrir las preferencias"
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Keep a save failure different from a load failure
+
+A failed initial read leaves the app blocked: allowing Save could overwrite a
+preference the app never read. A failed write returns to the editable state and
+keeps the draft, so the user can retry. The save button and reducer both check
+the phase; a disabled button alone is not a concurrency guard.
+
+The UI disables edits while saving, so a write completion cannot overwrite a
+newer draft in this small workflow. If edits must remain available during a
+write, capture the draft revision and compare it on completion instead of
+unconditionally clearing or replacing it.
+
+The preference uses application scope. Use a typed user or session Store scope
+if the setting belongs to a signed-in account; changing the key text does not
+create authorization.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Toggle the spacing, save, then reload this page. Confirm the choice is restored
+from Web SQLite. If browser storage is unavailable, the screen must show failure
+and leave Save disabled until loading succeeds.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Verify saved data on iOS
+
+```sh
+fission doctor ios --project-dir .
+fission devices --project-dir .
+fission run --target ios --project-dir .
+fission test --target ios --project-dir .
+```
+
+Save a different preference, close the process and relaunch. The switch should
+restore the value only after the load completes. An empty database should show
+the default notice; an unavailable database should show an error. These are
+separate assertions.
+
+Fission's run path launches Simulator. For a physical iPhone, follow the
+[device installation guide](/blog/install-a-fission-app-on-a-physical-iphone/).
+The browser and iOS use separate databases; a browser reload does not establish
+native restart persistence.
+
+### Current references
+
+- [Storage and SQLite](/docs/guides/storage-and-sqlite/)
+- [SQL transactions and migrations on iOS](/blog/use-sql-transactions-and-migrations-in-an-ios-app/)
+<!-- /fission:step -->

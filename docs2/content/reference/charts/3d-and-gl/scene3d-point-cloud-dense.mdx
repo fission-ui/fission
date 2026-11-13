@@ -1,0 +1,53 @@
+---
+title: Dense 3D point cloud
+sidebar_label: Dense 3D point cloud
+description: Render a bounded scan projection whilst retaining original observations and a visible sampling policy.
+---
+
+# Dense 3D point cloud
+
+![Dense 3D point cloud screenshot](/img/charts/scene3d-point-cloud-dense.png)
+
+A densely sampled region can look solid when many sphere markers overlap. That is a property of the drawing, not proof that a surface or volume was reconstructed. Keep the distinction clear when showing inspection scans.
+
+This entry uses the same point scene as [Dense point cloud](./point-cloud-dense). Its renderer adds one sphere per display observation, so cost increases with the number of points supplied.
+
+## Compose a bounded scan view
+
+Put `PointCloudScene` from [Point cloud](./point-cloud) in `widgets/point_cloud.rs`. Prepare a bounded region or justified simplification in the data layer rather than passing an entire unbounded scan into a small widget.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::point_cloud::PointCloudScene;
+
+fission_component! {
+    pub InspectionScanPreview<()> {
+        props {
+            title: TextContent,
+            display_positions: Vec<Point3D>,
+            marker_radius: f32,
+            marker_color: Color,
+        }
+    }
+    view(scan, _state, _cx) => PointCloudScene {
+        title: scan.title.clone(),
+        positions: scan.display_positions.clone(),
+        point_radius: scan.marker_radius,
+        point_color: scan.marker_color,
+    }
+}
+```
+
+Enable the `three-d` feature. The parent supplies translated text, a theme colour, finite coordinates and a finite positive radius in scene units.
+
+## Qualification and accessibility
+
+Retain original samples and explain when the display omits detail. A fast sampled preview must not silently become the authority for deciding that a small defect does not exist.
+
+Measure representative point counts, then inspect overlap and small features in a real rendering. Provide region bounds, displayed/source counts and important findings outside the scene. This primitive API does not offer per-sphere chart selection or a general volume renderer. The gallery screenshot is an example, not large-scan performance evidence.
+
+Tags: `3d`, `pointCloud`.
+
+[3D and GL family overview](./overview)

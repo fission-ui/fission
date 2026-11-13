@@ -1,0 +1,61 @@
+---
+title: Operational region map
+sidebar_label: Operational region map
+description: Fission Charts reference for Operational region map.
+---
+
+# Operational region map
+
+![Operational region map screenshot](/img/charts/monitoring-region-map.png)
+
+A region map is useful when location explains an operational difference. For example, a failed-request rate by service region may reveal a regional problem which disappears in a global average. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Compare the same measure and reporting period in every region. Use a rate when the question is reliability rather than traffic volume, and retain the request counts needed to judge a small sample. Geographic area must not be mistaken for a region's share of requests.
+
+## Data model
+
+`MapSeries` needs GeoJSON geometry; `map_type` alone does not fetch a map. Feature names come from `name_property`, which defaults to `name`, and must match the names in the data. The current parser supports Polygon and MultiPolygon features. Unmatched regions remain without a value rather than becoming measured zero.
+
+## Authoring from a Fission component
+
+Supply validated GeoJSON and region/error-percentage pairs from the parent. This example joins on a stable `region_id` property instead of translated display labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, MapSeries, VisualMap};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub RegionalErrorMap<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            region_geojson: String,
+            error_percent: Vec<(String, f32)>,
+        }
+    }
+    view(regions, _state, _cx) {
+        let values = regions.error_percent.iter()
+            .map(|(id, value)| (id.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(regions.chart_title.clone()),
+        visual_map: Some(VisualMap::new().min(0.0).max(100.0)),
+        series: vec![MapSeries::new(&regions.series_label, "service-regions")
+            .geojson(&regions.region_geojson)
+            .name_property("region_id")
+            .data(values)
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test unknown region IDs, duplicate data names, invalid geometry and a region with no eligible requests. Invalid or missing GeoJSON currently produces no region paths, so report preparation must surface that failure. Provide a region table with rates, counts and unavailable states; colour and polygon size are not a substitute for those values.
+
+Tags: `monitoring`, `map`.
+
+[Monitoring family overview](./overview)

@@ -1,0 +1,354 @@
+---
+title: Compose Fission interfaces in Rust
+description: Build typed Fission components with concise composition, local and global state, reducers, bindings, routing, internationalisation, and imported widgets.
+---
+
+# Compose Fission interfaces in Rust
+
+Writing a view should not require repeating the machinery that connects it to the application. Compose is Fission's default authoring API for that reason: it generates struct conversions, child vectors, reducer registration and local-state wiring, while the application's data and behaviour remain Rust.
+
+Compose is not a second widget catalogue. `Button`, `Column` and every other widget name are ordinary Rust imports. Your own components and third-party widgets work the same way. Compose creates the same retained `Widget` tree, actions and effects as the lower-level API, so you can use either form where it makes sense.
+
+## A complete component
+
+```rust
+use fission::prelude::*;
+
+#[derive(Default, Debug)]
+pub struct AppState {
+    saved_name: String,
+}
+
+impl GlobalState for AppState {}
+
+fission_component! {
+    pub Editor<AppState> {
+        props {
+            title: String,
+        }
+        state {
+            draft: String = String::new(),
+        }
+    }
+    view(editor, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(editor.title.clone())
+                    .size(tokens.typography.heading1_size),
+                TextInput(
+                    label: Some(cx.tr("editor.name").into()),
+                    bind: editor.draft,
+                    required: true,
+                ),
+                Button(
+                    child: Text(cx.tr("editor.save")),
+                    key: "save",
+                    on_press: reduce {
+                        if !editor.draft.trim().is_empty() {
+                            state.saved_name = editor.draft.trim().to_owned();
+                        }
+                    },
+                ),
+                if !state.saved_name.is_empty() {
+                    Text(cx.tr("editor.saved_name").replace("{name}", &state.saved_name))
+                },
+            ],
+        ),
+    )
+    .padding_all(tokens.spacing.xl)
+    .bg(tokens.colors.background)
+}
+```
+
+Here the draft belongs to one editor instance, whereas the saved name belongs to the application. Pressing Save copies the validated draft into app state; rebuilding the view does not itself save anything. This distinction matters once other screens need the saved value.
+
+The names in `view(editor, state, cx)` are available while building the tree and inside `reduce` and effect lifecycle blocks. They name the Compose scopes; they are not closure parameters:
+
+- `editor` contains component properties and retained local-state values.
+- `state` is the current state selected for this component.
+- `cx` provides the build handle, view, environment and translated text. Inside a handler it is the fresh reducer context, through which effects are requested.
+
+Use the optional Rust block before `=>` for derived values, resource registration or an existing API. It is still normal Rust. `let`, `match`, function calls and their results behave as they do anywhere else in your code.
+
+## Imported widgets and direct fields
+
+Widget names resolve through normal Rust scope. Import a Fission widget, one from your application or a third-party widget, then use it:
+
+```rust
+use fission::prelude::{Card, Column, Text};
+use my_components::AccountSummary;
+
+fission_component! {
+    pub Dashboard<AppState>
+    view(_dashboard, state, cx) =>
+    Card(
+        child: Column(children: [
+            Text(cx.tr("dashboard.title")),
+            AccountSummary(state.account.clone()),
+        ]),
+    )
+}
+```
+
+Named arguments fill public struct fields; fields you leave out come from `Default::default()`. This is the same contract as writing a Rust struct with `..Default::default()`: a missing field with an unsuitable default is not automatically a compile-time error. Use the widget's documented required arguments rather than treating omission as validation. Positional arguments call the type's existing `new(...)` constructor. A generated Compose component with props has `new(...)` in declaration order and no automatic `Default`, so `AccountSummary` above uses its constructor to require the account. Do not add an empty default just to avoid supplying a required prop. A modifier such as `.padding_all(...)` is just a normal method call. Widget authors do not need to register with Compose or maintain another builder API.
+
+## State and bindings
+
+Keep shared application facts in global state. Use a component's `state` section for retained memory that belongs to that instance. The parent supplies `props`, which are read again on every build. A `bind` gives the control both its current value and the action that updates it:
+
+```rust
+TextInput(bind: state.profile.display_name)
+Switch(bind: state.settings.notifications)
+TextInput(bind: editor.search)
+```
+
+Common controls have a short binding form. For a different editable property—or a control with more than one update event—name the event field:
+
+```rust
+CustomRange(
+    lower: state.filter.lower,
+    upper: state.filter.upper,
+    bind(on_lower_change): to(state.filter.lower),
+    bind(on_upper_change): to(state.filter.upper),
+)
+```
+
+If your app already has a specialised binding, pass it with `source(existing_binding)`. Other values are normal Rust expressions too: `Some(label)`, enum variants, function calls and collection lookups do not need a special escape block.
+
+## Inline and reusable reducers
+
+For a small transition used only by this component, put the reducer beside the control that triggers it:
+
+```rust
+Button(
+    child: Text(cx.tr("items.add")),
+    key: "add-item",
+    on_press: reduce {
+        state.items.push(Item::new());
+        cx.effects.navigate("/items/latest");
+    },
+)
+```
+
+The literal `key` gives the handler a stable identity. For repeated controls, use a key from the data itself, not the item's current position. Give it an explicit literal `handler` name when required.
+
+Actions and reducers that are reused across components remain ordinary Fission APIs. Register one in the setup block and pass its typed action to the component:
+
+```rust
+fission_component! {
+    pub Toolbar<AppState>
+    view(_toolbar, _state, cx) {
+        let refresh = with_reducer!(cx.build, Refresh, refresh);
+    } =>
+    Button(child: Text(cx.tr("items.refresh")), on_press: refresh)
+}
+```
+
+Use this for a shared domain transition or any behaviour that deserves its own Rust symbol. Compose does not replace synchronous reducers or explicitly registered jobs.
+
+## Async effects without lifecycle boilerplate
+
+Use `#[fission_effect]` for one-off asynchronous work owned by a component. The function is ordinary async Rust. Compose creates the typed job request and lifecycle reducers; the render and reducer still do not perform I/O themselves.
+
+This HTTP example targets a native app. It requires `reqwest` with its `json`
+feature, `serde` with `derive`, and `serde_json`. Do not assume the same function
+is portable to Web: Fission's effect futures must be `Send`, whereas reqwest's
+browser request future does not satisfy that boundary. A Web integration needs
+a supported host or job implementation rather than an unsafe Send wrapper.
+
+```rust
+use fission::prelude::*;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct CounterResponse {
+    count: i32,
+}
+
+#[fission_effect]
+async fn increment_counter(current: i32) -> Result<i32, String> {
+    let response = reqwest::Client::new()
+        .post("https://example.com/counter")
+        .timeout(std::time::Duration::from_secs(10))
+        .json(&serde_json::json!({ "current": current }))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json::<CounterResponse>()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(response.count)
+}
+
+fission_component! {
+    pub RemoteCounter<()> {
+        state {
+            count: i32 = 0,
+            loading: bool = false,
+            error: Option<String> = None,
+        }
+    }
+    view(counter, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(
+        gap: tokens.spacing.m,
+        children: [
+            Text(cx.tr("counter.count").replace("{count}", &counter.count.to_string())),
+            Button(
+                child: Text(if counter.loading {
+                    cx.tr("counter.calling")
+                } else {
+                    cx.tr("counter.increment")
+                }),
+                key: "remote-increment",
+                disabled: counter.loading,
+                on_press: effect increment_counter(counter.count) {
+                    on_start {
+                        counter.loading = true;
+                        counter.error = None;
+                    }
+                    on_ok(count) {
+                        counter.count = count;
+                        counter.loading = false;
+                    }
+                    on_err(error) {
+                        counter.error = Some(error);
+                        counter.loading = false;
+                    }
+                },
+            ),
+            if counter.loading {
+                Spinner(
+                    label: Some(cx.tr("counter.calling")),
+                    motion: Some(SpinnerMotion::Default),
+                )
+            } else if counter.error.is_some() {
+                Text(cx.tr("counter.failed"))
+            },
+        ],
+    )
+}
+```
+
+`on_start` is optional and runs when the control is activated. `on_ok(value)` and `on_err(error)` run when the job finishes; both are required so neither outcome disappears silently. Each block gets current access to the component, scoped app state and a fresh reducer context. If the component has unmounted by then, its completion is ignored rather than recreating its local state.
+
+Effect arguments are evaluated when the event runs and must be owned snapshots. You can pass selected values from props, local state or scoped app state, along with literals and normal function results. Do not pass the whole component, global state, reducer context or references into the async function. Compose checks the common cases and Rust's `Serialize + Send + 'static` bounds catch the rest. Values created in the setup block are not captured; put lasting inputs in props or state, or register a job directly when it is shared or needs a specialised host implementation.
+
+The `example.com` endpoint shows the request shape only. To run this example, replace it with an endpoint that accepts `{ "current": 4 }` and returns `{ "count": 5 }`.
+
+The app installs the translation bundles before constructing these components.
+For example, keep these messages in the English bundle and provide the same
+keys in Spanish; the [environment setup guide](/docs/guides/theming-and-i18n/)
+shows how both bundles are loaded. Server errors are retained for a deliberate
+diagnostic path, not displayed verbatim as interface copy.
+
+```yaml
+editor.name: "Name"
+editor.save: "Keep this name"
+editor.saved_name: "Saved name: {name}"
+dashboard.title: "Dashboard"
+items.add: "Add item"
+items.refresh: "Refresh"
+counter.count: "Count: {count}"
+counter.calling: "Waiting for the counter service…"
+counter.increment: "Increment via API"
+counter.failed: "The request failed. Your previous count is unchanged. Try again."
+items.loading: "Loading items…"
+items.load_failed: "Items could not be loaded. Try again."
+```
+
+```yaml
+editor.name: "Nombre"
+editor.save: "Conservar este nombre"
+editor.saved_name: "Nombre guardado: {name}"
+dashboard.title: "Panel"
+items.add: "Añadir elemento"
+items.refresh: "Actualizar"
+counter.count: "Contador: {count}"
+counter.calling: "Esperando al servicio del contador…"
+counter.increment: "Incrementar mediante la API"
+counter.failed: "La solicitud falló. El contador no ha cambiado. Inténtalo de nuevo."
+items.loading: "Cargando elementos…"
+items.load_failed: "No se pudieron cargar los elementos. Inténtalo de nuevo."
+```
+
+## Conditions, matches and repeated children
+
+Use `if`, `match` and `for` anywhere the tree expects a widget:
+
+```rust
+Column(children: [
+    match &state.result {
+        LoadState::Loading => Spinner(
+            label: Some(cx.tr("items.loading")),
+            motion: Some(SpinnerMotion::Default),
+        ),
+        LoadState::Failed(_error) => Alert(cx.tr("items.load_failed")),
+        LoadState::Ready(items) => Column(children: [
+            for item in items {
+                ProductRow(item.clone(), key: item.id)
+            },
+        ]),
+    },
+])
+```
+
+Give repeated children a durable `key`. Fission uses it to keep retained state,
+focus and actions attached to the same mounted item when a collection is
+reordered. Removing an item from the tree also removes its local state; a key
+does not preserve an unmounted draft. Keep drafts which must survive filtering
+in app-owned records. If the data has an ID, use that rather than the list position.
+
+## Routes and scoped state
+
+Use Fission's native `Router`; Compose does not need a separate routing model. Route components are normal Compose components:
+
+```rust
+fission_component! {
+    pub App<AppState>
+    view(_app, state, _cx) =>
+    Router::<AppState>::new()
+        .with_path(state.current_path.clone())
+        .route_component("/", HomePage)
+        .route_component("/settings", SettingsPage)
+}
+```
+
+By default, a component uses the app root state. If an editor works on one entity inside that state, declare a typed scope and give it the entity's durable key:
+
+```rust
+state_scope! {
+    pub Products(AppState, u64 => Product) {
+        get: |root, key| root.products.get(key),
+        get_mut: |root, key| root.products.get_mut(key),
+    }
+}
+
+fission_component! {
+    pub ProductEditor<Product> using Products(editor.product_id) {
+        props { product_id: u64 }
+    }
+    view(editor, product, _cx) =>
+    TextInput(bind: product.name)
+}
+```
+
+If the entity is removed, a late event will not recreate its scope. Use a generation-aware key if your app can reuse identifiers.
+
+## Internationalisation and design systems
+
+Compose uses the same Fission environment as the rest of the app. Load translation bundles during app setup, use `cx.tr(...)` for user-facing text and read design tokens from `cx.view.env().theme.tokens`. Keep the selected locale and theme in global state, then mirror them into `Env` with `with_sync_env(...)`.
+
+## Use the lower-level API when it is the clearer tool
+
+Some infrastructure still needs a low-level widget type, for example a custom render object or input adapter. When it becomes part of your app UI, wrap it in a named `fission_component!` component. Compose components can use existing Fission widgets, so the app does not need a second widget model.
+
+For a larger example with routes, local and scoped state, bindings, inline and reusable reducers, loops, conditions, internationalisation and tests, see the checked-in [`compose` example](https://github.com/fission-ui/fission/tree/main/examples/compose). Use the [quickstart](/docs/learn/quickstart/) to start an app, or browse the [widget catalogue](/reference/widgets/catalog/) to find widgets to import.

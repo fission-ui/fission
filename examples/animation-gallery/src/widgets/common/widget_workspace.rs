@@ -8,7 +8,7 @@ const PANEL_MIN_WIDTH: f32 = 280.0;
 
 fission_component! {
     pub(super) WidgetWorkspace<AnimationGalleryState> { case: GalleryCase, preview: Widget }
-    |workspace, state, cx| {
+    view(workspace, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let source = match state.source_tab {
             SourceTab::Ergonomic => workspace.case.ergonomic_source,

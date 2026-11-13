@@ -1,0 +1,56 @@
+---
+title: Badge
+description: Show a small count, state, or category label without taking over the layout.
+slug: /widgets/badge
+---
+# Badge
+
+`Badge` puts a short count, status, or category beside the content it describes.
+
+Use it for things like unread counts or environment labels. The badge should
+support the main content, not carry meaning that needs a separate explanation.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub UnreadCount<()> {
+        props { count: usize }
+    }
+    view(badge, _state, _cx) =>
+    Badge(text: badge.count.to_string())
+}
+```
+
+Place this beside a translated folder label or summary which explains that
+the number means unread messages. A bare number elsewhere on the page would
+not carry that meaning by itself.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `text` | `String` | Short label shown inside the badge. | Required. Keep it brief. |
+| `color` | `Option<Color>` | Background color override. | Defaults to the theme's secondary color. |
+| `text_color` | `Option<Color>` | Text color override. | Defaults to the theme's on-secondary color. |
+
+## user experience intent
+
+A badge is best when it adds context to something else. If the count or status is the main point of the screen, a larger widget such as [`Stat`](/reference/widgets/stat) is usually clearer.
+
+The checked-in badge is purely visual. It is not interactive, and it does not expose special semantics beyond the text it renders.
+
+## Specific advice
+
+Do not cram long phrases into a badge. Once the text needs a sentence, it is not badge-shaped information anymore.
+
+## Check the badge in context
+
+- Keep the label short and place it beside the content it describes.
+- Do not rely on badge colour alone to explain a status; include meaningful text when the category is not already clear.
+
+## Related
+
+[`Tag`](/reference/widgets/tag), [`Stat`](/reference/widgets/stat), [`Alert`](/reference/widgets/alert), and [`Text`](/reference/widgets/text).

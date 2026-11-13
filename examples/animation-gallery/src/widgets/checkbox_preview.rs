@@ -8,7 +8,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) CheckboxPreview<AnimationGalleryState> {}
-    |_preview, state, cx| {
+    view(_preview, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let progress = preview_progress(state);
         let on_toggle = if preview_active(state) {

@@ -1,0 +1,53 @@
+---
+title: Release event strip
+sidebar_label: Release event strip
+description: Fission Charts reference for Release event strip.
+---
+
+# Release event strip
+
+![Release event strip screenshot](/img/charts/single-axis-release-events.png)
+
+A release-event strip shows when discrete changes occurred within a reporting window. It does not show a continuously measured deployment state between those changes. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use elapsed hours from an explicit report start and marker size for the number of affected services. Keep event type and full timestamp in the source records rather than inferring them from a marker's lane.
+
+## Data model
+
+`SingleAxisSeries` maps `(position, size)` pairs onto a data-derived numeric scale. Its five vertical lanes are assigned by index, not event category. Relative time avoids storing a large epoch timestamp as f32.
+
+## Authoring from a Fission component
+
+The parent prepares validated event projections and localized labels; release operations remain in their normal effect workflows.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, SingleAxisSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ReleaseChangeEventStrip<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            hours_and_affected_services: Vec<(f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![SingleAxisSeries::new(&report.series_label)
+            .data(report.hours_and_affected_services.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test simultaneous changes, a zero-offset event and an empty report. Provide a chronological accessible event list with exact times and affected services, so overlap or marker size cannot hide important changes.
+
+Tags: `singleAxis`, `events`.
+
+[Statistical family overview](./overview)

@@ -1,0 +1,287 @@
+---
+layout: goal
+title: Diagnose Android build, install and launch failures
+description: "Separate a Rust build failure from Gradle packaging, APK installation and app startup, then capture the first useful Fission or ADB evidence."
+goal: "Locate the failing Android stage and retain enough command, device and log context to fix it without deleting application data."
+path: /blog/diagnose-android-build-install-and-launch-failures/
+order: 26
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-diagnose-android-build-install-and-launch-failures
+outcomes:
+  - "Identify whether Cargo, Gradle, install or launch failed first"
+  - "Use doctor, device selection and logs for that specific stage"
+  - "Keep a diagnostic note without copying private log payloads into reports"
+  - "Distinguish host smoke-test success from working UI or hardware behaviour"
+---
+
+An Android launch has several stages: Rust compilation, Gradle packaging, installation and starting the app process. A failure at one stage says little about the later stages. If Rust did not link, changing an Android permission cannot fix the immediate problem.
+
+Here, we start at the first failing command, identify the stage it belongs to, and collect enough evidence to reproduce it. The aim is not to make the error disappear by changing unrelated settings; it is to understand why that command failed.
+
+## Work in the project that failed
+
+Start in your existing app and preserve its configuration and logs. Do not run `fission init` over it. Complete the [Android setup guide](/blog/set-up-rust-android-gui-development-with-fission/) if the SDK and NDK have not been installed.
+
+The embedded example is a small diagnostic-note app, not a simulated device inspector. If you want to run that separate reproduction, create a new scratch project:
+
+```sh
+fission init android-diagnose-android-build-install-and-launch-failures
+cd android-diagnose-android-build-install-and-launch-failures
+fission add-target android --project-dir .
+cargo add serde_yaml
+```
+
+<!-- fission:step id="field-check-preview" -->
+## Keep a useful diagnostic note
+
+Record the command, device and first relevant error yourself. The app never claims to have inspected the SDK, installed a package or fixed the toolchain. Its preview and native shell run the same Compose form; the note is retained for this session and is not uploaded or persisted.
+
+Keep the generated `src/main.rs`. These focused modules replace only the scratch app's screen, translations and shell setup:
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub DiagnosticNote<()> {
+        state {
+            command: String = String::new(),
+            device: String = String::new(),
+            first_error: String = String::new(),
+            reviewed: bool = false,
+        }
+    }
+    view(note, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let complete = !note.command.trim().is_empty() && !note.first_error.trim().is_empty();
+        let summary = cx.tr("diagnostic.summary")
+            .replace("{command}", &note.command)
+            .replace("{device}", &note.device)
+            .replace("{error}", &note.first_error);
+    } =>
+    Container(SafeArea(child: Scroll(child:
+        Container(Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("diagnostic.title")).size(tokens.typography.heading1_size),
+            Text(cx.tr("diagnostic.scope")).color(tokens.colors.text_secondary),
+            TextInput(
+                label: Some(cx.tr("diagnostic.command").into()),
+                bind: note.command,
+                required: true,
+                semantics_identifier: "diagnostic.command".to_string(),
+            ),
+            TextInput(
+                label: Some(cx.tr("diagnostic.device").into()),
+                bind: note.device,
+                semantics_identifier: "diagnostic.device".to_string(),
+            ),
+            TextInput(
+                label: Some(cx.tr("diagnostic.error").into()),
+                bind: note.first_error,
+                required: true,
+                multiline: true,
+                semantics_identifier: "diagnostic.error".to_string(),
+            ),
+            Button(
+                child: Text(cx.tr("diagnostic.review")),
+                key: "review-diagnostic-note",
+                on_press: reduce { note.reviewed = true; },
+            ).semantics_identifier("diagnostic.review"),
+            if note.reviewed {
+                if complete { Code(text: summary) }
+                else { Text(cx.tr("diagnostic.invalid")).color(tokens.colors.error) }
+            },
+        ]))
+        .padding_all(tokens.spacing.l)
+        .width_length(Length::percent(100.0))
+        .max_width(760.0),
+    )))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod translations;
+
+use app::DiagnosticNote;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(DiagnosticNote::new())
+        .with_env(translations::create_env())
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), DiagnosticNote> {
+    let app = MobileApp::<(), _>::new(DiagnosticNote::new())
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(DiagnosticNote::new())
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+diagnostic.title: "Record the first failure"
+diagnostic.scope: "This note does not run commands or inspect your computer. It stays in memory for this session."
+diagnostic.command: "Exact failing command"
+diagnostic.device: "Device ID, if relevant"
+diagnostic.error: "First relevant error and its context"
+diagnostic.review: "Review diagnostic note"
+diagnostic.invalid: "Enter the command and first error before reviewing the note."
+diagnostic.summary: "Command: {command}\nDevice: {device}\nFirst error:\n{error}"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+diagnostic.title: "Registrar el primer fallo"
+diagnostic.scope: "Esta nota no ejecuta comandos ni inspecciona tu equipo. Solo se conserva en memoria durante esta sesión."
+diagnostic.command: "Comando exacto que falla"
+diagnostic.device: "Identificador del dispositivo, si corresponde"
+diagnostic.error: "Primer error relevante y su contexto"
+diagnostic.review: "Revisar la nota de diagnóstico"
+diagnostic.invalid: "Introduce el comando y el primer error antes de revisar la nota."
+diagnostic.summary: "Comando: {command}\nDispositivo: {device}\nPrimer error:\n{error}"
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::DiagnosticNote::new())
+        .with_env(translations::create_env())
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Review an empty note, then enter the command and first error from your actual terminal output. The form should require both before showing the report. Edit either field and review the result again: the summary should reflect current input, not an old confirmation.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Separate setup, compilation, packaging, installation and launch
+
+Run prerequisite checks before the build, and separate a package build from installation:
+
+```sh
+fission doctor android --project-dir .
+fission build --target android --project-dir .
+fission devices --project-dir .
+adb devices -l
+```
+
+Read the first meaningful error in context. A later “build failed” line is a summary, not its cause. Keep the exact command, source revision, target, selected device ID and the preceding diagnostic lines. Do not clear build caches as a first response to a reproducible error.
+
+If packaging succeeds, select the intended emulator or phone explicitly:
+
+```sh
+fission run --target android --device <adb-serial> --project-dir .
+```
+
+An ADB device listed as unauthorised is a device-connection problem, not a Rust compiler failure. Follow the [physical-phone setup guide](/blog/run-a-fission-app-on-a-physical-android-phone/) to authorise debugging. For an installation failure, retain the install error and check free space, package identity and the signing identity of an existing installation. Do not uninstall an app containing data you need merely to hide a signing conflict.
+
+If installation succeeds but the app exits or never becomes usable, attach to that device's logs:
+
+```sh
+fission logs --target android --device <adb-serial> --project-dir . --follow
+```
+
+For additional Android runtime context, use ADB directly:
+
+```sh
+adb -s <adb-serial> logcat -v threadtime
+```
+
+Reproduce once while collecting the logs, then stop the command. Look for the app process and the earliest relevant Rust panic, native-linker failure or Android exception rather than treating every system warning as the cause. Avoid clearing logcat before collecting a failure you cannot easily reproduce.
+
+Review logs before sharing them publicly: remove credentials, tokens, personal data and proprietary payloads without deleting the surrounding error context.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Use the real command output to complete the note. The browser cannot establish the development machine's target, signing state or installed SDK. A manually entered note is a record of your investigation, not an automatic diagnosis.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Verify the fix at the stage that failed
+
+After fixing the first failure, rerun the same command against the same device. Then move to the next stage. A working package build cannot establish that installation succeeds, and a started process cannot establish that the UI is responsive.
+
+```sh
+cargo test
+fission test --target android --project-dir .
+```
+
+Use the diagnostic-note app only in a scratch reproduction project. Enter text, review it and edit it again on the emulator or phone. That confirms an interaction path, not the correctness of your production app. Keep your real application and its state intact whilst reducing a bug to a reproducible case.
+
+The generated smoke test is useful after the host starts. Follow it with the actual failing workflow, including permission prompts or hardware on a physical device when those are involved.
+
+### Current references
+
+- [Android setup guide](/blog/set-up-rust-android-gui-development-with-fission/)
+- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
+- [Fission component and widget reference](/reference/widgets/catalog/)
+
+<!-- /fission:step -->

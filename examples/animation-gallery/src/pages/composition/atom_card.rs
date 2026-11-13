@@ -7,7 +7,7 @@ const TINT_HEIGHT: f32 = 26.0;
 
 fission_component! {
     pub(super) AtomCard<AnimationGalleryState> { title: String, body: String, tint: Color }
-    |card, _state, cx| {
+    view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(
