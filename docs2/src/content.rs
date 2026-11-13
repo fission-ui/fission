@@ -404,26 +404,54 @@ fn parse_files(step_id: &str, source: &str) -> Result<BTreeMap<String, String>> 
             .with_context(|| format!("unterminated fission:file in step `{step_id}`"))?;
         let path = marker_attr(&rest[OPEN.len()..marker_end], "path")?;
         let after = rest[marker_end + 3..].trim_start();
-        let fence = after.strip_prefix("```").with_context(|| {
-            format!("fission:file `{path}` must be followed by a fenced code block")
-        })?;
-        let newline = fence
+        let newline = after
             .find('\n')
             .with_context(|| format!("fission:file `{path}` has an invalid code fence"))?;
-        let code = &fence[newline + 1..];
-        let end = code
-            .find("\n```")
-            .with_context(|| format!("fission:file `{path}` has an unterminated code fence"))?;
+        let opening = &after[..newline];
+        let delimiter = opening
+            .chars()
+            .next()
+            .filter(|ch| matches!(ch, '`' | '~'))
+            .with_context(|| format!("fission:file `{path}` needs a Markdown code fence"))?;
+        let width = opening.chars().take_while(|ch| *ch == delimiter).count();
+        if width < 3 {
+            bail!("fission:file `{path}` needs a fence of at least three characters");
+        }
+        let code = &after[newline + 1..];
+        // A Markdown source file may itself contain triple-backtick examples.
+        // Its outer four-backtick (or tilde) fence must determine extraction.
+        let mut end = None;
+        let mut offset = 0;
+        for line in code.split_inclusive('\n') {
+            let trimmed = line.trim_start_matches(' ').trim_end();
+            let indentation = line.len() - line.trim_start_matches(' ').len();
+            if indentation <= 3
+                && trimmed.chars().count() >= width
+                && trimmed.chars().all(|ch| ch == delimiter)
+            {
+                end = Some((offset, offset + line.len()));
+                break;
+            }
+            offset += line.len();
+        }
+        let (end, next) =
+            end.with_context(|| format!("fission:file `{path}` has an unterminated code fence"))?;
         if path.starts_with('/') || path.split('/').any(|part| part == ".." || part.is_empty()) {
             bail!("fission:file path `{path}` must be a safe relative path");
         }
         if files
-            .insert(path.clone(), code[..end].to_string())
+            .insert(
+                path.clone(),
+                code[..end]
+                    .strip_suffix('\n')
+                    .unwrap_or(&code[..end])
+                    .to_string(),
+            )
             .is_some()
         {
             bail!("step `{step_id}` contains duplicate file `{path}`");
         }
-        rest = &code[end + 4..];
+        rest = &code[next..];
     }
     Ok(files)
 }
@@ -491,6 +519,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn extracts_markdown_files_without_truncating_nested_code_examples() {
+        let source = "<!-- fission:file path=\"content/guide.mdx\" -->\n````markdown\n# Guide\n\n```rust\nfn main() {}\n```\n\nRead the result.\n````\n<!-- fission:file path=\"settings.toml\" -->\n~~~toml\nenabled = true\n~~~\n";
+        let files = parse_files("nested-markdown", source).unwrap();
+        assert_eq!(
+            files["content/guide.mdx"],
+            "# Guide\n\n```rust\nfn main() {}\n```\n\nRead the result."
+        );
+        assert_eq!(files["settings.toml"], "enabled = true");
+    }
+
+    #[test]
+    fn closing_fence_must_match_the_opening_delimiter_and_width() {
+        for source in [
+            "<!-- fission:file path=\"page.md\" -->\n````markdown\ntext\n```\n",
+            "<!-- fission:file path=\"page.md\" -->\n~~~markdown\ntext\n```\n",
+        ] {
+            assert!(parse_files("bad-fence", source)
+                .unwrap_err()
+                .to_string()
+                .contains("unterminated"));
+        }
+    }
+
+    #[test]
     fn parses_goal_steps_and_complete_files() {
         let document = parse_goal(include_str!(
             "../content/goals/single-page-web-app-rust.mdx"
@@ -500,7 +552,12 @@ mod tests {
         assert_eq!(document.steps.len(), 3);
         assert!(document.steps.iter().all(|step| step.preview));
         assert!(!document.steps[0].markdown.starts_with("## "));
-        assert!(document.steps[1].files["src/app.rs"].contains("key: task.id"));
+        assert!(document.steps[1].files["src/pages/board.rs"].contains("key: task.id"));
+        let mut cumulative_files = BTreeMap::new();
+        for step in &document.steps {
+            cumulative_files.extend(step.files.clone());
+            assert!(cumulative_files.contains_key("src/lib.rs"));
+        }
         assert!(document.steps[2]
             .markdown
             .contains("Run, test and build the finished project"));
@@ -528,5 +585,26 @@ mod tests {
             "/tutorials/build-a-rust-website-with-dropdown-navigation/"
         );
         assert_eq!(goals[117].meta.order, 118);
+        for route in [crate::navigation::LOGIN_PAGE, crate::navigation::LIVE_TEST] {
+            assert!(
+                goals.iter().any(|goal| goal.meta.path == route),
+                "navigation must use the tutorial's canonical route: {route}"
+            );
+        }
+    }
+
+    #[test]
+    fn sprint_tutorial_does_not_shadow_the_router_reference() {
+        let tutorial = parse_goal(include_str!(
+            "../content/goals/single-page-web-app-rust.mdx"
+        ))
+        .unwrap();
+
+        assert_ne!(tutorial.meta.path, crate::navigation::ROUTER);
+        assert!(tutorial
+            .meta
+            .aliases
+            .iter()
+            .all(|alias| alias != crate::navigation::ROUTER));
     }
 }
