@@ -23,7 +23,7 @@ use crate::{
 use anyhow::{anyhow, Context, Result};
 use fission_diagnostics::prelude as diag;
 use fission_ir::{CoreIR, FlexDirection, FocusPolicy, LayoutOp, Op, WidgetId};
-use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot, TextMeasurer};
+use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, TextMeasurer};
 use serde_json;
 use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
@@ -195,6 +195,9 @@ pub struct Runtime {
     pending_text_editing: Vec<(WidgetId, crate::TextEditingCommand)>,
     pending_text_scroll: Vec<(WidgetId, crate::TextScrollCommand)>,
     pending_text_form_validation: Vec<String>,
+    /// Last completed viewport for the currently focused text input. A resize
+    /// can hide its retained caret without generating a new text-edit event.
+    last_focused_text_input_viewport: Option<(WidgetId, LayoutSize)>,
     /// Active focus barriers and the targets restored as each barrier closes.
     focus_barriers: Vec<FocusBarrierFrame>,
     /// Semantic identity used to restore focus when a responsive rebuild
@@ -229,6 +232,7 @@ impl Default for Runtime {
             pending_text_editing: Vec::new(),
             pending_text_scroll: Vec::new(),
             pending_text_form_validation: Vec::new(),
+            last_focused_text_input_viewport: None,
             focus_barriers: Vec::new(),
             focus_semantic_anchor: None,
             next_req_id: 0,
@@ -1526,6 +1530,8 @@ impl Runtime {
         needs_follow_up_frame |= self.reveal_new_active_descendants(ir, layout);
         needs_follow_up_frame |= self.apply_pending_selection_regions(ir);
         needs_follow_up_frame |= self.apply_pending_text_editing(ir, layout);
+        needs_follow_up_frame |=
+            self.auto_scroll_focused_text_input_after_viewport_change(ir, layout);
         needs_follow_up_frame |= self.apply_pending_text_scroll(ir, layout);
         needs_follow_up_frame |= self.apply_pending_text_form_validation(ir);
         let current_time = self.clock().current_time();
@@ -1606,6 +1612,54 @@ impl Runtime {
             }
         }
         changed
+    }
+
+    fn auto_scroll_focused_text_input_after_viewport_change(
+        &mut self,
+        ir: &CoreIR,
+        layout: &LayoutSnapshot,
+    ) -> bool {
+        let Some(input_id) = self.runtime_state.interaction.focused else {
+            self.last_focused_text_input_viewport = None;
+            return false;
+        };
+        let Some(scroll_id) = crate::text_control::text_input_scroll_node_id(ir, input_id) else {
+            self.last_focused_text_input_viewport = None;
+            return false;
+        };
+        let Some(viewport_size) = layout
+            .get_node_geometry(scroll_id)
+            .map(|geometry| geometry.rect.size)
+        else {
+            self.last_focused_text_input_viewport = None;
+            return false;
+        };
+
+        let viewport_changed =
+            self.last_focused_text_input_viewport != Some((input_id, viewport_size));
+        self.last_focused_text_input_viewport = Some((input_id, viewport_size));
+        if !viewport_changed {
+            return false;
+        }
+
+        let current_time = self.clock().current_time();
+        let mut context = crate::input::ControllerContext {
+            ir,
+            layout,
+            text_edit: &mut self.runtime_state.text_edit,
+            selectable_text: &mut self.runtime_state.selectable_text,
+            context_menu: &mut self.runtime_state.context_menu,
+            interaction: &mut self.runtime_state.interaction,
+            scroll: &mut self.runtime_state.scroll,
+            viewport: &self.runtime_state.viewport,
+            gesture: &mut self.runtime_state.gesture,
+            editing_convention: self.editing_convention,
+            current_time,
+            clipboard: self.clipboard_backend.as_ref(),
+            measurer: self.measurer.as_ref(),
+            dispatched_actions: Vec::new(),
+        };
+        crate::input::text::TextInputController::auto_scroll_textinput(&mut context, input_id)
     }
 
     fn apply_pending_selection_regions(&mut self, ir: &CoreIR) -> bool {
