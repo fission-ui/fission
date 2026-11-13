@@ -60,8 +60,8 @@ fn web_bridge_json_round_trips_remain_bounded_after_repeated_queries() -> anyhow
     let increment = client.resolve_selector(SelectorQuery::label("Increment"))?;
     assert_eq!(increment.label.as_deref(), Some("Increment"));
 
-    // Reproduce the app's repeated missing-selector response followed by a pump. In the large
-    // Zoffice app, this pattern reached the bridge trap around request 51. Go well beyond that
+    // Reproduce repeated missing-selector responses followed by a pump. In a large
+    // application, this pattern reached the bridge trap around request 51. Go well beyond that
     // point, then exercise each bridge accessor again in the same Wasm instance.
     for _ in 0..128 {
         assert!(client
