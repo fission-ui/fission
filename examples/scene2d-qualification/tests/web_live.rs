@@ -71,6 +71,30 @@ fn assert_varied_pixels(path: &Path, node: &SemanticNode) {
 
 #[test]
 #[ignore = "requires a running Web qualification app and Chrome"]
+fn webgpu_screenshot_contains_rendered_scene_pixels() {
+    let client = browser();
+    client
+        .wait_for_text("Guide the scout", 30_000)
+        .expect("game becomes ready");
+    let renderer = client
+        .browser_evaluate_json("globalThis.__FISSION_RENDERER_INFO")
+        .expect("read active renderer");
+    assert_eq!(
+        renderer["active"].as_str(),
+        Some("webgpu-vello"),
+        "pixel capture regression must exercise the WebGPU renderer"
+    );
+
+    let viewport = semantic_node(&client, "scene2d-qualification.viewport");
+    let screenshot = screenshot_path("webgpu-screenshot-pixels");
+    client
+        .screenshot(screenshot.to_str().unwrap())
+        .expect("capture WebGPU scene");
+    assert_varied_pixels(&screenshot, &viewport);
+}
+
+#[test]
+#[ignore = "requires a running Web qualification app and Chrome"]
 fn touch_completes_the_real_web_game_and_renders_scene_pixels() {
     let client = browser();
     client
