@@ -50,7 +50,7 @@ fission-scene = { path = "../../core/fission-scene", optional = true, version = 
 fission-scene3d = { path = "../../core/fission-scene3d", optional = true, version = "=0.1.0-alpha.1" }
 fission-store = { path = "../../core/fission-store", optional = true, version = "0.16.0" }
 fission-store-sqlite = { path = "../../core/fission-store-sqlite", optional = true, version = "0.16.0", default-features = false }
-winit = { package = "fission-winit", git = "https://github.com/worka-ai/winit", rev = "1e99d748234f11a0dd49a00a1ffc3cca1bb0b203" }
+winit = { package = "fission-winit", version = "0.30.13-fission.7" }
 fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.16.0" }
 fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.16.0" }
 image = "0.25"
@@ -82,7 +82,7 @@ rfd = { version = "0.14.1", default-features = true }
 accesskit_android = { version = "0.7.4", features = ["embedded-dex"] }
 jni = "0.21"
 ndk-context = "0.1"
-winit = { package = "fission-winit", git = "https://github.com/worka-ai/winit", rev = "1e99d748234f11a0dd49a00a1ffc3cca1bb0b203", features = ["android-game-activity"] }
+winit = { package = "fission-winit", version = "0.30.13-fission.7", features = ["android-game-activity"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
 accesskit_unix = { version = "0.22.0", default-features = false, features = ["async-io"] }

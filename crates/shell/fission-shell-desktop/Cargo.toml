@@ -31,7 +31,7 @@ fission-shell-winit = { path = "../fission-shell-winit", default-features = fals
 fission-core = { path = "../../core/fission-core", version = "0.16.0" }
 fission-store = { path = "../../core/fission-store", optional = true, version = "0.16.0" }
 fission-theme = { path = "../../core/fission-theme", version = "0.16.0" }
-winit = { package = "fission-winit", git = "https://github.com/worka-ai/winit", rev = "1e99d748234f11a0dd49a00a1ffc3cca1bb0b203" }
+winit = { package = "fission-winit", version = "0.30.13-fission.7" }
 anyhow = "1.0"
 
 [dev-dependencies]

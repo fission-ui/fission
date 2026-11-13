@@ -3593,7 +3593,7 @@ dependencies = [
 
 [[package]]
 name = "fission-vello-gpu"
-version = "0.2.0-fission.1"
+version = "0.2.0-fission.2"
 dependencies = [
  "bytemuck",
  "fission-glifo",
@@ -3641,8 +3641,9 @@ dependencies = [
 
 [[package]]
 name = "fission-winit"
-version = "0.30.13-fission.6"
-source = "git+https://github.com/worka-ai/winit?rev=1e99d748234f11a0dd49a00a1ffc3cca1bb0b203#1e99d748234f11a0dd49a00a1ffc3cca1bb0b203"
+version = "0.30.13-fission.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e586194b2f318e49202bd6dddcdb2aa61a2bdb9f12d553349745f7217a743e1c"
 dependencies = [
  "ahash",
  "android-activity",
@@ -6361,7 +6362,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
 dependencies = [
- "proc-macro-crate 2.0.2",
+ "proc-macro-crate 3.5.0",
  "proc-macro2",
  "quote",
  "syn 2.0.118",

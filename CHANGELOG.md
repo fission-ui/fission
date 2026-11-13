@@ -7,8 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-13
+
 ### Added
 
+- **Compose authoring** - `fission_component!` provides explicit `props` and
+  retained `state`, named `view` scopes, synchronous `reduce` handlers and
+  asynchronous `effect` requests. Effects require `on_ok` and `on_err` handlers;
+  `on_start` is optional. Effect arguments are owned snapshots rather than live
+  component, global-state or reducer-context handles.
+- **Goal-oriented documentation** - The Compose-first documentation site teaches
+  complete applications with interactive checkpoints extracted from each
+  tutorial's source. Static site examples build actual HTML sites, and legacy
+  documentation URLs remain available.
 - **Alpha 2D and 3D scenes** - Opt-in retained `scene2d` and `scene3d`
   capabilities provide closed scene IR, validation, culling, picking, typed
   interaction, batching, static glTF/GLB import, and GPU-composited 3D
@@ -21,8 +32,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `physics-rapier3d` independently enable Rapier behind Fission-owned physics
   contracts; applications that enable neither do not compile Rapier.
 
+### Changed
+
+- **Documentation builds** - Compile each uncached checkpoint once, package the
+  exact compiled artifact and reuse integrity-checked complete preview packages.
+  Stable generated projects, inherited Cargo profiles and bounded independent
+  compilation/packaging concurrency avoid unnecessary rebuilds. `wasm-opt` is
+  optional; Rust release optimisation remains enabled.
+- **Published dependencies** - Use distinct registry releases containing the
+  required winit browser-command API and Vello WebGPU upload corrections rather
+  than relying on unpublished changes under existing package versions.
+
+### Fixed
+
+- **Retained state and editing** - Keyed lazy rows establish identity before
+  component construction and preserve state/actions when reordered. Text editing
+  resets stale sessions and keeps the end caret visible after whole-value
+  replacement and responsive viewport changes.
+- **Web storage and LiveTest** - Abandoned SQLite transactions roll back without
+  cancelling healthy background tabs. Read permissions no longer implicitly
+  authorise state-changing PRAGMAs. LiveTest memory adapters work without dynamic
+  JavaScript code generation.
+- **Rendering and native capabilities** - Preserve styled text fallback and
+  software backdrop effects, respect constrained Metal varying limits, correct
+  provider-backed document ownership and keep Android PDF copying off the UI
+  thread. Android notification scheduling preserves its receipt identity.
+- **Fresh documentation builds** - Generated Static site tutorials respect
+  Cargo's network policy instead of forcing uncached CI builds offline.
+
 ### Migration notes
 
+- Update the CLI and stable Fission dependencies to `0.16.0`. See
+  [`docs/release-0.16.0-readiness.md`](docs/release-0.16.0-readiness.md) for the
+  keyed lazy-row builder signature, explicit Web SQLite provider construction,
+  intentional PRAGMA permissions and Android generated-bridge migration.
 - The new scene, game, and physics APIs are alpha and opt-in. Existing
   applications require no changes. Alpha crates use exact prerelease versions
   such as `=0.1.0-alpha.1`; breaking alpha updates will be recorded here with
