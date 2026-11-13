@@ -3,11 +3,11 @@ use fission_core::action::GlobalState as CoreGlobalState;
 use fission_core::authoring::BuildCtx;
 use fission_core::authoring::LoweringContext;
 use fission_core::env::Env;
-use fission_core::ui::{TextInput, Widget};
+use fission_core::ui::{Button, Column, Row, Scroll, Spacer, Text, TextInput, Widget};
 use fission_core::{
     reduce_with, InputEvent, LayoutPoint, ReducerContext, Runtime, View, WidgetIdExt,
 };
-use fission_ir::Role;
+use fission_ir::{FlexDirection, Role};
 use fission_layout::{LayoutEngine, LayoutSize, LineMetric, TextMeasurer};
 use fission_render::{DisplayList, RenderScene, Renderer};
 use fission_widgets::{Checkbox, Portal};
@@ -116,6 +116,130 @@ impl From<Root> for Widget {
         .into()
     }
 }
+
+#[derive(Clone)]
+struct VirtualizedRows;
+
+impl From<VirtualizedRows> for Widget {
+    fn from(_component: VirtualizedRows) -> Self {
+        const SCROLL_ID: fission_ir::WidgetId = fission_ir::WidgetId::from_u128(70_001);
+        const COLUMNS_ID: fission_ir::WidgetId = fission_ir::WidgetId::from_u128(70_002);
+        const ROW_HEIGHT: f32 = 30.0;
+        const ROW_COUNT: usize = 100;
+        const COLUMN_WIDTH: f32 = 40.0;
+        const COLUMN_COUNT: usize = 30;
+
+        let (ctx, view) = fission_core::build::current::<GlobalState>();
+        ctx.mark_scroll_build_dependency(SCROLL_ID);
+        ctx.mark_scroll_build_dependency(COLUMNS_ID);
+
+        let offset = view.runtime().scroll.get_offset(SCROLL_ID).max(0.0);
+        let first_row = (offset / ROW_HEIGHT).floor() as usize;
+        let end_row = (first_row + 4).min(ROW_COUNT);
+        let column_offset = view.runtime().scroll.get_offset(COLUMNS_ID).max(0.0);
+        let first_column = (column_offset / COLUMN_WIDTH).floor() as usize;
+        let end_column = (first_column + 4).min(COLUMN_COUNT);
+        let mut column_children = vec![Spacer {
+            width: Some(first_column as f32 * COLUMN_WIDTH),
+            ..Default::default()
+        }
+        .into()];
+        for column in first_column..end_column {
+            let label = format!("column-{column}");
+            column_children.push(
+                Button {
+                    id: Some(fission_ir::WidgetId::from_u128(70_200 + column as u128)),
+                    child: Some(Text::new(label.clone()).into()),
+                    semantics: Some(fission_ir::Semantics {
+                        role: Role::Button,
+                        label: Some(label),
+                        ..Default::default()
+                    }),
+                    width: Some(COLUMN_WIDTH),
+                    height: Some(40.0),
+                    ..Default::default()
+                }
+                .into(),
+            );
+        }
+        column_children.push(
+            Spacer {
+                width: Some((COLUMN_COUNT - end_column) as f32 * COLUMN_WIDTH),
+                ..Default::default()
+            }
+            .into(),
+        );
+        let mut children = vec![Spacer {
+            height: Some(first_row as f32 * ROW_HEIGHT),
+            ..Default::default()
+        }
+        .into()];
+        for row in first_row..end_row {
+            let label = format!("row-{row}");
+            children.push(
+                Button {
+                    id: Some(fission_ir::WidgetId::from_u128(70_100 + row as u128)),
+                    child: Some(Text::new(label.clone()).into()),
+                    semantics: Some(fission_ir::Semantics {
+                        role: Role::Button,
+                        label: Some(label),
+                        ..Default::default()
+                    }),
+                    width: Some(140.0),
+                    height: Some(ROW_HEIGHT),
+                    ..Default::default()
+                }
+                .into(),
+            );
+        }
+        children.push(
+            Spacer {
+                height: Some((ROW_COUNT - end_row) as f32 * ROW_HEIGHT),
+                ..Default::default()
+            }
+            .into(),
+        );
+
+        Column {
+            children: vec![
+                Scroll {
+                    id: Some(COLUMNS_ID),
+                    direction: FlexDirection::Row,
+                    width: Some(160.0),
+                    height: Some(40.0),
+                    show_scrollbar: false,
+                    child: Some(
+                        Row {
+                            children: column_children,
+                            ..Default::default()
+                        }
+                        .into(),
+                    ),
+                    ..Default::default()
+                }
+                .into(),
+                Scroll {
+                    id: Some(SCROLL_ID),
+                    width: Some(160.0),
+                    height: Some(90.0),
+                    show_scrollbar: false,
+                    child: Some(
+                        Column {
+                            children,
+                            ..Default::default()
+                        }
+                        .into(),
+                    ),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            ..Default::default()
+        }
+        .into()
+    }
+}
+
 fn pump<W>(
     runtime: &mut Runtime,
     layout: &mut LayoutEngine,
@@ -127,7 +251,7 @@ where
     W: Clone + Into<Widget>,
 {
     // Build + wrap portals like desktop
-    let node_tree = {
+    let (node_tree, scroll_build_dependencies) = {
         let state = runtime.get_global_state::<GlobalState>().unwrap();
         let view = View::new(
             state,
@@ -137,6 +261,7 @@ where
         );
         let mut ctx = BuildCtx::new();
         let mut tree = fission_core::build::enter(&mut ctx, &view, || (*root).clone().into());
+        let scroll_build_dependencies = ctx.take_scroll_build_dependencies();
         runtime.clear_reducers();
         let motion = ctx.take_motion_declarations();
         runtime.sync_motion_declarations(&motion, pipe.last_snapshot.as_ref());
@@ -169,7 +294,7 @@ where
             }
             tree = ZStack { id: None, children }.into();
         }
-        tree
+        (tree, scroll_build_dependencies)
     };
     // Lower
     let mut cx = LoweringContext::new(
@@ -178,6 +303,9 @@ where
         None,
         pipe.last_snapshot.as_ref(),
     );
+    for scroll_id in scroll_build_dependencies {
+        cx.mark_scroll_build_dependency(scroll_id);
+    }
     let root_id = fission_core::internal::lower_widget(&node_tree, &mut cx);
     cx.set_root(root_id);
     let ir = cx.into_ir();
@@ -202,6 +330,95 @@ where
         .expect("render ok");
     let snap = pipe.last_snapshot.clone().expect("snapshot");
     (ir, snap)
+}
+
+fn button_labels(ir: &fission_ir::CoreIR) -> Vec<String> {
+    ir.nodes
+        .values()
+        .filter_map(|node| match &node.op {
+            fission_ir::Op::Semantics(semantics) if semantics.role == Role::Button => {
+                semantics.label.clone()
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn declared_scroll_dependency_rebuilds_custom_virtualized_rows() -> Result<()> {
+    use fission_core::event::{PointerEvent, PointerPhase, ScrollDeltaMode};
+
+    const SCROLL_ID: fission_ir::WidgetId = fission_ir::WidgetId::from_u128(70_001);
+    const COLUMNS_ID: fission_ir::WidgetId = fission_ir::WidgetId::from_u128(70_002);
+    let env = Env::default();
+    let mut runtime = Runtime::default();
+    runtime.add_global_state(Box::new(GlobalState::default()))?;
+    let mut layout = LayoutEngine::new().with_measurer(Arc::new(MockMeasurer));
+    let mut pipe = Pipeline::new();
+
+    let (initial_ir, initial_layout) =
+        pump(&mut runtime, &mut layout, &mut pipe, &env, &VirtualizedRows);
+    assert!(initial_ir.scroll_build_dependencies.contains(&SCROLL_ID));
+    assert!(initial_ir.scroll_build_dependencies.contains(&COLUMNS_ID));
+    assert!(button_labels(&initial_ir).contains(&"row-0".to_owned()));
+    assert!(button_labels(&initial_ir).contains(&"row-2".to_owned()));
+    assert!(!button_labels(&initial_ir).contains(&"row-4".to_owned()));
+    assert!(button_labels(&initial_ir).contains(&"column-0".to_owned()));
+    assert!(button_labels(&initial_ir).contains(&"column-1".to_owned()));
+    assert!(!button_labels(&initial_ir).contains(&"column-4".to_owned()));
+
+    let before_offset = runtime.runtime_state.scroll.get_offset(SCROLL_ID);
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Scroll {
+            point: LayoutPoint::new(60.0, 80.0),
+            delta: LayoutPoint::new(0.0, 60.0),
+            delta_mode: ScrollDeltaMode::Pixel,
+            phase: PointerPhase::Moved,
+            modifiers: 0,
+        }),
+        &initial_ir,
+        &initial_layout,
+    )?;
+    assert_eq!(runtime.runtime_state.scroll.get_offset(SCROLL_ID), 60.0);
+    assert_ne!(
+        runtime.runtime_state.scroll.get_offset(SCROLL_ID),
+        before_offset
+    );
+
+    let (scrolled_ir, scrolled_layout) =
+        pump(&mut runtime, &mut layout, &mut pipe, &env, &VirtualizedRows);
+    assert!(scrolled_ir.scroll_build_dependencies.contains(&SCROLL_ID));
+    assert!(button_labels(&scrolled_ir).contains(&"row-2".to_owned()));
+    assert!(!button_labels(&scrolled_ir).contains(&"row-0".to_owned()));
+    assert!(button_labels(&scrolled_ir).contains(&"row-5".to_owned()));
+
+    let before_horizontal = runtime.runtime_state.scroll.get_offset(COLUMNS_ID);
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Scroll {
+            point: LayoutPoint::new(60.0, 20.0),
+            delta: LayoutPoint::new(40.0, 0.0),
+            delta_mode: ScrollDeltaMode::Pixel,
+            phase: PointerPhase::Moved,
+            modifiers: 0,
+        }),
+        &scrolled_ir,
+        &scrolled_layout,
+    )?;
+    assert_eq!(runtime.runtime_state.scroll.get_offset(COLUMNS_ID), 40.0);
+    assert_ne!(
+        runtime.runtime_state.scroll.get_offset(COLUMNS_ID),
+        before_horizontal
+    );
+
+    let (horizontally_scrolled_ir, _) =
+        pump(&mut runtime, &mut layout, &mut pipe, &env, &VirtualizedRows);
+    assert!(horizontally_scrolled_ir
+        .scroll_build_dependencies
+        .contains(&COLUMNS_ID));
+    assert!(button_labels(&horizontally_scrolled_ir).contains(&"column-1".to_owned()));
+    assert!(!button_labels(&horizontally_scrolled_ir).contains(&"column-0".to_owned()));
+    assert!(button_labels(&horizontally_scrolled_ir).contains(&"column-4".to_owned()));
+    Ok(())
 }
 
 #[test]

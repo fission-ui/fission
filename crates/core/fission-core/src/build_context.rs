@@ -8,6 +8,7 @@ use crate::{
     Action, ActionEnvelope, ActionId, BoxedReducer, GlobalState,
 };
 use fission_ir::WidgetId;
+use std::collections::HashSet;
 
 /// `BuildCtx` is where widgets register side-effects that must survive beyond
 /// the build phase:
@@ -19,6 +20,9 @@ use fission_ir::WidgetId;
 ///   node in the global overlay stack (modals, toasts, flyouts).
 /// - **Motion** -- [`register_motion`](BuildCtx::register_motion) registers
 ///   declarative motion declarations.
+/// - **Scroll dependencies** -- `mark_scroll_build_dependency` declares when a
+///   custom composed tree reads an offset to virtualize or change its children.
+///   The Winit shell rebuilds the tree when a declared offset changes.
 /// - **Video / WebView registration** -- [`register_video`](BuildCtx::register_video),
 ///   [`register_web_view`](BuildCtx::register_web_view).
 ///
@@ -40,6 +44,8 @@ pub struct BuildCtx<S: GlobalState> {
     pub resources: ResourceRegistry,
     /// Declarative motion collected during the build phase.
     pub motion_declarations: Vec<MotionDeclaration>,
+    /// Scroll nodes whose offsets affect the authored widget tree.
+    scroll_build_dependencies: HashSet<WidgetId>,
     /// Registered video nodes.
     pub video_nodes: Vec<VideoRegistration>,
     /// Registered web view nodes.
@@ -57,6 +63,7 @@ impl<S: GlobalState> BuildCtx<S> {
             registry: ActionRegistry::new(),
             resources: ResourceRegistry::new(),
             motion_declarations: Vec::new(),
+            scroll_build_dependencies: HashSet::new(),
             video_nodes: Vec::new(),
             web_nodes: Vec::new(),
             portals: Vec::new(),
@@ -124,6 +131,16 @@ impl<S: GlobalState> BuildCtx<S> {
         self.motion_declarations.push(declaration);
     }
 
+    /// Declares that the authored widget tree depends on `scroll_id`'s offset.
+    ///
+    /// The Winit shell uses this declaration to rebuild the authored tree when
+    /// that scroll node moves. Ordinary scroll views remain compositor-only. Prefer the
+    /// corresponding [`crate::build::BuildCtxHandle::mark_scroll_build_dependency`]
+    /// method from a composed widget.
+    pub(crate) fn mark_scroll_build_dependency(&mut self, scroll_id: WidgetId) {
+        self.scroll_build_dependencies.insert(scroll_id);
+    }
+
     pub fn register_video(&mut self, registration: VideoRegistration) {
         self.video_nodes.push(registration);
     }
@@ -134,6 +151,11 @@ impl<S: GlobalState> BuildCtx<S> {
 
     pub fn take_motion_declarations(&mut self) -> Vec<MotionDeclaration> {
         std::mem::take(&mut self.motion_declarations)
+    }
+
+    /// Takes the scroll offsets read by the active widget build.
+    pub fn take_scroll_build_dependencies(&mut self) -> HashSet<WidgetId> {
+        std::mem::take(&mut self.scroll_build_dependencies)
     }
 
     pub fn take_video_registrations(&mut self) -> Vec<VideoRegistration> {

@@ -3815,6 +3815,25 @@ fn handle_mouse_button(
     }
 }
 
+fn scroll_build_dependency_offsets(
+    ir: &CoreIR,
+    scroll: &fission_core::ScrollStateMap,
+) -> Vec<(WidgetId, f32)> {
+    ir.scroll_build_dependencies
+        .iter()
+        .map(|id| (*id, scroll.get_offset(*id)))
+        .collect()
+}
+
+fn scroll_build_dependency_offsets_changed(
+    before: &[(WidgetId, f32)],
+    after: &fission_core::ScrollStateMap,
+) -> bool {
+    before
+        .iter()
+        .any(|(id, previous)| after.get_offset(*id).to_bits() != previous.to_bits())
+}
+
 /// Handle scroll — shared by WindowEvent::MouseWheel and TestEvent::Scroll.
 fn handle_scroll(
     point_x: f32,
@@ -3841,11 +3860,8 @@ fn handle_scroll(
     invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
-        let build_dependency_offsets = ir
-            .scroll_build_dependencies
-            .iter()
-            .map(|id| (*id, runtime.runtime_state.scroll.get_offset(*id)))
-            .collect::<Vec<_>>();
+        let build_dependency_offsets =
+            scroll_build_dependency_offsets(ir, &runtime.runtime_state.scroll);
         let point = LayoutPoint {
             x: point_x,
             y: point_y,
@@ -3865,9 +3881,10 @@ fn handle_scroll(
             eprintln!("Scroll error: {:?}", e);
         }
         sync_window_cursor(window, runtime);
-        let rebuild = build_dependency_offsets.iter().any(|(id, previous)| {
-            runtime.runtime_state.scroll.get_offset(*id).to_bits() != previous.to_bits()
-        });
+        let rebuild = scroll_build_dependency_offsets_changed(
+            &build_dependency_offsets,
+            &runtime.runtime_state.scroll,
+        );
         if rebuild {
             invalidations.mark_build();
         } else {
@@ -9039,6 +9056,7 @@ where
                                     web_views,
                                     portals,
                                     route_outcome,
+                                    scroll_build_dependencies,
                                 ) = {
                                     let state = runtime.get_global_state::<S>().unwrap();
                                     let view = View::new(
@@ -9068,6 +9086,8 @@ where
                                     let web_views = ctx.take_web_registrations();
                                     let portals_with_ids = ctx.take_portals();
                                     let route_outcome = ctx.take_route_outcome();
+                                    let scroll_build_dependencies =
+                                        ctx.take_scroll_build_dependencies();
 
                                     let portals = portals_with_ids
                                         .into_iter()
@@ -9090,6 +9110,7 @@ where
                                         web_views,
                                         portals,
                                         route_outcome,
+                                        scroll_build_dependencies,
                                     )
                                 };
 
@@ -9187,6 +9208,9 @@ where
                                         runtime.measurer.as_ref(),
                                         pipeline.last_snapshot.as_ref(),
                                     );
+                                    for scroll_id in scroll_build_dependencies {
+                                        lower_cx.mark_scroll_build_dependency(scroll_id);
+                                    }
                                     let shell_root_id =
                                         fission_core::internal::shell_root_id(root_widget_id);
                                     let root_id =
@@ -11527,6 +11551,7 @@ mod tests {
         preferred_web_surface_alpha_mode, present_frame_with_winit_coordination,
         rect_visible_in_scroll_ancestors, repeating_animation_redraw_interval, resize_is_unsettled,
         resolve_build_viewport, resolve_selector_record, runtime_timer_wake_at,
+        scroll_build_dependency_offsets, scroll_build_dependency_offsets_changed,
         should_present_startup_clear_frame, surface_acquire_recovery,
         sync_tracked_target_texture_size_to_surface, test_pump_can_ack_current_frame,
         text_input_blink_enabled, texture_plans_fit_device_limits, visual_rect_for_node,
@@ -11558,6 +11583,23 @@ mod tests {
     }
 
     impl GlobalState for TimerWakeState {}
+
+    #[test]
+    fn only_changed_scroll_build_dependencies_request_tree_rebuilds() {
+        let tracked_scroll = WidgetId::from_u128(80_001);
+        let ordinary_scroll = WidgetId::from_u128(80_002);
+        let mut ir = CoreIR::new();
+        ir.scroll_build_dependencies.insert(tracked_scroll);
+
+        let mut scroll = ScrollStateMap::default();
+        let before = scroll_build_dependency_offsets(&ir, &scroll);
+
+        scroll.set_offset(ordinary_scroll, 24.0);
+        assert!(!scroll_build_dependency_offsets_changed(&before, &scroll));
+
+        scroll.set_offset(tracked_scroll, 24.0);
+        assert!(scroll_build_dependency_offsets_changed(&before, &scroll));
+    }
 
     #[fission_macros::fission_reducer(ShellTimerWakeFired)]
     fn shell_timer_wake_fired(
