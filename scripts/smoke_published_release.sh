@@ -23,6 +23,7 @@ export PATH="$install_root/bin:$PATH"
 rustup target add wasm32-unknown-unknown
 cargo install wasm-pack --version 0.13.1 --locked --root "$install_root"
 cargo install cargo-fission --version "$version" --locked --root "$install_root"
+df -h "$smoke_root"
 
 if [[ $(fission --version) != "fission $version" ]]; then
   echo "installed fission binary did not report version $version" >&2
@@ -51,11 +52,14 @@ setsid fission run \
   --port "$port" \
   --no-open >"$run_log" 2>&1 &
 server_pid=$!
+tail --pid="$server_pid" -n +1 -f "$run_log" &
+log_pid=$!
 cleanup() {
   if kill -0 "$server_pid" 2>/dev/null; then
     kill -- "-$server_pid" 2>/dev/null || true
     wait "$server_pid" 2>/dev/null || true
   fi
+  wait "$log_pid" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -67,7 +71,8 @@ for _ in $(seq 1 600); do
   fi
   if ! kill -0 "$server_pid" 2>/dev/null; then
     echo "fission run exited before serving the generated application" >&2
-    sed -n '1,240p' "$run_log" >&2
+    tail -n 240 "$run_log" >&2
+    df -h "$smoke_root" >&2
     exit 1
   fi
   sleep 2
@@ -75,7 +80,8 @@ done
 
 if [[ $ready != true ]]; then
   echo "generated Web application was not served within 20 minutes" >&2
-  sed -n '1,240p' "$run_log" >&2
+  tail -n 240 "$run_log" >&2
+  df -h "$smoke_root" >&2
   exit 1
 fi
 if [[ ! -s $smoke_root/index.html ]] || ! rg -q '<script|\.js' "$smoke_root/index.html"; then
