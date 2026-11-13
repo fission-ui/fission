@@ -7,9 +7,11 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::ops::Range;
 use std::sync::Arc;
 
-type ItemBuilder = Arc<dyn Fn(usize) -> (WidgetId, Widget) + Send + Sync + 'static>;
+type ItemBuilder = Arc<dyn Fn(usize) -> Widget + Send + Sync + 'static>;
+type ItemKey = Arc<dyn Fn(usize) -> WidgetId + Send + Sync + 'static>;
 
 /// A virtualized vertical list backed by widgets that are already constructed.
 ///
@@ -44,6 +46,12 @@ pub struct LazyColumnBuilder {
     item_count: usize,
     #[serde(skip)]
     item_builder: Option<ItemBuilder>,
+    #[serde(skip)]
+    item_key: Option<ItemKey>,
+    #[serde(skip)]
+    visible_range: Range<usize>,
+    #[serde(skip)]
+    pub(crate) visible_rows: Vec<Widget>,
 }
 
 impl fmt::Debug for LazyColumnBuilder {
@@ -69,31 +77,79 @@ impl LazyColumn {
         item_height: f32,
         builder: impl Fn(usize) -> Widget + Send + Sync + 'static,
     ) -> LazyColumnBuilder {
-        Self::with_keyed_item_builder(item_count, item_height, move |index| {
-            (WidgetId::derived(0, &[index as u32]), builder(index))
-        })
+        Self::with_keyed_item_builder(
+            item_count,
+            item_height,
+            |index| WidgetId::derived(0, &[index as u32]),
+            builder,
+        )
     }
 
     /// Creates a virtualized list using a durable key for each row.
     ///
     /// The builder is called only for visible rows and the one-row overscan
-    /// buffer. Return the same key for the same data item even when its
-    /// position changes.
+    /// buffer. `key` runs before `builder`, so the ordinary component build
+    /// scope, retained local state and reducers all use the data item's identity.
+    /// Return the same key for the same data item even when its position changes.
     pub fn with_keyed_item_builder(
         item_count: usize,
         item_height: f32,
-        builder: impl Fn(usize) -> (WidgetId, Widget) + Send + Sync + 'static,
+        key: impl Fn(usize) -> WidgetId + Send + Sync + 'static,
+        builder: impl Fn(usize) -> Widget + Send + Sync + 'static,
     ) -> LazyColumnBuilder {
         LazyColumnBuilder {
             item_height,
             item_count,
             item_builder: Some(Arc::new(builder)),
+            item_key: Some(Arc::new(key)),
             ..LazyColumnBuilder::default()
         }
     }
 }
 
 impl LazyColumnBuilder {
+    pub(crate) fn prepare(mut self) -> Self {
+        let Some(builder) = self.item_builder.take() else {
+            return self;
+        };
+        let key = self
+            .item_key
+            .take()
+            .expect("an item builder has a key selector");
+        self.id = self
+            .id
+            .or_else(crate::build::current_widget_id)
+            .or_else(|| crate::build::next_implicit_widget_id(0xF155_1A27));
+        let view =
+            crate::build::try_current_runtime_state().map(|_| crate::build::current::<()>().1);
+        let list_id = self.id.unwrap_or_else(WidgetId::app_root);
+        let height = view.as_ref().map_or(600.0, |view| {
+            if view.layout().is_none() && view.viewport_size().height > 0.0 {
+                view.viewport_size().height
+            } else {
+                viewport_height(view.layout(), list_id)
+            }
+        });
+        let offset = view
+            .map(|view| view.runtime().scroll.get_offset(list_id))
+            .unwrap_or_default();
+        self.visible_range = visible_range(self.item_count, self.item_height, height, offset);
+        self.visible_rows = self
+            .visible_range
+            .clone()
+            .map(|index| {
+                let row_id = item_scope(list_id, key(index));
+                crate::build::with_widget_id(row_id, || {
+                    // This is the ordinary authoring pass: state and resource/reducer
+                    // registration happen before the shell closes the build scope.
+                    let widget = builder(index);
+                    crate::internal::resolve_widget_identities_owned(widget, row_id)
+                })
+            })
+            .collect();
+        self
+    }
+
     /// Assigns an explicit identity used to retain this list's scroll offset.
     pub fn id(mut self, id: impl Into<WidgetId>) -> Self {
         self.id = Some(id.into());
@@ -116,6 +172,9 @@ impl Default for LazyColumnBuilder {
             content_width: None,
             item_count: 0,
             item_builder: None,
+            item_key: None,
+            visible_range: 0..0,
+            visible_rows: Vec::new(),
         }
     }
 }
@@ -129,6 +188,7 @@ impl Lower for LazyColumn {
             self.children.len(),
             self.item_height,
             None,
+            None,
             |index, column_id, cx| {
                 let child_scope = WidgetId::derived(column_id.as_u128(), &[index as u32]);
                 cx.with_scope(child_scope, |cx| self.children[index].lower(cx))
@@ -140,24 +200,25 @@ impl Lower for LazyColumn {
 impl Lower for LazyColumnBuilder {
     fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let scroll_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
-        let item_count = if self.item_builder.is_some() {
-            self.item_count
-        } else {
-            0
-        };
         lower_lazy_column(
             cx,
             scroll_id,
-            item_count,
+            if self.visible_rows.is_empty() {
+                0
+            } else {
+                self.item_count
+            },
             self.item_height,
             self.content_width,
-            |index, column_id, cx| {
-                let (key, widget) =
-                    self.item_builder
-                        .as_ref()
-                        .expect("item count is zero without a builder")(index);
-                let child_scope = item_scope(column_id, key);
-                cx.with_scope(child_scope, |cx| widget.lower(cx))
+            Some(self.visible_range.clone()),
+            |index, _column_id, cx| {
+                let row = &self.visible_rows[index - self.visible_range.start];
+                let row_id = row
+                    .declared_id()
+                    .expect("prepared lazy rows have resolved identities");
+                // A row's internal paint/layout nodes must be keyed too, not
+                // allocated from the surrounding list's positional sequence.
+                cx.with_scope(row_id, |cx| row.lower(cx))
             },
         )
     }
@@ -169,6 +230,7 @@ fn lower_lazy_column(
     total_count: usize,
     item_height: f32,
     content_width: Option<f32>,
+    prepared_range: Option<Range<usize>>,
     mut lower_item: impl FnMut(usize, WidgetId, &mut LoweringContext) -> WidgetId,
 ) -> WidgetId {
     let virtualized = item_height > 0.0;
@@ -176,57 +238,22 @@ fn lower_lazy_column(
     // Use the previous layout to estimate the viewport before lowering this
     // frame. The first frame has no previous geometry, so use a conservative
     // fallback rather than constructing the entire data set.
-    let viewport_height = if virtualized {
-        if let Some(layout) = cx.layout {
-            let viewport = layout.viewport_size;
-            if let Some(geom) = layout.get_node_geometry(scroll_id) {
-                let height = geom.rect.height();
-                let height = if height > 0.0 {
-                    if viewport.height > 0.0 {
-                        height.min(viewport.height)
-                    } else {
-                        height
-                    }
-                } else {
-                    viewport.height
-                };
-                if height > 0.0 {
-                    height
-                } else {
-                    600.0
-                }
-            } else if viewport.height > 0.0 {
-                viewport.height
-            } else {
-                600.0
-            }
-        } else {
-            600.0
-        }
-    } else {
-        0.0
-    };
-
-    let (start_index, end_index, top_spacer_height, bottom_spacer_height) = if virtualized {
-        let item_height = item_height.max(1.0);
-        let total_height = total_count as f32 * item_height;
-        let max_offset = (total_height - viewport_height.max(0.0)).max(0.0);
-        let scroll_offset = cx
-            .runtime_state
-            .scroll
-            .get_offset(scroll_id)
-            .clamp(0.0, max_offset);
-        let visible_count = (viewport_height / item_height).ceil() as usize + 1;
-        let start = (scroll_offset / item_height).floor() as usize;
-        let end = (start + visible_count).min(total_count);
+    let range = prepared_range.unwrap_or_else(|| {
+        visible_range(
+            total_count,
+            item_height,
+            viewport_height(cx.layout, scroll_id),
+            cx.runtime_state.scroll.get_offset(scroll_id),
+        )
+    });
+    let (start_index, end_index) = (range.start, range.end);
+    let (top_spacer_height, bottom_spacer_height) = if virtualized {
         (
-            start,
-            end,
-            item_height * start as f32,
-            item_height * total_count.saturating_sub(end) as f32,
+            item_height.max(1.0) * start_index as f32,
+            item_height.max(1.0) * total_count.saturating_sub(end_index) as f32,
         )
     } else {
-        (0, total_count, 0.0, 0.0)
+        (0.0, 0.0)
     };
 
     let col_id = cx.next_node_id();
@@ -352,4 +379,38 @@ fn item_scope(column_id: WidgetId, key: WidgetId) -> WidgetId {
             key as u32,
         ],
     )
+}
+
+fn viewport_height(layout: Option<&crate::LayoutSnapshot>, scroll_id: WidgetId) -> f32 {
+    let Some(layout) = layout else {
+        return 600.0;
+    };
+    let viewport = layout.viewport_size.height;
+    let height = layout
+        .get_node_geometry(scroll_id)
+        .map(|geometry| geometry.rect.height())
+        .filter(|height| *height > 0.0)
+        .unwrap_or(viewport);
+    let height = if viewport > 0.0 {
+        height.min(viewport)
+    } else {
+        height
+    };
+    if height > 0.0 {
+        height
+    } else {
+        600.0
+    }
+}
+
+fn visible_range(count: usize, item_height: f32, viewport: f32, offset: f32) -> Range<usize> {
+    if item_height <= 0.0 {
+        return 0..count;
+    }
+    let height = item_height.max(1.0);
+    let max_offset = (count as f32 * height - viewport.max(0.0)).max(0.0);
+    let offset = offset.clamp(0.0, max_offset);
+    let start = ((offset / height).floor() as usize).min(count);
+    let visible = (viewport / height).ceil() as usize + 1;
+    start..start.saturating_add(visible).min(count)
 }

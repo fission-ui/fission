@@ -283,7 +283,11 @@ impl Widget {
             | WidgetKind::FocusScope(FocusScope { children, .. })
             | WidgetKind::ZStack(ZStack { children, .. })
             | WidgetKind::Grid(Grid { children, .. })
-            | WidgetKind::LazyColumn(LazyColumn { children, .. }) => {
+            | WidgetKind::LazyColumn(LazyColumn { children, .. })
+            | WidgetKind::LazyColumnBuilder(LazyColumnBuilder {
+                visible_rows: children,
+                ..
+            }) => {
                 for child in children {
                     child.visit(visitor)?;
                 }
@@ -355,8 +359,7 @@ impl Widget {
             | WidgetKind::Radio(_)
             | WidgetKind::Spacer(_)
             | WidgetKind::Slider(_)
-            | WidgetKind::Icon(_)
-            | WidgetKind::LazyColumnBuilder(_) => ControlFlow::Continue(()),
+            | WidgetKind::Icon(_) => ControlFlow::Continue(()),
         }
     }
 
@@ -1279,7 +1282,7 @@ impl From<LazyColumn> for Widget {
 }
 impl From<LazyColumnBuilder> for Widget {
     fn from(w: LazyColumnBuilder) -> Self {
-        Self::from_kind(WidgetKind::LazyColumnBuilder(w))
+        Self::from_kind(WidgetKind::LazyColumnBuilder(w.prepare()))
     }
 }
 impl From<Icon> for Widget {

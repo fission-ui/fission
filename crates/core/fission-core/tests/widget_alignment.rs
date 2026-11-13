@@ -526,10 +526,13 @@ fn lazy_column_builds_only_visible_rows_from_a_large_data_set() {
 fn keyed_lazy_column_rows_keep_their_widget_identity_when_reordered() {
     let list_id = WidgetId::explicit("alignment.keyed-lazy-list");
     let build = |rows: Vec<(&'static str, &'static str)>| {
-        LazyColumn::with_keyed_item_builder(rows.len(), 24.0, move |index| {
-            let (key, label) = rows[index];
-            (WidgetId::explicit(key), Text::new(label).into())
-        })
+        let keys = rows.clone();
+        LazyColumn::with_keyed_item_builder(
+            rows.len(),
+            24.0,
+            move |index| WidgetId::explicit(keys[index].0),
+            move |index| Text::new(rows[index].1).into(),
+        )
         .id(list_id)
     };
     let paint_id = |list: LazyColumnBuilder| {

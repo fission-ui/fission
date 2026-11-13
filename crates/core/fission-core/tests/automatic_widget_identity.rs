@@ -618,6 +618,43 @@ fn dispatch_action(runtime: &mut Runtime, context: BuildCtx<()>, action: ActionE
 }
 
 #[test]
+fn keyed_lazy_rows_build_and_register_local_reducers_before_lowering() {
+    let build = |runtime: &Runtime, labels: Vec<&'static str>| {
+        let env = Env::default();
+        let view = View::new(&(), &runtime.runtime_state, &env, None);
+        let mut context = BuildCtx::new();
+        let keys = labels.clone();
+        let widget = build::enter(&mut context, &view, || {
+            fission_core::ui::LazyColumn::with_keyed_item_builder(
+                labels.len(),
+                48.0,
+                move |index| WidgetId::explicit(keys[index]),
+                move |index| {
+                    StatefulItem {
+                        label: labels[index].to_owned(),
+                    }
+                    .into()
+                },
+            )
+            .id(WidgetId::explicit("stateful-lazy-list"))
+            .into()
+        });
+        // Normal shells lower only after the authoring scope has closed.
+        let _ = internal::lower_widget_to_ir(&widget);
+        (widget, context)
+    };
+    let mut runtime = Runtime::default();
+    let (widget, context) = build(&runtime, vec!["a", "b"]);
+    let action = button_actions(&widget).remove(1);
+    dispatch_action(&mut runtime, context, action);
+    let (reordered, _) = build(&runtime, vec!["b", "a"]);
+    assert_eq!(
+        item_values(&reordered),
+        vec![("b".into(), 1), ("a".into(), 0)]
+    );
+}
+
+#[test]
 fn local_state_in_unidentified_collections_is_stable_by_position() {
     let mut runtime = Runtime::default();
     let root = WidgetId::explicit("unkeyed-state-root");
