@@ -18,7 +18,7 @@ The facade is the normal application dependency:
 
 ```toml
 [dependencies]
-fission = { version = "0.15.1", features = ["physics-rapier2d"] }
+fission = { version = "0.16.0", features = ["physics-rapier2d"] }
 ```
 
 Physics does not own the fixed-step clock. Drive it from `fission-game`'s simulation step, keep gameplay state authoritative and copy the bounded results needed by scene presentation. Select either dimension deliberately; enabling physics does not silently add both Rapier implementations.

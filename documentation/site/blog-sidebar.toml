@@ -1,9 +1,0 @@
-[[items]]
-title = "Blog"
-href = "/blog/"
-level = 0
-
-[[items]]
-title = "Tutorials"
-href = "/blog/categories/tutorials/"
-level = 1

@@ -37,6 +37,13 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
 }
 ::selection { color: #fff; background: var(--blue); }
 
+[data-fission-semantics="crate-directory-main"],
+[data-fission-semantics="crate-detail-main"] {
+  width: min(100%, var(--max));
+  margin-inline: auto;
+  padding: 48px var(--gutter);
+}
+
 /* Shared marketing navigation */
 [data-fission-semantics="site-header"] {
   position: sticky;
@@ -570,11 +577,11 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
 [data-fission-semantics="goal-step-copy"] .fission-doc-tabs { width: 100%; max-width: none; }
 [data-fission-semantics="goal-step-copy"] pre { max-height: none; overflow-x: auto; overflow-y: visible; }
 [data-fission-semantics="goal-checkpoint"] { margin-top: 18px; padding: 16px 18px; border-left: 4px solid var(--teal); border-radius: 5px; background: #edf5f2; }
-[data-fission-semantics="goal-preview-disclosure"] { min-width: 0; }
+[data-fission-semantics="site-disclosure:goal-preview"] { min-width: 0; }
 /* Fission assigns display styles to rendered nodes, overriding the browser's
    default rule that hides details content until the reader opens it. */
 details:not([open]) > :not(summary) { display: none !important; }
-[data-fission-semantics="goal-preview-disclosure"] > summary {
+[data-fission-semantics="site-disclosure:goal-preview"] > summary {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -589,25 +596,25 @@ details:not([open]) > :not(summary) { display: none !important; }
   font-weight: 700;
   list-style: none;
 }
-[data-fission-semantics="goal-preview-disclosure"] > summary::-webkit-details-marker { display: none; }
-[data-fission-semantics="goal-preview-disclosure"] > summary > .fission-site-box { display: none; }
-[data-fission-semantics="goal-preview-disclosure"] > summary::before { content: "+"; }
-[data-fission-semantics="goal-preview-disclosure"][open] > summary::before { content: "−"; }
+[data-fission-semantics="site-disclosure:goal-preview"] > summary::-webkit-details-marker { display: none; }
+[data-fission-semantics="site-disclosure:goal-preview"] > summary > .fission-site-box { display: none; }
+[data-fission-semantics="site-disclosure:goal-preview"] > summary::before { content: "+"; }
+[data-fission-semantics="site-disclosure:goal-preview"][open] > summary::before { content: "−"; }
 [data-fission-semantics="goal-preview-hide-label"],
-[data-fission-semantics="goal-preview-disclosure"][open] [data-fission-semantics="goal-preview-show-label"] { display: none; }
-[data-fission-semantics="goal-preview-disclosure"][open] [data-fission-semantics="goal-preview-hide-label"] { display: block; }
-[data-fission-semantics="goal-preview-disclosure"] > :not(summary) { margin-top: 16px; }
+[data-fission-semantics="site-disclosure:goal-preview"][open] [data-fission-semantics="goal-preview-show-label"] { display: none; }
+[data-fission-semantics="site-disclosure:goal-preview"][open] [data-fission-semantics="goal-preview-hide-label"] { display: block; }
+[data-fission-semantics="site-disclosure:goal-preview"] > :not(summary) { margin-top: 16px; }
 [data-fission-semantics="goal-live-preview"],
 [data-fission-semantics="goal-finished-preview"] { width: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 [data-fission-semantics="goal-live-preview"] iframe,
 [data-fission-semantics="goal-finished-preview"] iframe { display: block; width: 100% !important; height: 560px !important; border: 0; background: #fff; }
 [data-fission-semantics="goal-step-copy"] .fission-doc-tabs { display: block; }
-[data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) [data-fission-semantics="goal-preview-disclosure"][open] iframe {
+[data-fission-semantics="goal-shell"]:has([data-fission-semantics="site-disclosure:goal-preview"][open]) [data-fission-semantics="site-disclosure:goal-preview"][open] iframe {
   height: min(80vh, 52rem) !important;
 }
-[data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) [data-fission-semantics="goal-preview-disclosure"][open] iframe[src*="/tutorials/single-page-web-app-rust/"] { height: 1200px !important; }
-[data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) [data-fission-semantics="goal-preview-disclosure"][open] iframe[src*="/tutorials/single-page-web-app-rust/start-screen/"] { height: 560px !important; }
-[data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) [data-fission-semantics="goal-preview-disclosure"][open] iframe[src*="/tutorials/single-page-web-app-rust/main-flow/"] { height: 850px !important; }
+[data-fission-semantics="goal-shell"]:has([data-fission-semantics="site-disclosure:goal-preview"][open]) [data-fission-semantics="site-disclosure:goal-preview"][open] iframe[src*="/tutorials/single-page-web-app-rust/"] { height: 1200px !important; }
+[data-fission-semantics="goal-shell"]:has([data-fission-semantics="site-disclosure:goal-preview"][open]) [data-fission-semantics="site-disclosure:goal-preview"][open] iframe[src*="/tutorials/single-page-web-app-rust/start-screen/"] { height: 560px !important; }
+[data-fission-semantics="goal-shell"]:has([data-fission-semantics="site-disclosure:goal-preview"][open]) [data-fission-semantics="site-disclosure:goal-preview"][open] iframe[src*="/tutorials/single-page-web-app-rust/main-flow/"] { height: 850px !important; }
 [data-fission-semantics="goal-outcomes"] { padding: 22px; border-radius: 8px; background: #f1f5fb; }
 
 /* Tutorials directory and paginated topic pages */
@@ -870,9 +877,9 @@ details:not([open]) > :not(summary) { display: none !important; }
   [data-fission-semantics="playground-preview"] iframe[src*="/tutorials/rust-product-inventory/"] { height: 1440px !important; }
   [data-fission-semantics="playground-preview"] iframe[src*="/tutorials/rust-admin-panel/"] { height: 1320px !important; }
   [data-fission-semantics="playground-preview"] iframe[src*="/tutorials/single-page-web-app-rust/"] { height: 2700px !important; }
-  [data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) [data-fission-semantics="goal-preview-disclosure"][open] iframe[src*="/tutorials/single-page-web-app-rust/"] { height: 2700px !important; }
-  [data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) [data-fission-semantics="goal-preview-disclosure"][open] iframe[src*="/tutorials/single-page-web-app-rust/start-screen/"] { height: 680px !important; }
-  [data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) [data-fission-semantics="goal-preview-disclosure"][open] iframe[src*="/tutorials/single-page-web-app-rust/main-flow/"] { height: 1250px !important; }
+  [data-fission-semantics="goal-shell"]:has([data-fission-semantics="site-disclosure:goal-preview"][open]) [data-fission-semantics="site-disclosure:goal-preview"][open] iframe[src*="/tutorials/single-page-web-app-rust/"] { height: 2700px !important; }
+  [data-fission-semantics="goal-shell"]:has([data-fission-semantics="site-disclosure:goal-preview"][open]) [data-fission-semantics="site-disclosure:goal-preview"][open] iframe[src*="/tutorials/single-page-web-app-rust/start-screen/"] { height: 680px !important; }
+  [data-fission-semantics="goal-shell"]:has([data-fission-semantics="site-disclosure:goal-preview"][open]) [data-fission-semantics="site-disclosure:goal-preview"][open] iframe[src*="/tutorials/single-page-web-app-rust/main-flow/"] { height: 1250px !important; }
   [data-fission-semantics="tutorial-pagination"] { align-items: stretch; flex-wrap: wrap; }
   [data-fission-semantics="site-navigation"] > .fission-site-row > :last-child {
     flex: 1 1 100%;

@@ -1,18 +1,20 @@
 use crate::blog::{blog_categories, load_blog_posts, BlogPost};
+use crate::compatibility;
 use crate::content::{load_goals, GoalDocument, GoalMeta};
 use crate::design::DocsDesignSystem;
 use crate::i18n;
 use crate::navigation;
 use crate::products::{product_routes, ProductRoute};
 use crate::screens::{
-    tutorial_categories, BlogArchive, BlogArchivePage, BlogArticlePage, DocumentationHub, GoalPage,
-    HomePage, ShowcasePage, TutorialCategoryPage, TutorialsIndexPage, BLOG_POSTS_PER_PAGE,
-    TUTORIALS_PER_PAGE,
+    tutorial_categories, BlogArchive, BlogArchivePage, BlogArticlePage, CrateDetailPage,
+    CrateDirectoryPage, DocumentationHub, GoalPage, HomePage, ShowcasePage, TutorialCategoryPage,
+    TutorialsIndexPage, BLOG_POSTS_PER_PAGE, TUTORIALS_PER_PAGE,
 };
 use crate::state::DocsState;
 use anyhow::{Context, Result};
 use fission::prelude::{DesignMode, DesignSystem};
 use fission::site::FissionSite;
+use std::collections::BTreeSet;
 use std::path::Path;
 
 const HOMEPAGE_PREVIEW_APP: &str = "rust-product-inventory";
@@ -38,8 +40,12 @@ pub fn site_app() -> Result<FissionSite> {
         .context("homepage showcase step is missing src/app.rs")?
         .clone();
     let hero_preview_url = home_showcase.preview_url(&hero_tutorial.meta.app);
+    let homepage = HomePage::new(tutorials.clone(), hero_source, hero_preview_url);
+    let packages =
+        crate::registry::load_registry(&project_dir.join("data/fission-crates.sqlite3"))?;
     let products = product_routes();
     let mut site = FissionSite::new()
+        .content_transform(crate::charts::expand_documentation_mdx)
         .with_env(i18n::environment())
         .with_design_system::<DocsDesignSystem>(DesignMode::Light)
         .light_dark_themes(
@@ -48,13 +54,26 @@ pub fn site_app() -> Result<FissionSite> {
             DesignMode::Light,
         )
         .default_locale("en-GB")
+        .locale_resolver(|context| {
+            Ok(if context.route_path == "/es/" || context.route_path.starts_with("/es/") {
+                "es-ES".into()
+            } else {
+                context.declared_locale.unwrap_or(context.default_locale).into()
+            })
+        })
         .route_widget::<DocsState, _>(
             "/",
             "Fission — Rust GUI framework for desktop, mobile and web",
             Some("Build native desktop, mobile and web applications in Rust from one shared product model with Fission.".to_string()),
-            HomePage::new(tutorials.clone(), hero_source, hero_preview_url),
+            homepage.clone(),
         )
         .with_route_structured_data("/", homepage_structured_data())
+        .route_widget::<DocsState, _>(
+            "/es/",
+            "Fission — interfaces de usuario en Rust para escritorio, móvil y web",
+            Some("Crea aplicaciones de escritorio, móviles y web en Rust con Fission.".to_string()),
+            homepage,
+        )
         .route_widget::<DocsState, _>(
             "/docs/",
             "Documentation — Fission",
@@ -64,7 +83,7 @@ pub fn site_app() -> Result<FissionSite> {
         .route_widget::<DocsState, _>(
             navigation::TUTORIALS,
             "Fission tutorials: build Rust apps and websites",
-            Some("Step-by-step Fission tutorials for building complete Rust apps and websites, from the first project command to a tested, deployable result.".to_string()),
+            Some("Build Rust apps and websites with Fission tutorials covering project setup, state, interaction and target-specific verification.".to_string()),
             TutorialsIndexPage::new(categories.clone()),
         )
         .with_route_structured_data(navigation::TUTORIALS, tutorials_structured_data(&categories));
@@ -80,6 +99,29 @@ pub fn site_app() -> Result<FissionSite> {
             navigation::TRY_IN_BROWSER,
             showcase_structured_data(),
         );
+
+    for (prefix, title) in [
+        ("", "Fission crates — Rust UI framework packages"),
+        (
+            "/es",
+            "Crates de Fission — paquetes para interfaces en Rust",
+        ),
+    ] {
+        site = site.route_widget::<DocsState, _>(
+            format!("{prefix}/crates/"),
+            title,
+            None,
+            CrateDirectoryPage::new(packages.clone()),
+        );
+        for package in &packages {
+            site = site.route_widget::<DocsState, _>(
+                format!("{prefix}/crates/{}/", package.name),
+                format!("{} — Fission", package.name),
+                Some(package.description.clone()),
+                CrateDetailPage::new(package.clone()),
+            );
+        }
+    }
 
     let blog_page_count = blog_posts.len().div_ceil(BLOG_POSTS_PER_PAGE);
     for page in 1..=blog_page_count {
@@ -140,6 +182,49 @@ pub fn site_app() -> Result<FissionSite> {
                 categories: article_categories.clone(),
                 show_categories: true,
             };
+            site = site
+                .route_widget::<DocsState, _>(
+                    path.clone(),
+                    format!("{} — Fission blog", archive.title),
+                    Some(archive.description.clone()),
+                    BlogArchivePage::new(archive.clone()),
+                )
+                .with_route_structured_data(
+                    path,
+                    blog_archive_structured_data(&archive, &blog_posts),
+                );
+        }
+    }
+
+    // Keep existing tag links useful: they remain filtered archives, not broad
+    // redirects that discard the topic the reader actually asked for.
+    let tags = blog_posts
+        .iter()
+        .flat_map(|post| post.tags.iter())
+        .collect::<BTreeSet<_>>();
+    for tag in tags {
+        let tagged = blog_posts
+            .iter()
+            .filter(|post| post.tags.contains(tag))
+            .collect::<Vec<_>>();
+        let page_count = tagged.len().div_ceil(BLOG_POSTS_PER_PAGE);
+        let base_path = format!("/blog/tags/{}/", tag.to_ascii_lowercase().replace(' ', "-"));
+        for page in 1..=page_count {
+            let start = (page - 1) * BLOG_POSTS_PER_PAGE;
+            let archive = BlogArchive {
+                title: format!("{tag} articles"),
+                description: format!("Fission engineering articles about {tag}."),
+                base_path: base_path.clone(),
+                page,
+                page_count,
+                posts: tagged[start..(start + BLOG_POSTS_PER_PAGE).min(tagged.len())]
+                    .iter()
+                    .map(|post| post.summary())
+                    .collect(),
+                categories: article_categories.clone(),
+                show_categories: true,
+            };
+            let path = blog_archive_path(&base_path, page);
             site = site
                 .route_widget::<DocsState, _>(
                     path.clone(),
@@ -225,7 +310,7 @@ pub fn site_app() -> Result<FissionSite> {
             )
             .with_route_structured_data(path, product_structured_data(product));
     }
-    Ok(site)
+    compatibility::preserve_legacy_routes(site, project_dir, &blog_posts)
 }
 
 fn product_structured_data(product: &ProductRoute) -> [String; 1] {

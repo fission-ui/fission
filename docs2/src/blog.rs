@@ -9,6 +9,8 @@ pub struct BlogPost {
     pub description: String,
     pub slug: String,
     pub path: String,
+    /// Filename-based URL emitted by the previous documentation site.
+    pub legacy_path: String,
     pub published: String,
     pub authors: Vec<String>,
     pub categories: Vec<String>,
@@ -150,6 +152,7 @@ fn parse_blog_post(source: &str, filename: &str) -> Result<BlogPost> {
         .remove("title")
         .context("blog post frontmatter is missing `title`")?;
     let (published, filename_slug) = split_filename(filename)?;
+    let legacy_path = format!("/blog/{published}-{filename_slug}/");
     let slug = scalars.remove("slug").unwrap_or(filename_slug);
     if slug.is_empty()
         || !slug.chars().all(|character| {
@@ -181,6 +184,7 @@ fn parse_blog_post(source: &str, filename: &str) -> Result<BlogPost> {
         description,
         slug,
         path,
+        legacy_path,
         published,
         authors: lists.remove("authors").unwrap_or_default(),
         categories,

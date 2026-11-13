@@ -20,7 +20,7 @@ pub const DOCUMENTATION_SITE: &str = "/blog/build-a-documentation-website-in-rus
 pub const PRODUCT_INVENTORY: &str = "/blog/build-a-product-inventory-website-in-rust/";
 pub const ANDROID_RESPONSIVE_LAYOUTS: &str =
     "/blog/make-an-android-layout-adapt-to-phones-tablets-and-changing-window-sizes/";
-pub const LIVE_TEST: &str = "/blog/drive-a-real-mobile-app-with-fission-livetest/";
+pub const LIVE_TEST: &str = "/blog/test-a-mobile-app-with-fission-livetest/";
 pub const ANDROID_RELEASE: &str = "/blog/package-and-prepare-a-fission-android-app-for-release/";
 pub const TRY_IN_BROWSER: &str = "/showcase/";
 

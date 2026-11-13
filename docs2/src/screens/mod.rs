@@ -1,4 +1,5 @@
 mod blog;
+mod crates;
 mod goal;
 mod home;
 mod hub;
@@ -7,6 +8,7 @@ mod showcase;
 mod tutorials;
 
 pub use blog::{BlogArchive, BlogArchivePage, BlogArticlePage, BLOG_POSTS_PER_PAGE};
+pub use crates::{CrateDetailPage, CrateDirectoryPage};
 pub use goal::GoalPage;
 pub use home::HomePage;
 pub use hub::DocumentationHub;

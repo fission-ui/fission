@@ -102,10 +102,10 @@ fission_component! {
                 ),
                 if finished.preview {
                     SemanticsRegion(
-                        identifier: Some("goal-preview-disclosure".to_string()),
+                        identifier: Some("site-disclosure:goal-preview".to_string()),
                         child: Column(gap: tokens.spacing.m, children: [
                             SemanticsRegion(
-                                identifier: Some("site-client-action:toggle-goal-preview".to_string()),
+                                identifier: Some("site-disclosure-summary:goal-preview".to_string()),
                                 label: Some(cx.view.env().tr("goal.preview.show")),
                                 child: Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
                                     Icon::svg(material::av::play_arrow::regular())

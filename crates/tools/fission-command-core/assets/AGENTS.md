@@ -253,7 +253,7 @@ Outside the Fission source workspace, prefer the published crate pinned to the s
 
 ```toml
 [build-dependencies]
-fission-design-system-codegen = { version = "0.15.1" }
+fission-design-system-codegen = { version = "0.16.0" }
 ```
 
 Generate a typed design system from the copied DSP file in `build.rs`:
@@ -353,7 +353,7 @@ writes, job startup, or ordinary domain data.
 ## Internationalisation
 
 Follow the Fission theming and i18n guide:
-<https://github.com/fission-ui/fission/blob/main/documentation/content/docs/guides/theming-and-i18n.mdx>.
+<https://github.com/fission-ui/fission/blob/main/docs2/content/legacy/docs/guides/theming-and-i18n.mdx>.
 
 - Include an i18n setup from the start with at least two languages. Always
   include English. If the system default language is not English, add that
@@ -443,11 +443,11 @@ widgets guess.
 - Design-system example `main.rs`:
   <https://github.com/fission-ui/fission/blob/main/examples/todo-design-system/src/main.rs>
 - Design-system guide:
-  <https://github.com/fission-ui/fission/blob/main/documentation/content/docs/guides/design-system.mdx>
+  <https://github.com/fission-ui/fission/blob/main/docs2/content/legacy/docs/guides/design-system.mdx>
 - Theming and i18n guide:
-  <https://github.com/fission-ui/fission/blob/main/documentation/content/docs/guides/theming-and-i18n.mdx>
+  <https://github.com/fission-ui/fission/blob/main/docs2/content/legacy/docs/guides/theming-and-i18n.mdx>
 - State, handles, and providers guide:
-  <https://github.com/fission-ui/fission/blob/main/documentation/content/docs/guides/state-handles-and-providers.mdx>
+  <https://github.com/fission-ui/fission/blob/main/docs2/content/legacy/docs/guides/state-handles-and-providers.mdx>
 - Default DSP package:
   <https://github.com/fission-ui/fission/blob/main/crates/core/fission-theme/design/default/dsp.json>
 - Default token file:

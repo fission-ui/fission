@@ -49,7 +49,6 @@ members = [
     "crates/tools/fission-design-system-codegen",
     "crates/tools/fission-test",
     "crates/tools/fission-test-driver",
-    "documentation",
     "docs2",
     "examples/*"
 ]

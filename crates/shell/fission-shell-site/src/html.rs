@@ -2141,14 +2141,6 @@ impl HtmlRenderer<'_> {
             ));
         }
         if let Some(identifier) = semantics.identifier.as_deref() {
-            if identifier == "goal-preview-disclosure" {
-                let children = self.render_semantic_payload_children(node)?;
-                return Ok(format!(
-                    "<details class=\"fission-site-node fission-site-semantics fission-site-preview-disclosure\" data-fission-semantics=\"{}\" data-fission-node=\"{}\">{children}</details>",
-                    escape_attr(identifier),
-                    node.id,
-                ));
-            }
             if identifier.starts_with("site-disclosure:") {
                 let children = self.render_semantic_payload_children(node)?;
                 return Ok(format!(
@@ -2238,16 +2230,6 @@ impl HtmlRenderer<'_> {
                 ));
             }
             if let Some(action) = identifier.strip_prefix("site-client-action:") {
-                if action == "toggle-goal-preview"
-                    && self.has_ancestor_semantic_identifier(node, "goal-preview-disclosure")
-                {
-                    let children = self.render_semantic_payload_children(node)?;
-                    return Ok(format!(
-                        "<summary class=\"fission-site-node fission-site-preview-summary\" data-fission-semantics=\"{}\" data-fission-node=\"{}\">{children}</summary>",
-                        escape_attr(identifier),
-                        node.id,
-                    ));
-                }
                 let children = self.render_children(&node.children, &HashSet::new())?;
                 let mut attrs = format!(
                     " data-fission-client-action=\"{}\" data-fission-semantics=\"{}\"",
@@ -5918,9 +5900,38 @@ mod tests {
         assert!(rendered
             .html
             .contains("data-fission-action-payload=\"dead\""));
-        assert!(rendered.css.contains(
-            "display:flex;width:100%;height:100%;align-items:center;justify-content:center"
-        ));
+        // The dot's own alignment element must fill the ring and center on
+        // both axes. Check its generated rule rather than declaration order:
+        // StyleRegistry canonicalizes CSS properties for deduplication.
+        let align_class = rendered
+            .html
+            .split_once("class=\"fission-site-node fission-site-align ")
+            .expect("the retained radio dot needs an alignment element")
+            .1
+            .split_once('"')
+            .unwrap()
+            .0;
+        let align_style = rendered
+            .css
+            .split_once(&format!(".{align_class}{{"))
+            .unwrap_or_else(|| panic!("missing alignment rule for {align_class}: {}", rendered.css))
+            .1
+            .split_once('}')
+            .unwrap()
+            .0;
+        let declarations = align_style.split(';').collect::<Vec<_>>();
+        for expected in [
+            "display:flex",
+            "width:100%",
+            "height:100%",
+            "align-items:center",
+            "justify-content:center",
+        ] {
+            assert!(
+                declarations.contains(&expected),
+                "radio dot alignment is missing {expected}: {align_style}"
+            );
+        }
     }
 
     #[test]
@@ -7121,6 +7132,34 @@ mod tests {
         assert!(rendered.body_html.contains(
             "<span aria-label=\"Read documentation\"><a class=\"fission-site-link fission-site-markdown-link\" href=\"docs\""
         ));
+    }
+
+    #[test]
+    fn disclosure_summary_is_native_only_inside_its_matching_disclosure() {
+        let rendered = render_test_widget(Column {
+            children: vec![
+                SemanticsRegion::new(Column {
+                    children: vec![
+                        SemanticsRegion::new(Text::new("Show source"))
+                            .identifier("site-disclosure-summary:source")
+                            .into(),
+                        Text::new("Source contents").into(),
+                    ],
+                    ..Default::default()
+                })
+                .identifier("site-disclosure:source")
+                .into(),
+                SemanticsRegion::new(Text::new("Not a disclosure trigger"))
+                    .identifier("site-disclosure-summary:other")
+                    .into(),
+            ],
+            ..Default::default()
+        });
+
+        assert_eq!(rendered.body_html.matches("<details ").count(), 1);
+        assert_eq!(rendered.body_html.matches("<summary ").count(), 1);
+        assert!(rendered.body_html.contains("Source contents"));
+        assert!(rendered.body_html.contains("Not a disclosure trigger"));
     }
 
     #[test]

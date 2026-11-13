@@ -49,6 +49,10 @@ title = "Reference"
 href = "/reference/overview/overview/"
 
 [[site.nav]]
+title = "Crates"
+href = "/crates/"
+
+[[site.nav]]
 title = "Try Fission in the browser"
 href = "/showcase/"
 

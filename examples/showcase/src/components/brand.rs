@@ -11,7 +11,7 @@ fission_component! {
         Pressable(Row(
             children: [
                 Icon::svg(include_str!(
-                    "../../../../documentation/static/img/fission-mark.svg"
+                    "../../../../docs2/site/assets/img/fission-mark.svg"
                 ))
                 .size(tokens.sizing.icon_lg),
                 Text::new(TextContent::Key("showcase.app.title".into()))

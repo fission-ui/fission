@@ -7,31 +7,48 @@ on:
     branches:
       - main
     paths:
-      - 'documentation/**'
       - 'docs2/**'
       - 'crates/**'
       - 'examples/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/publish-website.yml'
+      - 'scripts/check_*'
+      - 'scripts/serve_docs2_qa.py'
+  pull_request:
+    paths:
+      - 'docs2/**'
+      - 'crates/**'
+      - 'examples/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/publish-website.yml'
+      - 'scripts/check_*'
+      - 'scripts/serve_docs2_qa.py'
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pages: write
-  id-token: write
+  contents: read
 
 concurrency:
-  group: github-pages
+  group: github-pages-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pages: read
     env:
       CARGO_BUILD_JOBS: 2
-    environment:
-      name: github-pages
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      # Match tutorial compilation so showcase dependencies are reusable.
+      CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: '-C target-feature=+simd128'
+      FISSION_TUTORIAL_BUILD_PARALLELISM: 2
+      FISSION_TUTORIAL_PACKAGE_PARALLELISM: 2
+      FISSION_TUTORIAL_WASM_OPT: 'false'
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -45,6 +62,60 @@ jobs:
 
       - name: Cache Rust build output
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            . -> target/tutorial-wasm
+          cache-on-failure: true
+          # Fission is a local workspace dependency of the generated apps.
+          cache-workspace-crates: true
+
+      - name: Identify preview toolchain
+        id: preview-toolchain
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import hashlib
+          import pathlib
+          import subprocess
+          import tomllib
+
+          lock = tomllib.loads(pathlib.Path("Cargo.lock").read_text())
+          versions = {package["version"] for package in lock["package"] if package["name"] == "wasm-bindgen"}
+          if len(versions) != 1:
+              raise SystemExit(f"Expected one wasm-bindgen version in Cargo.lock, found {sorted(versions)}")
+          print(f"wasm-bindgen-version={versions.pop()}")
+          rustc = subprocess.check_output(["rustc", "-vV"])
+          print(f"rustc={hashlib.sha256(rustc).hexdigest()[:16]}")
+          PY
+
+      - name: Cache matching wasm-bindgen CLI
+        uses: actions/cache@v4
+        with:
+          path: target/tutorial-tools
+          key: docs2-tools-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.preview-toolchain.outputs.rustc }}-${{ steps.preview-toolchain.outputs.wasm-bindgen-version }}
+
+      - name: Install matching wasm-bindgen CLI
+        env:
+          WASM_BINDGEN_VERSION: ${{ steps.preview-toolchain.outputs.wasm-bindgen-version }}
+        run: |
+          tool="$CARGO_TARGET_DIR/tutorial-tools/bin/wasm-bindgen"
+          if [ ! -x "$tool" ] || [ "$("$tool" --version)" != "wasm-bindgen $WASM_BINDGEN_VERSION" ]; then
+            cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked --root "$CARGO_TARGET_DIR/tutorial-tools"
+          fi
+          echo "$CARGO_TARGET_DIR/tutorial-tools/bin" >> "$GITHUB_PATH"
+
+      - name: Restore complete tutorial preview packages
+        id: tutorial-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            target/tutorial-preview-cache
+            target/tutorial-sites
+          key: docs2-previews-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.preview-toolchain.outputs.rustc }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('docs2/src/tutorials.rs', 'docs2/src/tutorials/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            docs2-previews-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.preview-toolchain.outputs.rustc }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('docs2/src/tutorials.rs', 'docs2/src/tutorials/**') }}-
+            docs2-previews-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.preview-toolchain.outputs.rustc }}-${{ hashFiles('Cargo.lock') }}-
+            docs2-previews-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.preview-toolchain.outputs.rustc }}-
 
       - name: Install Linux native build dependencies
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
@@ -53,17 +124,55 @@ jobs:
         run: cargo install wasm-pack --version 0.13.1 --locked
 
       - name: Configure GitHub Pages
+        if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
 
       - name: Restore accumulated crate index
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p documentation/data
-          gh release download crate-index --pattern fission-crates.sqlite3 --dir documentation/data || true
+          mkdir -p docs2/data
+          gh release download crate-index --pattern fission-crates.sqlite3 --dir docs2/data || true
 
       - name: Refresh Fission crate index
-        run: cargo run -p fission-documentation --features crate-indexer --bin update-crate-index -- documentation/data/fission-crates.sqlite3
+        run: cargo run --locked -p fission-docs2 --features crate-indexer --bin update-crate-index -- docs2/data/fission-crates.sqlite3
+
+      - name: Test browser protocol regressions
+        run: |
+          node --experimental-vm-modules --test crates/core/fission-store-sqlite/tests/web/bridge-lifetime.test.mjs
+          node --test crates/shell/fission-shell-winit/tests/web_file_picker.test.mjs
+          node --test crates/shell/fission-shell-winit/tests/native_document_contracts.test.mjs
+          node --disallow-code-generation-from-strings --test crates/shell/fission-shell-winit/tests/web_test_control.test.mjs
+
+      - name: Test documentation routes and source contracts
+        run: cargo test --locked -p fission-docs2 --lib
+
+      - name: Check Web shell with and without LiveTest exports
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target/tutorial-wasm
+        run: |
+          cargo check --locked --release -p fission-shell-winit --target wasm32-unknown-unknown
+          FISSION_WEB_TEST_CONTROL=1 cargo check --locked --release -p fission-shell-winit --target wasm32-unknown-unknown
+
+      - name: Package real Rust SQLite cancellation fixture
+        run: |
+          cargo build --locked -p fission-store-sqlite --features web --example web_transaction_cancellation --target wasm32-unknown-unknown
+          wasm-bindgen "$CARGO_TARGET_DIR/wasm32-unknown-unknown/debug/examples/web_transaction_cancellation.wasm" \
+            --target web --out-dir crates/core/fission-store-sqlite/tests/web/pkg
+
+      - name: Verify SQLite browser context lifetimes
+        run: |
+          python3 scripts/serve_docs2_qa.py --port 8124 --directory crates/core/fission-store-sqlite \
+            >"$CARGO_TARGET_DIR/fission-sqlite-web-test.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..20}; do
+            curl --fail --silent http://127.0.0.1:8124/tests/web/index.html >/dev/null && break
+            sleep 0.25
+          done
+          curl --fail --silent http://127.0.0.1:8124/tests/web/index.html >/dev/null
+          FISSION_SQLITE_WEB_TEST_URL=http://127.0.0.1:8124/tests/web/index.html \
+            cargo test --locked -p fission-store-sqlite --test web_multitab_browser -- --nocapture
 
       - name: Verify static site dependency boundary
         run: |
@@ -77,7 +186,7 @@ jobs:
           fi
 
       - name: Check static site routes
-        run: cargo run -p cargo-fission --bin fission -- site check --project-dir documentation --release
+        run: cargo run --locked -p cargo-fission --bin fission -- site check --project-dir docs2
 
       - name: Verify showcase static deployment boundary
         run: |
@@ -92,62 +201,54 @@ jobs:
       - name: Build interactive Fission showcase
         env:
           FISSION_WEB_PROFILE: release
+          # Share Web dependency output with the tutorial apps, not host tools.
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target/tutorial-wasm
         run: ./examples/showcase/platforms/web/build-wasm.sh
 
       - name: Stage interactive showcase with website assets
         run: |
-          mkdir -p documentation/static/showcase-app/pkg
           mkdir -p docs2/generated-assets/showcase-app/pkg
-          cp examples/showcase/platforms/web/index.html documentation/static/showcase-app/index.html
-          cp examples/showcase/platforms/web/bootstrap.mjs documentation/static/showcase-app/bootstrap.mjs
-          cp examples/showcase/platforms/web/app-icon.png documentation/static/showcase-app/app-icon.png
-          cp -R examples/showcase/platforms/web/pkg/. documentation/static/showcase-app/pkg/
           cp examples/showcase/platforms/web/index.html docs2/generated-assets/showcase-app/index.html
           cp examples/showcase/platforms/web/bootstrap.mjs docs2/generated-assets/showcase-app/bootstrap.mjs
           cp examples/showcase/platforms/web/app-icon.png docs2/generated-assets/showcase-app/app-icon.png
           cp -R examples/showcase/platforms/web/pkg/. docs2/generated-assets/showcase-app/pkg/
 
       - name: Build and verify docs2 showcase route
+        id: docs2-build
         env:
-          FISSION_TUTORIAL_BUILD_PARALLELISM: 10
           FISSION_SERVING_STARTUP_TIMEOUT_SECONDS: 3600
         run: |
-          cargo run -p cargo-fission --bin fission -- site build --project-dir docs2
+          cargo run --locked -p cargo-fission --bin fission -- site build --project-dir docs2
           test -f docs2/dist/site/showcase/index.html
           test -f docs2/dist/site/showcase-app/index.html
           test -f docs2/dist/site/showcase-app/pkg/example_showcase.js
           find docs2/dist/site/showcase-app/pkg -maxdepth 1 -name '*_bg.wasm' -print -quit | grep -q .
           scripts/check_docs2_showcase_page.sh docs2/dist/site
 
-      - name: Package static site
-        run: cargo run -p cargo-fission --bin fission -- package --project-dir documentation --target site --format static --release
+      # Save finished previews even when a later preview or link check fails.
+      # The builder validates each package's own inputs and integrity after restore;
+      # a broad restore prefix never permits stale examples to satisfy the build.
+      - name: Save completed tutorial preview packages
+        if: ${{ !cancelled() && steps.docs2-build.outcome != 'skipped' && steps.tutorial-cache.outputs.cache-primary-key != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            target/tutorial-preview-cache
+            target/tutorial-sites
+          key: ${{ steps.tutorial-cache.outputs.cache-primary-key }}
 
       - name: Verify generated static site
         run: |
-          test -f documentation/target/fission/release/static-site/static/index.html
-          test -f documentation/target/fission/release/static-site/static/site.css
-          test -f documentation/target/fission/release/static-site/static/sitemap.xml
-          test -f documentation/target/fission/release/static-site/static/robots.txt
-          test -f documentation/target/fission/release/static-site/static/search/search.js
-          test -f documentation/target/fission/release/static-site/static/search/manifest.json
-          test -f documentation/target/fission/release/static-site/static/search/docs.json
-          test -f documentation/target/fission/release/static-site/static/img/fission-mark.svg
-          test -f documentation/target/fission/release/static-site/static/img/charts/line-gradient-area.png
-          test -f documentation/target/fission/release/static-site/static/artifact-manifest.json
-          test -f documentation/target/fission/release/static-site/static/crates/index.html
-          test -f documentation/target/fission/release/static-site/static/showcase/index.html
-          test -f documentation/target/fission/release/static-site/static/showcase-app/index.html
-          test -f documentation/target/fission/release/static-site/static/showcase-app/pkg/example_showcase.js
-          find documentation/target/fission/release/static-site/static/showcase-app/pkg -maxdepth 1 -name '*_bg.wasm' -print -quit | grep -q .
-          scripts/check_homepage_seo.sh documentation/target/fission/release/static-site/static
-          scripts/check_showcase_page.sh documentation/target/fission/release/static-site/static
+          for asset in index.html site.css sitemap.xml robots.txt search/search.js search/manifest.json search/docs.json img/fission-mark.svg img/charts/line-gradient-area.png artifact-manifest.json crates/index.html es/crates/index.html; do
+            test -f "docs2/dist/site/$asset"
+          done
+          scripts/check_homepage_seo.sh docs2/dist/site
+          scripts/check_docs2_showcase_page.sh docs2/dist/site
 
       - name: Verify rendered showcase layout
         run: |
-          python3 -m http.server 8123 \
-            --bind 127.0.0.1 \
-            --directory documentation/target/fission/release/static-site/static \
-            >/tmp/fission-showcase-site.log 2>&1 &
+          python3 scripts/serve_docs2_qa.py --port 8123 --directory docs2/dist/site \
+            >"$CARGO_TARGET_DIR/fission-showcase-site.log" 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           for attempt in {1..20}; do
@@ -156,23 +257,46 @@ jobs:
           done
           curl --fail --silent http://127.0.0.1:8123/showcase/ >/dev/null
           FISSION_SHOWCASE_PAGE_URL=http://127.0.0.1:8123/showcase/ \
-            cargo test -p fission-documentation --test showcase_layout -- --ignored --nocapture
+            cargo test --locked -p fission-docs2 --test showcase_layout -- --ignored --nocapture
 
+      - name: Preserve refreshed crate index
+        uses: actions/upload-artifact@v4
+        with:
+          name: crate-index
+          path: docs2/data/fission-crates.sqlite3
+
+      - name: Upload static site artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs2/dist/site
+
+  refresh-index:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: crate-index
+          path: crate-index
       - name: Replace accumulated crate index asset
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           gh release view crate-index >/dev/null 2>&1 || gh release create crate-index --title "Fission crate index" --notes "Internal database used to generate fission.rs/crates."
-          gh release upload crate-index documentation/data/fission-crates.sqlite3 --clobber
-
-      - name: Upload static site artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: documentation/target/fission/release/static-site/static
+          gh release upload crate-index crate-index/fission-crates.sqlite3 --clobber
 
   deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

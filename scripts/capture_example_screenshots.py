@@ -2,7 +2,7 @@
 """Capture documentation and README screenshots of the example apps.
 
 Builds each example, launches it with live test control, sets a fixed window size,
-performs any setup the shot needs, and writes a PNG to documentation/static/img/examples/.
+performs any setup the shot needs, and writes a PNG to docs2/site/assets/img/examples/.
 
     python3 scripts/capture_example_screenshots.py            # every shot
     python3 scripts/capture_example_screenshots.py inbox      # shots whose name starts with "inbox"
@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT_DIR = ROOT / "documentation" / "static" / "img" / "examples"
+OUT_DIR = ROOT / "docs2" / "site" / "assets" / "img" / "examples"
 TARGET_DIR = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target"))
 
 

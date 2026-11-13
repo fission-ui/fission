@@ -1,6 +1,6 @@
 [package]
 name = "fission-shell-winit"
-version = "0.15.1"
+version = "0.16.0"
 edition = "2021"
 description = "Shared winit shell runtime for desktop and mobile Fission hosts"
 categories = ["gui", "rendering"]
@@ -37,22 +37,22 @@ store-sqlite-web = [
 ]
 
 [dependencies]
-fission-shell = { path = "../fission-shell", version = "0.15.1" }
-fission-render = { path = "../../rendering/fission-render", version = "0.15.1" }
-fission-render-vello = { path = "../../rendering/fission-render-vello", version = "0.15.1" }
-fission-core = { path = "../../core/fission-core", version = "0.15.1" }
-fission-layout = { path = "../../core/fission-layout", version = "0.15.1" }
-fission-ir = { path = "../../core/fission-ir", version = "0.15.1" }
-fission-semantics = { path = "../../core/fission-semantics", version = "0.15.1" }
-fission-theme = { path = "../../core/fission-theme", version = "0.15.1" }
-fission-3d = { path = "../../core/fission-3d", optional = true, version = "0.15.1" }
+fission-shell = { path = "../fission-shell", version = "0.16.0" }
+fission-render = { path = "../../rendering/fission-render", version = "0.16.0" }
+fission-render-vello = { path = "../../rendering/fission-render-vello", version = "0.16.0" }
+fission-core = { path = "../../core/fission-core", version = "0.16.0" }
+fission-layout = { path = "../../core/fission-layout", version = "0.16.0" }
+fission-ir = { path = "../../core/fission-ir", version = "0.16.0" }
+fission-semantics = { path = "../../core/fission-semantics", version = "0.16.0" }
+fission-theme = { path = "../../core/fission-theme", version = "0.16.0" }
+fission-3d = { path = "../../core/fission-3d", optional = true, version = "0.16.0" }
 fission-scene = { path = "../../core/fission-scene", optional = true, version = "=0.1.0-alpha.1" }
 fission-scene3d = { path = "../../core/fission-scene3d", optional = true, version = "=0.1.0-alpha.1" }
-fission-store = { path = "../../core/fission-store", optional = true, version = "0.15.1" }
-fission-store-sqlite = { path = "../../core/fission-store-sqlite", optional = true, version = "0.15.1", default-features = false }
+fission-store = { path = "../../core/fission-store", optional = true, version = "0.16.0" }
+fission-store-sqlite = { path = "../../core/fission-store-sqlite", optional = true, version = "0.16.0", default-features = false }
 winit = { package = "fission-winit", git = "https://github.com/worka-ai/winit", rev = "1e99d748234f11a0dd49a00a1ffc3cca1bb0b203" }
-fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.15.1" }
-fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.15.1" }
+fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.16.0" }
+fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.16.0" }
 image = "0.25"
 anyhow = "1.0"
 raw-window-handle = "0.6"
@@ -134,6 +134,6 @@ core-graphics = "0.23"
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
-fission-macros = { path = "../../authoring/fission-macros", version = "0.15.1" }
-fission-widgets = { path = "../../authoring/fission-widgets", version = "0.15.1" }
+fission-macros = { path = "../../authoring/fission-macros", version = "0.16.0" }
+fission-widgets = { path = "../../authoring/fission-widgets", version = "0.16.0" }
 lazy_static = "1"

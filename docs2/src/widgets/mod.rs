@@ -1,6 +1,7 @@
 mod blog_post_card;
 mod browser_cta;
 mod compose_section;
+mod crate_card;
 mod feature_card;
 mod feature_section;
 mod goal_card;
@@ -28,6 +29,7 @@ mod tutorial_list_item;
 pub(crate) use blog_post_card::BlogPostCard;
 pub use browser_cta::PlaygroundCallout;
 pub use compose_section::ComposeSection;
+pub(crate) use crate_card::CrateCard;
 pub use feature_section::FeatureSection;
 pub use goal_chooser::GoalChooser;
 pub use goal_intro::GoalIntro;
