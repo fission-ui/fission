@@ -11376,7 +11376,7 @@ fn gpu_screenshot_async(
                 }
                 Err(error) => fission_test_driver::TestResponse::Error {
                     message: format!(
-                        "buffer map failed for {texture_width}x{texture_height} readback ({buffer_size} bytes, {padded_bytes_per_row} bytes per row): {error:?}"
+                        "renderer_screenshot_unavailable: WebGPU buffer map failed for {texture_width}x{texture_height} readback ({buffer_size} bytes, {padded_bytes_per_row} bytes per row): {error:?}"
                     ),
                 },
             }
