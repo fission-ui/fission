@@ -502,6 +502,9 @@ impl<S: GlobalState> TestHarness<S> {
                 (cx.into_ir(), root_id)
             };
             self.runtime.reconcile_focus(&ir)?;
+            // Match shell lifecycle: discard runtime state from widget IDs whose meaning changed
+            // before laying out the newly lowered tree.
+            self.runtime.reconcile_ir(&ir);
 
             let layout_input_nodes = build_layout_tree(&ir, &self.env);
             self.last_ir = Some(ir);

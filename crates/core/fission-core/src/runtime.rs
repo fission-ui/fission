@@ -1447,13 +1447,18 @@ impl Runtime {
     /// so an unmounted widget's state cannot affect the replacement tree's
     /// first frame.
     pub fn reconcile_ir(&mut self, ir: &CoreIR) {
-        // A text field that has left the tree, such as one in a closed dialog, drops its editing
-        // session, so when it returns it is new rather than already visited and flagged invalid.
-        // Text meant to survive removal is kept by its restoration id, not its session.
-        self.runtime_state
-            .text_edit
-            .states
-            .retain(|id, _| ir.nodes.contains_key(id));
+        // A text field that has left the tree, or whose ID now belongs to a different kind of
+        // widget, drops its editing session. When that ID becomes a text field again it starts
+        // from the controlled model value rather than reviving a stale edit buffer. Text meant to
+        // survive removal is kept by its restoration id, not its session.
+        self.runtime_state.text_edit.states.retain(|id, _| {
+            ir.nodes.get(id).is_some_and(|node| {
+                matches!(
+                    &node.op,
+                    Op::Semantics(semantics) if semantics.supports_text_editing()
+                )
+            })
+        });
         self.runtime_state.viewport.reconcile(ir);
         self.runtime_state.range_slider.reconcile(ir);
         crate::selection::reconcile_selection_state(&mut self.runtime_state.selectable_text, ir);
