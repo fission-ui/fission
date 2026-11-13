@@ -8,6 +8,16 @@ use js_sys::{Function, Object, Reflect};
 use wasm_bindgen::prelude::*;
 use winit::event_loop::EventLoopProxy;
 
+#[wasm_bindgen(module = "/src/web_test_control.mjs")]
+extern "C" {
+    #[wasm_bindgen(catch, js_name = createWebTestAdapters)]
+    fn create_web_test_adapters(
+        exports: &JsValue,
+        memory: &JsValue,
+        poll_stage_address: u32,
+    ) -> Result<JsValue, JsValue>;
+}
+
 enum PendingResponse {
     Queued(Result<TestCommand, String>),
     Ready(TestResponse),
@@ -271,72 +281,27 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     if !dispatch_command.is_function() {
         return false;
     }
-    let submit_adapter = Function::new_with_args(
-        "submitJson,dispatchCommand,commandJsonPtr,commandJsonCapacity,memory",
-        "return function(commandJson) { if (typeof commandJson !== 'string') throw new TypeError('command JSON must be a string'); const bytes = new TextEncoder().encode(commandJson); const capacity = commandJsonCapacity() >>> 0; if (bytes.length > capacity) return submitJson(capacity + 1) >>> 0; const address = commandJsonPtr() >>> 0; new Uint8Array(memory.buffer, address, bytes.length).set(bytes); console.log('FISSION_WEB_TEST_TRACE 415 0'); const requestId = submitJson(bytes.length) >>> 0; console.log('FISSION_WEB_TEST_TRACE 416 ' + requestId); if (requestId !== 0) globalThis.setTimeout(() => dispatchCommand(requestId), 0); return requestId; }",
-    );
-    let Ok(submit) = submit_adapter.call5(
-        &JsValue::NULL,
-        &submit_json,
-        &dispatch_command,
-        &command_json_ptr,
-        &command_json_capacity,
-        &memory,
-    ) else {
-        return false;
-    };
-
-    let poll_adapter = Function::new_with_args(
-        "pollJsonLen,pollJsonPtr,memory",
-        "return function(requestId) { const length = pollJsonLen(requestId) >>> 0; const address = pollJsonPtr() >>> 0; return new TextDecoder().decode(new Uint8Array(memory.buffer, address, length)); }",
-    );
-    let Ok(poll) = poll_adapter.call3(
-        &JsValue::NULL,
-        &poll_json_len,
-        &poll_json_ptr,
-        &wasm_bindgen::memory(),
-    ) else {
-        return false;
-    };
-
     let poll_diagnostics_address = std::ptr::addr_of!(LAST_POLL_STAGE) as usize;
-    let diagnostics_adapter = Function::new_with_args(
-        "memory,address",
-        "return function() { return new DataView(memory.buffer).getUint32(address, true); }",
-    );
-    let Ok(poll_diagnostics) = diagnostics_adapter.call2(
-        &JsValue::NULL,
-        &memory,
-        &JsValue::from_f64(poll_diagnostics_address as f64),
-    ) else {
+    let Ok(adapters) = create_web_test_adapters(&exports, &memory, poll_diagnostics_address as u32)
+    else {
         return false;
     };
-
-    let frame_adapter = Function::new_with_args(
-        "isPresent,width,height,frameLow,frameHigh",
-        "return function() { if (!isPresent()) return 'null'; const frame = (frameHigh() >>> 0) * 4294967296 + (frameLow() >>> 0); return JSON.stringify({width:width(),height:height(),frame,phase:'submitted'}); }",
-    );
-    let Ok(frame) = frame_adapter.call5(
-        &JsValue::NULL,
-        &frame_present,
-        &frame_width,
-        &frame_height,
-        &frame_number_low,
-        &frame_number_high,
-    ) else {
-        return false;
-    };
-
-    let diagnostics_address = diagnostics_ptr
-        .dyn_ref::<Function>()
-        .and_then(|function| function.call0(&JsValue::NULL).ok())
-        .unwrap_or(JsValue::UNDEFINED);
-    let diagnostics_reader_adapter = Function::new_with_args(
-        "memory,address",
-        "return function() { const view = new DataView(memory.buffer); const pointer = address >>> 0; return { stage:view.getUint32(pointer,true), stackPointer:view.getUint32(pointer+4,true), iteration:view.getUint32(pointer+8,true) }; }",
-    );
-    let Ok(diagnostics_reader) =
-        diagnostics_reader_adapter.call2(&JsValue::NULL, &memory, &diagnostics_address)
+    let adapter = |name| Reflect::get(&adapters, &JsValue::from_str(name));
+    let (
+        Ok(submit),
+        Ok(poll),
+        Ok(poll_diagnostics),
+        Ok(frame),
+        Ok(diagnostics_reader),
+        Ok(diagnostics_address),
+    ) = (
+        adapter("submit"),
+        adapter("poll"),
+        adapter("pollDiagnostics"),
+        adapter("frame"),
+        adapter("diagnostics"),
+        adapter("diagnosticsAddress"),
+    )
     else {
         return false;
     };

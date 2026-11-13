@@ -1,29 +1,29 @@
 # Web LiveTest bridge WebAssembly bounds trap
 
-Status: targeted bridge fix is on the branch; full Zoffice qualification is
+Status: targeted bridge fix is on the branch; full application qualification is
 pending. `poll` now reaches scalar Wasm exports through a JavaScript adapter
 instead of the wasm-bindgen closure trampoline, and reads JSON response bytes
 from linear memory. The focused Chromium regression passes this path. The full
-Zoffice flow reproduced a closure-entry trap at request 49 on `ae722d99`; the
-latest bridge change still needs that full app retest.
+application flow reproduced a closure-entry trap at request 49 before the latest
+bridge change; that change still needs the full app retest.
 
 ## Reproduction evidence
 
-Zoffice's first string-only retest trapped after 28.21 seconds while waiting for
-`a11y.document_body_editor`. Request 51 was `ResolveSelector` for
-`a11y.document_body_editor` with candidate and hidden-node collection disabled.
+The first application string-only retest trapped after 28.21 seconds while
+waiting for an editor selector. Request 51 was `ResolveSelector` for that
+selector with candidate and hidden-node collection disabled.
 Requests 47 and 49 returned 270-byte `SelectorError` strings; requests 48 and 50
 returned 15-byte `Pump` responses. The poll trap happened before JavaScript
 received a value. Request 50 was the last successful poll.
 
 WebAssembly memory was 276 pages at startup, 371 after the first screenshot, and
-586 (38,404,096 bytes) after workspace creation. It stayed at 586 pages around
+586 (38,404,096 bytes) after application setup. It stayed at 586 pages around
 request 50 and after the trap. Earlier value-transport attempts also failed in
 `__externref_table_alloc`; however, the current string-only bridge still traps,
 so the underlying cause is not yet isolated and cannot be attributed only to
 externref payload conversion.
 
-On `ae722d99`, the raw linear-memory marker read as request 46, stage 3
+In a subsequent retest, the raw linear-memory marker read as request 46, stage 3
 (`(46 << 2) | 3 == 187`), before request 47's `ResolveSelector` poll trapped.
 The poll closure's wasm-bindgen state remained stable (`a=1`, `b=5774816`,
 `cnt=1`) before and after the trap, but its Rust body was not entered. This
@@ -56,8 +56,7 @@ full-app result is not yet verified.
 The regression passes in Chromium against a fresh `examples/web-smoke` build
 with `FISSION_WEB_TEST_CONTROL=1`. The Web shell compiles for wasm32 and the
 focused browser test covers repeated queries, the selector-and-pump cadence,
-direct-memory diagnostics, and the response cap. Zoffice's `bcec7df5` and
-`ae722d99` retests preserved the custom worker and completed PersonalDB
-workspace creation and schema install, but the editor-open flow still trapped
-before entering the poll body. The direct-export poll path awaits a full Zoffice
-LiveTest result.
+direct-memory diagnostics, and the response cap. Application retests preserved
+the custom worker and completed database setup, but opening the editor still
+trapped before entering the poll body. The direct-export poll path awaits a full
+application LiveTest result.
