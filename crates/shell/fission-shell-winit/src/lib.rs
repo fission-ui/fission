@@ -2249,6 +2249,12 @@ fn request_redraw_once(window: &Window, frame_schedule: &mut FrameScheduleState)
     true
 }
 
+#[cfg(any(test, target_arch = "wasm32"))]
+fn prepare_capture_redraw(redraw_pending: &mut bool, frame_schedule: &mut FrameScheduleState) {
+    frame_schedule.redraw_started();
+    *redraw_pending = false;
+}
+
 fn request_redraw_throttled(
     window: &Window,
     elwt: &EventLoopWindowTarget,
@@ -7293,6 +7299,7 @@ where
                         );
                     }
                     TestEvent::Screenshot { path, response_tx } => {
+                        record_web_test_diagnostic(346, 0);
                         let Some(window) = platform_window.active_window() else {
                             let _ = response_tx.send(fission_test_driver::TestResponse::Error {
                                 message: "window not ready".into(),
@@ -7309,10 +7316,16 @@ where
                         // A capture reads the complete retained target texture. Force every
                         // compositor layer to repaint so the image cannot contain only the
                         // regions damaged by the preceding interaction.
+                        // A capture is a barrier: discard a coalesced web RAF request that may
+                        // have gone stale while browser test commands continued to arrive.
+                        #[cfg(target_arch = "wasm32")]
+                        prepare_capture_redraw(&mut redraw_pending, &mut frame_trace);
                         invalidations.mark_paint();
-                        request_redraw_once(window, &mut frame_trace);
+                        let scheduled = request_redraw_once(window, &mut frame_trace);
+                        record_web_test_diagnostic(347, u32::from(scheduled));
                     }
                     TestEvent::CaptureScreenshot { response_tx } => {
+                        record_web_test_diagnostic(346, 1);
                         let Some(window) = platform_window.active_window() else {
                             let _ = response_tx.send(fission_test_driver::TestResponse::Error {
                                 message: "window not ready".into(),
@@ -7326,8 +7339,12 @@ where
                             resize_needs_settled_frame,
                             live_resize.is_live(Instant::now()),
                         );
+                        // Keep LiveTest captures from waiting behind an older coalesced RAF.
+                        #[cfg(target_arch = "wasm32")]
+                        prepare_capture_redraw(&mut redraw_pending, &mut frame_trace);
                         invalidations.mark_paint();
-                        request_redraw_once(window, &mut frame_trace);
+                        let scheduled = request_redraw_once(window, &mut frame_trace);
+                        record_web_test_diagnostic(347, u32::from(scheduled));
                     }
                     TestEvent::PauseAnimations { response_tx } => {
                         test_animations_paused = true;
@@ -11732,6 +11749,7 @@ mod tests {
         window_insets_from_safe_area_frames, windows_shell_execute_succeeded, windows_wide,
         BrowserDefaults, ControlFlow, FrameScheduleState, Instant, LiveResizeController,
         RedrawRequestTiming, SurfaceAcquireRecovery, TestPumpState, WindowViewportState,
+        prepare_capture_redraw,
     };
     use crate::pipeline::{software_frame_needs_raster, CompositorTexturePlan};
     use crate::InvalidationSet;
@@ -13136,6 +13154,19 @@ mod tests {
             web_live_test_event_loop_wait_until(now),
             ControlFlow::WaitUntil(now + Duration::from_millis(16))
         );
+    }
+
+    #[test]
+    fn screenshot_redraw_restarts_a_stale_coalesced_frame() {
+        let mut schedule = FrameScheduleState::new(false);
+        let mut redraw_pending = true;
+        assert!(schedule.mark_redraw_scheduled());
+
+        prepare_capture_redraw(&mut redraw_pending, &mut schedule);
+
+        assert!(!redraw_pending);
+        assert!(!schedule.redraw_scheduled);
+        assert!(schedule.mark_redraw_scheduled());
     }
 
     #[test]
