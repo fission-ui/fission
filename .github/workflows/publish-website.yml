@@ -257,7 +257,7 @@ jobs:
           done
           curl --fail --silent http://127.0.0.1:8123/showcase/ >/dev/null
           FISSION_SHOWCASE_PAGE_URL=http://127.0.0.1:8123/showcase/ \
-            cargo test --locked -p fission-docs2 --test showcase_layout -- --ignored --nocapture
+            cargo test --locked -p fission-docs2 --test showcase_layout -- --ignored --nocapture --test-threads=1
 
       - name: Preserve refreshed crate index
         uses: actions/upload-artifact@v4
