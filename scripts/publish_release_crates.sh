@@ -36,6 +36,8 @@ crates=(
   fission-render-vello
   fission-shell
   fission-widgets
+  fission-compose-macros
+  fission-compose
   fission-charts
   fission-shell-site
   fission-shell-terminal

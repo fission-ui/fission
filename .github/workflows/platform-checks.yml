@@ -42,7 +42,7 @@ jobs:
       - name: Check release automation scripts
         run: |
           bash -n scripts/publish_release_crates.sh scripts/smoke_published_release.sh
-          test "$(scripts/publish_release_crates.sh --list | wc -l)" -eq 47
+          test "$(scripts/publish_release_crates.sh --list | wc -l)" -eq 49
           test "$(scripts/publish_release_crates.sh --list | tail -1)" = cargo-fission
 
       - name: Check scene and physics feature boundaries
