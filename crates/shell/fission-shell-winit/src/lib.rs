@@ -8540,6 +8540,13 @@ where
                         #[cfg(not(target_os = "android"))]
                         elwt.set_control_flow(ControlFlow::Wait);
                     }
+                    // LiveTest uses EventLoopProxy from browser tasks. Keep its event loop on the
+                    // browser frame cadence so user events queued while Winit is waiting are
+                    // drained even if the Web wake notification is coalesced or lost.
+                    #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                    if test_control_enabled {
+                        elwt.set_control_flow(ControlFlow::Poll);
+                    }
                     record_web_test_diagnostic(365, redraw_pending as u32);
                     // Keep the wake gate closed through event handling and the complete
                     // synchronous AboutToWait pass. Effects may dispatch more synchronous

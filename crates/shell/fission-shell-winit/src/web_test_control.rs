@@ -89,8 +89,8 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
         364 => WEB_LAST_PENDING_WORK_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
         365 => WEB_LAST_REDRAW_PENDING_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
         366 => WEB_LAST_REDRAW_REQUEST_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
-        400 | 402 | 410 | 411 | 414 | 416 | 417 | 418 | 419 | 420 | 424 | 425 | 426 | 427 | 430
-        | 432 | 435 | 436 | 442 | 443 => true,
+        400 | 402 | 410 | 411 | 414 | 416 | 417 | 418 | 419 | 420 | 424 | 425 | 426 | 427 | 428
+        | 429 | 430 | 432 | 435 | 436 | 442 | 443 | 478 => true,
         473 if iteration == 1 => {
             WEB_REDRAW_WAIT_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 256 == 0
         }
@@ -391,6 +391,7 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         return false;
     }
 
+    record_diagnostic(478, 1);
     true
 }
 
@@ -927,11 +928,14 @@ fn dispatch(command: TestCommand, proxy: &EventLoopProxy<TestEvent>) -> PendingR
             ms,
             response_tx,
         }),
-        TestCommand::CaptureScreenshot {} => query_with_deferred_wake(
-            proxy,
-            |response_tx| TestEvent::CaptureScreenshot { response_tx },
-            true,
-        ),
+        TestCommand::CaptureScreenshot {} => {
+            record_diagnostic(416, 1);
+            query_with_deferred_wake(
+                proxy,
+                |response_tx| TestEvent::CaptureScreenshot { response_tx },
+                true,
+            )
+        }
         TestCommand::CaptureAt { ms } => query(proxy, |response_tx| TestEvent::CaptureAt {
             ms,
             response_tx,
@@ -1008,8 +1012,10 @@ fn query_with_deferred_wake(
         })
     } else {
         record_diagnostic(424, 0);
+        record_diagnostic(428, u32::from(deferred_wake));
         if deferred_wake {
             defer_test_event_wake(proxy);
+            record_diagnostic(429, 1);
         }
         PendingResponse::Waiting(response_rx)
     }
