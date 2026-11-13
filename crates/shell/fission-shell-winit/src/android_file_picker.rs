@@ -1,10 +1,10 @@
 use crate::android_capabilities::{app_class, AndroidHostContext};
 use fission_core::{
-    Bytes, CapabilityCtx, FileSystemError, FileWriteSource, FissionDataStreamError,
-    FissionDataStreamErrorKind, PickOpenFilesError, PickOpenFilesRequest, PickOpenFilesResult,
-    PickSaveFileRequest, PickSaveFileResult, PickedFile, SaveFileDestination, WritableFileHandle,
-    WritableFileHandleId, WritePickedFileRequest, WritePickedFileResult, PICK_OPEN_FILES,
-    PICK_SAVE_FILE, WRITE_PICKED_FILE,
+    Bytes, CapabilityCtx, FileSystemError, FissionDataStreamError, FissionDataStreamErrorKind,
+    PickOpenFilesError, PickOpenFilesRequest, PickOpenFilesResult, PickSaveFileRequest,
+    PickSaveFileResult, PickedFile, SaveFileDestination, WritableFileHandle, WritableFileHandleId,
+    WritePickedFileRequest, WritePickedFileResult, PICK_OPEN_FILES, PICK_SAVE_FILE,
+    WRITE_PICKED_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
 use futures_core::Stream;
@@ -14,12 +14,15 @@ use jni::JNIEnv;
 use std::collections::HashMap;
 use std::fs::File;
 use std::future::Future;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::os::fd::FromRawFd;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll, Waker};
+
+#[path = "native_document_write.rs"]
+mod document_write;
 
 const JAVA_HELPER: &str = "rs.fission.runtime.FissionAndroidCapabilities";
 const FILE_STREAM_CHUNK_SIZE: usize = 64 * 1024;
@@ -297,31 +300,14 @@ pub(crate) fn register_android_file_picker_capabilities(
                             "the Android save destination is no longer active",
                         )
                     })?;
-                let fd = open_picked_file(&host, &uri, true)?;
-                let mut file = unsafe { File::from_raw_fd(fd) };
-                let byte_len = match request.source {
-                    FileWriteSource::Bytes(bytes) => {
-                        file.write_all(&bytes).map_err(io_error)?;
-                        bytes.len() as u64
-                    }
-                    FileWriteSource::Stream(id) => {
-                        let mut stream = ctx.open_data_stream(id).map_err(|error| {
-                            FileSystemError::new("stream_open_failed", error.to_string())
-                        })?;
-                        let mut total = 0_u64;
-                        while let Some(chunk) =
-                            std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await
-                        {
-                            let chunk = chunk.map_err(|error| {
-                                FileSystemError::new("stream_read_failed", error.to_string())
-                            })?;
-                            file.write_all(&chunk).map_err(io_error)?;
-                            total = total.saturating_add(chunk.len() as u64);
-                        }
-                        total
-                    }
-                };
-                file.flush().map_err(io_error)?;
+                // A stream is one-shot. Claim it before opening the destination
+                // with Android's truncating `wt` mode, so an expired stream
+                // cannot erase the user's previous document.
+                let byte_len = document_write::write_source(request.source, &ctx, || {
+                    let fd = open_picked_file(&host, &uri, true)?;
+                    Ok(unsafe { File::from_raw_fd(fd) })
+                })
+                .await?;
                 Ok(WritePickedFileResult { byte_len })
             }
         },
@@ -430,8 +416,4 @@ impl Stream for AndroidFileStream {
             }
         }
     }
-}
-
-fn io_error(error: std::io::Error) -> FileSystemError {
-    FileSystemError::new("write_failed", error.to_string())
 }

@@ -146,6 +146,9 @@ use pollster::block_on;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 mod gpu_context;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "native_document_write.rs"]
+mod native_document_write_tests;
 mod semantic_records;
 use gpu_context::{DeviceHandle, RenderContext, RenderSurface};
 use semantic_records::*;

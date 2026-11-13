@@ -1430,6 +1430,7 @@ fn ensure_web_cargo_feature_target(
 }
 
 fn package_android(project_dir: &Path, release: bool) -> Result<PathBuf> {
+    fission_command_core::prepare_android_capability_helper(project_dir)?;
     let script = project_dir.join("platforms/android/package-apk.sh");
     let mut command = command_for_script(&script)?;
     command.current_dir(project_dir);

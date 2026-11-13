@@ -12,6 +12,7 @@ const DEFAULT_APP_ICON_PNG: &[u8] = include_bytes!("../assets/fission_logo.png")
 const GENERATED_APP_AGENTS_MARKER: &str = "<!-- fission-cli-generated-agents:v1 -->";
 const GENERATED_APP_AGENTS_MD: &str = include_str!("../assets/AGENTS.md");
 
+mod android_bridge;
 mod desktop_features;
 mod icons;
 mod linux_native;
@@ -23,6 +24,7 @@ mod splash;
 mod web_storage;
 mod website;
 mod windows_native;
+pub use android_bridge::prepare_android_capability_helper;
 pub use desktop_features::{read_desktop_cargo_options, DesktopCargoOptions};
 pub use icons::{copy_icon_for_bundle, normalized_extension, resolve_app_icon, ResolvedIcon};
 pub use linux_native::{
@@ -1587,11 +1589,7 @@ fn apply_platform_capability_config(root: &Path, project: &FissionProject) -> Re
 }
 
 fn ensure_android_capability_helper(root: &Path) -> Result<()> {
-    write_file_with_policy(
-        &root.join("platforms/android/java/rs/fission/runtime/FissionAndroidCapabilities.java"),
-        render_android_capabilities_java(),
-        WritePolicy::PreserveExisting,
-    )
+    prepare_android_capability_helper(root)
 }
 
 fn ensure_android_file_system_helper(root: &Path) -> Result<()> {
@@ -6296,7 +6294,7 @@ mod tests {
         let dir = unique_dir("target-sync-preserves-features");
         fs::write(
             dir.join("Cargo.toml"),
-            "[package]\nname = \"qualification\"\nversion = \"0.1.0\"\n\n[dependencies]\nfission = { version = \"0.15.1\", default-features = false, features = [\"desktop\", \"scene2d\", \"game\", \"physics-rapier2d\"] }\n",
+            "[package]\nname = \"qualification\"\nversion = \"0.1.0\"\n\n[dependencies]\nfission = { version = \"0.16.0\", default-features = false, features = [\"desktop\", \"scene2d\", \"game\", \"physics-rapier2d\"] }\n",
         )
         .unwrap();
         let project = FissionProject {

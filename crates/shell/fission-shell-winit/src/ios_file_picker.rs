@@ -124,7 +124,6 @@ pub(crate) fn register_ios_file_picker_capabilities(async_registry: &mut AsyncRe
                         byte_len: file.byte_len,
                         stream: ctx.register_data_stream(Box::pin(IosFileStream {
                             file: stream,
-                            _lease: file.lease,
                             finished: false,
                         })),
                     })
@@ -241,7 +240,9 @@ unsafe fn present_picker(
             let url: *mut Object =
                 msg_send![class!(NSURL), fileURLWithPath: ns_owned_string(&path)];
             let picker: *mut Object = msg_send![class!(UIDocumentPickerViewController), alloc];
-            msg_send![picker, initWithURL: url inMode: 2i64]
+            // Move mode returns a writable security-scoped URL. Export mode
+            // only reports the destination of a copy that this app cannot access.
+            msg_send![picker, initWithURL: url inMode: 3i64]
         }
     };
     if picker.is_null() {
@@ -465,12 +466,12 @@ async fn stage_write_source(
     ctx: &CapabilityCtx,
 ) -> Result<(PathBuf, u64), FileSystemError> {
     let path = std::env::temp_dir().join(format!("fission-write-{}.tmp", next_picker_id()));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(io_error)?;
     let result = async {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .map_err(io_error)?;
         match source {
             FileWriteSource::Bytes(bytes) => file.write_all(&bytes).map_err(io_error)?,
             FileWriteSource::Stream(id) => {
@@ -504,12 +505,36 @@ async fn stage_write_source(
 
 fn open_coordinated_file(path: &std::path::Path) -> Result<std::fs::File, FileSystemError> {
     let path_string = path.to_string_lossy().into_owned();
-    let opened = Arc::new(Mutex::new(None));
-    let path_for_block = path_string.clone();
+    let opened = Arc::new(Mutex::new(None::<Result<std::fs::File, String>>));
     let opened_for_block = opened.clone();
-    let block = ConcreteBlock::new(move |_url: *mut Object| {
-        *opened_for_block.lock().unwrap() =
-            Some(std::fs::File::open(&path_for_block).map_err(|error| error.to_string()));
+    let block = ConcreteBlock::new(move |url: *mut Object| {
+        let result = (|| {
+            // A provider may supply a different URL after coordinating a move.
+            let path = unsafe { coordinated_path(url) }?;
+            // Keep all provider reads inside the coordinator. The returned
+            // stream reads an unlinked private snapshot, not a file another
+            // coordinated writer may change after this accessor returns.
+            let staged =
+                std::env::temp_dir().join(format!("fission-read-{}.tmp", next_picker_id()));
+            let mut destination = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(&staged)
+                .map_err(|error| error.to_string())?;
+            let result: Result<(), String> = (|| {
+                let mut source = std::fs::File::open(path).map_err(|error| error.to_string())?;
+                std::io::copy(&mut source, &mut destination).map_err(|error| error.to_string())?;
+                use std::io::{Seek, SeekFrom};
+                destination
+                    .seek(SeekFrom::Start(0))
+                    .map_err(|error| error.to_string())?;
+                Ok(())
+            })();
+            let _ = std::fs::remove_file(staged);
+            result.map(|()| destination)
+        })();
+        *opened_for_block.lock().unwrap() = Some(result);
     })
     .copy();
     unsafe {
@@ -555,20 +580,23 @@ fn write_coordinated(
     let path_string = path.to_string_lossy().into_owned();
     let staged_string = staged_path.to_string_lossy().into_owned();
     let write_result = Arc::new(Mutex::new(None));
-    let path_for_block = path_string.clone();
     let staged_for_block = staged_string.clone();
     let result_for_block = write_result.clone();
-    let block = ConcreteBlock::new(move |_url: *mut Object| {
-        let result = std::fs::File::open(&staged_for_block).and_then(|mut source| {
-            std::fs::OpenOptions::new()
-                .write(true)
-                .truncate(true)
-                .open(&path_for_block)
-                .and_then(|mut destination| {
-                    std::io::copy(&mut source, &mut destination).map(|_| ())
+    let block = ConcreteBlock::new(move |url: *mut Object| {
+        let result = unsafe { coordinated_path(url) }.and_then(|path| {
+            std::fs::File::open(&staged_for_block)
+                .and_then(|mut source| {
+                    std::fs::OpenOptions::new()
+                        .write(true)
+                        .truncate(true)
+                        .open(path)
+                        .and_then(|mut destination| {
+                            std::io::copy(&mut source, &mut destination).map(|_| ())
+                        })
                 })
+                .map_err(|error| error.to_string())
         });
-        *result_for_block.lock().unwrap() = Some(result.map_err(|error| error.to_string()));
+        *result_for_block.lock().unwrap() = Some(result);
     })
     .copy();
     unsafe {
@@ -606,6 +634,15 @@ fn write_coordinated(
         .unwrap_or_else(|| Err("iOS did not run the coordinated file writer".into()))
         .map_err(|message| fs_error("write_failed", message));
     result
+}
+
+unsafe fn coordinated_path(url: *mut Object) -> Result<PathBuf, String> {
+    if url.is_null() {
+        return Err("the file coordinator supplied no document URL".into());
+    }
+    ns_string(msg_send![url, path])
+        .map(PathBuf::from)
+        .ok_or_else(|| "the coordinated document URL has no local path".into())
 }
 
 fn document_types(mime_types: &[String], extensions: &[String]) -> Vec<String> {
@@ -794,7 +831,6 @@ unsafe fn ns_error(error: *mut Object) -> Option<String> {
 
 struct IosFileStream {
     file: std::fs::File,
-    _lease: Arc<IosSecurityScope>,
     finished: bool,
 }
 

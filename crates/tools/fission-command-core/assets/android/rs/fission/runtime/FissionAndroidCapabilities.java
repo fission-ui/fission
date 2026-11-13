@@ -48,6 +48,8 @@ import android.view.Surface;
 
 import java.nio.ByteBuffer;
 import java.io.FileOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -56,11 +58,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class FissionAndroidCapabilities {
+    public static final int FISSION_BRIDGE_API_VERSION = 1;
+    private static final Executor PRINT_WRITER = new ThreadPoolExecutor(
+            1, 1, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<Runnable>(4),
+            runnable -> {
+                Thread thread = new Thread(runnable, "fission-print-writer");
+                thread.setDaemon(true);
+                return thread;
+            }, new ThreadPoolExecutor.AbortPolicy());
     private FissionAndroidCapabilities() {}
 
     private static final int PICK_FILE = 0x46f6;
@@ -722,27 +735,31 @@ public final class FissionAndroidCapabilities {
         };
     }
 
-    public static String printPdf(Activity activity, byte[] pdf, String jobName) throws Exception {
+    public static String printPdf(Activity activity, String pdfPath, String jobName) throws Exception {
         if (Build.VERSION.SDK_INT < 19) {
             throw new UnsupportedOperationException("Android system printing requires Android 4.4 or newer");
         }
-        if (activity == null || pdf == null || pdf.length < 5
-                || pdf[0] != '%' || pdf[1] != 'P' || pdf[2] != 'D' || pdf[3] != 'F' || pdf[4] != '-') {
-            throw new IllegalArgumentException("Fission printing requires a valid PDF document");
+        final File document = pdfPath == null ? null : new File(pdfPath);
+        if (activity == null || document == null || !document.isFile()) {
+            throw new IllegalArgumentException("Fission printing requires a staged private PDF document");
         }
 
         final String displayName = jobName == null || jobName.trim().isEmpty() ? "Fission document" : jobName.trim();
-        final byte[] document = pdf.clone();
         final CountDownLatch started = new CountDownLatch(1);
+        final AtomicBoolean abandoned = new AtomicBoolean(false);
         final AtomicReference<String> jobId = new AtomicReference<>();
         final AtomicReference<Throwable> failure = new AtomicReference<>();
         activity.runOnUiThread(() -> {
             try {
+                if (abandoned.get()) return;
                 PrintManager manager = (PrintManager) activity.getSystemService(Context.PRINT_SERVICE);
                 if (manager == null) {
                     throw new UnsupportedOperationException("Android PrintManager is not available");
                 }
                 PrintDocumentAdapter adapter = new PrintDocumentAdapter() {
+                    @Override public void onFinish() {
+                        document.delete();
+                    }
                     @Override public void onLayout(
                             PrintAttributes oldAttributes,
                             PrintAttributes newAttributes,
@@ -766,18 +783,45 @@ public final class FissionAndroidCapabilities {
                             CancellationSignal cancellationSignal,
                             WriteResultCallback callback) {
                         if (cancellationSignal.isCanceled()) {
+                            try { destination.close(); } catch (Exception ignored) {}
                             callback.onWriteCancelled();
                             return;
                         }
-                        if (pages == null || pages.length != 1 || !PageRange.ALL_PAGES.equals(pages[0])) {
-                            callback.onWriteFailed("This Android host cannot filter the selected PDF page range.");
-                            return;
-                        }
-                        try (FileOutputStream output = new FileOutputStream(destination.getFileDescriptor())) {
-                            output.write(document);
-                            callback.onWriteFinished(new PageRange[] { PageRange.ALL_PAGES });
-                        } catch (Throwable error) {
-                            callback.onWriteFailed(error.toString());
+                        try {
+                            PRINT_WRITER.execute(() -> {
+                                cancellationSignal.setOnCancelListener(() -> {
+                                    try { destination.close(); } catch (Exception ignored) {}
+                                });
+                                boolean written = false;
+                                Throwable writeFailure = null;
+                                try (FileInputStream input = new FileInputStream(document);
+                                        ParcelFileDescriptor.AutoCloseOutputStream output =
+                                                new ParcelFileDescriptor.AutoCloseOutputStream(destination)) {
+                                    byte[] chunk = new byte[64 * 1024];
+                                    int count;
+                                    while (!cancellationSignal.isCanceled() && (count = input.read(chunk)) != -1) {
+                                        output.write(chunk, 0, count);
+                                    }
+                                    written = !cancellationSignal.isCanceled();
+                                } catch (Throwable error) {
+                                    writeFailure = error;
+                                } finally {
+                                    cancellationSignal.setOnCancelListener(null);
+                                }
+                                if (cancellationSignal.isCanceled()) {
+                                    callback.onWriteCancelled();
+                                } else if (written && writeFailure == null) {
+                                    // Write the original PDF without rasterising it. Android's
+                                    // PrintSpooler computePrintedPages maps ALL_PAGES written
+                                    // to the requested print-job range, including subsets.
+                                    callback.onWriteFinished(new PageRange[] { PageRange.ALL_PAGES });
+                                } else {
+                                    callback.onWriteFailed(writeFailure == null ? "PDF writing failed" : writeFailure.toString());
+                                }
+                            });
+                        } catch (java.util.concurrent.RejectedExecutionException error) {
+                            try { destination.close(); } catch (Exception ignored) {}
+                            callback.onWriteFailed("The print writer is busy; retry when another job finishes.");
                         }
                     }
                 };
@@ -788,7 +832,9 @@ public final class FissionAndroidCapabilities {
                 if (job == null) {
                     throw new IllegalStateException("Android did not create a print job");
                 }
-                jobId.set(job.getId().flattenToString());
+                // PrintJobId's flattenToString() is a hidden framework API.
+                // The public representation is an opaque diagnostic identifier.
+                jobId.set(job.getId().toString());
             } catch (Throwable error) {
                 failure.set(error);
             } finally {
@@ -796,6 +842,7 @@ public final class FissionAndroidCapabilities {
             }
         });
         if (!started.await(30, TimeUnit.SECONDS)) {
+            abandoned.set(true);
             throw new IllegalStateException("Android print sheet did not start in time");
         }
         Throwable error = failure.get();
