@@ -137,7 +137,7 @@
   "goal.checkpoint": "Punto de control",
   "goal.nav.label": "Navegación de documentación",
   "goal.version": "Fission 0.16.0",
-  "goal.latest": "Última versión estable",
+  "goal.latest": "Versión de la documentación",
   "goal.changelog": "Ver el registro de cambios →",
   "goal.build_title": "Lo que construirás",
   "goal.project_setup": "Empezar desde un proyecto nuevo (opcional)",

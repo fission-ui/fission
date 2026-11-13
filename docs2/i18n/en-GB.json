@@ -137,7 +137,7 @@
   "goal.checkpoint": "Checkpoint",
   "goal.nav.label": "Documentation navigation",
   "goal.version": "Fission 0.16.0",
-  "goal.latest": "Latest stable release",
+  "goal.latest": "Documentation version",
   "goal.changelog": "Read the changelog →",
   "goal.build_title": "What you will build",
   "goal.project_setup": "Start from a new project (optional)",

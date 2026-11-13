@@ -43,6 +43,12 @@ pub struct GoalDocument {
     pub steps: Vec<GoalStep>,
 }
 
+impl GoalDocument {
+    pub fn finished_preview(&self) -> Option<&GoalStep> {
+        self.steps.iter().rev().find(|step| step.preview)
+    }
+}
+
 pub fn load_goal(path: impl AsRef<Path>) -> Result<GoalDocument> {
     let path = path.as_ref();
     let source = fs::read_to_string(path)
@@ -517,6 +523,19 @@ fn unquote(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finished_preview_uses_the_last_runnable_checkpoint_not_the_closing_prose() {
+        let mut document = parse_goal(include_str!("../content/goals/rust-login-page.mdx"))
+            .expect("login tutorial parses");
+        assert!(!document.steps.last().unwrap().preview);
+        assert_eq!(document.finished_preview().unwrap().id, "main-flow");
+
+        for step in &mut document.steps {
+            step.preview = false;
+        }
+        assert!(document.finished_preview().is_none());
+    }
 
     #[test]
     fn extracts_markdown_files_without_truncating_nested_code_examples() {

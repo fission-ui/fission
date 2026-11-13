@@ -46,6 +46,7 @@ pub fn site_app() -> Result<FissionSite> {
     let products = product_routes();
     let mut site = FissionSite::new()
         .content_transform(crate::charts::expand_documentation_mdx)
+        .user_css(crate::design::heading_css())
         .with_env(i18n::environment())
         .with_design_system::<DocsDesignSystem>(DesignMode::Light)
         .light_dark_themes(

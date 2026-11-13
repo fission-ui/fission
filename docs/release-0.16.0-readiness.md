@@ -241,3 +241,41 @@ unit checks do not establish device behaviour or registry installability.
 
 The new documentation source is `docs2`; there is no need to restore the removed
 legacy documentation project for migration or release qualification.
+
+## Documentation cutover evidence and remaining gates
+
+On 13 November 2026, the integrated candidate qualification compiled all 160
+distinct extracted checkpoints: 15 actual Static sites and 145 Web applications.
+It rendered 1,118 routes and passed internal-link, homepage SEO and showcase
+output checks. Including focused tests, a release showcase rebuild and two real
+browser showcase tests, this run completed in approximately 38 minutes using
+the existing shared dependency cache. This is not a cold-CI timing claim.
+
+The subsequent site-only qualification passed 35 site library tests and reused
+all 160 complete preview packages without recompiling their applications. A
+serial Chromium regression checked the homepage, documentation hub and login
+tutorial at both 1,536px and 390px widths. It verified heading scale, no
+horizontal page overflow, equal-height desktop task cards and a visible finished
+login app selected from the last runnable checkpoint rather than closing prose.
+Manual LiveTest screenshots and login interactions additionally verified empty
+validation, retained field input, obscured passwords and feedback which does not
+claim that a valid form has authenticated anyone.
+
+These checks do not make the candidate merge-ready by themselves:
+
+- Independently confirm the final pushed commit through GitHub's PR checks.
+- Configure and verify production COOP `same-origin` and COEP `require-corp`
+  response headers on containing pages and embedded applications. Local test
+  server headers do not establish production cross-origin isolation.
+- Finish native document import/save/update/cancellation and print-sheet checks
+  on iOS and Android. iOS Metal/Vello rendering, a counter interaction and actual
+  Files save-sheet presentation passed; completed provider operations did not.
+- Resolve the registry dependency blockers above and coordinate availability of
+  the matching 0.16.0 CLI/framework packages before deploying setup commands that
+  require them. The site labels this as its documentation version, not latest
+  stable. No package publication, tag or release is part of this preparation.
+
+Responsive text regressions cover end-caret visibility, including replacement
+by another responsive widget identity. They do not establish arbitrary mid-text
+selection transfer between different widget identities, editable-combobox resize
+behaviour or every multiline scroll policy.

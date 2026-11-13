@@ -245,7 +245,7 @@ jobs:
           scripts/check_homepage_seo.sh docs2/dist/site
           scripts/check_docs2_showcase_page.sh docs2/dist/site
 
-      - name: Verify rendered showcase layout
+      - name: Verify rendered documentation and showcase layouts
         run: |
           python3 scripts/serve_docs2_qa.py --port 8123 --directory docs2/dist/site \
             >"$CARGO_TARGET_DIR/fission-showcase-site.log" 2>&1 &
@@ -257,7 +257,8 @@ jobs:
           done
           curl --fail --silent http://127.0.0.1:8123/showcase/ >/dev/null
           FISSION_SHOWCASE_PAGE_URL=http://127.0.0.1:8123/showcase/ \
-            cargo test --locked -p fission-docs2 --test showcase_layout -- --ignored --nocapture --test-threads=1
+          FISSION_DOCS2_QA_URL=http://127.0.0.1:8123 \
+            cargo test --locked -p fission-docs2 --test showcase_layout --test page_layout -- --ignored --nocapture --test-threads=1
 
       - name: Preserve refreshed crate index
         uses: actions/upload-artifact@v4

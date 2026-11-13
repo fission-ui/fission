@@ -11,7 +11,7 @@ fission_component! {
     view(intro, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let document = &intro.document;
-        let finished = document.steps.last().expect("goal has at least one step");
+        let finished = document.finished_preview();
         let preview_key = format!("goal-finished-{}", document.meta.app);
         let preview_id = WidgetId::explicit(&preview_key);
         let run_command = &document.meta.run_command;
@@ -62,17 +62,41 @@ fission_component! {
             ),
         ]),
         SemanticsRegion(
-            identifier: Some("site-section:what-you-will-build".to_string()),
-            child: Column(gap: tokens.spacing.m, children: [
+            identifier: Some("goal-overview".to_string()),
+            child: Row(gap: tokens.spacing.l, align_items: ir_op::AlignItems::Start, children: [
+                if let Some(finished) = finished {
+                    SemanticsRegion(
+                        identifier: Some("goal-finished-preview".to_string()),
+                        child: WebView(
+                            id: preview_id,
+                            url: finished.preview_url(&document.meta.app),
+                            label: Some(format!("{}: {}", cx.view.env().tr("goal.live"), document.meta.title)),
+                            height: Some(440.0),
+                        ),
+                    )
+                },
                 SemanticsRegion(
-                    copy("goal.build_title")
-                        .weight(tokens.typography.font_weight_bold),
-                    identifier: Some("site-heading-2:what-you-will-build-heading".to_string()),
+                    identifier: Some("site-section:what-you-will-build".to_string()),
+                    child: Column(gap: tokens.spacing.m, children: [
+                        SemanticsRegion(
+                            copy("goal.build_title")
+                                .weight(tokens.typography.font_weight_bold),
+                            identifier: Some("site-heading-2:what-you-will-build-heading".to_string()),
+                        ),
+                        Text(document.meta.goal.clone()),
+                        for outcome in &document.meta.outcomes {
+                            Row(key: outcome.clone(), gap: tokens.spacing.s, align_items: ir_op::AlignItems::Start, children: [
+                                Icon::svg(material::action::check_circle::regular())
+                                    .size(tokens.spacing.m)
+                                    .color(tokens.colors.primary),
+                                Text(outcome.clone()),
+                            ])
+                        },
+                    ]),
                 ),
-                Text(document.meta.goal.clone()),
-                MarkdownContent::new(document.introduction.clone()),
             ]),
         ),
+        MarkdownContent::new(document.introduction.clone()),
         if let Some(project_setup) = &document.project_setup {
             SemanticsRegion(
                 identifier: Some("site-disclosure:goal-project-setup".to_string()),
@@ -100,39 +124,6 @@ fission_component! {
                     identifier: Some("goal-command".to_string()),
                     child: Some(MarkdownContent::new(run_command_block).into()),
                 ),
-                if finished.preview {
-                    SemanticsRegion(
-                        identifier: Some("site-disclosure:goal-preview".to_string()),
-                        child: Column(gap: tokens.spacing.m, children: [
-                            SemanticsRegion(
-                                identifier: Some("site-disclosure-summary:goal-preview".to_string()),
-                                label: Some(cx.view.env().tr("goal.preview.show")),
-                                child: Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                                    Icon::svg(material::av::play_arrow::regular())
-                                        .size(tokens.spacing.m)
-                                        .color(tokens.colors.primary),
-                                    SemanticsRegion(
-                                        identifier: Some("goal-preview-show-label".to_string()),
-                                        child: Text(cx.view.env().tr("goal.preview.show")),
-                                    ),
-                                    SemanticsRegion(
-                                        identifier: Some("goal-preview-hide-label".to_string()),
-                                        child: Text(cx.view.env().tr("goal.preview.hide")),
-                                    ),
-                                ]),
-                            ),
-                            SemanticsRegion(
-                                identifier: Some("goal-finished-preview".to_string()),
-                                child: WebView(
-                                    id: preview_id,
-                                    url: finished.preview_url(&document.meta.app),
-                                    label: Some(format!("App preview for {}", document.meta.title)),
-                                    height: Some(560.0),
-                                ),
-                            ),
-                        ]),
-                    )
-                },
             ]),
         ),
     ])
