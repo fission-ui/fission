@@ -2239,6 +2239,12 @@ fn request_redraw_once(window: &Window, frame_schedule: &mut FrameScheduleState)
     true
 }
 
+#[cfg(any(test, target_arch = "wasm32"))]
+fn prepare_capture_redraw(redraw_pending: &mut bool, frame_schedule: &mut FrameScheduleState) {
+    frame_schedule.redraw_started();
+    *redraw_pending = false;
+}
+
 fn request_redraw_throttled(
     window: &Window,
     elwt: &EventLoopWindowTarget,
@@ -7270,6 +7276,7 @@ where
                         );
                     }
                     TestEvent::Screenshot { path, response_tx } => {
+                        record_web_test_diagnostic(346, 0);
                         let Some(window) = platform_window.active_window() else {
                             let _ = response_tx.send(fission_test_driver::TestResponse::Error {
                                 message: "window not ready".into(),
@@ -7286,10 +7293,16 @@ where
                         // A capture reads the complete retained target texture. Force every
                         // compositor layer to repaint so the image cannot contain only the
                         // regions damaged by the preceding interaction.
+                        // A capture is a barrier: discard a coalesced web RAF request that may
+                        // have gone stale while browser test commands continued to arrive.
+                        #[cfg(target_arch = "wasm32")]
+                        prepare_capture_redraw(&mut redraw_pending, &mut frame_trace);
                         invalidations.mark_paint();
-                        request_redraw_once(window, &mut frame_trace);
+                        let scheduled = request_redraw_once(window, &mut frame_trace);
+                        record_web_test_diagnostic(347, u32::from(scheduled));
                     }
                     TestEvent::CaptureScreenshot { response_tx } => {
+                        record_web_test_diagnostic(346, 1);
                         let Some(window) = platform_window.active_window() else {
                             let _ = response_tx.send(fission_test_driver::TestResponse::Error {
                                 message: "window not ready".into(),
@@ -7303,8 +7316,12 @@ where
                             resize_needs_settled_frame,
                             live_resize.is_live(Instant::now()),
                         );
+                        // Keep LiveTest captures from waiting behind an older coalesced RAF.
+                        #[cfg(target_arch = "wasm32")]
+                        prepare_capture_redraw(&mut redraw_pending, &mut frame_trace);
                         invalidations.mark_paint();
-                        request_redraw_once(window, &mut frame_trace);
+                        let scheduled = request_redraw_once(window, &mut frame_trace);
+                        record_web_test_diagnostic(347, u32::from(scheduled));
                     }
                     TestEvent::PauseAnimations { response_tx } => {
                         test_animations_paused = true;
@@ -11690,14 +11707,14 @@ mod tests {
         native_window_size_for_logical_viewport, normalize_scale_factor,
         normalize_winit_scroll_delta, physical_position_to_layout_point,
         physical_size_to_layout_size, preferred_native_present_mode, preferred_surface_alpha_mode,
-        preferred_web_surface_alpha_mode, present_frame_with_winit_coordination,
-        rect_visible_in_scroll_ancestors, repeating_animation_redraw_interval, resize_is_unsettled,
-        resolve_build_viewport, resolve_selector_record, runtime_timer_wake_at,
-        scroll_build_dependency_offsets, scroll_build_dependency_offsets_changed,
-        should_present_startup_clear_frame, surface_acquire_recovery,
-        sync_tracked_target_texture_size_to_surface, test_pump_can_ack_current_frame,
-        text_input_blink_enabled, texture_plans_fit_device_limits, visual_rect_for_node,
-        web_effective_render_scale, window_insets_from_safe_area_frames,
+        preferred_web_surface_alpha_mode, prepare_capture_redraw,
+        present_frame_with_winit_coordination, rect_visible_in_scroll_ancestors,
+        repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
+        resolve_selector_record, runtime_timer_wake_at, scroll_build_dependency_offsets,
+        scroll_build_dependency_offsets_changed, should_present_startup_clear_frame,
+        surface_acquire_recovery, sync_tracked_target_texture_size_to_surface,
+        test_pump_can_ack_current_frame, text_input_blink_enabled, texture_plans_fit_device_limits,
+        visual_rect_for_node, web_effective_render_scale, window_insets_from_safe_area_frames,
         windows_shell_execute_succeeded, windows_wide, BrowserDefaults, ControlFlow,
         FrameScheduleState, Instant, LiveResizeController, RedrawRequestTiming,
         SurfaceAcquireRecovery, TestPumpState, WindowViewportState,
@@ -12831,6 +12848,19 @@ mod tests {
             schedule.wait_for_redraw_or_deadline(deadline),
             ControlFlow::WaitUntil(deadline)
         );
+    }
+
+    #[test]
+    fn screenshot_redraw_restarts_a_stale_coalesced_frame() {
+        let mut schedule = FrameScheduleState::new(false);
+        let mut redraw_pending = true;
+        assert!(schedule.mark_redraw_scheduled());
+
+        prepare_capture_redraw(&mut redraw_pending, &mut schedule);
+
+        assert!(!redraw_pending);
+        assert!(!schedule.redraw_scheduled);
+        assert!(schedule.mark_redraw_scheduled());
     }
 
     #[test]

@@ -146,6 +146,12 @@ Use `reduced_motion()` for visual baselines that must resolve the browser's
 `prefers-reduced-motion` media query to `reduce` before the application is
 captured.
 
+On Linux, headless Chromium can fail WebGPU canvas readback on some GPU stacks.
+For that test-host issue, set `FISSION_CHROME_WEBGPU_PROFILE=swiftshader-vulkan`
+to launch Chromium with ANGLE and Vulkan backed by SwiftShader. The default
+profile is unchanged; `default` explicitly selects it, and unknown values fail
+before Chromium starts.
+
 ### Low-level methods
 
 | Method | Description |

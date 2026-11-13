@@ -29,6 +29,7 @@ are useful for investigation but are not stable application configuration APIs.
 | `FISSION_TEST_CONTROL_PORT` | Runtime, native and mobile | TCP port; unset by default | Starts the LiveTest HTTP control server. The builder API is preferred when the app owns the port. |
 | `FISSION_BACKGROUND_TEST` | Runtime | Presence enables it | Marks checked-in example applications as unattended test launches. It is an example convention rather than a general shell mode. |
 | `FISSION_CHROME` | Command/test | Path; automatic discovery by default | Selects the Chrome or Chromium executable used by browser tests and `fission doctor web`. `CHROME` and `CHROME_BIN` are fallback aliases for tool discovery. |
+| `FISSION_CHROME_WEBGPU_PROFILE` | Test | `default` (default) or `swiftshader-vulkan` | Selects the headless Chrome WebGPU test profile. `swiftshader-vulkan` uses SwiftShader through ANGLE and Vulkan to work around canvas readback failures on some Linux GPU stacks. |
 | `FISSION_WEB_SMOKE_URL` | Test | URL; unset skips the checked-in browser conformance test | Points the `web-smoke` browser test at an already-served application. It does not build or serve the app. |
 | `FISSION_SCREENSHOT_DIR` | Test/examples | Directory; example-specific temporary default | Selects output for checked-in live screenshot tests. |
 | `FISSION_TEST_MEASURER` | Test | `mock` or unset | Selects the deterministic mock text measurer in `fission-test`. |
