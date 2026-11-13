@@ -11287,6 +11287,8 @@ fn gpu_screenshot_async(
     let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
     let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) / align * align;
     let buffer_size = (padded_bytes_per_row * texture_height) as u64;
+    let validation_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let out_of_memory_scope = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
     let staging = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("WebGPU screenshot staging"),
         size: buffer_size,
@@ -11339,31 +11341,45 @@ fn gpu_screenshot_async(
                 }
             });
     });
+    let out_of_memory_error = out_of_memory_scope.pop();
+    let validation_error = validation_scope.pop();
 
     wasm_bindgen_futures::spawn_local(async move {
-        let response = match wasm_bindgen_futures::JsFuture::from(promise).await {
-            Ok(_) => {
-                let data = staging.slice(..).get_mapped_range();
-                let mut rgba = Vec::with_capacity((texture_width * texture_height * 4) as usize);
-                for row in 0..texture_height {
-                    let start = (row * padded_bytes_per_row) as usize;
-                    let end = start + (texture_width * bytes_per_pixel) as usize;
-                    rgba.extend_from_slice(&data[start..end]);
-                }
-                drop(data);
-                staging.unmap();
-                rgba_screenshot_response(
-                    rgba,
-                    texture_width,
-                    texture_height,
-                    output_width,
-                    output_height,
-                    None,
-                )
+        let gpu_error = out_of_memory_error.await.or(validation_error.await);
+        let response = if let Some(error) = gpu_error {
+            fission_test_driver::TestResponse::Error {
+                message: format!(
+                    "WebGPU screenshot readback GPU error for {texture_width}x{texture_height} ({buffer_size} bytes, {padded_bytes_per_row} bytes per row): {error}"
+                ),
             }
-            Err(error) => fission_test_driver::TestResponse::Error {
-                message: format!("buffer map failed: {error:?}"),
-            },
+        } else {
+            match wasm_bindgen_futures::JsFuture::from(promise).await {
+                Ok(_) => {
+                    let data = staging.slice(..).get_mapped_range();
+                    let mut rgba =
+                        Vec::with_capacity((texture_width * texture_height * 4) as usize);
+                    for row in 0..texture_height {
+                        let start = (row * padded_bytes_per_row) as usize;
+                        let end = start + (texture_width * bytes_per_pixel) as usize;
+                        rgba.extend_from_slice(&data[start..end]);
+                    }
+                    drop(data);
+                    staging.unmap();
+                    rgba_screenshot_response(
+                        rgba,
+                        texture_width,
+                        texture_height,
+                        output_width,
+                        output_height,
+                        None,
+                    )
+                }
+                Err(error) => fission_test_driver::TestResponse::Error {
+                    message: format!(
+                        "buffer map failed for {texture_width}x{texture_height} readback ({buffer_size} bytes, {padded_bytes_per_row} bytes per row): {error:?}"
+                    ),
+                },
+            }
         };
         let _ = response_tx.send(response);
     });
