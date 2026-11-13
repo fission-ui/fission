@@ -9658,26 +9658,20 @@ where
                                                             layout_size_to_image_dimensions(
                                                                 target_viewport,
                                                             );
-                                                        let rendered = pipeline.retained_scene().map(
-                                                            |scene| {
-                                                                fission_render_vello::cpu::render_to_rgba8_for_screenshot(
-                                                                    scene,
-                                                                    render_target_size.0,
-                                                                    render_target_size.1,
-                                                                    theme_background_render_color(&env),
-                                                                    scale_factor,
-                                                                    measurer.clone(),
-                                                                )
-                                                            },
+                                                        gpu_screenshot_async(
+                                                            &device_handle.device,
+                                                            &device_handle.queue,
+                                                            &presenter
+                                                                .render_state
+                                                                .surface
+                                                                .target_texture,
+                                                            render_target_size.0,
+                                                            render_target_size.1,
+                                                            screenshot_dimensions.0,
+                                                            screenshot_dimensions.1,
+                                                            response_tx,
                                                         );
                                                         record_web_test_diagnostic(368, 3);
-                                                        let response = covered_window_screenshot(
-                                                            rendered,
-                                                            render_target_size,
-                                                            screenshot_dimensions,
-                                                            None,
-                                                        );
-                                                        let _ = response_tx.send(response);
                                                     } else {
                                                         let _ = response_tx.send(
                                                             fission_test_driver::TestResponse::Error {
@@ -11259,6 +11253,117 @@ fn gpu_screenshot(
         output_height,
         path,
     )
+}
+
+#[cfg(target_arch = "wasm32")]
+fn gpu_screenshot_async(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    texture_width: u32,
+    texture_height: u32,
+    output_width: u32,
+    output_height: u32,
+    response_tx: mpsc::Sender<fission_test_driver::TestResponse>,
+) {
+    let (texture_width, texture_height) = clamp_copy_extent_to_texture(
+        texture_width,
+        texture_height,
+        texture.width(),
+        texture.height(),
+    );
+    if output_width == 0 || output_height == 0 {
+        let _ = response_tx.send(fission_test_driver::TestResponse::Error {
+            message: "zero-size viewport".into(),
+        });
+        return;
+    }
+
+    let bytes_per_pixel = 4_u32;
+    let unpadded_bytes_per_row = texture_width * bytes_per_pixel;
+    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) / align * align;
+    let buffer_size = (padded_bytes_per_row * texture_height) as u64;
+    let staging = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("WebGPU screenshot staging"),
+        size: buffer_size,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("WebGPU screenshot copy"),
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &staging,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded_bytes_per_row),
+                rows_per_image: Some(texture_height),
+            },
+        },
+        wgpu::Extent3d {
+            width: texture_width,
+            height: texture_height,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(Some(encoder.finish()));
+
+    // WebGPU mapping completes through the browser event loop. Keep the frame callback free to
+    // process input and subsequent frames while the staging buffer becomes readable.
+    let promise = js_sys::Promise::new(&mut |resolve, reject| {
+        let resolve = resolve.clone();
+        let reject = reject.clone();
+        staging
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| match result {
+                Ok(()) => {
+                    let _ = resolve.call0(&wasm_bindgen::JsValue::UNDEFINED);
+                }
+                Err(error) => {
+                    let _ = reject.call1(
+                        &wasm_bindgen::JsValue::UNDEFINED,
+                        &wasm_bindgen::JsValue::from_str(&error.to_string()),
+                    );
+                }
+            });
+    });
+
+    wasm_bindgen_futures::spawn_local(async move {
+        let response = match wasm_bindgen_futures::JsFuture::from(promise).await {
+            Ok(_) => {
+                let data = staging.slice(..).get_mapped_range();
+                let mut rgba = Vec::with_capacity((texture_width * texture_height * 4) as usize);
+                for row in 0..texture_height {
+                    let start = (row * padded_bytes_per_row) as usize;
+                    let end = start + (texture_width * bytes_per_pixel) as usize;
+                    rgba.extend_from_slice(&data[start..end]);
+                }
+                drop(data);
+                staging.unmap();
+                rgba_screenshot_response(
+                    rgba,
+                    texture_width,
+                    texture_height,
+                    output_width,
+                    output_height,
+                    None,
+                )
+            }
+            Err(error) => fission_test_driver::TestResponse::Error {
+                message: format!("buffer map failed: {error:?}"),
+            },
+        };
+        let _ = response_tx.send(response);
+    });
 }
 
 /// Answers a screenshot from a software rendering of the retained scene when the presented surface
