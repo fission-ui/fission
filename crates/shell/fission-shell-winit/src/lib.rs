@@ -9649,15 +9649,18 @@ where
                                                         let _ = response_tx.send(
                                                             fission_test_driver::TestResponse::Ok {},
                                                         );
-                                                    } else if matches!(
-                                                        web_renderer.as_ref(),
-                                                        Some(WebRenderer::WebGpu(_))
-                                                    ) {
+                                                    } else if let WebRenderer::WebGpu(presenter) =
+                                                        renderer
+                                                    {
                                                         record_web_test_diagnostic(367, 3);
                                                         let screenshot_dimensions =
                                                             layout_size_to_image_dimensions(
                                                                 target_viewport,
                                                             );
+                                                        let device_handle = &presenter
+                                                            .render_cx
+                                                            .devices
+                                                            [presenter.render_state.surface.dev_id];
                                                         gpu_screenshot_async(
                                                             &device_handle.device,
                                                             &device_handle.queue,
