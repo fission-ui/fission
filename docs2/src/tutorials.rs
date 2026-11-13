@@ -13,6 +13,7 @@ use std::time::Instant;
 mod cache;
 mod dependencies;
 mod packaging;
+mod profiles;
 mod static_site;
 
 const TUTORIAL_BUILD_PARALLELISM_ENV: &str = "FISSION_TUTORIAL_BUILD_PARALLELISM";
@@ -307,7 +308,7 @@ fn prepare_preview_workspaces(
         let manifest_path = workspace_dir.join("Cargo.toml");
         write_if_changed(
             &manifest_path,
-            format!("[workspace]\nmembers = [\n    {members}\n]\nresolver = \"2\"\n").as_bytes(),
+            preview_workspace_manifest(workspace_root, &members)?.as_bytes(),
         )?;
         cache::seed_lock(
             &workspace_dir,
@@ -422,6 +423,12 @@ fn prepare_preview_workspaces(
         })
         .collect::<Result<Vec<_>>>()?;
     Ok((prepared, workspaces))
+}
+
+fn preview_workspace_manifest(workspace_root: &Path, members: &str) -> Result<String> {
+    let mut manifest = format!("[workspace]\nmembers = [\n    {members}\n]\nresolver = \"2\"\n");
+    profiles::append_root_profiles(workspace_root, &mut manifest)?;
+    Ok(manifest)
 }
 
 fn tutorial_build_cache_root(project_dir: &Path) -> std::path::PathBuf {
@@ -951,12 +958,8 @@ fn preview_cache_context(
     if let Some(flags) = wasm_target_rustflags {
         hasher.field(flags.as_bytes());
     }
-    for relative in [
-        "Cargo.toml",
-        "Cargo.lock",
-        "rust-toolchain.toml",
-        ".cargo/config.toml",
-    ] {
+    profiles::hash_root_manifest(workspace_root, &mut hasher)?;
+    for relative in ["Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml"] {
         let path = workspace_root.join(relative);
         if path.is_file() {
             hasher.field(relative.as_bytes());
@@ -965,7 +968,12 @@ fn preview_cache_context(
     }
     // Generator behavior is an input too, but editorial content is not.
     hasher.field(&fs::read(project_dir.join("src/tutorials.rs"))?);
-    for module in ["cache.rs", "static_site.rs", "dependencies.rs"] {
+    for module in [
+        "cache.rs",
+        "static_site.rs",
+        "dependencies.rs",
+        "profiles.rs",
+    ] {
         hasher.field(&fs::read(project_dir.join("src/tutorials").join(module))?);
     }
     for name in ["RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS"] {

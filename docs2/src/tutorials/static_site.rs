@@ -64,30 +64,11 @@ pub(super) fn build(
                 package.replace('-', "_")
             ),
         )?;
-        let mut manifest = format!(
-            "[package]\nname = {package:?}\nversion = \"0.0.0\"\nedition = \"2021\"\n\n\
-             [workspace]\n\n[lib]\npath = \"src/lib.rs\"\n\n\
-             [[bin]]\nname = \"site-preview\"\npath = \"src/bin/docs2_site_preview.rs\"\n\n\
-             [dependencies]\nfission = {{ path = {:?}, default-features = false, features = [\"site\"] }}\n\
-             anyhow = \"1\"\nserde = {{ version = \"1\", features = [\"derive\"] }}\n\
-             serde_json = \"1\"\nserde_yaml = \"0.9\"\n",
-            workspace.join("crates/authoring/fission")
-        );
-        if preview
+        let include_codegen = preview
             .files
             .values()
-            .any(|source| source.contains("fission_design_system_codegen"))
-        {
-            manifest.push_str(&format!(
-                "\n[build-dependencies]\nfission-design-system-codegen = {{ path = {:?} }}\n",
-                workspace.join("crates/tools/fission-design-system-codegen")
-            ));
-        }
-        let root_manifest = fs::read_to_string(workspace.join("Cargo.toml"))?;
-        let profiles = root_manifest
-            .find("[profile.dev]")
-            .context("workspace profiles are missing")?;
-        manifest.push_str(&root_manifest[profiles..]);
+            .any(|source| source.contains("fission_design_system_codegen"));
+        let manifest = preview_manifest(workspace, &package, include_codegen)?;
         fs::write(directory.join("Cargo.toml"), manifest)?;
         fs::copy(workspace.join("Cargo.lock"), directory.join("Cargo.lock"))?;
         eprintln!(
@@ -134,6 +115,30 @@ pub(super) fn build(
         eprintln!("  Ready (actual HTML): {} / {}", step.app, step.step);
     }
     Ok(())
+}
+
+pub(super) fn preview_manifest(
+    workspace: &Path,
+    package: &str,
+    include_codegen: bool,
+) -> Result<String> {
+    let mut manifest = format!(
+        "[package]\nname = {package:?}\nversion = \"0.0.0\"\nedition = \"2021\"\n\n\
+         [workspace]\n\n[lib]\npath = \"src/lib.rs\"\n\n\
+         [[bin]]\nname = \"site-preview\"\npath = \"src/bin/docs2_site_preview.rs\"\n\n\
+         [dependencies]\nfission = {{ path = {:?}, default-features = false, features = [\"site\"] }}\n\
+         anyhow = \"1\"\nserde = {{ version = \"1\", features = [\"derive\"] }}\n\
+         serde_json = \"1\"\nserde_yaml = \"0.9\"\n",
+        workspace.join("crates/authoring/fission")
+    );
+    if include_codegen {
+        manifest.push_str(&format!(
+            "\n[build-dependencies]\nfission-design-system-codegen = {{ path = {:?} }}\n",
+            workspace.join("crates/tools/fission-design-system-codegen")
+        ));
+    }
+    super::profiles::append_root_profiles(workspace, &mut manifest)?;
+    Ok(manifest)
 }
 
 fn output_fingerprint(output: &Path) -> Result<String> {
@@ -189,5 +194,35 @@ mod tests {
         fs::remove_file(output.join("guide.html")).unwrap();
         assert!(!output_is_current(&output, &marker, "source").unwrap());
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn root_profile_change_invalidates_existing_html_output() {
+        let root = super::super::tests::temporary_directory("static-profile-cache");
+        let output = root.join("site");
+        fs::create_dir_all(&output).unwrap();
+        fs::write(output.join("index.html"), "home").unwrap();
+        let manifest = "[workspace]\n[profile.dev]\n[profile.release]\nopt-level = \"z\"\n";
+        fs::write(root.join("Cargo.toml"), manifest).unwrap();
+        let context = || {
+            let mut hasher = PreviewCacheHasher::default();
+            super::super::profiles::hash_root_manifest(&root, &mut hasher).unwrap();
+            format!("{:016x}", hasher.finish())
+        };
+        let original = context();
+        let marker = root.join(".complete");
+        fs::write(
+            &marker,
+            format!("{original}\n{}", output_fingerprint(&output).unwrap()),
+        )
+        .unwrap();
+        assert!(output_is_current(&output, &marker, &original).unwrap());
+        fs::write(
+            root.join("Cargo.toml"),
+            manifest.replace("opt-level = \"z\"", "opt-level = 3"),
+        )
+        .unwrap();
+        assert!(!output_is_current(&output, &marker, &context()).unwrap());
+        fs::remove_dir_all(root).unwrap();
     }
 }
