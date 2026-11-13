@@ -89,11 +89,12 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
         364 => WEB_LAST_PENDING_WORK_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
         365 => WEB_LAST_REDRAW_PENDING_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
         366 => WEB_LAST_REDRAW_REQUEST_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
-        400 | 402 | 410 | 411 | 414 | 416 | 417 | 418 | 419 | 420 | 424 | 430 | 432 | 435 => true,
+        400 | 402 | 410 | 411 | 414 | 416 | 417 | 418 | 419 | 420 | 424 | 425 | 426 | 430 | 432
+        | 435 | 436 | 427 => true,
         473 if iteration == 1 => {
             WEB_REDRAW_WAIT_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 256 == 0
         }
-        437 if iteration == 42 => true,
+        437 if iteration == 42 || iteration == 43 || iteration == 44 => true,
         437 if iteration == 31 => WEB_WAKE_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 4096 == 0,
         450..=470 | 474 | 475 | 476 => true,
         90 | 91 if iteration == 42 => true,
@@ -907,9 +908,11 @@ fn dispatch(command: TestCommand, proxy: &EventLoopProxy<TestEvent>) -> PendingR
             ms,
             response_tx,
         }),
-        TestCommand::CaptureScreenshot {} => query(proxy, |response_tx| {
-            TestEvent::CaptureScreenshot { response_tx }
-        }),
+        TestCommand::CaptureScreenshot {} => query_with_deferred_wake(
+            proxy,
+            |response_tx| TestEvent::CaptureScreenshot { response_tx },
+            true,
+        ),
         TestCommand::CaptureAt { ms } => query(proxy, |response_tx| TestEvent::CaptureAt {
             ms,
             response_tx,
@@ -967,6 +970,14 @@ fn query(
     proxy: &EventLoopProxy<TestEvent>,
     make_event: impl FnOnce(mpsc::Sender<TestResponse>) -> TestEvent,
 ) -> PendingResponse {
+    query_with_deferred_wake(proxy, make_event, false)
+}
+
+fn query_with_deferred_wake(
+    proxy: &EventLoopProxy<TestEvent>,
+    make_event: impl FnOnce(mpsc::Sender<TestResponse>) -> TestEvent,
+    deferred_wake: bool,
+) -> PendingResponse {
     record_diagnostic(420, 0);
     let (response_tx, response_rx) = mpsc::channel();
     record_diagnostic(421, 0);
@@ -978,6 +989,37 @@ fn query(
         })
     } else {
         record_diagnostic(424, 0);
+        if deferred_wake {
+            defer_test_event_wake(proxy);
+        }
         PendingResponse::Waiting(response_rx)
     }
+}
+
+fn defer_test_event_wake(proxy: &EventLoopProxy<TestEvent>) {
+    let deferred_proxy = proxy.clone();
+    let callback = Closure::once(move || {
+        record_diagnostic(426, 1);
+        let sent = deferred_proxy.send_event(TestEvent::Wake).is_ok();
+        record_diagnostic(427, u32::from(sent));
+    });
+
+    if let Some(window) = web_sys::window() {
+        if window
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                callback.as_ref().unchecked_ref(),
+                0,
+            )
+            .is_ok()
+        {
+            record_diagnostic(425, 1);
+            callback.forget();
+            return;
+        }
+    }
+
+    record_diagnostic(425, 0);
+    drop(callback);
+    let sent = proxy.send_event(TestEvent::Wake).is_ok();
+    record_diagnostic(427, u32::from(sent));
 }

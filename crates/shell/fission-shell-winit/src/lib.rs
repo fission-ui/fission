@@ -7786,8 +7786,13 @@ where
                         TestEvent::Pump { .. } => 30,
                         TestEvent::Wake => 31,
                         TestEvent::FillText { .. } => 42,
+                        TestEvent::CaptureScreenshot { .. } => 43,
+                        TestEvent::Screenshot { .. } => 44,
                         _ => 0,
                     };
+                    if matches!(diagnostic_kind, 43 | 44) {
+                        record_web_test_diagnostic(436, diagnostic_kind);
+                    }
                     #[cfg(target_arch = "wasm32")]
                     if matches!(&test_event, TestEvent::Wake) {
                         web_wake_dispatched_in_cycle = true;
