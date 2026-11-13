@@ -212,19 +212,19 @@ fn build_selected(project_dir: &Path, selected_app: Option<&str>) -> Result<()> 
     }
     let preparation_started = Instant::now();
     let tools = packaging::PackagingTools::discover(workspace_root, tutorial_wasm_opt()?)?;
-    let cache_context = format!(
-        "{}\n{}\n{}",
-        preview_cache_context(
+    let cache_context = web_package_context(
+        &preview_cache_context(
             workspace_root,
             project_dir,
             wasm_simd,
             wasm_target_rustflags.as_deref(),
         )?,
-        tools.binding_context(),
-        cache::source_identity(&BTreeMap::from([(
+        &tools.binding_context(),
+        &cache::source_identity(&BTreeMap::from([(
             "packaging.rs".into(),
-            fs::read_to_string(project_dir.join("src/tutorials/packaging.rs"))?
-        )]))
+            fs::read_to_string(project_dir.join("src/tutorials/packaging.rs"))?,
+        )])),
+        std::env::var_os("FISSION_WEB_TEST_CONTROL").is_some(),
     );
     let (previews, workspaces) =
         prepare_preview_workspaces(workspace_root, &build_cache_root, previews, &cache_context)?;
@@ -924,6 +924,17 @@ fn preview_bootstrap_module(output: &Path) -> Result<Option<String>> {
     Ok(Some(module.to_owned()))
 }
 
+// Match the shell build script: presence, even with an empty value, enables
+// LiveTest exports. Keep this Web-only setting out of the HTML preview cache.
+fn web_package_context(
+    source: &str,
+    bindings: &str,
+    generator: &str,
+    test_control: bool,
+) -> String {
+    format!("{source}\n{bindings}\n{generator}\nweb-test-control={test_control}")
+}
+
 fn preview_cache_context(
     workspace_root: &Path,
     project_dir: &Path,
@@ -1317,6 +1328,19 @@ fn html_escape(value: &str) -> String {
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn web_packages_separate_live_test_exports_and_packaging_inputs() {
+        let baseline = web_package_context("source", "bindings", "generator", false);
+        for changed in [
+            web_package_context("source", "bindings", "generator", true),
+            web_package_context("changed", "bindings", "generator", false),
+            web_package_context("source", "changed", "generator", false),
+            web_package_context("source", "bindings", "changed", false),
+        ] {
+            assert_ne!(baseline, changed);
+        }
+    }
 
     #[test]
     fn all_profile_overrides_are_cache_inputs_and_environment_order_is_not() {
