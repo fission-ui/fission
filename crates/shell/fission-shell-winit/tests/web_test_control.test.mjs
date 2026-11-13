@@ -57,3 +57,38 @@ test("static adapters preserve command, frame, diagnostics and grown-memory ABI"
     width: 400, height: 300, frame: 4294967298, phase: "submitted",
   });
 });
+
+test("poll dispatches a queued command if the timer has not run", () => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const timers = [];
+  const dispatched = [];
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  new Uint8Array(memory.buffer, 512, 2).set(new TextEncoder().encode("{}"));
+  const exports = {
+    fission_web_test_diagnostics_ptr: () => 64,
+    fission_web_test_command_json_ptr: () => 256,
+    fission_web_test_command_json_capacity: () => 128,
+    fission_web_test_submit_json: () => 118,
+    fission_web_test_dispatch_command: (id) => dispatched.push(id),
+    fission_web_test_poll_json_len: () => 2,
+    fission_web_test_poll_json_ptr: () => 512,
+  };
+  globalThis.setTimeout = (callback) => {
+    timers.push(callback);
+    return 1;
+  };
+
+  try {
+    const adapters = createWebTestAdapters(exports, memory, 48);
+    const requestId = adapters.submit('{"cmd":"CaptureScreenshot"}');
+
+    assert.equal(requestId, 118);
+    assert.equal(adapters.poll(requestId), "{}");
+    assert.deepEqual(dispatched, [requestId]);
+
+    timers[0]();
+    assert.deepEqual(dispatched, [requestId], "the timer must not dispatch twice");
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});

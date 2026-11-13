@@ -89,8 +89,8 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
         364 => WEB_LAST_PENDING_WORK_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
         365 => WEB_LAST_REDRAW_PENDING_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
         366 => WEB_LAST_REDRAW_REQUEST_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
-        400 | 402 | 410 | 411 | 414 | 416 | 417 | 418 | 419 | 420 | 424 | 425 | 426 | 430 | 432
-        | 435 | 436 | 427 => true,
+        400 | 402 | 410 | 411 | 414 | 416 | 417 | 418 | 419 | 420 | 424 | 425 | 426 | 427 | 430
+        | 432 | 435 | 436 | 442 | 443 => true,
         473 if iteration == 1 => {
             WEB_REDRAW_WAIT_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 256 == 0
         }
@@ -484,6 +484,7 @@ pub extern "C" fn fission_web_test_poll_json_len(request_id: u32) -> u32 {
     record_diagnostic(430, request_id);
     record_poll_stage(request_id, POLL_STAGE_ENTERED);
     record_diagnostic(431, request_id);
+    dispatch_queued_command_on_poll(request_id);
     let response = poll_response(request_id);
     record_diagnostic(432, request_id);
     record_poll_stage(request_id, POLL_STAGE_RESPONSE_READY);
@@ -500,6 +501,24 @@ pub extern "C" fn fission_web_test_poll_json_len(request_id: u32) -> u32 {
         record_diagnostic(435, state.poll_json.len() as u32);
         state.poll_json.len() as u32
     })
+}
+
+#[cfg(fission_web_test_control)]
+fn dispatch_queued_command_on_poll(request_id: u32) {
+    let is_queued = with_bridge_state(|state| {
+        matches!(
+            state.responses.get(&request_id),
+            Some(PendingResponse::Queued(_))
+        )
+    });
+    if is_queued {
+        // The host may issue CDP Runtime.evaluate polls faster than the
+        // browser runs the deferred dispatch timer. Let the Rust bridge claim
+        // a command that is still queued so polling cannot starve its dispatch.
+        record_diagnostic(442, request_id);
+        dispatch_queued_command(request_id);
+        record_diagnostic(443, request_id);
+    }
 }
 
 #[cfg(fission_web_test_control)]
