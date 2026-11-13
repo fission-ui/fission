@@ -58,6 +58,7 @@ fn focused_text_input_frame(
     };
     let widget: Widget = TextInput {
         id: Some(input_id),
+        semantics_identifier: Some("responsive-title-input".into()),
         value: value.to_string(),
         width: Some(width),
         height: Some(48.0),
@@ -131,6 +132,69 @@ fn focused_text_input_keeps_caret_visible_when_viewport_narrows() {
     assert!(
         caret_right - phone_offset <= phone_viewport_width - 3.0 + 0.001,
         "the retained caret should remain inside the phone viewport's trailing scroll margin"
+    );
+}
+
+#[test]
+fn responsive_text_input_scroll_uses_semantic_caret_without_retained_session() {
+    let desktop_id = WidgetId::explicit("responsive-title-input.desktop");
+    let phone_id = WidgetId::explicit("responsive-title-input.phone");
+    let value = "PersonalDB Web slide persisted by LiveTest";
+    let measurer = Arc::new(FixedTextMeasurer);
+    let mut engine = LayoutEngine::new().with_measurer(measurer.clone());
+    let mut runtime = Runtime::default().with_measurer(measurer);
+
+    let (desktop_ir, desktop_layout, desktop_scroll_id) = focused_text_input_frame(
+        &runtime.runtime_state,
+        &mut engine,
+        desktop_id,
+        value,
+        640.0,
+    );
+    runtime
+        .set_focused_widget(
+            &desktop_ir,
+            Some(desktop_id),
+            fission_core::TextEditSource::Programmatic,
+        )
+        .expect("focus the desktop input");
+    runtime
+        .reconcile_focus_with_layout(&desktop_ir, &desktop_layout)
+        .unwrap();
+    runtime.post_layout_hook(&desktop_ir, &desktop_layout);
+    assert_eq!(
+        runtime.runtime_state.scroll.get_offset(desktop_scroll_id),
+        0.0
+    );
+
+    let (phone_ir, phone_layout, phone_scroll_id) =
+        focused_text_input_frame(&runtime.runtime_state, &mut engine, phone_id, value, 180.0);
+    runtime
+        .reconcile_focus_with_layout(&phone_ir, &phone_layout)
+        .unwrap();
+    assert_eq!(runtime.runtime_state.interaction.focused, Some(phone_id));
+    assert!(runtime.runtime_state.text_edit.get(phone_id).is_none());
+    runtime.post_layout_hook(&phone_ir, &phone_layout);
+
+    assert_eq!(
+        runtime.runtime_state.text_edit.get(phone_id).unwrap().caret,
+        value.len(),
+        "responsive focus replacement should inherit the lowered end selection"
+    );
+    let phone_offset = runtime.runtime_state.scroll.get_offset(phone_scroll_id);
+    let phone_viewport_width = phone_layout
+        .get_node_geometry(phone_scroll_id)
+        .expect("phone text input scroll geometry")
+        .rect
+        .width();
+    let caret_right = value.chars().count() as f32 * 10.0 + 2.0;
+    assert!(
+        phone_offset > 0.0,
+        "responsive focus replacement without an edit session must scroll to the semantic caret"
+    );
+    assert!(
+        caret_right - phone_offset <= phone_viewport_width - 3.0 + 0.001,
+        "the inherited caret should remain inside the phone viewport's trailing scroll margin"
     );
 }
 

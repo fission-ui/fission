@@ -775,6 +775,11 @@ impl TextInputController {
             {
                 if let Some(scroll_geom) = ctx.layout.get_node_geometry(scroll_id) {
                     let viewport_size = scroll_geom.rect.size;
+                    // A responsive branch may give the same semantic input a
+                    // new WidgetId. The metric lookup below creates a fresh
+                    // edit session, so remember whether its lowered selection
+                    // must be copied into that session.
+                    let had_editing_session = ctx.text_edit.get(text_root).is_some();
 
                     let (current_text_value, metric_text, masked, scroll_padding) =
                         if let Some(node) = ctx.ir.nodes.get(&text_root) {
@@ -802,13 +807,43 @@ impl TextInputController {
                             (String::new(), String::new(), false, [2.0, 3.0, 2.0, 3.0])
                         };
 
-                    let current_caret_idx = if let Some(st) = ctx.text_edit.get(text_root) {
-                        st.display_preedit_cursor_range()
-                            .map(|(_, end)| end)
-                            .unwrap_or(st.caret)
-                    } else {
-                        0
-                    };
+                    // Seed a fresh session from the lowered selection before
+                    // measuring scroll. This keeps the runtime caret aligned
+                    // with TextInput's rendered caret.
+                    if !had_editing_session {
+                        let selection = ctx.ir.nodes.get(&text_root).and_then(|node| {
+                            if let Op::Semantics(semantics) = &node.op {
+                                semantics.text_selection
+                            } else {
+                                None
+                            }
+                        });
+                        if let Some((anchor, caret)) = selection {
+                            if let Some(state) = ctx.text_edit.states.get_mut(&text_root) {
+                                state.caret = caret.min(current_text_value.len());
+                                state.anchor = anchor.min(current_text_value.len());
+                            }
+                        }
+                    }
+
+                    let current_caret_idx = ctx
+                        .text_edit
+                        .get(text_root)
+                        .map(|st| {
+                            st.display_preedit_cursor_range()
+                                .map(|(_, end)| end)
+                                .unwrap_or(st.caret)
+                        })
+                        .or_else(|| {
+                            ctx.ir.nodes.get(&text_root).and_then(|node| {
+                                if let Op::Semantics(semantics) = &node.op {
+                                    semantics.text_selection.map(|(_, caret)| caret)
+                                } else {
+                                    None
+                                }
+                            })
+                        })
+                        .unwrap_or(current_text_value.len());
                     let metric_caret_idx = if masked {
                         Self::masked_byte_offset_from_source(
                             &current_text_value,
