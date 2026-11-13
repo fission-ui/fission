@@ -59,14 +59,16 @@ fn on_save_requested(
 
     state.saving = true;
     state.error_message = None;
+    let saved = ctx.effects.bind(SaveSucceeded, reduce!(on_save_succeeded));
+    let failed = ctx.effects.bind(SaveFailed, reduce!(on_save_failed));
 
     ctx.effects
         .app(SAVE_DOCUMENT_JOB, SaveDocumentRequest {
             document_id: state.document_id.clone(),
             contents: state.buffer.clone(),
         })
-        .on_ok(ctx.effects.bind(SaveSucceeded, reduce_with!(on_save_succeeded)))
-        .on_err(ctx.effects.bind(SaveFailed, reduce_with!(on_save_failed)));
+        .on_ok(saved)
+        .on_err(failed);
 }
 ```
 
@@ -78,16 +80,26 @@ fn on_save_succeeded(
     _: SaveSucceeded,
     ctx: &mut ReducerContext<EditorState>,
 ) {
+    state.saving = false;
     let Some(result) = ctx.input.job_ok(SAVE_DOCUMENT_JOB) else {
+        state.error_message = Some("The save job returned no result".into());
         return;
     };
 
-    state.saving = false;
     state.last_saved_revision = Some(result.revision);
 }
 ```
 
-The key point is that state still changes in reducers. The job does the outside work; it never mutates UI state itself.
+This excerpt assumes the app declares `SAVE_DOCUMENT_JOB`, its request/result
+types, and a failure reducer in its shared effects module. The callbacks are
+bound before the job builder, avoiding overlapping mutable borrows of
+`ctx.effects`. Both result paths must clear the in-flight flag.
+
+The job does the outside work; it never mutates UI state itself. Synchronous
+reducers do not make asynchronous results arrive in order. If the user can
+switch documents or issue a newer operation, include the document/operation
+identity in the result and reject stale completions before updating that
+document's state.
 
 ## Services handle long-lived work
 
@@ -105,33 +117,40 @@ Use a service when the work keeps its identity over time:
 A reducer starts or stops the service, and each service event comes back through a reducer. State therefore has one update path, even when an external process sends many events.
 
 ```rust
-let slot = ServiceSlot::singleton(LANGUAGE_SERVICE);
+let slot = ServiceSlot::keyed(LANGUAGE_SERVICE, state.workspace_root.clone());
+let started = ctx.effects.bind(LanguageStarted, reduce!(on_language_started));
+let event = ctx.effects.bind(LanguageEventArrived, reduce!(on_language_event));
+let failed = ctx.effects.bind(LanguageStartFailed, reduce!(on_language_failed));
 
 ctx.effects
     .start_service(slot, LanguageConfig {
         workspace_root: state.workspace_root.clone(),
     })
-    .on_started(ctx.effects.bind(LanguageStarted, reduce_with!(on_language_started)))
-    .on_event(ctx.effects.bind(LanguageEventArrived, reduce_with!(on_language_event)))
-    .on_start_failed(ctx.effects.bind(LanguageStartFailed, reduce_with!(on_language_failed)));
+    .on_started(started)
+    .on_event(event)
+    .on_start_failed(failed);
 ```
 
 Commands then send messages to the running service:
 
 ```rust
+let loaded = ctx.effects.bind(CompletionsLoaded, reduce!(on_completions_loaded));
+let failed = ctx.effects.bind(CompletionsFailed, reduce!(on_completions_failed));
 ctx.effects
     .command(
-        ServiceSlot::singleton(LANGUAGE_SERVICE),
+        ServiceSlot::keyed(LANGUAGE_SERVICE, state.workspace_root.clone()),
         LanguageCommand::RequestCompletions {
             path: state.active_path.clone(),
             cursor: state.cursor,
         },
     )
-    .on_ok(ctx.effects.bind(CompletionsLoaded, reduce_with!(on_completions_loaded)))
-    .on_err(ctx.effects.bind(CompletionsFailed, reduce_with!(on_completions_failed)));
+    .on_ok(loaded)
+    .on_err(failed);
 ```
 
-A command is not a service start. It is one message sent to a service that already has a lifetime.
+A command is not a service start. It targets the same workspace-keyed slot as
+the existing language session. The command result also needs its document and
+request identity when a later cursor move can make an earlier completion stale.
 
 ## Capabilities handle host-owned work
 

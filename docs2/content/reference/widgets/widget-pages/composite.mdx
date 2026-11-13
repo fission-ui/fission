@@ -15,10 +15,14 @@ Use `Composite` when the change is visual rather than structural. Do not use it 
 
 ```rust
 use fission::prelude::*;
-let widget: Widget = Composite::new(Text::new("Saving...").into())
-    .opacity(0.72)
-    .translate_y(-4.0)
-    .into();
+
+fission_component! {
+    pub FadedPreview<()> {
+        props { content: Widget }
+    }
+    view(preview, _state, _cx) =>
+    Composite(preview.content.clone()).opacity(0.72).translate_y(-4.0)
+}
 ```
 
 This changes presentation without changing where the surrounding layout thinks the child lives.
@@ -55,11 +59,10 @@ Because `Composite` does not relayout siblings, it is easy to create a visual ov
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Check overlap and clipping after transforms; sibling layout still uses the
+  untransformed geometry.
+- Preserve interaction and semantic identity when animating a stateful child.
+- Test reduced motion for animated values and text contrast for partial opacity.
 
 ## Related
 

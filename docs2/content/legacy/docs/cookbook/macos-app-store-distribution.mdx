@@ -29,10 +29,11 @@ The exact identity names vary by Apple account, but the configuration shape is s
 ```toml
 [package.macos.variants.app-store]
 entitlements = "platforms/macos/AppStore.entitlements"
-provisioning_profile = ".fission/signing/macos/DeveloperDefenceMacAppStore.provisionprofile"
+provisioning_profile = "/path/to/private/AppMacStore.provisionprofile"
 signing_identity = "Apple Distribution"
 installer_identity = "Mac Installer Distribution"
-features = ["macos-app-store"]
+cargo_features = ["macos-app-store"]
+notarize = false
 
 [distribution.app_store]
 app_id = "1234567890"
@@ -50,11 +51,14 @@ What each block means:
 - `provisioning_profile` must be the Mac App Store profile for the exact bundle ID.
 - `signing_identity` signs the application for Store submission.
 - `installer_identity` signs the package format used by the submission flow.
-- `features` lets the Rust application remove capabilities that are unavailable in the Store sandbox.
+- `cargo_features` selects a real feature declared by the application; the example name is not a built-in Fission feature.
 - `distribution.app_store` identifies the existing Store Connect app and API credentials.
 - `default_track` makes the intended follow-up explicit; upload, TestFlight, and App Review are different operations.
 
-Secrets stay in the environment or CI. Do not put the `.p8` bytes, certificate passwords, or private keys in `fission.toml`.
+Replace the profile path with a private input on the signing Mac. Secrets stay
+outside the public tree. Do not put `.p8` bytes, certificate passwords, or private
+keys in `fission.toml`. The variant is applied only when packaging selects
+`--variant app-store`; defining the table alone does not choose it.
 
 ## 2. Define release metadata as files
 
@@ -69,8 +73,10 @@ release_notes = "release-content/metadata/1.0.0/notes"
 review = "release-content/metadata/1.0.0/review.toml"
 privacy = "release-content/metadata/1.0.0/privacy.toml"
 
-[release_content.app_store]
+[release]
 content_output_dir = "release-content"
+
+[release.assets.app_store]
 screenshot_sets_dir = "release-content/screenshots/rendered/app-store"
 app_previews_dir = "release-content/previews/app-store"
 review_attachments = ["release-content/review/demo.pdf"]
@@ -100,28 +106,33 @@ fission release-content validate \
 The capture configuration belongs in the project release-content settings. A representative shape is:
 
 ```toml
-[release_content.capture.app_store]
-target = "macos"
-locale = "en-US"
-window_width = 1440
-window_height = 900
-scenarios = [
-  "dashboard-ready",
-  "scanner-findings",
-  "finding-detail",
-]
-output_dir = "release-content/screenshots/raw/app-store"
+[release.screenshots]
+raw_dir = "release-content/screenshots/raw"
+rendered_dir = "release-content/screenshots/rendered"
+
+[[release.screenshots.scenarios]]
+id = "workspace-ready"
+name = "Workspace overview"
+targets = ["macos"]
+command = "fission run --target macos --variant app-store"
+test_port = 4100
+timeout_ms = 60000
+
+[[release.screenshots.scenarios.steps]]
+cmd = "resize"
+width = 1440
+height = 900
+
+[[release.screenshots.scenarios.steps]]
+cmd = "screenshot"
+name = "01-workspace"
 ```
 
-The fields have deliberately boring names:
-
-- `target` selects the real Fission shell used for the capture.
-- `locale` selects the listing language.
-- `window_width` and `window_height` make captures repeatable instead of depending on the developer's current window.
-- `scenarios` names deterministic LiveTest or fixture flows that the app exposes for capture.
-- `output_dir` keeps raw captures separate from provider-shaped rendered assets.
-
-The exact capture keys available in a particular Fission release should be checked with `fission release-content --help` and the active config reference. The principle is the same: capture real UI states, render them into provider-required sizes, then validate before upload.
+Capture starts the declared command with the LiveTest port and scenario
+environment configured. The app must reach a real reviewable state; add the
+necessary waiting and interaction steps for that app rather than capturing an
+arbitrary first frame. Choose the locale in the app's capture setup. The
+scenario does not add another `locale` field to the screenshot schema.
 
 ## 4. Authenticate App Store Connect
 
@@ -150,12 +161,13 @@ fission package \
   --project-dir . \
   --target macos \
   --format pkg \
+  --variant app-store \
   --release
 
 fission distribute \
   --project-dir . \
   --provider app-store \
-  --artifact target/fission/release/macos/pkg/artifact-manifest.json \
+  --artifact target/fission/release/macos/pkg/variants/app-store/artifact-manifest.json \
   --track app-store-review \
   --yes
 ```

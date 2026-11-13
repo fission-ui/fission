@@ -6,9 +6,7 @@ description: Fission Charts reference for the Scatter and statistical family.
 
 # Scatter and statistical
 
-This family has 14 chart variants. Pick one that matches your data. Each page has a screenshot, data shape, API notes, and code you can adapt.
-
-Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
+Statistical views are useful when a simple total would hide the variation or relationship the reader needs to inspect. The chart presents prepared observations; it does not automatically calculate a correlation, detect an outlier or validate a cohort.
 
 ![Candlestick with movement screenshot](/img/charts/candlestick-volume.png)
 
@@ -20,53 +18,53 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 | [Conversion funnel](./funnel-conversion) | Ordered label/value pairs. | Use it for sales or onboarding funnels. |
 | [Distribution single axis](./single-axis-distribution) | Vec&lt;(value, size)&gt;. | Use it when a second axis adds noise. |
 | [Event single axis](./single-axis-events) | Vec&lt;(value, size)&gt;. | Use it for event density and distributions. |
-| [Intraday candlestick](./candlestick-intraday) | OHLC rows. | Use it for intraday or short-range market views. |
+| [Intraday candlestick](./candlestick-intraday) | Rows ordered open, close, low, high. | Use it for intraday or short-range market views. |
 | [Latency boxplot](./boxplot-latency) | Five-number summary rows. | Use it when distribution matters more than averages. |
 | [Market bubble chart](./scatter-bubble-market) | Vec&lt;(x, y, size)&gt;. | Use it for three-dimensional business comparisons. |
 | [Product parallel coordinates](./parallel-products) | Vec&lt;Vec&lt;f32&gt;&gt; observations. | Use it for multidimensional comparison. |
 | [Quality boxplot](./boxplot-quality) | Five-number summary rows. | Use it for process quality and batch comparisons. |
-| [Quality parallel coordinates](./parallel-quality) | Vec&lt;Vec&lt;f32&gt;&gt; observations. | Use it for filtering and comparing profiles. |
+| [Quality parallel coordinates](./parallel-quality) | Vec&lt;Vec&lt;f32&gt;&gt; observations. | Compare prepared profiles; working filters need application controls. |
 | [Recruiting funnel](./funnel-recruiting) | Ordered label/value pairs. | Use it when stage drop-off matters. |
 | [Risk return scatter](./scatter-risk-return) | Vec&lt;(risk, return, exposure)&gt;. | Use it for portfolio-style comparisons. |
-| [Scatter clusters](./scatter-clusters) | Vec&lt;(f32, f32)&gt;. | Use it for correlation and clustering. |
+| [Scatter clusters](./scatter-clusters) | Vec&lt;(f32, f32)&gt;. | Inspect paired observations; clustering requires a separate analysis. |
 | [Scatter outliers](./scatter-outliers) | Vec&lt;(f32, f32)&gt; plus effect scatter styling. | Use it to make exceptions visible. |
 
 ## Choosing within this family
 
-First decide what the user needs to compare or understand. Pick the simplest chart that shows it; add interaction only when it helps, and use animation only when it explains a change.
+Use scatter for paired numeric measurements, bubbles for a third non-negative size measure and boxplots for prepared five-number summaries. Candlesticks have the distinct open/close/low/high order. A funnel needs an ordered progression through one cohort, whilst parallel coordinates need dimensions on the renderer's common 0–100 scale.
+
+Keep raw observations and stable domain IDs outside display vectors. A highlighted halo or a compact distribution does not itself establish a statistical conclusion.
 
 ## Authoring from a Fission component
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+A delivery report is a concrete paired-measure example. The parent prepares completed observations and localizes the title and axis labels.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{Axis, Chart, ScatterSeries};
 
-
-
-fission_component!
-{
-    pub ScatterAndStatisticalChart<()> {
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DeliveryObservationOverview<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            axis_label_2: String,
+            observations: Vec<(f32, f32)>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Scatter and statistical")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::value().name(&report.axis_label)),
+        y_axis: Some(Axis::value().name(&report.axis_label_2)),
+        series: vec![ScatterSeries::new(&report.series_label)
+            .data(report.observations.clone())
+            .into()],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+## Checks
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Test units, summary ordering, duplicate events and missing observations independently of rendering. Keep exact values and sample sizes available outside the plot. Then inspect overlap and clipping on the real target; visual marks cannot prove that the underlying statistics or report population are correct.

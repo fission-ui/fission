@@ -1,87 +1,56 @@
 ---
 title: Dense point cloud
 sidebar_label: Dense point cloud
-description: Fission Charts reference for Dense point cloud.
+description: Inspect dense spatial observations whilst keeping display cost and hidden detail explicit.
 ---
 
 # Dense point cloud
 
 ![Dense point cloud screenshot](/img/charts/point-cloud-dense.png)
 
-Dense cloud of spatial samples. Use it for scan-like data. The screenshot is from Fission's chart gallery.
+Density changes both the cost and the meaning of a point-cloud view. More observations produce more geometry, whilst overlapping markers can make a densely sampled region appear like a continuous solid. That appearance is not proof that a surface was reconstructed.
 
-## What the chart is for
+For an inspection scan, retain the full observations in the data layer and construct a bounded view of the region being inspected. Do not claim that a short gallery example establishes the capacity to render a complete production scan.
 
-This chart is in the **3D and GL** family. Use it when a visual makes the pattern easier to spot.
+## Reuse the point scene
 
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Scene3D spheres`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `Scene3D` | `Scene3D` | Defines native 3D primitives, camera, light, and material data. |
-| `width / height` | `f32` | Optional fixed size; omit them when the scene should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::three_d::{Scene3D, Vec3};
-
-let scene = Scene3D::new()
-    .size(720.0, 420.0)
-    .camera(Vec3::new(3.5, 2.6, 5.0), Vec3::ZERO)
-    .ambient_light(0.45);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+The [Point cloud](./point-cloud) page defines `PointCloudScene` in `widgets/point_cloud.rs`. The following component accepts a display projection prepared for the selected scan region rather than copying every stored observation into the widget tree.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::point_cloud::PointCloudScene;
 
-
-
-fission_component!
-{
-    pub DensePointCloudChart<()> {
+fission_component! {
+    pub ScanRegionPreview<()> {
+        props {
+            title: TextContent,
+            visible_positions: Vec<Point3D>,
+            marker_radius: f32,
+            marker_color: Color,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Dense point cloud")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
+    view(scan, _state, _cx) => PointCloudScene {
+        title: scan.title.clone(),
+        positions: scan.visible_positions.clone(),
+        point_radius: scan.marker_radius,
+        point_color: scan.marker_color,
     }
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Enable Fission's `three-d` feature. Supply finite positions and a finite positive radius in the same scene units. The sphere-per-point implementation is explicit, so its resource cost grows with the display projection rather than being hidden behind a chart-series name.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## Sampling must serve the inspection
+
+Choose any simplification according to the question being answered. Taking every tenth input record is cheap but can miss a small defect if input order follows the scanner's acquisition pattern. A spatially bounded or error-controlled projection needs its own tests and a visible indication when it omits source detail.
+
+Keep the original observations available for detailed inspection. A reduction in display points must not become an unnoticed loss of source data.
+
+## Checks
+
+Measure frame time and memory at the expected display bounds, then inspect overlap and small features in a real rendering. Provide sample counts, region bounds and any sampling policy in accessible text. This legacy scene does not offer per-sphere chart events or automatic point picking; use the source observation list for an accessible selection path. The screenshot is the gallery fixture.
 
 Tags: `3d`, `point-cloud`.
 

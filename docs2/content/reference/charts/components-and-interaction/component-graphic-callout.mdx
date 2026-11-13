@@ -1,93 +1,61 @@
 ---
 title: Graphic callout
 sidebar_label: Graphic callout
-description: Fission Charts reference for Graphic callout.
+description: Place a translated chart callout using deliberate plot-fraction bounds.
 ---
 
 # Graphic callout
 
 ![Graphic callout screenshot](/img/charts/component-graphic-callout.png)
 
-Graphic annotation overlay on a line chart. Use it to explain a change in context. The screenshot is from Fission's chart gallery.
+A callout can explain context that the values alone do not contain. For example, a queue report may be based on a provisional data snapshot. That qualification belongs beside the report whether or not a reader can hover a point.
 
-## What the chart is for
-
-This chart is in the **Components and interaction** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `ChartGraphic plus LineSeries`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+`ChartGraphic` is plot-relative geometry. Its position does not attach the note to a particular observation.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::core::op::Color;
+use fission::charts::{
+    Axis, Chart, ChartGraphic, ChartGraphicKind, LineSeries, Series,
+};
 
-
-
-fission_component!
-{
-    pub GraphicCalloutChart<()> {
+fission_component! {
+    pub QualifiedQueueReport<()> {
+        props {
+            title: String,
+            jobs_label: String,
+            note: String,
+            note_colour: Color,
+            intervals: Vec<String>,
+            waiting_jobs: Vec<f32>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
-    }
+    view(report, _state, _cx) {
+        let labels = report.intervals.iter().map(String::as_str).collect();
+        let callout = ChartGraphic {
+            kind: ChartGraphicKind::Text,
+            x: 0.05, y: 0.05, width: 0.8, height: 0.12,
+            text: Some(report.note.clone()),
+            color: report.note_colour,
+            stroke: None,
+        };
+    } => Column(children: [
+        Text(report.note.clone()),
+        Chart(
+            title: Some(report.title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value().min(0.0)),
+            series: vec![Series::Line(
+                LineSeries::new(&report.jobs_label).data(report.waiting_jobs.clone()),
+            )],
+            graphics: vec![callout],
+        ),
+    ])
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+The explicit text bounds use fractions of plot width and height. This avoids treating the convenience text constructor's default dimensions as pixel sizes when the renderer interprets them as fractions.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
-
-Tags: `graphic`, `annotation`.
+Supply translated text, a design-system colour and aligned finite values. Inspect long translations and small viewports; a plot callout does not gain ordinary responsive text layout automatically. Keep the nearby `Text` explanation because custom-painted chart text is not a substitute for accessible document content. The image is a gallery fixture.
 
 [Components and interaction family overview](./overview)

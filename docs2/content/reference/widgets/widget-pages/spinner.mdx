@@ -14,27 +14,29 @@ refreshing a view.
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Spinner {
-    id: WidgetId::explicit("sync_spinner"),
-    color: None,
-    animated: true,
-}
-.into();
+// Inside a Compose view, only while the operation is pending.
+Spinner(
+    motion: SpinnerMotion::Default,
+    label: cx.tr("sync.loading_messages"),
+)
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetId` | Stable identity used to drive the dot animations. | Required. |
+| `id` | `WidgetId` | Stable identity used to drive the dot animations. | Compose supplies it; ordinary Rust construction should provide an explicit ID. |
 | `color` | `Option<Color>` | Dot color override. | Defaults to the theme's primary color. |
-| `animated` | `bool` | Whether the dots should pulse. | Defaults to `true`. |
+| `motion` | `Option<SpinnerMotion>` | Spinner-owned motion preset or custom tracks. | `None` is static; set `SpinnerMotion::Default` or `Pulse` for animation. |
+| `label` | `Option<String>` | Accessible description of what is loading. | Defaults to “Loading”; prefer a translated task-specific name. |
 
 ## user experience guidance
 
 A spinner says "work is happening" but does not explain how long it will take. That makes it useful for short or uncertain waits, but weaker than a real progress indicator for long-running tasks.
 
-The checked-in widget uses three animated dots. Stable ids matter here just as they do for other animated widgets.
+The widget uses three dots. The default field value has no spinner motion;
+the example explicitly selects its animated preset. Stable identity keeps
+those motion slots attached to the same operation across builds.
 
 ## Check the loading state in context
 

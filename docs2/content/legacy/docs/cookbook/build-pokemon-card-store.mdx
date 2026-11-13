@@ -6,10 +6,12 @@ description: Recreate the Pokémon Card Store example with server routes, cache 
 
 # Build a server-rendered store
 
-This walkthrough builds a server-rendered store page. The server loads the
-catalog through a job, keeps the cart in a private session, and serves the page
-as HTML. A worker handles filtering, while a small WASM island owns the cart
-drawer interaction.
+This walkthrough separates a storefront's responsibilities: load catalogue
+data through a typed server job, render product information as HTML, and keep
+session-specific cart work out of shared cache entries. It follows the
+repository's Pokémon Card Store example, but a production store must replace
+that example's in-memory catalogue and cart service with its real authority.
+Rendering a storefront is not an implemented checkout or inventory system.
 
 ## 1. Configure the server target
 
@@ -45,7 +47,10 @@ The route mode says the storefront is rendered per session, which is the right d
 Use typed Rust data rather than loosely shaped maps. This mirrors the example's `CardProduct` idea.
 
 ```rust
-#[derive(Clone, Debug)]
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CardProduct {
     pub id: u32,
     pub name: String,
@@ -55,59 +60,97 @@ pub struct CardProduct {
     pub image_url: String,
 }
 
-pub fn catalog_response() -> Vec<CardProduct> {
-    vec![
-        CardProduct {
-            id: 1,
-            name: "Pikachu Illustrator".to_string(),
-            set: "Promo".to_string(),
-            price_pence: 125000,
-            stock: 1,
-            image_url: "/img/cards/pikachu.svg".to_string(),
-        },
-    ]
-}
 ```
 
-In a real store this function would call a database or service. The widget tree should not care where the data came from; it should receive typed data and render it.
+Integer pence keep money out of floating-point arithmetic. The model here is
+single-currency; use an explicit currency and locale-aware formatting if the
+store supports more. Product ids come from the catalogue authority, not each
+render's list position. The UI receives these records instead of inventing a
+successful catalogue inside its conversion function.
 
 ## 3. Register a catalog job
 
 ```rust
-pub const CATALOG_JOB: &str = "catalog";
+pub struct CatalogJob;
 
-let jobs = ServerJobRegistry::new().register_job(CATALOG_JOB, |_request, _ctx| {
-    Ok(catalog_response())
+impl JobSpec for CatalogJob {
+    type Request = ();
+    type Ok = Vec<CardProduct>;
+    type Err = String;
+    const NAME: &'static str = "store::catalog";
+}
+
+pub const CATALOG_JOB: JobRef<CatalogJob> = JobRef::new(CatalogJob::NAME);
+
+use fission::server::ServerJobRegistry;
+
+let jobs = ServerJobRegistry::new().register_job(CATALOG_JOB, |(), _ctx| {
+    let file = std::fs::File::open("data/catalog.json").map_err(|error| error.to_string())?;
+    serde_json::from_reader(std::io::BufReader::new(file)).map_err(|error| error.to_string())
 });
 ```
 
-The route can ask for the catalog during rendering. The server shell drains the job before returning HTML, so the user receives a populated page rather than a blank loading shell.
+This file-backed example reads a trusted, deployment-owned catalogue file, not
+fixture rows built into the widget. Set a stable working directory and package
+that data source deliberately. A larger store can replace the handler with its
+catalogue service while retaining the same job contract. Attach `jobs` to the
+server app using `.jobs(jobs)`.
+
+The page declares a job resource; the server shell executes it between render
+passes. A successful result can populate the returned HTML. Failure must render
+an error, not a fabricated empty catalogue. Do not read files or make HTTP calls
+directly from the component setup block.
 
 ## 4. Render the page as widgets
 
 ```rust
-fission_component!
-{
-    pub StoreHomePage<StoreState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (_, view) = fission::build::current::<StoreState>();
-                Column {
-                    gap: Some(24.0),
-                    children: vec![
-                        Text::new("Pokémon Card Store")
-                            .size(44.0)
-                            .weight(FontWeight::Bold)
-                            .into(),
-                        CardGrid::new(view.state().products.clone()).into(),
-                    ],
-                    ..Default::default()
-                }
-                .into()
-    }
+#[derive(Debug, Default)]
+pub struct StoreState {
+    products: Option<Vec<CardProduct>>,
+    catalog_error: Option<String>,
+}
+
+impl GlobalState for StoreState {}
+
+#[fission_reducer(CatalogLoaded)]
+fn catalog_loaded(state: &mut StoreState, ctx: &mut ReducerContext<StoreState>) {
+    state.products = ctx.input.job_ok(CATALOG_JOB);
+    state.catalog_error = if state.products.is_some() { None }
+        else { Some("The catalogue job returned no result".into()) };
+}
+
+#[fission_reducer(CatalogFailed)]
+fn catalog_failed(state: &mut StoreState, ctx: &mut ReducerContext<StoreState>) {
+    state.catalog_error = Some(ctx.input.job_error_message(CATALOG_JOB)
+        .unwrap_or("The catalogue is unavailable").to_owned());
+}
+
+fission_component! {
+    pub StoreHomePage<StoreState> {}
+    view(_page, state, cx) {
+        let loaded = cx.bind(CatalogLoaded, reduce!(catalog_loaded));
+        let failed = cx.bind(CatalogFailed, reduce!(catalog_failed));
+        cx.with_resources(|resources| {
+            resources.job(JobResource::new(ResourceKey::new("store.catalog"), CATALOG_JOB, ())
+                .on_ok(loaded).on_err(failed));
+        });
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.l, children: [
+        Text(cx.tr("catalog.title"), font_size: tokens.typography.heading1_size),
+        if let Some(error) = &state.catalog_error { Alert(title: error.clone(), kind: AlertKind::Error) }
+        else if let Some(products) = &state.products {
+            if products.is_empty() { EmptyState(title: cx.tr("catalog.empty")) }
+            else { CardGrid(products.clone()) }
+        } else { Spinner(motion: SpinnerMotion::Default, label: cx.tr("catalog.loading")) },
+    ])
 }
 ```
-Keep the page split into components. A production example should have `components/hero.rs`, `components/card_grid.rs`, and `components/shell.rs` rather than one large file.
+`CardGrid` is the app's reusable product component accepting `Vec<CardProduct>`;
+its repeated product tiles use `key: product.id`. Keep it, the hero, and the
+shell in focused widget modules. Define `catalog.title` and `catalog.empty` in
+the shared translation bundles. This section is the catalogue-loading boundary,
+not a replacement for those app-owned product components or a full store.
 
 ## 5. Add worker and island declarations
 
@@ -125,7 +168,12 @@ Keep the page split into components. A production example should have `component
 )
 ```
 
-The page stays server-rendered. The worker adds lightweight DOM behavior. The island owns the cart drawer because cart state and reducer-driven interaction are worth a focused WASM artifact.
+The page remains server-rendered. These declarations identify artifacts, not
+their implementation: the repository's worker currently demonstrates bridge
+status messages, so do not assume it performs catalogue filtering. Implement
+and test the actual controls before describing them as a filtering feature.
+Likewise, an island's local cart view is not the order authority; submit changes
+to an authorised server flow and revalidate current stock and price there.
 
 ## 6. Check, run, and package
 

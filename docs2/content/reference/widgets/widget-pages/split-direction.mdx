@@ -29,28 +29,38 @@ Responsive layout is where this enum becomes more important than it first appear
 
 ## Example with `SplitView`
 
-This example shows a mail-style screen that uses a horizontal split on wide layouts and a vertical split on tighter ones.
+This component accepts a layout decision from its parent and renders the two
+owned panes. The parent also owns the current ratio and resize action:
 
 ```rust
 use fission::prelude::*;
 
-let direction = if is_wide_layout {
-    SplitDirection::Horizontal
-} else {
-    SplitDirection::Vertical
-};
-
-SplitView {
-    id: WidgetId::explicit("mail_split"),
-    direction,
-    first: mail_list.into(),
-    second: message_detail.into(),
-    split_ratio: 0.35,
-    on_resize: None,
+fission_component! {
+    pub DocumentSplit<()> {
+        props {
+            direction: SplitDirection,
+            first: Widget,
+            second: Widget,
+            ratio: f32,
+            resize: ActionEnvelope,
+        }
+    }
+    view(panes, _state, _cx) =>
+    SplitView(
+        direction: panes.direction.clone(),
+        first: panes.first.clone(),
+        second: panes.second.clone(),
+        split_ratio: panes.ratio,
+        on_resize: panes.resize.clone(),
+    )
 }
 ```
 
-The important idea is not the `if` expression itself. It is the product decision behind it. On a wide window, a list and detail view can comfortably sit side by side. On a narrow host, stacking them top to bottom may preserve readability better. `SplitDirection` is the lever that expresses that decision.
+On a wide window, an editor and preview may sit side by side. A narrower
+container may stack them. Use an appropriate `Responsive` case or
+constraint-aware parent to make that decision; the enum only expresses the
+chosen axis. Construct an independent pane tree for each responsive branch,
+not two branches that share clones of one retained `Widget`.
 
 If your direction changes at runtime, keep that responsive rule in ordinary app logic or a named component. `SplitDirection` should stay the result of the decision, not the place where the decision logic lives.
 

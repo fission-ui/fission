@@ -18,44 +18,42 @@ the application supplies cards, controls, or other semantic entry content.
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Timeline {
-    items: vec![
-        TimelineItem {
-            title: "Queued".into(),
-            description: Some("Waiting for an available runner".into()),
-            timestamp: Some("09:58".into()),
-        },
-        TimelineItem {
-            title: "Running".into(),
-            description: Some("Tests are executing".into()),
-            timestamp: Some("10:03".into()),
-        },
-    ],
+fission_component! {
+    pub DeploymentHistory<()> {
+        props { events: Vec<TimelineItem> }
+    }
+
+    view(history, _state, _cx) =>
+        Timeline(items: history.events.clone())
 }
-.into();
 ```
 
-For rich entries, give each entry a durable identity:
+The parent maps real deployment events into translated titles, useful
+explanations, and locale-formatted timestamps in chronological order. It must
+not show queued/running fixture events as evidence of a deployment.
+
+For rich entries, give each entry a durable identity. This configuration excerpt
+assumes the parent owns these entry children and bound review action:
 
 ```rust
 let widget: Widget = TimelineLayout::new(vec![
     TimelineEntry::new(
         WidgetId::explicit("deploy.build"),
         Card {
-            child: Text::new("Build and test").into(),
+            child: Text::new(cx.tr("deployment.build_and_test")).into(),
             ..Default::default()
         },
     ),
     TimelineEntry::new(
         WidgetId::explicit("deploy.review"),
         Button {
-            content: Some(ButtonContent::new("Review")),
+            content: Some(ButtonContent::new(cx.tr("deployment.review"))),
             on_press: Some(review_action),
             ..Default::default()
         },
     ),
 ])
-.spacing(12.0, 16.0)
+.spacing(cx.view.env().theme.tokens.spacing.m, cx.view.env().theme.tokens.spacing.l)
 .into();
 ```
 

@@ -21,62 +21,94 @@ Use the Fission facade crate and enable the terminal shell feature for tools tha
 
 ```toml
 [dependencies]
-fission = { version = "0.15.1", features = ["terminal-shell"] }
+fission = { version = "0.16.0", features = ["terminal-shell"] }
 ```
 
 The public API is available through the facade, so app code should use `fission::terminal::TerminalApp` or import from the prelude when appropriate. You should not depend directly on the internal shell crate unless you are working on Fission itself.
 
 ## Build a terminal app from normal widgets
 
-A terminal app starts the same way as any other Fission app: define state, define actions, write reducers, and implement widgets.
+A terminal app uses the same retained components and reducer scopes as other
+targets. This log viewer demonstrates a real presentation choice: show all
+entries or only failures, without inventing another copy of the log data.
 
 ```rust
 use fission::prelude::*;
 
+#[derive(Debug, Clone, PartialEq)]
+struct LogEntry {
+    sequence: u64,
+    message: String,
+    is_error: bool,
+}
+
 #[derive(Debug, Default, Clone, PartialEq)]
 struct ToolState {
-    selected: usize,
-    logs: Vec<String>,
+    errors_only: bool,
+    logs: Vec<LogEntry>,
 }
 
 impl GlobalState for ToolState {}
 
-#[fission_reducer(SelectScreen)]
-fn select_screen(state: &mut ToolState, selected: usize) {
-    state.selected = selected;
+fission_component! {
+    pub ToolApp<ToolState> {}
+    view(_app, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let visible: Vec<_> = state.logs.iter()
+            .filter(|entry| !state.errors_only || entry.is_error)
+            .collect();
+    } =>
+    Column(gap: tokens.spacing.s, children: [
+        Row(gap: tokens.spacing.s, children: [
+            Button(
+                child: Text(cx.tr(if state.errors_only { "logs.show_all" } else { "logs.show_errors" })),
+                key: "filter",
+                on_press: reduce { state.errors_only = !state.errors_only; },
+            ),
+            Button(
+                child: Text(cx.tr("logs.clear")),
+                key: "clear",
+                disabled: state.logs.is_empty(),
+                on_press: reduce { state.logs.clear(); },
+            ),
+        ]),
+        Scroll(
+            semantic_label: cx.tr("logs.output"),
+            child: Column(children: [
+                if visible.is_empty() {
+                    Text(cx.tr(if state.errors_only { "logs.no_errors" } else { "logs.no_output" }))
+                },
+                for entry in visible {
+                    Text(entry.message.clone(), key: entry.sequence)
+                },
+            ]),
+        ),
+    ])
 }
+```
 
-fission_component!
-{
-    pub ToolApp<ToolState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<ToolState>();
-                let dashboard = with_reducer!(ctx, SelectScreen(0), select_screen);
-                let settings = with_reducer!(ctx, SelectScreen(1), select_screen);
+The sequence number identifies a log entry independently of filtering. The
+viewer starts empty; a job or service supplies actual command output, using a
+bounded buffer as described below. The filter does not start a command or
+discard hidden entries.
 
-                Row {
-                    children: vec![
-                        Column {
-                            children: vec![
-                                Button { on_press: Some(dashboard), child: Some(Text::new("Dashboard").into()), ..Default::default() }.into(),
-                                Button { on_press: Some(settings), child: Some(Text::new("Settings").into()), ..Default::default() }.into(),
-                            ],
-                            ..Default::default()
-                        }.into(),
-                        Text::new(format!("Selected screen: {}", view.state().selected)).into(),
-                    ],
-                    ..Default::default()
-                }.into()
-    }
-}
+Define the `logs.*` messages in the shared translation bundles and prepare the
+environment in the app's presentation module. The thin terminal entrypoint then
+installs it:
 
+```rust
 fn main() -> anyhow::Result<()> {
     fission::terminal::TerminalApp::with_state(ToolApp, ToolState::default())
-        .with_title("My Tool")
+        .with_env(crate::presentation::create_env()?)
+        .with_title("Build logs")
         .run()
 }
 ```
+
+Here `presentation::create_env()` is app code returning `anyhow::Result<Env>`,
+not a terminal-specific API. Use the same theme and i18n setup described in
+[Theming and i18n](/docs/guides/theming-and-i18n/) for the other shells.
+
 Real applications should not keep everything in one file. Follow the same structure you would use for a production Fission app: keep state in a state module, reducers in an actions module, screens in a screens module, reusable widgets in a components module, and route selection in a routes module.
 
 ## Use the Fission command as the reference example

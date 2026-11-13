@@ -19,27 +19,34 @@ For a simple vertical stack, horizontal row, or responsive card wrap, use
 ```rust
 use fission::prelude::*;
 
-const PRODUCT_CARD_MIN_WIDTH: f32 = 220.0;
+fission_component! {
+    pub OperationsGrid<()> {
+        props {
+            summary: Widget,
+            activity: Widget,
+        }
+    }
 
-let (_ctx, view) = fission::build::current::<CatalogState>();
-let spacing = &view.env().theme.tokens.spacing;
-
-let widget: Widget = Grid {
-    columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-        GridTrack::Points(PRODUCT_CARD_MIN_WIDTH),
-        GridTrack::Fr(1.0),
-    ))],
-    rows: vec![GridTrack::Auto],
-    column_gap: Some(spacing.l),
-    row_gap: Some(spacing.l),
-    children: cards
-        .iter()
-        .map(|card| GridItem::new(ProductCard { card }).into())
-        .collect(),
-    ..Default::default()
+    view(dashboard, _state, cx) {
+        let spacing = &cx.view.env().theme.tokens.spacing;
+    } =>
+        Grid(
+            columns: vec![GridTrack::Fr(2.0), GridTrack::Fr(1.0)],
+            rows: vec![GridTrack::Auto],
+            column_gap: spacing.l,
+            row_gap: spacing.l,
+            children: [
+                GridItem(dashboard.summary.clone()).cell(1, 1),
+                GridItem(dashboard.activity.clone()).cell(1, 2),
+            ],
+        )
 }
-.into();
 ```
+
+The parent supplies the real summary and activity components. This two-column
+layout is for a wide workspace. Select a separately constructed compact layout
+with `Responsive` when the available width no longer leaves either region
+readable; fractional tracks do not choose a breakpoint for you.
 
 ## Field table
 
@@ -75,12 +82,9 @@ When you do use it, define tracks intentionally. A grid with clear `Fr`, `Points
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Prefer parent layout and design-system sizing first; use explicit size or spacing fields when the product layout requires that constraint on this widget specifically.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Check the smallest width that can support both meaningful regions.
+- Verify reading order and layout order agree after responsive branching.
+- Use explicit GridItem placement only when both row and column structure matter.
 
 ## Related
 

@@ -1,6 +1,6 @@
 ---
 layout: goal
-title: Set up Rust Android GUI development with Fission: SDK, NDK, emulator and phone
+title: "Set up Rust Android GUI development with Fission: SDK, NDK, emulator and phone"
 description: "Set up the Android SDK, NDK, emulator and phone connection you need to build Rust GUI apps with Fission."
 goal: Install and verify the Android command-line tools, SDK, NDK, Rust target, emulator and ADB phone connection for a Fission app.
 path: /blog/set-up-rust-android-gui-development-with-fission/
@@ -14,9 +14,9 @@ outcomes:
   - Run Fission's Android doctor and launch the app on an emulator
   - Connect a phone with ADB and run the app using its authorised device serial
 ---
-Before building, check that Rust, the Android SDK and NDK, and the emulator
-are installed. This guide checks them in the order Fission needs them. Run each
-command, fix what it reports, and then continue.
+Building an Android app involves two toolchains, not two implementations of the app. Rust compiles the shared code; the Android SDK and NDK provide the host tools, native libraries and packaging needed to run it on a device. An installed Rust target alone does not supply the second half.
+
+We will check those pieces in dependency order, then launch the same app on an emulator or an authorised phone. The distinction is useful when something fails: a missing compiler, an unavailable device and an app error require different corrections.
 
 At the end, `fission doctor` should find the Android tools and you should be able to launch the app on an emulator or connected phone. The browser preview only shows the example screen. It cannot install SDK packages or connect to a device; the terminal checks are what verify the setup.
 
@@ -37,7 +37,9 @@ rustup target add aarch64-linux-android
 
 Install Android Studio's **Android SDK Command-line Tools (latest)** package first. Fission currently checks for `sdkmanager` and `avdmanager` at `cmdline-tools/latest/bin`; the newer `android sdk` command alone does not satisfy those checks yet. Add that directory to `PATH`, and set `ANDROID_HOME` to the SDK root if it is not already set.
 
-The generated host defaults to Android API 35 and Build Tools 35.0.0, with a minimum API level of 24. Read `platforms/android/README.md` if the generated project specifies different values.
+The generated shell also runs Gradle. Its current Android Gradle Plugin is 8.13.2; Google's [compatibility table](https://developer.android.com/build/releases/agp-8-13-0-release-notes#compatibility) lists Gradle 8.13 and JDK 17. Use a compatible installation, then check `java -version` and `gradle --version`. The script prefers `platforms/android/gradlew` when you have installed a wrapper there; otherwise `gradle` must be available on `PATH`.
+
+The package commands below install API 35 as one explicit example; they are not a Fission-wide version pin. The current generated build script selects the highest installed platform API unless `ANDROID_TARGET_API_LEVEL` is set, and defaults the minimum API to 24. Inspect `platforms/android/README.md` and the generated host before changing those choices.
 
 ```sh
 sdkmanager --list | rg 'platform-tools|cmdline-tools|emulator|platforms;android-|build-tools;|ndk;|system-images;android-'
@@ -75,7 +77,8 @@ set-up-rust-android-gui-development-with-fission/
 ├── src/
 │   ├── main.rs                # generated app entrypoint
 │   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
+│   ├── app.rs                 # Compose checklist
+│   └── translations.rs        # embedded language bundles
 └── platforms/
     └── android/              # generated Android host
 ```
@@ -83,183 +86,174 @@ set-up-rust-android-gui-development-with-fission/
 Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a separate service or effect module when this app needs that boundary, and give it a name that says what it does. The generated host owns Android launch and packaging, so shared components do not need to import Android APIs.
 
 <!-- fission:step id="field-check-preview" -->
-## Preview a real field-work screen
+## Launch a small app with a manual setup checklist
 
-Use the same kind of task a technician would open on a phone: a named work order, location, due time, one clear inspection step and a status the user can change. The preview keeps that status in memory and lets you switch languages. It does not read a device sensor, call the SDK or prove that a native build, signature or package is valid; the target-specific steps below do that.
+The app gives the build something observable to launch: three labelled checks whose state changes when you select them. Marking a box records your own review of command output; it does not inspect the SDK or convert an unsuccessful diagnostic into success.
+
+Replace the generated `src/lib.rs` as well as `src/app.rs`, so the native launcher runs this screen rather than the starter counter. The translations stay separate from the component, and the checklist state belongs to this one interface.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
-use std::collections::HashMap;
+use fission::prelude::*;
 
+fission_component! {
+    pub ToolchainChecklist<()> {
+        state {
+            tools_checked: bool = false,
+            runtime_checked: bool = false,
+            targets_checked: bool = false,
+        }
+    }
+    view(setup, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let reviewed = [setup.tools_checked, setup.runtime_checked, setup.targets_checked]
+            .iter().filter(|checked| **checked).count();
+    } =>
+    Container(SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("setup.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("setup.summary")).color(tokens.colors.text_secondary),
+            Text(cx.tr("setup.manual")).weight(tokens.typography.font_weight_semibold),
+            Divider(),
+            Checkbox(
+                checked: setup.tools_checked,
+                label: Some(cx.tr("setup.tools.check")),
+                semantics_identifier: Some("setup.tools".into()),
+                bind(on_toggle): to(setup.tools_checked),
+            ),
+            Text(cx.tr("setup.tools.detail")),
+            Checkbox(
+                checked: setup.runtime_checked,
+                label: Some(cx.tr("setup.runtime.check")),
+                semantics_identifier: Some("setup.runtime".into()),
+                bind(on_toggle): to(setup.runtime_checked),
+            ),
+            Text(cx.tr("setup.runtime.detail")),
+            Checkbox(
+                checked: setup.targets_checked,
+                label: Some(cx.tr("setup.targets.check")),
+                semantics_identifier: Some("setup.targets".into()),
+                bind(on_toggle): to(setup.targets_checked),
+            ),
+            Text(cx.tr("setup.targets.detail")),
+            Divider(),
+            Text(cx.tr("setup.reviewed").replace("{count}", &reviewed.to_string())),
+            Text(cx.tr("setup.scope")).color(tokens.colors.text_secondary),
+        ])
+    ).padding_all(tokens.spacing.l)
+     .width_length(Length::percent(100.0))
+     .max_width(680.0))))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod translations;
+
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(app::ToolchainChecklist)
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), app::ToolchainChecklist> {
+    let app = MobileApp::<(), _>::new(app::ToolchainChecklist)
+        .with_env(translations::create_env())
+        .with_title("Toolchain checklist");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::ToolchainChecklist)
+        .with_env(translations::create_env())
+        .with_title("Toolchain checklist")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
 use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
 
 pub fn create_env() -> Env {
     let mut env = Env::default();
     env.locale = Locale::from("en-US");
-
     for (locale, source) in [
         ("en-US", include_str!("../i18n/en-US.yaml")),
         ("es-ES", include_str!("../i18n/es-ES.yaml")),
     ] {
         let messages: HashMap<String, String> =
-            serde_yaml::from_str(source).expect("valid Northbank translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(locale),
-            messages,
-        });
+            serde_yaml::from_str(source).expect("checked-in setup translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
     }
-
     env
 }
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FieldCheckState {
-    pub complete: bool,
-    pub locale: Locale,
-}
-
-impl Default for FieldCheckState {
-    fn default() -> Self {
-        Self {
-            complete: false,
-            locale: Locale::from("en-US"),
-        }
-    }
-}
-
-impl GlobalState for FieldCheckState {}
-
-fission_component! {
-    pub FieldCheckApp<FieldCheckState> {}
-    view(_app, state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let status = if state.complete {
-            cx.tr("inspection.status.complete")
-        } else {
-            cx.tr("inspection.status.due")
-        };
-        let action = if state.complete {
-            cx.tr("inspection.action.review")
-        } else {
-            cx.tr("inspection.action.complete")
-        };
-        let region_label = format!(
-            "{} · {}",
-            cx.tr("work_order.title"),
-            cx.tr("work_order.reference"),
-        );
-    } =>
-    SemanticsRegion(
-        identifier: Some("northbank.field-check".to_string()),
-        label: Some(region_label),
-        child: Container(
-            Column(gap: tokens.spacing.l, children: [
-                Row(
-                    gap: tokens.spacing.m,
-                    wrap: ir_op::FlexWrap::Wrap,
-                    align_items: ir_op::AlignItems::Center,
-                    children: [
-                        Column(gap: tokens.spacing.xs, children: [
-                            Text(cx.tr("app.name"))
-                                .weight(tokens.typography.font_weight_bold),
-                            Text(cx.tr("app.shift"))
-                                .color(tokens.colors.text_secondary),
-                        ]),
-                        Spacer(flex_grow: 1.0),
-                        Row(gap: tokens.spacing.xs, children: [
-                            Button(
-                                child: Text(cx.tr("language.english")),
-                                key: "locale-en-US",
-                                variant: if state.locale == Locale::from("en-US") {
-                                    ButtonVariant::Primary
-                                } else {
-                                    ButtonVariant::Outline
-                                },
-                                on_press: reduce {
-                                    state.locale = Locale::from("en-US");
-                                },
-                            )
-                            .semantics_identifier("northbank.locale.en-US"),
-                            Button(
-                                child: Text(cx.tr("language.spanish")),
-                                key: "locale-es-ES",
-                                variant: if state.locale == Locale::from("es-ES") {
-                                    ButtonVariant::Primary
-                                } else {
-                                    ButtonVariant::Outline
-                                },
-                                on_press: reduce {
-                                    state.locale = Locale::from("es-ES");
-                                },
-                            )
-                            .semantics_identifier("northbank.locale.es-ES"),
-                        ]),
-                    ],
-                ),
-                Divider(),
-                Row(
-                    gap: tokens.spacing.m,
-                    wrap: ir_op::FlexWrap::Wrap,
-                    align_items: ir_op::AlignItems::Center,
-                    children: [
-                        Column(gap: tokens.spacing.xs, children: [
-                            Text(cx.tr("work_order.reference"))
-                                .weight(tokens.typography.font_weight_semibold),
-                            Text(cx.tr("work_order.title"))
-                                .size(tokens.typography.heading2_size)
-                                .weight(tokens.typography.font_weight_bold),
-                            Text(cx.tr("work_order.location"))
-                                .color(tokens.colors.text_secondary),
-                        ]),
-                        Spacer(flex_grow: 1.0),
-                        Badge(text: status),
-                    ],
-                ),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text(cx.tr("inspection.step"))
-                            .weight(tokens.typography.font_weight_semibold),
-                        Text(cx.tr("inspection.instruction"))
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-                Button(
-                    child: Text(action),
-                    key: "toggle-pressure-check",
-                    variant: if state.complete {
-                        ButtonVariant::Outline
-                    } else {
-                        ButtonVariant::Primary
-                    },
-                    on_press: reduce {
-                        state.complete = !state.complete;
-                    },
-                )
-                .semantics_identifier("northbank.inspection.toggle"),
-                Text(cx.tr("preview.scope"))
-                    .color(tokens.colors.text_secondary),
-            ]),
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large)
-        .width_length(Length::percent(100.0)),
-    )
-}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+setup.title: "Android development checklist"
+setup.summary: "Keep track of the checks you have run in your own terminal."
+setup.manual: "Mark these only after reviewing the command output."
+setup.tools.check: "SDK and NDK found"
+setup.tools.detail: "Run fission doctor android and review its SDK, NDK and command-line tool checks."
+setup.runtime.check: "Emulator or phone available"
+setup.runtime.detail: "Use fission devices and adb devices -l; a phone must be authorised."
+setup.targets.check: "Rust targets installed"
+setup.targets.detail: "Check aarch64-linux-android with rustup target list --installed."
+setup.reviewed: "{count} of 3 checks marked"
+setup.scope: "This is a manual checklist, not a toolchain diagnostic. Your marks are local to this session; reloading clears them."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+setup.title: "Lista de desarrollo para Android"
+setup.summary: "Anota las comprobaciones que has ejecutado en tu propio terminal."
+setup.manual: "Marca cada casilla tras revisar la salida del comando."
+setup.tools.check: "SDK y NDK encontrados"
+setup.tools.detail: "Ejecuta fission doctor android y revisa el SDK, el NDK y las herramientas."
+setup.runtime.check: "Emulador o teléfono disponible"
+setup.runtime.detail: "Usa fission devices y adb devices -l; el teléfono debe estar autorizado."
+setup.targets.check: "Destinos de Rust instalados"
+setup.targets.detail: "Comprueba aarch64-linux-android con rustup target list --installed."
+setup.reviewed: "{count} de 3 comprobaciones marcadas"
+setup.scope: "Esta lista es manual; no diagnostica las herramientas. Las marcas son locales a la sesión y se borran al recargar."
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -267,61 +261,20 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<app::FieldCheckState, _>::new(app::FieldCheckApp)
-        .with_env(app::create_env())
-        .with_sync_env(|state: &app::FieldCheckState, env: &mut Env| {
-            env.locale = state.locale.clone();
-        })
-        .with_title("Northbank Work Orders")
+    WebApp::<(), _>::new(app::ToolchainChecklist)
+        .with_env(translations::create_env())
+        .with_title("Toolchain checklist")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
-<TabItem label="i18n/en-US.yaml">
-<!-- fission:file path="i18n/en-US.yaml" -->
-```yaml
-app.name: "Northbank Maintenance"
-app.shift: "Today · Morning shift"
-language.english: "English"
-language.spanish: "Español"
-work_order.reference: "WO-1048 · Due 10:30"
-work_order.title: "Cold-room compressor"
-work_order.location: "Northbank Food Hub · Plant room"
-inspection.step: "Check operating pressure"
-inspection.instruction: "Confirm the reading is within the maintenance range before restarting the unit."
-inspection.status.due: "Check due"
-inspection.status.complete: "Check recorded"
-inspection.action.complete: "Record check"
-inspection.action.review: "Review check again"
-preview.scope: "Browser preview · sample work order · not saved to the device"
-```
-</TabItem>
-<TabItem label="i18n/es-ES.yaml">
-<!-- fission:file path="i18n/es-ES.yaml" -->
-```yaml
-app.name: "Mantenimiento Northbank"
-app.shift: "Hoy · Turno de mañana"
-language.english: "Inglés"
-language.spanish: "Español"
-work_order.reference: "OT-1048 · Vence a las 10:30"
-work_order.title: "Compresor de cámara fría"
-work_order.location: "Centro de alimentos Northbank · Sala de máquinas"
-inspection.step: "Comprueba la presión de funcionamiento"
-inspection.instruction: "Confirma que la lectura esté dentro del rango de mantenimiento antes de reiniciar la unidad."
-inspection.status.due: "Comprobación pendiente"
-inspection.status.complete: "Comprobación registrada"
-inspection.action.complete: "Registrar comprobación"
-inspection.action.review: "Revisar comprobación"
-preview.scope: "Vista previa web · orden de ejemplo · no se guarda en el dispositivo"
-```
-</TabItem>
 </Tabs>
 
 <!-- fission:preview -->
 <!-- fission:checkpoint -->
-Switch to Spanish and back to English, then record and review the pressure check. The layout keeps the work-order context visible beside its status. Reloading resets the sample state; that is expected because this browser preview is not the native work-order service or device integration.
+Select and clear each checklist item, then reload. The marked count must follow the actual choices and reset on reload. On Android, repeat the same interaction after launching the generated app; the browser cannot establish that native launch works.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -356,5 +309,4 @@ These references explain the API contract behind the example and the target-spec
 - [Fission Android target guide](/reference/platform/targets/)
 - [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
 - [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
 <!-- /fission:step -->

@@ -7,7 +7,9 @@ description: Query cameras, request permission, capture photos, and control flas
 
 The camera capability keeps sensitive camera work inside the shell. Shared app code asks for availability or capture, while the host owns permissions, preview UI, image capture, camera identifiers, torch control, and platform-specific failure modes.
 
-This example captures a profile photo with the back camera and optional flash. Ask for access only after the user chooses to take a photo.
+For a profile photo, request the front camera without flash. A document scanner
+would normally choose the back camera instead. Ask for access after the user
+chooses the task, not merely because the profile screen opened.
 
 Do not ask for camera access before the user understands why. Build the explanation in normal Fission UI first, then trigger the capability from a clear action such as Take photo.
 
@@ -16,9 +18,8 @@ Do not ask for camera access before the user understands why. Build the explanat
 Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
 
 ```rust
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct CameraDemoState {
-    // Add these fields to your existing app state.
     profile_photo_stream: Option<DataStreamId>,
     camera_error: Option<String>,
     capturing: bool,
@@ -55,16 +56,25 @@ Capture completes after the starting reducer returns. Handle both the capture an
 
 ```rust
 #[fission_reducer(PhotoCaptured)]
-fn on_photo_captured(state: &mut CameraDemoState, capture: CameraCapture) {
+fn on_photo_captured(state: &mut CameraDemoState, ctx: &mut ReducerContext<CameraDemoState>) {
     state.capturing = false;
-    state.profile_photo_stream = Some(capture.stream);
-    state.camera_error = None;
+    if let Some(capture) = ctx.input.capability_ok(CAPTURE_PHOTO) {
+        state.profile_photo_stream = Some(capture.stream);
+        state.camera_error = None;
+    } else {
+        state.camera_error = Some("Camera returned no photo result".into());
+    }
 }
 
 #[fission_reducer(PhotoCaptureFailed)]
-fn on_photo_capture_failed(state: &mut CameraDemoState, error: CameraError) {
+fn on_photo_capture_failed(state: &mut CameraDemoState, ctx: &mut ReducerContext<CameraDemoState>) {
     state.capturing = false;
-    state.camera_error = Some(error.message);
+    state.camera_error = Some(
+        ctx.input.capability_error(CAPTURE_PHOTO)
+            .map(|error| error.message)
+            .or_else(|| ctx.input.capability_error_message(CAPTURE_PHOTO).map(str::to_owned))
+            .unwrap_or_else(|| "Camera capture failed".into()),
+    );
 }
 ```
 
@@ -75,28 +85,32 @@ Permission denial, missing hardware, cancellation, and unsupported hosts are exp
 Request capture from the reducer handling the user's action. Fission queues the host request and later dispatches a completion action.
 
 ```rust
-state.capturing = true;
-ctx.effects
-    .camera()
-    .capture_photo(CameraCaptureRequest {
-        facing: CameraFacing::Back,
-        resolution: Some(CameraResolution { width: 1280, height: 720 }),
-        format: CameraImageFormat::Jpeg,
-        flash: CameraFlashMode::Auto,
-        quality: Some(90),
-        ..Default::default()
-    })
-    .on_ok(ctx.effects.bind(
-        PhotoCaptured(CameraCapture::default()),
-        reduce_with!(on_photo_captured),
-    ))
-    .on_err(ctx.effects.bind(
-        PhotoCaptureFailed(CameraError::default()),
-        reduce_with!(on_photo_capture_failed),
-    ));
+#[fission_reducer(CaptureProfilePhoto)]
+fn on_capture_profile_photo(state: &mut CameraDemoState, ctx: &mut ReducerContext<CameraDemoState>) {
+    if state.capturing { return; }
+    state.capturing = true;
+    state.camera_error = None;
+    let captured = ctx.effects.bind(PhotoCaptured, reduce_with!(on_photo_captured));
+    let failed = ctx.effects.bind(PhotoCaptureFailed, reduce_with!(on_photo_capture_failed));
+    ctx.effects
+        .camera()
+        .capture_photo(CameraCaptureRequest {
+            facing: CameraFacing::Front,
+            resolution: Some(CameraResolution { width: 1280, height: 720 }),
+            format: CameraImageFormat::Jpeg,
+            flash: CameraFlashMode::Off,
+            quality: Some(90),
+            ..Default::default()
+        })
+        .on_ok(captured)
+        .on_err(failed);
+}
 ```
 
-The call records a typed host request; the shell handles the camera and returns a stream handle.
+The callback action names the outcome path. The actual capture arrives through
+`ctx.input.capability_ok(CAPTURE_PHOTO)`; an authored default `CameraCapture`
+would not contain the host's stream. A stream handle is runtime-local, so a
+follow-up job/service must consume it before storing or uploading the image.
 
 ## 5. Trigger the reducer from the UI
 
@@ -105,19 +119,19 @@ Bind the button to the reducer that starts capture:
 ```rust
 
 
-fission_component!
-{
-    pub CaptureProfilePhotoButton<CameraDemoState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<CameraDemoState>();
-                let run = with_reducer!(ctx, CaptureProfilePhoto, on_capture_profile_photo);
-
-                Button::new("Take photo")
-                    .disabled(view.state().capturing)
-                    .on_press(run)
-                    .into()
-    }
+fission_component! {
+    pub CaptureProfilePhotoButton<CameraDemoState>
+    view(_button, state, cx) {
+        let run = cx.bind(CaptureProfilePhoto, reduce!(on_capture_profile_photo));
+    } =>
+    Column(children: [
+        Button(child: Text(cx.tr("profile.take_photo")), disabled: state.capturing, on_press: run),
+        if state.capturing { Spinner(motion: SpinnerMotion::Default, label: cx.tr("profile.capturing_photo")) },
+        if state.profile_photo_stream.is_some() { Text(cx.tr("profile.photo_captured")) },
+        if let Some(error) = &state.camera_error {
+            Alert(kind: AlertKind::Error, title: error.clone())
+        },
+    ])
 }
 ```
 The button dispatches an action; a reducer requests capture, and a completion reducer updates the screen.

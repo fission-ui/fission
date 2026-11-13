@@ -6,9 +6,9 @@ description: Fission Charts reference for the Monitoring family.
 
 # Monitoring
 
-This family has 20 chart variants. Pick one that matches your data. Each page has a screenshot, data shape, API notes, and code you can adapt.
+Monitoring views should make a particular operational question easier to answer. A request-rate trend, dependency graph and availability calendar describe different facts; they do not become interchangeable because they appear on the same dashboard.
 
-Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
+Keep collection, aggregation and alert policy in the application model. Effects load observations, reducers update the report, and Compose presents the resulting state. Building a chart is not the place to start a monitoring request.
 
 ![Brush investigation screenshot](/img/charts/monitoring-brush-investigation.png)
 
@@ -17,7 +17,7 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 | Chart | Data shape | Use when |
 | --- | --- | --- |
 | [Brush investigation](./monitoring-brush-investigation) | Scatter points and brush selection. | Use it when incidents require selecting a point range. |
-| [Capacity gauge](./monitoring-capacity-gauge) | One capacity value in a bounded range. | Use it for critical status cards. |
+| [Capacity gauge](./monitoring-capacity-gauge) | One utilisation percentage on a fixed 0–100 arc. | Show current occupied capacity, with exact values alongside it. |
 | [Dependency graph](./monitoring-dependency-graph) | Service nodes and dependencies. | Use it for operational topology. |
 | [Error scatter](./monitoring-error-scatter) | Highlighted error points. | Use it for outlier-heavy operational views. |
 | [Load heatmap](./monitoring-load-heatmap) | Resource load matrix. | Use it for time and resource concentration. |
@@ -27,52 +27,58 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 | [Monitoring error band](./monitoring-error-band) | Error values with threshold band. | Use it when alert ranges must be visible. |
 | [Monitoring event strip](./monitoring-single-axis-events) | Event positions with value-coded marks. | Use it for compact event timeline rows. |
 | [Monitoring overview line](./monitoring-overview-line) | Dense telemetry samples. | Use it for top-level operational dashboards. |
-| [Monitoring risk radar](./monitoring-risk-radar) | Multidimensional status vector. | Use it for status summaries across dimensions. |
-| [Monitoring toolbox](./monitoring-toolbox-analysis) | Line chart with analysis actions. | Use it when charts need local analysis controls. |
+| [Monitoring risk radar](./monitoring-risk-radar) | Ordered policy scores on a common 0–100 scale. | Compare dimensions only after defining their meaning and direction. |
+| [Monitoring toolbox](./monitoring-toolbox-analysis) | Chart plus semantic application controls. | Change the report through normal reducers or effects; painted tools alone are not functional. |
 | [Monitoring traffic bars](./monitoring-traffic-bars) | Traffic counts by category. | Use it for quick categorical traffic summaries. |
-| [Operational flow sankey](./monitoring-flow-sankey) | Flow nodes and links. | Use it for request and process flow. |
+| [Operational flow sankey](./monitoring-flow-sankey) | Unweighted nodes and links in two columns. | Show routing relationships, not quantitative traffic flows. |
 | [Operational region map](./monitoring-region-map) | Region values with color scale. | Use it for geographic operations. |
 | [Operational route lines](./monitoring-route-lines) | Connection lines with effect markers. | Use it for route and link movement. |
-| [Release timeline](./monitoring-release-timeline) | Timeline control over chart state. | Use it for release-based dashboards. |
+| [Release timeline](./monitoring-release-timeline) | Application-selected snapshots and a timeline indicator. | Compare releases with an explicit reducer-controlled selection. |
 | [Service rank](./monitoring-service-rank) | Services ranked by a value. | Use it to focus on the largest contributors. |
 | [Uptime calendar](./monitoring-uptime-calendar) | Daily uptime values. | Use it for long-term reliability summaries. |
 
 ## Choosing within this family
 
-First decide what the user needs to compare or understand. Pick the simplest chart that shows it; add interaction only when it helps, and use animation only when it explains a change.
+Start with the measure, its unit and its reporting window. A count and a rate answer different questions, whilst an average can hide a tail-latency problem. Preserve missing observations instead of quietly converting them into successful zero readings.
+
+Use spatial views only when position carries information. Use a graph for relationships, a calendar for day-level patterns and a line for ordered measurements. The gallery's 3D scenes use the `three-d` feature and a separate scene API, not 3D `Chart` series.
 
 ## Authoring from a Fission component
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+A small presentation boundary can receive a prepared report without owning the monitoring service or copying its data-fetching logic.
 
 ```rust
 use fission::prelude::*;
 use fission::charts::{Axis, Chart, LineSeries};
 
-
-
-fission_component!
-{
-    pub MonitoringChart<()> {
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub MonitoringOverviewChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            requests_per_second: Vec<f32>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Monitoring")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value().min(0.0)),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.requests_per_second.clone())
+                    .into(),
+            ],
+        )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+## Checks
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Test aggregation, units, counter resets and the relation between labels and values independently of rendering. Exercise loading, failed collection and late responses in the parent workflow. A stale report needs an observation time so the reader can distinguish old data from a current healthy reading.
+
+Then inspect the rendered view for clipped labels, overlapping marks and ambiguous scales. Keep the current values and operational findings available as text; colour, motion and pointer-only gestures must not be the only way to understand an incident.

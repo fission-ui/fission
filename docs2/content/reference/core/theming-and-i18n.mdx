@@ -49,7 +49,11 @@ Use a preset when it matches the platform or brand direction you want. Copy it i
 
 ## Environment flow
 
-`Env` carries the active theme, internationalization registry, locale, and other app-wide presentation context. During component conversion, widgets can read those values through `view.env` or convenience helpers such as `view.theme()`.
+`Env` carries the active theme, internationalization registry, locale, and other
+app-wide presentation context. During Compose build, widgets read these
+values through `cx.view.env()` or `cx.view.theme()`. A reducer context is a
+different phase; record state transitions there and resolve display copy in
+the view.
 
 Desktop, Mobile, Web, and Terminal expose both `with_env(...)` and
 `with_sync_env(...)`. Browser islands expose the same pair. Static site and SSR
@@ -59,7 +63,9 @@ apps expose `with_env(...)`, `i18n(...)`, `translation_bundle(...)`,
 
 Use `with_env(...)` to seed a base environment before the first frame, such as one that already contains translation bundles.
 
-Use `with_sync_env(...)` when app state should update environment values every frame, such as mirroring a user-selected theme mode, locale, or window title into `Env`.
+Use `with_sync_env(...)` when app state should update environment values before
+build, such as mirroring a user-selected theme mode or locale. Window-title
+configuration is a shell concern, not a field of `Env`.
 
 Use `translation_bundle(...)` or `i18n(...)` on `FissionServerApp` to register server-side bundles. Use `default_locale(...)` for the fallback locale and `locale_resolver(...)` when request data should select the locale before SSR, such as choosing from a path prefix, route parameter, header, cookie, or session. Use `with_request_env(...)` for other request-owned `Env` values. The server shell uses the resolved request `Env` for both widget building and lowering, so `TextContent::Key` resolves consistently in rendered HTML.
 
@@ -119,6 +125,11 @@ For the step-by-step guide, read [Theming and internationalization](/docs/guides
 
 ## Font assets
 
-Generated design systems can expose packaged fonts through `DesignSystem::font_faces()`. Each `PackagedFont` contains the family, weight, style, format, embedded bytes, and optional variation axes. Shells register those fonts for rendering so components can use generated typography tokens without relying on platform font installation.
+Generated design systems can expose packaged fonts through
+`DesignSystem::font_faces()`. Each `PackagedFont` contains the family, weight,
+style, format, embedded bytes, and optional variation axes. Canvas/native
+shells register those fonts for rendering. Terminal uses the terminal
+emulator's font. Static site and SSR omit packaged CSS fonts by default;
+choose `[web].font_delivery = "external"` or `"inline"` explicitly when needed.
 
 See [Fonts](/reference/core/fonts/) for the field-level reference and [Design systems and fonts](/docs/develop/design-systems-and-fonts/) for the app setup flow.

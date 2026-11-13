@@ -40,24 +40,30 @@ Codegen validates the paths at build time and emits `PackagedFont` entries using
 ## Using tokens in widgets
 
 ```rust
-fission_component!
-{
-    pub SettingsHeader<SettingsState> {
-    }
-    view(_component, _state, _cx) => rust {
-        let (_ctx, view) = fission::build::current::<SettingsState>();
-                let tokens = &view.env().theme.tokens;
-
-                Text::new(TextContent::Key("settings.title".into()))
-                    .size(tokens.typography.display_sm_size)
-                    .line_height(
-                        tokens.typography.display_sm_size
-                            * tokens.typography.line_height_display,
-                    )
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.text_primary)
-                    .into()
-    }
+fission_component! {
+    pub SettingsHeader<()> {}
+    view(_header, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Text(
+        TextContent::Key("settings.title".into()),
+        font_size: tokens.typography.display_sm_size,
+        line_height: tokens.typography.display_sm_size * tokens.typography.line_height_display,
+        font_weight: tokens.typography.font_weight_bold,
+        color: tokens.colors.text_primary,
+    )
 }
 ```
+The header is state-agnostic: it needs the environment's theme and translated
+title, not a separate `SettingsState`. The setup block reads those inputs and
+Compose assigns the public text fields. It does not load fonts during a build.
+
 Do not guess token names. Inspect the generated Rust output or the DSP and token files you copied into the app.
+
+Packaging a font and delivering it through CSS are separate decisions. Native
+and canvas-rendered Web shells register the packaged faces with their renderer.
+Static site and SSR default to `WebFontDelivery::None`; choose `external` or
+`inline` under `[web].font_delivery` when those documents should publish font
+data. `external` lets the browser fetch a separately cacheable asset, whereas
+`inline` increases the CSS payload. See [Fonts](/reference/core/fonts/) and the
+[design-system guide](/docs/guides/design-system/) for configuration and setup.

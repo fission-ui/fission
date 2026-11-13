@@ -15,22 +15,28 @@ If the fraction is unknown, use an indeterminate indicator such as
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = ProgressBar { value: 0.35 }.into();
+// In view, after computing progress from the worker's reported byte counts.
+ProgressBar(value: upload_fraction, label: cx.tr("uploads.progress"))
 ```
 
-This renders a bar filled to 35 percent of its width.
+For example, `upload_fraction = 0.35` fills 35 percent of the track. Handle an
+unknown or zero total before calculating the ratio; elapsed time is not proof
+of completed work.
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `value` | `f32` | Progress fraction from empty to full. | The checked-in widget clamps it to the `0.0` to `1.0` range. |
+| `label` | `Option<String>` | Accessible name describing the task. | Resolve from the active locale. |
 
 ## When to use it
 
 A linear bar is usually easier to read than a circular one when the layout already has horizontal room, especially in forms, task flows, and lists. It also pairs naturally with descriptive text above or below it.
 
-The widget is purely visual. If exact progress matters, pair it with text such as `35%` or `3 of 8 completed`.
+The widget exposes progress semantics with a range and percentage. Still
+provide a meaningful task label, and add visible detail such as bytes sent
+or “3 of 8 completed” when that helps someone decide whether to keep waiting.
 
 ## Check progress in context
 

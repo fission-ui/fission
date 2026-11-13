@@ -13,7 +13,10 @@ Fission handles these cases with runtime-managed resources.
 
 This matters because repeating work is where user interface code often becomes hard to trust. People start background loops in random places, forget when they stop, or let hidden timers outlive the screen that needed them. Fission keeps the lifetime explicit: the widget declares the resource during component conversion, and the runtime keeps it alive for as long as the declaration stays present.
 
-This recipe starts with a ticking clock, because that is the easiest repeating task to understand. Then it shows when you should move up to a long-running service.
+This recipe starts with a diagnostics heartbeat: count the ticks delivered
+while a panel is mounted. A timer carries the payload you declared; it is not
+a wall-clock API. The second half shows the contract for a workspace sync
+service, whose events carry actual service results.
 
 ## Step 1: decide whether you need a timer, a service, or a job
 
@@ -29,27 +32,21 @@ Use a timer for repeated ticks and a service for work that stays alive and emits
 
 ## Step 2: model a ticking screen in app state
 
-Imagine a dashboard card that shows the current time and a sync status line.
+The diagnostics panel reports received ticks. The same app can also show the
+state of the selected workspace's sync session:
 
 ```rust
 use fission::prelude::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct DashboardState {
-    pub now_seconds: u64,
-    pub sync_status: String,
+    pub heartbeat_count: u64,
+    pub workspace_id: Option<String>,
+    pub sync_running: bool,
     pub sync_connected: bool,
-}
-
-impl Default for DashboardState {
-    fn default() -> Self {
-        Self {
-            now_seconds: 0,
-            sync_status: "Not connected".into(),
-            sync_connected: false,
-        }
-    }
+    pub sync_summary: Option<String>,
+    pub sync_error: Option<String>,
 }
 
 impl GlobalState for DashboardState {}
@@ -64,53 +61,49 @@ A timer resource is the right tool when the runtime should keep delivering ticks
 Start by defining an action that will run on every tick.
 
 ```rust
-#[fission_action]
-pub struct ClockTick;
-
+#[fission_reducer(HeartbeatTick)]
 fn on_clock_tick(
     state: &mut DashboardState,
-    _action: ClockTick,
     ctx: &mut ReducerContext<DashboardState>,
 ) {
-    if let Some(now) = ctx.input.timer_tick::<u64>() {
-        state.now_seconds = now;
+    if ctx.input.timer_tick::<()>().is_some() {
+        state.heartbeat_count = state.heartbeat_count.saturating_add(1);
     }
 }
 ```
 
-The reducer is still simple. The timer payload comes in through `ctx.input.timer_tick::<u64>()`, and the reducer moves that value into state.
+The unit payload identifies a tick; the reducer increments its count. Passing
+`0_u64` to the timer and reading it back would return zero on every tick, not
+the current time or elapsed seconds. Use an actual clock result when the
+product needs time rather than a delivery count.
 
 Now declare the timer during component conversion.
 
 ```rust
-fission_component!
-{
-    pub DashboardScreen<DashboardState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<DashboardState>();
-                let tick = ctx.bind(
-                    ClockTick,
-                    reduce_with!(on_clock_tick),
-                );
-
-                ctx.resources.timer(
-                    TimerResource::new(
-                        ResourceKey::new("dashboard-clock"),
-                        std::time::Duration::from_secs(1),
-                        0_u64,
-                    )
-                    .immediate()
-                    .on_tick(tick),
-                );
-
-                Text::new(format!("Seconds: {}", view.state().now_seconds)).into()
-    }
+fission_component! {
+    pub HeartbeatPanel<DashboardState> {}
+    view(_panel, state, cx) {
+        let tick = cx.bind(HeartbeatTick, reduce!(on_clock_tick));
+        cx.with_resources(|resources| {
+            resources.timer(TimerResource::new(
+                ResourceKey::new("diagnostics-heartbeat"),
+                std::time::Duration::from_secs(1),
+                (),
+            ).on_tick(tick));
+        });
+    } =>
+    Column(children: [
+        Text(cx.tr("diagnostics.heartbeat_ticks")),
+        Text(state.heartbeat_count.to_string()),
+    ])
 }
 ```
 This is the key pattern.
 
-You declare the timer in `component conversion`, but `component conversion` is still pure because it is only describing a runtime resource. It is not starting a thread itself. After the conversion pass, the runtime reconciles that declaration and keeps the timer alive while the widget remains mounted.
+The setup block declares a runtime resource; it does not start a thread or
+timer itself. The runtime reconciles declarations after the build and keeps
+the timer alive while the declaration remains present. Add the diagnostics
+label to the app's translation bundles.
 
 The stable `ResourceKey` gives the timer identity across reconversions. The runtime can see that this is still the same timer resource rather than a brand-new unrelated one.
 
@@ -190,52 +183,40 @@ That extra shape is the cost of making the lifecycle explicit instead of magical
 If the sync session should exist while a screen is visible, declare it as a resource.
 
 ```rust
-#[fission_action]
-pub struct SyncStarted;
-
-#[fission_action]
-pub struct SyncEventArrived;
-
-#[fission_action]
-pub struct SyncStartFailed;
-
-fission_component!
-{
-    pub DashboardScreen<DashboardState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<DashboardState>();
-                let on_started = ctx.bind(
-                    SyncStarted,
-                    reduce_with!(on_sync_started),
-                );
-                let on_event = ctx.bind(
-                    SyncEventArrived,
-                    reduce_with!(on_sync_event),
-                );
-                let on_start_failed = ctx.bind(
-                    SyncStartFailed,
-                    reduce_with!(on_sync_start_failed),
-                );
-
-                ctx.resources.service(
-                    ServiceResource::new(
-                        ResourceKey::new("workspace-sync"),
-                        ServiceSlot::singleton(SYNC_SERVICE),
-                        SyncConfig {
-                            workspace_id: "primary".into(),
-                        },
-                    )
-                    .on_started(on_started)
-                    .on_event(on_event)
-                    .on_start_failed(on_start_failed),
-                );
-
-                Text::new(view.state().sync_status.clone()).into()
-    }
+fission_component! {
+    pub WorkspaceSyncStatus<DashboardState> {}
+    view(_status, state, cx) {
+        if let Some(workspace_id) = &state.workspace_id {
+            let started = cx.bind(SyncStarted, reduce!(on_sync_started));
+            let event = cx.bind(SyncEventArrived, reduce!(on_sync_event));
+            let failed = cx.bind(SyncStartFailed, reduce!(on_sync_start_failed));
+            cx.with_resources(|resources| {
+                resources.service(ServiceResource::new(
+                    ResourceKey::new(format!("workspace-sync:{workspace_id}")),
+                    ServiceSlot::keyed(SYNC_SERVICE, workspace_id.clone()),
+                    SyncConfig { workspace_id: workspace_id.clone() },
+                ).on_started(started).on_event(event).on_start_failed(failed));
+            });
+        }
+    } =>
+    Column(children: [
+        if state.workspace_id.is_none() { Text(cx.tr("sync.choose_workspace")) }
+        else if let Some(error) = &state.sync_error { Alert(title: error.clone(), kind: AlertKind::Error) }
+        else if state.sync_connected { Text(cx.tr("sync.connected")) }
+        else { Spinner(motion: SpinnerMotion::Default, label: cx.tr("sync.connecting")) },
+        if let Some(summary) = &state.sync_summary { Text(summary.clone()) },
+    ])
 }
 ```
-This declaration says: while this part of the widget tree exists, keep a sync service mounted with this configuration.
+This declaration mounts one service for the current durable workspace id. A
+workspace-keyed slot avoids reusing an unrelated session's singleton. The
+workspace-selection reducer must clear old connection, summary, and error
+state when changing that id.
+
+This is a service contract, not an implemented sync transport. Register an
+actual service implementation on the shell before running it; emit Connected
+only after that implementation has connected, and SyncFinished only after its
+real operation succeeds. Do not emit fake success events to fill the UI.
 
 That is much easier to reason about than starting a background thread from a button handler and hoping you remember to stop it later.
 
@@ -244,44 +225,48 @@ That is much easier to reason about than starting a background thread from a but
 The service lifecycle still returns to ordinary reducer code.
 
 ```rust
+#[fission_reducer(SyncStarted)]
 fn on_sync_started(
     state: &mut DashboardState,
-    _action: SyncStarted,
-    _ctx: &mut ReducerContext<DashboardState>,
-) {
-    state.sync_connected = true;
-    state.sync_status = "Connected".into();
-}
-
-fn on_sync_event(
-    state: &mut DashboardState,
-    _action: SyncEventArrived,
     ctx: &mut ReducerContext<DashboardState>,
 ) {
+    if ctx.input.service_slot_key() != state.workspace_id.as_deref() { return; }
+    state.sync_running = true;
+    state.sync_error = None;
+}
+
+#[fission_reducer(SyncEventArrived)]
+fn on_sync_event(
+    state: &mut DashboardState,
+    ctx: &mut ReducerContext<DashboardState>,
+) {
+    if ctx.input.service_slot_key() != state.workspace_id.as_deref() { return; }
     if let Some(event) = ctx.input.service_event(SYNC_SERVICE) {
         match event {
             SyncEvent::Connected => {
                 state.sync_connected = true;
-                state.sync_status = "Connected".into();
+                state.sync_error = None;
             }
             SyncEvent::SyncFinished { summary } => {
-                state.sync_status = summary;
+                state.sync_summary = Some(summary);
             }
         }
     }
 }
 
+#[fission_reducer(SyncStartFailed)]
 fn on_sync_start_failed(
     state: &mut DashboardState,
-    _action: SyncStartFailed,
     ctx: &mut ReducerContext<DashboardState>,
 ) {
+    if ctx.input.service_slot_key() != state.workspace_id.as_deref() { return; }
+    state.sync_running = false;
     state.sync_connected = false;
-    state.sync_status = ctx
+    state.sync_error = Some(ctx
         .input
         .service_start_error_message(SYNC_SERVICE)
         .unwrap_or("Sync failed to start")
-        .to_string();
+        .to_string());
 }
 ```
 
@@ -316,7 +301,9 @@ work](/docs/cookbook/run-typed-host-work). For the runtime details behind
 jobs, services, resources, and `ReducerContext`, read [Resources and
 async](/docs/guides/resources-and-async).
 
-When you run this example, check that the clock updates while its resource is
-present and stops when that resource is removed. A reducer-started service
+Check that the heartbeat count advances while its declaration is present and
+stops when that declaration is removed. It measures delivered ticks, not wall
+time. With a registered sync implementation, also test workspace changes,
+startup failure, real completion, and removal. A reducer-started service
 should follow the product action that starts it, not the visibility of a
 widget.

@@ -5,8 +5,10 @@ slug: /widgets/lazy-column
 ---
 # LazyColumn
 
-`LazyColumn` builds only the visible part of a long vertical list, with spacer
-regions for the items above and below it.
+`LazyColumn` lowers only the visible part of a long vertical list, with spacer
+regions for items above and below it. Its plain `children` form still constructs
+all child widgets first. Use the keyed item-builder form when construction itself
+must be limited to visible rows.
 
 Use it when you have many items with a uniform height. For short lists,
 irregular item heights, or a one-off form, a
@@ -19,24 +21,51 @@ irregular item heights, or a one-off form, a
 use fission::prelude::*;
 use std::sync::Arc;
 
-let widget: Widget = LazyColumn {
-    children: Arc::new(
-        (0..500)
-            .map(|i| Text::new(format!("Row {i}")).into())
-            .collect(),
-    ),
-    item_height: 40.0,
-    ..Default::default()
+#[derive(Clone)]
+pub struct MessageSummary {
+    pub id: String,
+    pub subject: String,
 }
-.into();
+
+fission_component! {
+    pub MessageSubjects<()> {
+        props {
+            messages: Arc<Vec<MessageSummary>>,
+            row_height: f32,
+        }
+    }
+
+    view(list, _state, _cx) {
+        let messages = list.messages.clone();
+        let message_keys = messages.clone();
+        let row_count = messages.len();
+    } =>
+        LazyColumn::with_keyed_item_builder(
+            row_count,
+            list.row_height,
+            move |index| WidgetId::explicit(&format!("message.{}", message_keys[index].id)),
+            move |index| {
+                let message = &messages[index];
+                Text::new(message.subject.clone()).into()
+            },
+        )
+}
 ```
+
+The parent supplies real query results and a row height that matches its
+single-line presentation. The callback retains owned data, not a build handle.
+Its ordinary Rust `Text::new` call is a leaf in the list's real factory API;
+a richer row should be a named Compose component. This avoids constructing
+hundreds of invisible row widgets merely to demonstrate virtualisation.
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `id` | `Option<WidgetId>` | Stable widget identity used for scroll tracking. | Defaults to `None`. |
-| `children` | `Vec<Widget>` | All list items. | Required. Only the visible slice is lowered each frame when virtualization is active. |
+| `children` | `Vec<Widget>` | Already-constructed list items in the plain form. | Only the visible slice is lowered; all items were constructed before that. |
+| `with_keyed_item_builder(count, height, key, factory)` | Returns `LazyColumnBuilder` | Construct visible rows and overscan during the normal build pass. | The key selector returns a durable `WidgetId` before the factory constructs that row. |
+| `with_item_builder(count, height, factory)` | Returns `LazyColumnBuilder` | Position-keyed factory. | Use only when row identity cannot change through insertion/filtering/reorder. |
 | `item_height` | `f32` | Uniform height for each item. | Required for virtualization. If `item_height <= 0.0`, virtualization is disabled. |
 
 ## How it differs from `Scroll`
@@ -53,11 +82,9 @@ Another important detail is that `LazyColumn` already owns vertical scrolling. D
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test real uniform heights and viewport resizing, not only a row count.
+- Filter/reorder while scrolled and confirm durable ids retain the correct row state.
+- Use bounded row factories; do not capture build contexts or start effects in them.
 
 ## Related
 

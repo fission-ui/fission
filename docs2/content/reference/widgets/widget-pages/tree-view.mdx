@@ -15,13 +15,27 @@ Use it when the product needs parent-child relationships to stay visible, such a
 use fission::prelude::*;
 use std::collections::HashSet;
 
-let widget: Widget = TreeView {
-    items: view.state().sidebar_tree.clone(),
-    expanded_ids: view.state().expanded_tree_ids.clone(),
-    selected_id: view.state().selected_tree_id.clone(),
+fission_component! {
+    pub FolderTree<()> {
+        props {
+            items: Vec<TreeItem>,
+            expanded: HashSet<String>,
+            selected: Option<String>,
+        }
+    }
+
+    view(tree, _state, _cx) =>
+        TreeView(
+            items: tree.items.clone(),
+            expanded_ids: tree.expanded.clone(),
+            selected_id: tree.selected.clone(),
+        )
 }
-.into();
 ```
+
+The parent builds real folder records with registered selection actions and
+durable folder ids. It owns expansion and selection sets; this presentation
+component neither fabricates folders nor implements a second navigation model.
 
 ## Field table
 

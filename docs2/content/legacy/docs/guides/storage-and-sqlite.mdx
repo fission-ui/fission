@@ -15,30 +15,57 @@ fission add-capability storage --project-dir .
 
 Keep the capability declaration even if you manage Cargo yourself: it also installs the Web worker, bridge, and SQLite WASM assets. Fission’s build commands check the resolved Web dependency graph and stop before compilation if `store-sqlite-web` and the `storage` capability disagree. The command above is safe to rerun. It enables `store-sqlite-native` for native targets and `store-sqlite-web` for Web alongside the selected target features.
 
-Request storage through an effect. Reducers stay synchronous: they describe the operation, then handle its success or failure in a later action.
+Saving a preference has two separate outcomes: the interface can accept a new
+value immediately, but storage may still fail. Request storage through an
+effect and retain that distinction in app state. Reducers stay synchronous;
+completion returns through another action instead of blocking the interface.
 
 ## Typed values in Fission's table
 
 The high-level API uses a Fission-owned table named `fission`. Keys are namespaced and typed in Rust. Fission serializes values, so providers receive an opaque `StoreValue` rather than depending on your Rust types.
 
 ```rust
-const SETTINGS: &str = "settings";
+// This excerpt belongs to an AppState with theme: String,
+// saving_theme: bool, and storage_error: Option<String>.
 
 #[fission_reducer(SaveTheme)]
 fn save_theme(
-    _state: &mut AppState,
-    action: SaveTheme,
+    state: &mut AppState,
     ctx: &mut ReducerContext<AppState>,
 ) {
-    let key = StoreKey::<String>::new(SETTINGS, "theme");
-    ctx.effects
-        .store()
-        .set(key, &action.theme)
-        .expect("String is serializable")
-        .on_ok(ActionEnvelope::from(ThemeSaved))
-        .on_err(ActionEnvelope::from(StorageFailed));
+    if state.saving_theme { return; }
+    state.storage_error = None;
+    let saved = ctx.effects.bind(ThemeSaved, reduce!(theme_saved));
+    let failed = ctx.effects.bind(StorageFailed, reduce!(storage_failed));
+    let key = StoreKey::<String>::new("settings", "theme");
+    match ctx.effects.store().set(key, &state.theme) {
+        Ok(effect) => {
+            state.saving_theme = true;
+            effect.on_ok(saved).on_err(failed);
+        }
+        Err(error) => state.storage_error = Some(error.to_string()),
+    }
+}
+
+#[fission_reducer(ThemeSaved)]
+fn theme_saved(state: &mut AppState) {
+    state.saving_theme = false;
+}
+
+#[fission_reducer(StorageFailed)]
+fn storage_failed(state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
+    state.saving_theme = false;
+    state.storage_error = Some(ctx.input.store_error()
+        .map(|error| error.to_string())
+        .unwrap_or_else(|| "Storage operation failed without a typed error".into()));
 }
 ```
+
+The Compose view binds `SaveTheme` and disables another save while
+`saving_theme` is true. It renders pending and failure state explicitly.
+`set` can fail before queueing an operation while serialising a value; the
+error completion handles failures from the provider afterwards. Do not show
+Saved when only the in-memory preference has changed.
 
 Use `get`, `set`, `contains`, `remove`, `list_prefix`, or `batch`. A batch applies all of its sets and removals atomically.
 
@@ -51,12 +78,28 @@ batch
         address: StoreAddress::new("draft", "legacy-format"),
     });
 
-ctx.effects.store().batch(batch).on_ok(ActionEnvelope::from(DraftSaved));
+// draft_saved and storage_failed are completion envelopes bound by the caller.
+ctx.effects.store().batch(batch)
+    .on_ok(draft_saved)
+    .on_err(storage_failed);
 ```
 
 `StoreScope::Application` is the default. Use session, user, or named scopes when values belong to a different session or signed-in user. That gives you the right ownership without inventing key prefixes.
 
-In the callback reducer, `ctx.input.store_value::<T>()` decodes a successful `get`. `ctx.input.store_error()` returns a typed provider error. The other operations can read their typed capability result directly when needed.
+In the callback reducer, `ctx.input.store_value::<T>()` decodes a successful
+`get`. An absent key is an `InvalidRequest` result, not `Some(T::default())`.
+Use `contains` first when initialising missing preferences is a normal path,
+then inspect `ctx.input.store_contains()` in its completion. `store_error()`
+returns typed provider failures; `store_removed()` reports whether removal
+found a value. Handle decoding failures as well as provider failures.
+
+Hydrate preferences once through the shell's `.with_startup_action(...)`,
+not during view construction. Keep the app pending until hydration completes.
+The startup action only queues a value: its reducer must be bound
+unconditionally by the initial component tree or registered on the shell.
+`#[fission_reducer]` generates the action and handler but does not register it.
+If edits and loads can overlap, attach operation identity so an old load cannot
+overwrite a newer edit.
 
 ## Use SQLite without hiding SQLite
 
@@ -69,14 +112,20 @@ let statement = SqlStatement::new(
 .bind_named(":name", project.name.clone())
 .bind_named(":archived", i64::from(project.archived));
 
+// The application defines and registers both completion handlers here.
+let inserted = ctx.effects.bind(ProjectInserted, reduce!(project_inserted));
+let failed = ctx.effects.bind(DatabaseFailed, reduce!(database_failed));
 ctx.effects
     .sql()
     .execute(statement)
-    .on_ok(ActionEnvelope::from(ProjectInserted))
-    .on_err(ActionEnvelope::from(DatabaseFailed));
+    .on_ok(inserted)
+    .on_err(failed);
 ```
 
-Queries return `SqlRows`. Read a column by name or index with a target type implementing `FromSqlValue`.
+Queries return `SqlRows`. Read a column by name or index with a target type
+implementing `FromSqlValue`. This decoding excerpt belongs in a fallible Rust
+helper; a synchronous reducer cannot use `?` unless it handles that helper's
+`Result` explicitly.
 
 ```rust
 if let Some(rows) = ctx.input.sql_rows() {
@@ -115,10 +164,13 @@ transaction.query(
 ctx.effects
     .sql()
     .transaction(transaction)
-    .on_ok(ActionEnvelope::from(ProjectCommitted));
+    .on_ok(project_committed)
+    .on_err(database_failed);
 ```
 
-The provider runs every step in one SQLite transaction and returns one ordered result per step. If a step fails, SQLite rolls the whole transaction back.
+Here `project_committed` and `database_failed` are bound completion envelopes.
+The provider runs every step in one SQLite transaction and returns one ordered
+result per step. If a step fails, SQLite rolls the whole transaction back.
 
 ## Migrations
 
@@ -137,8 +189,15 @@ migrations.add(SqlMigration::new(
     "ALTER TABLE projects ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
 ))?;
 
-ctx.effects.sql().migrate(migrations);
+ctx.effects.sql().migrate(migrations)
+    .on_ok(migrations_ready)
+    .on_err(database_failed);
 ```
+
+The setup helper above returns `Result` because constructing the migration set
+can fail. Queue it from a startup reducer, bind both completion envelopes,
+and do not load tables until migration success. Migration execution is still
+asynchronous even though its description was assembled synchronously.
 
 ## Providers and compile-time target support
 

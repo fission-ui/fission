@@ -9,7 +9,11 @@ Use these widgets when content needs to sit above the current layout or when som
 
 Modals, popovers, menus, tooltips, and toasts cover the first job. Tabs, accordions, breadcrumbs, pagination, and routes cover the second.
 
-Some of these widgets create portals or manage focus and routing for you. That behavior is why they are more than inline content.
+An overlay changes where content is painted, but its interaction contract is a
+separate responsibility. A modal also needs focus containment and dismissal;
+a popup menu needs an anchor and command navigation. Use the specific widget
+when it owns that complete contract. A raw portal or positioned box does not
+become a dialog merely because it covers the page.
 
 ## Overlay and portal-oriented widgets
 
@@ -21,7 +25,7 @@ Some of these widgets create portals or manage focus and routing for you. That b
 | `Popover` | [Popover](/reference/widgets/popover) | A panel should anchor to another element |
 | `Drawer` | [Drawer](/reference/widgets/drawer) | A larger side panel should slide in |
 | `DrawerSide` | [DrawerSide](/reference/widgets/drawer-side) | Supporting type for drawer placement |
-| `Tooltip` | [Tooltip](/reference/widgets/tooltip) | Small explanatory overlay on hover or focus |
+| `Tooltip` | [Tooltip](/reference/widgets/tooltip) | Nonessential hint on hover or explicit visibility |
 | `Toast` | [Toast](/reference/widgets/toast) | Temporary notification overlay |
 | `ToastKind` | [ToastKind](/reference/widgets/toast-kind) | Supporting toast style type |
 | `Portal` | [Portal](/reference/widgets/portal) | Low-level portal registration widget |
@@ -50,7 +54,7 @@ Some of these widgets create portals or manage focus and routing for you. That b
 | Widget | Dedicated page | When to choose it |
 | --- | --- | --- |
 | `Hero` | [Hero](/reference/widgets/hero) | Shared-element transition between states or routes |
-| `Transition` | [Transition](/reference/widgets/transition) | Animated transition wrapper |
+| `Motion` / `Presence` | [Transitions](/reference/widgets/transition) | Retained motion or enter/exit lifecycle; not a public Transition type |
 | `FocusScope` | [FocusScope](/reference/widgets/focus-scope) | Keep focus behavior bounded within a region |
 
 ## Practical cross-reference

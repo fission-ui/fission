@@ -104,9 +104,14 @@ entitlements, provisioning profile reference, and signing identity:
 bundle_id = "com.example.notes"
 team_id = "ABCDE12345"
 entitlements = "platforms/ios/Entitlements.plist"
-provisioning_profile = "release-content/signing/ios/App.mobileprovision"
 signing_identity = "Apple Distribution"
 ```
+
+Supply the private provisioning profile through `IOS_PROVISIONING_PROFILE`
+on the signing Mac, pointing at a file outside the public checkout. If a local
+`package.ios.provisioning_profile` reference is needed for readiness, it must
+resolve to that private file. Release-content directories contain publishable
+store copy and screenshots, not signing credentials.
 
 For App Store Connect, keep API key material in configured environment variables
 or base64 CI secrets:

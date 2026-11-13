@@ -1,95 +1,47 @@
 ---
 title: Sorted horizontal bars
 sidebar_label: Sorted horizontal bars
-description: Fission Charts reference for Sorted horizontal bars.
+description: Select a deterministic top-N backlog view without separating location labels from their values.
 ---
 
 # Sorted horizontal bars
 
 ![Sorted horizontal bars screenshot](/img/charts/bar-sorted-horizontal.png)
 
-Horizontal ranking sorted largest to smallest. Use it for top-N views. The screenshot is from Fission's chart gallery.
+A top-N chart is a deliberate summary, not the full collection. Select the rows with the highest outstanding workload, then give the reader a route to the complete list if the omitted locations still matter.
 
-## What the chart is for
-
-This chart is in the **Bar** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `BarSeries with category y-axis`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, BarSeries, Chart};
-
-let chart = Chart::new()
-    .title("Orders")
-    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-    .y_axis(Axis::value())
-    .series(vec![BarSeries::new("Orders")
-        .data(vec![120.0, 156.0, 184.0, 212.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+The [ranked bar example](./bar-ranked) already defines `LocationBacklog` and `LocationRankingChart`. Put them in `widgets/location_ranking.rs` and reuse that component rather than creating another chart API.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, BarSeries, Chart};
+use crate::widgets::location_ranking::{LocationBacklog, LocationRankingChart};
 
-
-
-fission_component!
-{
-    pub SortedHorizontalBarsChart<()> {
+fission_component! {
+    pub LargestBacklogs<()> {
+        props {
+            title: String,
+            orders_label: String,
+            locations: Vec<LocationBacklog>,
+            limit: usize,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Orders")
-                    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-                    .y_axis(Axis::value())
-                    .series(vec![BarSeries::new("Orders")
-                        .data(vec![120.0, 156.0, 184.0, 212.0])
-                        .into()])
-                    .into()
+    view(backlogs, _state, _cx) {
+        let mut selected = backlogs.locations.clone();
+        selected.sort_by(|a, b|
+            b.outstanding_orders.total_cmp(&a.outstanding_orders)
+                .then_with(|| a.id.cmp(&b.id))
+        );
+        selected.truncate(backlogs.limit);
+    } => LocationRankingChart {
+        title: backlogs.title.clone(),
+        orders_label: backlogs.orders_label.clone(),
+        rows: selected,
     }
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+The input is a validated snapshot with unique durable location IDs and finite, non-negative counts. The same tie-break rule is used for selection and display, so a tied row does not move in and out arbitrarily.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
-
-Tags: `bar`, `sorted`.
+Name the limit and reporting window in the translated title. Decide whether ties at the boundary should all be included; this example deliberately returns no more than `limit` rows. Test zero limits, ties and a collection smaller than the limit. Provide exact counts and inspect long labels. The gallery screenshot is a separate fixture.
 
 [Bar family overview](./overview)

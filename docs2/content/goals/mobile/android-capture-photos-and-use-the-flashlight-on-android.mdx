@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Capture Android camera photos and use the flashlight in Rust
-description: "Build a Rust work-order screen with Fission: capture Android photos, use the flashlight when supported, and keep reports after errors."
-goal: "Document a damaged compressor access panel in a field-service work order, attach a real camera image, and prepare an in-session report without losing the inspection note when camera access or the flashlight is unavailable."
+description: "Open an entered work order, capture its actual camera evidence and read the photo stream asynchronously. Keep the report intact when access or flashlight changes fail."
+goal: "Attach a real camera photo to a user-entered inspection report in session memory, preserving its note and previous photo when a replacement fails."
 path: /blog/capture-photos-and-use-the-flashlight-on-android/
 order: 46
 difficulty: Beginner
@@ -10,22 +10,22 @@ duration: 45 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-capture-photos-and-use-the-flashlight-on-android
 outcomes:
-  - Create a realistic Android field inspection report with Fission components
-  - Request camera permission before capturing a photo of the work order’s asset
-  - Read the captured image stream asynchronously and display the actual photo
-  - Turn the flashlight on or off through the capability host when the camera supports it
-  - Keep the note and work order usable after denial, cancellation, or unsupported hardware
+  - "Validate and open the work order before requesting camera evidence"
+  - "Decode actual camera results and read the one-shot image stream within a memory bound"
+  - "Keep capture and stream reading pending until a usable preview exists"
+  - "Use the flashlight only when the host reports support and preserve the report on failure"
+  - "Keep session attachment distinct from an uploaded or persisted report"
 ---
 
 At Northbank Food Hub, Ada is inspecting **compressor bank A7** before the evening delivery window. The access panel is cracked near its lower hinge. The next technician needs a clear photo and a short note explaining why the compressor must remain isolated until the guard is replaced.
 
-We will build that work order screen rather than a button that merely says “photo captured.” A reference schematic identifies the compressor; the evidence area stays empty until the camera returns a real image. In the Android app, Fission requests camera permission and then captures through the native provider. In a browser that supports `getUserMedia`, the same preview asks the browser for access to its actual camera. When a camera or flashlight is unavailable, the report remains available and the screen explains what can still be done.
+We will build that work order screen rather than a button that merely says “photo captured.” The entered equipment details identify the subject of the report; the evidence area stays empty until the camera returns a real image. In the Android app, Fission requests camera permission and then captures through the native provider. In a browser that supports `getUserMedia`, the same preview asks the browser for access to its actual camera. When a camera or flashlight is unavailable, the report remains available and the screen explains what can still be done.
 
 The photo is kept as a Fission data stream while the app reads it for display. The note and photo stay in app memory for this tutorial session; this example does not persist or upload them. A production service would store the report and stream separately.
 
 ## Create the Android work-order app
 
-Create the shared Rust project, add Android, and declare the camera capability. Fission uses that declaration when generating the Android camera permission configuration. The app code below stays in the shared crate, so the same report screen can run in the browser preview and on Android.
+Complete [Android SDK and NDK setup](/blog/set-up-rust-android-gui-development-with-fission/) and either [create an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [connect a phone](/blog/run-a-fission-app-on-a-physical-android-phone/) first. Create the shared Rust project, add Android, and declare the camera capability. Fission uses that declaration when generating the Android camera permission configuration. The app code below stays in the shared crate, so the same report screen can run in the browser preview and on Android.
 
 <Tabs>
 <TabItem label="Create the project">
@@ -61,42 +61,341 @@ northbank-field-report/
 </TabItem>
 </Tabs>
 
-`app.rs` owns the work order and the camera/flashlight transitions. `widgets.rs` composes the report from named components. The stream-reading job runs away from the UI thread, so a large photo does not freeze the inspection screen while it is prepared for display.
+The app module separates state and camera reducers, the stream-reading job, the work-order form, and reusable widgets. Keep the generated `src/main.rs`; the shared shell setup supplies the actual screen and job registration on native and Web.
+
+A capture has two asynchronous stages: obtaining a camera stream and reading the bounded display preview. Both count as pending work. Otherwise a second capture could start before the first image has been read and an older result could replace newer evidence.
 
 <!-- fission:step id="field-inspection-report" -->
 ## Build the work order and capture real photo evidence
 
-The browser preview starts with one example work order so there is a useful task on screen. That record is seeded only in the preview; a real Android app should open a work order from its queue or service. On startup, the app asks the host which camera features are available. It only shows a flashlight control when a camera reports a torch, so the browser preview does not offer a hardware action it cannot perform. **Capture site photo** requests camera permission and calls `capture_photo` only after the host returns `Granted`.
+Both shells start without a work order. Enter its reference, location, asset and instructions before capturing evidence. This makes the actual Android app usable without a fixture hidden in the browser entrypoint. In a connected product, an authorised work-order service would supply that record instead. On startup, the app asks the host which camera features are available. It only shows a flashlight control when a camera reports a torch, so the browser preview does not offer a hardware action it cannot perform. **Capture site photo** requests camera permission and calls `capture_photo` only after the host returns `Granted`.
 
-The app state keeps the current note, photo bytes, capability availability, and pending operations together because they all belong to this open work order. A startup action checks camera availability without blocking the first screen. The camera returns a stream id rather than a large byte vector. A registered job reads the stream asynchronously, then the evidence component renders those actual bytes with `Image::memory`.
+The app state keeps the current note, photo bytes, capability availability, and pending operations together because they all belong to this open work order. A startup action checks camera availability without blocking the first screen. The camera returns a stream ID. A registered job reads it asynchronously with a 4 MiB limit because `Image::memory` needs a contiguous display buffer. This is a deliberately bounded preview boundary, not a pattern for collecting arbitrary media into action payloads. Stream large originals directly to their storage destination instead. The last attached photo and its metadata remain together until the replacement has been read successfully.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
-use fission::core::{collect_data_stream, DataStreamId, JobCtx, JobRef, JobSpec};
-use fission::prelude::*;
-use serde::{Deserialize, Serialize};
-
+pub mod state;
+pub mod jobs;
+pub mod form;
 pub mod translations;
-pub mod widgets;
+mod widgets;
+
+pub use state::*;
+pub use jobs::{read_evidence_bytes, READ_EVIDENCE_BYTES_JOB};
 pub use widgets::WorkOrderReport;
+```
+</TabItem>
+<TabItem label="src/app/widgets.rs">
+<!-- fission:file path="src/app/widgets.rs" -->
+```rust
+mod report;
+mod fact;
+mod columns;
+mod stack;
+mod reference;
+mod evidence;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum WorkOrderPriority {
-    High,
-    #[default]
-    Normal,
+pub use report::WorkOrderReport;
+use fact::WorkOrderFact;
+use columns::WorkOrderEvidenceColumns;
+use stack::WorkOrderEvidenceStack;
+use reference::CompressorReferenceCard;
+use evidence::InspectionEvidenceCard;
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+
+use app::WorkOrderReport;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<app::WorkOrderReportState, _>::new(WorkOrderReport::new())
+        .with_env(app::translations::create_env())
+        .with_sync_env(|state, env| { env.locale = state.locale.clone(); })
+        .with_startup_action(app::CheckCameraAvailability)
+        .with_async(|asyncs| {
+            asyncs.register_job(app::READ_EVIDENCE_BYTES_JOB, |request, ctx| async move {
+                app::read_evidence_bytes(request, ctx).await
+            });
+        })
+        .run()
 }
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<app::WorkOrderReportState, WorkOrderReport> {
+    let app = MobileApp::<app::WorkOrderReportState, _>::new(WorkOrderReport::new())
+        .with_env(app::translations::create_env())
+        .with_sync_env(|state, env| { env.locale = state.locale.clone(); })
+        .with_startup_action(app::CheckCameraAvailability)
+        .with_async(|asyncs| {
+            asyncs.register_job(app::READ_EVIDENCE_BYTES_JOB, |request, ctx| async move {
+                app::read_evidence_bytes(request, ctx).await
+            });
+        });
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
 
-impl WorkOrderPriority {
-    pub fn translation_key(self) -> &'static str {
-        match self {
-            Self::High => "photo.priority.high",
-            Self::Normal => "photo.priority.normal",
-        }
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<app::WorkOrderReportState, _>::new(WorkOrderReport::new())
+        .with_env(app::translations::create_env())
+        .with_sync_env(|state, env| { env.locale = state.locale.clone(); })
+        .with_startup_action(app::CheckCameraAvailability)
+        .with_async(|asyncs| {
+            asyncs.register_job(app::READ_EVIDENCE_BYTES_JOB, |request, ctx| async move {
+                app::read_evidence_bytes(request, ctx).await
+            });
+        })
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<app::WorkOrderReportState, _>::new(app::WorkOrderReport::new())
+        .with_env(app::translations::create_env())
+        .with_sync_env(|state, env| { env.locale = state.locale.clone(); })
+        .with_startup_action(app::CheckCameraAvailability)
+        .with_async(|asyncs| {
+            asyncs.register_job(app::READ_EVIDENCE_BYTES_JOB, |request, ctx| async move {
+                app::read_evidence_bytes(request, ctx).await
+            });
+        })
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+
+<TabItem label="src/app/translations.rs">
+<!-- fission:file path="src/app/translations.rs" -->
+```rust
+use std::collections::HashMap;
+
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::Env;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../../i18n/es-ES.yaml")),
+];
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in SOURCES {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid field-report translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
     }
+    env
 }
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+photo.brand: "Northbank Service"
+photo.brand.mark: "N"
+photo.open.title: "Open an inspection report"
+photo.open.reference: "Work-order reference"
+photo.open.summary: "Work summary"
+photo.open.site: "Site"
+photo.open.asset_id: "Asset ID"
+photo.open.asset_name: "Asset name"
+photo.open.instruction: "Inspection instructions"
+photo.open.action: "Open report"
+photo.open.invalid: "Complete every record field before opening the report."
+photo.section.work_orders: "Work orders"
+photo.locale.en: "English"
+photo.locale.es: "Español"
+photo.title.field_inspection: "{reference} · Field inspection"
+photo.fact.site: "Site"
+photo.fact.asset: "Asset"
+photo.fact.due: "Due"
+photo.fact.priority: "Priority"
+photo.priority.high: "High"
+photo.priority.normal: "Standard"
+photo.empty.work_order: "Open a work order to record field evidence."
+photo.session_notice: "This note and photo stay in app memory for this session. Nothing is uploaded or persisted."
+photo.error.work_order_missing: "Open a work order before capturing evidence."
+photo.error.permission_result_missing: "The camera did not return a permission result. The work order is still available without a photo."
+photo.error.permission_denied: "Camera access was not granted. Keep the inspection note and enable access when a photo is required."
+photo.error.permission_unknown: "Camera permission is unknown. Try the request again; the work order is unchanged."
+photo.error.permission_request_failed: "The camera permission request failed. The work order remains unchanged."
+photo.error.capture_result_missing: "The camera returned no image. The inspection note is unchanged."
+photo.error.capture_denied: "Camera access was denied. No image was attached; allow access and try again."
+photo.error.capture_cancelled: "Photo capture was cancelled. No image was attached, and the inspection note is unchanged."
+photo.error.camera_unavailable: "No usable camera is available on this host. The work order remains available without a photo."
+photo.error.camera_in_use: "Another app is using the camera. Close it before trying again; no image was attached."
+photo.error.capture_failed: "The photo could not be captured. No image was attached; try again."
+photo.error.photo_stream_read_failed: "The camera returned a photo, but its image stream could not be read. The note remains unchanged."
+photo.error.flashlight_permission_result_missing: "The camera did not return a permission result. The flashlight state is unchanged."
+photo.error.flashlight_permission_denied: "Camera access is required before this host can use its flashlight. The report is unchanged."
+photo.error.flashlight_permission_failed_on: "Camera access could not be confirmed, so the flashlight was not turned on. Its previous state is unchanged."
+photo.error.flashlight_permission_failed_off: "Camera access could not be confirmed, so the flashlight state was not changed."
+photo.error.flashlight_unavailable: "This camera has no usable flashlight. Continue the inspection without it."
+photo.error.flashlight_in_use: "Another app is using the camera, so the flashlight could not be changed. Close that app and try again."
+photo.error.flashlight_change_failed: "The host did not confirm the flashlight change. Its previous state is unchanged."
+photo.notice.checking_camera: "Checking camera access…"
+photo.notice.opening_camera: "Opening the camera…"
+photo.notice.photo_captured: "Photo captured. Preparing the evidence preview…"
+photo.notice.photo_attached: "Current photo attached to this work order. It has not been uploaded."
+photo.notice.checking_flashlight_on: "Checking camera access before turning on the flashlight…"
+photo.notice.checking_flashlight_off: "Checking camera access before changing the flashlight…"
+photo.notice.changing_flashlight_on: "Turning the flashlight on…"
+photo.notice.changing_flashlight_off: "Turning the flashlight off…"
+photo.notice.flashlight_on: "Flashlight is on."
+photo.notice.flashlight_off: "Flashlight is off."
+photo.camera.availability_failed: "Camera features could not be checked. The flashlight control stays hidden; photo capture may still be available."
+photo.camera.flashlight_unavailable: "This camera does not provide a flashlight. Capture the inspection photo without it."
+photo.camera.checking: "Checking whether this camera has a flashlight…"
+photo.action.opening_camera: "Opening camera…"
+photo.action.take_another: "Take another photo"
+photo.action.capture: "Capture site photo"
+photo.action.changing_flashlight: "Changing flashlight…"
+photo.action.flashlight_on: "Turn flashlight on"
+photo.action.flashlight_off: "Turn flashlight off"
+photo.evidence.title: "Inspection evidence"
+photo.evidence.count_one: "1 photo"
+photo.evidence.count_zero: "0 photos"
+photo.evidence.description: "Attach a current photo and explain what changed."
+photo.evidence.image_semantics: "Current evidence photo for {asset}"
+photo.evidence.metadata: "{width} × {height} · {content_type} · {size}"
+photo.evidence.size_unknown: "size not reported"
+photo.evidence.waiting: "Waiting for camera…"
+photo.evidence.empty: "No new photo yet"
+photo.evidence.empty_help: "Capture the cracked access panel before the guard is replaced."
+photo.note.label: "Inspection note"
+photo.note.placeholder: "Describe the damage and what the next technician should know."
+photo.note.help: "Kept in app memory for this session only."
+photo.permission.camera_reason: "Photograph the damaged compressor access panel for the selected work order."
+photo.permission.flashlight_reason: "Use the camera flashlight while photographing the compressor access panel."
+photo.asset_reference.title: "Asset reference"
+photo.asset_reference.description: "Confirm the equipment before adding current site evidence."
+photo.asset_reference.disclaimer: "These are the equipment details entered for this report. They are not photographic evidence."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+photo.brand: "Servicio Northbank"
+photo.brand.mark: "N"
+photo.open.title: "Abrir un informe de inspección"
+photo.open.reference: "Referencia de la orden"
+photo.open.summary: "Resumen del trabajo"
+photo.open.site: "Lugar"
+photo.open.asset_id: "Identificador del equipo"
+photo.open.asset_name: "Nombre del equipo"
+photo.open.instruction: "Instrucciones de inspección"
+photo.open.action: "Abrir informe"
+photo.open.invalid: "Completa todos los campos antes de abrir el informe."
+photo.section.work_orders: "Órdenes de trabajo"
+photo.locale.en: "Inglés"
+photo.locale.es: "Español"
+photo.title.field_inspection: "{reference} · Inspección de campo"
+photo.fact.site: "Centro"
+photo.fact.asset: "Activo"
+photo.fact.due: "Fecha límite"
+photo.fact.priority: "Prioridad"
+photo.priority.high: "Alta"
+photo.priority.normal: "Estándar"
+photo.empty.work_order: "Abre una orden de trabajo para registrar pruebas de campo."
+photo.session_notice: "La nota y la foto permanecen en la memoria de la aplicación durante esta sesión. No se cargan ni se guardan."
+photo.error.work_order_missing: "Abre una orden de trabajo antes de capturar pruebas."
+photo.error.permission_result_missing: "La cámara no devolvió el resultado del permiso. La orden sigue disponible sin una foto."
+photo.error.permission_denied: "No se concedió acceso a la cámara. Conserva la nota y habilita el acceso si necesitas una foto."
+photo.error.permission_unknown: "El permiso de cámara es desconocido. Vuelve a intentarlo; la orden no ha cambiado."
+photo.error.permission_request_failed: "No se pudo solicitar el permiso de cámara. La orden no ha cambiado."
+photo.error.capture_result_missing: "La cámara no devolvió una imagen. La nota de inspección no ha cambiado."
+photo.error.capture_denied: "Se denegó el acceso a la cámara. No se adjuntó ninguna imagen; concede acceso y vuelve a intentarlo."
+photo.error.capture_cancelled: "Se canceló la captura. No se adjuntó ninguna imagen y la nota no ha cambiado."
+photo.error.camera_unavailable: "Este dispositivo no tiene una cámara disponible. La orden sigue disponible sin foto."
+photo.error.camera_in_use: "Otra aplicación está usando la cámara. Ciérrala antes de volver a intentarlo; no se adjuntó ninguna imagen."
+photo.error.capture_failed: "No se pudo capturar la foto. No se adjuntó ninguna imagen; vuelve a intentarlo."
+photo.error.photo_stream_read_failed: "La cámara devolvió una foto, pero no se pudo leer su flujo de imagen. La nota no ha cambiado."
+photo.error.flashlight_permission_result_missing: "La cámara no devolvió el resultado del permiso. El estado de la linterna no ha cambiado."
+photo.error.flashlight_permission_denied: "Este dispositivo necesita acceso a la cámara para usar la linterna. El informe no ha cambiado."
+photo.error.flashlight_permission_failed_on: "No se pudo confirmar el acceso a la cámara y no se encendió la linterna. Su estado anterior no ha cambiado."
+photo.error.flashlight_permission_failed_off: "No se pudo confirmar el acceso a la cámara y no se cambió la linterna."
+photo.error.flashlight_unavailable: "Esta cámara no tiene una linterna disponible. Continúa la inspección sin ella."
+photo.error.flashlight_in_use: "Otra aplicación está usando la cámara y no se pudo cambiar la linterna. Cierra esa aplicación y vuelve a intentarlo."
+photo.error.flashlight_change_failed: "El dispositivo no confirmó el cambio de linterna. Su estado anterior no ha cambiado."
+photo.notice.checking_camera: "Comprobando el acceso a la cámara…"
+photo.notice.opening_camera: "Abriendo la cámara…"
+photo.notice.photo_captured: "Foto capturada. Preparando la vista previa de las pruebas…"
+photo.notice.photo_attached: "Foto actual adjunta a esta orden de trabajo. No se ha cargado."
+photo.notice.checking_flashlight_on: "Comprobando el acceso a la cámara antes de encender la linterna…"
+photo.notice.checking_flashlight_off: "Comprobando el acceso a la cámara antes de cambiar la linterna…"
+photo.notice.changing_flashlight_on: "Encendiendo la linterna…"
+photo.notice.changing_flashlight_off: "Apagando la linterna…"
+photo.notice.flashlight_on: "La linterna está encendida."
+photo.notice.flashlight_off: "La linterna está apagada."
+photo.camera.availability_failed: "No se pudieron comprobar las funciones de la cámara. El control de la linterna permanece oculto; quizá aún puedas capturar una foto."
+photo.camera.flashlight_unavailable: "Esta cámara no tiene linterna. Captura la foto de inspección sin ella."
+photo.camera.checking: "Comprobando si esta cámara tiene linterna…"
+photo.action.opening_camera: "Abriendo la cámara…"
+photo.action.take_another: "Tomar otra foto"
+photo.action.capture: "Capturar foto del lugar"
+photo.action.changing_flashlight: "Cambiando la linterna…"
+photo.action.flashlight_on: "Encender la linterna"
+photo.action.flashlight_off: "Apagar la linterna"
+photo.evidence.title: "Pruebas de inspección"
+photo.evidence.count_one: "1 foto"
+photo.evidence.count_zero: "0 fotos"
+photo.evidence.description: "Adjunta una foto actual y explica qué ha cambiado."
+photo.evidence.image_semantics: "Foto actual de pruebas para {asset}"
+photo.evidence.metadata: "{width} × {height} · {content_type} · {size}"
+photo.evidence.size_unknown: "tamaño no indicado"
+photo.evidence.waiting: "Esperando a la cámara…"
+photo.evidence.empty: "Todavía no hay fotos nuevas"
+photo.evidence.empty_help: "Fotografía el panel agrietado antes de sustituir la protección."
+photo.note.label: "Nota de inspección"
+photo.note.placeholder: "Describe el daño y qué debería saber el siguiente técnico."
+photo.note.help: "Se conserva solo en la memoria de la aplicación durante esta sesión."
+photo.permission.camera_reason: "Fotografiar el panel de acceso dañado del compresor de la orden seleccionada."
+photo.permission.flashlight_reason: "Usar la linterna de la cámara al fotografiar el panel de acceso del compresor."
+photo.asset_reference.title: "Referencia del activo"
+photo.asset_reference.description: "Confirma el equipo antes de añadir pruebas actuales del lugar."
+photo.asset_reference.disclaimer: "Estos son los datos del equipo introducidos para el informe. No son pruebas fotográficas."
+```
+</TabItem>
+<TabItem label="src/app/state.rs">
+<!-- fission:file path="src/app/state.rs" -->
+```rust
+use fission::prelude::*;
+use super::jobs::{EvidenceBytesRequest, READ_EVIDENCE_BYTES_JOB};
+
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WorkOrder {
@@ -105,9 +404,6 @@ pub struct WorkOrder {
     pub site: String,
     pub asset_id: String,
     pub asset_name: String,
-    pub asset_type: String,
-    pub due: String,
-    pub priority: WorkOrderPriority,
     pub instruction: String,
 }
 
@@ -119,6 +415,8 @@ pub struct WorkOrderReportState {
     pub photo_pending: bool,
     pub photo_bytes: Option<Vec<u8>>,
     pub photo_details: Option<PhotoDetails>,
+    pending_photo_details: Option<PhotoDetails>,
+    pub diagnostic: Option<String>,
     pub camera_availability_checked: bool,
     pub camera_availability_failed: bool,
     pub flashlight_available: bool,
@@ -246,71 +544,24 @@ pub fn on_camera_availability_received(
         .input
         .capability_ok(GET_CAMERA_AVAILABILITY)
         .map(|availability| availability.devices.iter().any(|device| device.has_flashlight))
-        .unwrap_or(false);
+        .unwrap_or_else(|| {
+            state.camera_availability_failed = true;
+            state.diagnostic = Some("Camera returned no availability result".into());
+            false
+        });
 }
 
 #[fission_reducer(CameraAvailabilityFailed)]
 pub fn on_camera_availability_failed(
     state: &mut WorkOrderReportState,
-    _ctx: &mut ReducerContext<WorkOrderReportState>,
+    ctx: &mut ReducerContext<WorkOrderReportState>,
 ) {
+    state.diagnostic = Some(ctx.input.capability_error(GET_CAMERA_AVAILABILITY)
+        .map(|error| error.message)
+        .unwrap_or_else(|| "Camera returned no availability failure details".into()));
     state.camera_availability_checked = true;
     state.camera_availability_failed = true;
     state.flashlight_available = false;
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct EvidenceBytesRequest {
-    pub stream: DataStreamId,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct EvidenceBytes {
-    pub bytes: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct EvidenceReadError {
-    pub message: String,
-}
-
-#[derive(Debug)]
-pub struct ReadEvidenceBytesJob;
-
-impl JobSpec for ReadEvidenceBytesJob {
-    type Request = EvidenceBytesRequest;
-    type Ok = EvidenceBytes;
-    type Err = EvidenceReadError;
-
-    const NAME: &'static str = "northbank.work-order.read-evidence";
-}
-
-pub const READ_EVIDENCE_BYTES_JOB: JobRef<ReadEvidenceBytesJob> =
-    JobRef::new(ReadEvidenceBytesJob::NAME);
-
-pub async fn read_evidence_bytes(
-    request: EvidenceBytesRequest,
-    ctx: JobCtx,
-) -> Result<EvidenceBytes, EvidenceReadError> {
-    let stream = ctx.open_data_stream(request.stream).map_err(|error| EvidenceReadError {
-        message: error.to_string(),
-    })?;
-    let bytes = collect_data_stream(stream).await.map_err(|error| EvidenceReadError {
-        message: error.to_string(),
-    })?;
-    Ok(EvidenceBytes { bytes: bytes.to_vec() })
-}
-
-#[fission_reducer(InspectionNoteChanged)]
-pub fn on_inspection_note_changed(
-    state: &mut WorkOrderReportState,
-    ctx: &mut ReducerContext<WorkOrderReportState>,
-) {
-    if let Some(change) = ctx.input.text_change() {
-        state.inspection_note = change.new_text.clone();
-        state.notice = None;
-        state.error = None;
-    }
 }
 
 #[fission_reducer(CaptureEvidencePhoto)]
@@ -328,6 +579,8 @@ pub fn on_capture_evidence_photo(
         return;
     }
     state.photo_pending = true;
+    state.pending_photo_details = None;
+    state.diagnostic = None;
     state.error = None;
     state.notice = Some(ReportNotice::CheckingCamera);
     let on_ok = ctx.effects.bind(CameraPermissionReceived, reduce_with!(on_camera_permission_received));
@@ -412,19 +665,18 @@ pub fn on_photo_capture_completed(
     state: &mut WorkOrderReportState,
     ctx: &mut ReducerContext<WorkOrderReportState>,
 ) {
-    state.photo_pending = false;
     let Some(capture) = ctx.input.capability_ok(CAPTURE_PHOTO) else {
+        state.photo_pending = false;
         state.notice = None;
         state.error = Some(ReportIssue::CaptureResultMissing);
         return;
     };
-    state.photo_details = Some(PhotoDetails {
+    state.pending_photo_details = Some(PhotoDetails {
         width: capture.width,
         height: capture.height,
         content_type: capture.content_type.clone(),
         kibibytes: capture.byte_len.map(|bytes| bytes / 1024),
     });
-    state.photo_bytes = None;
     state.error = None;
     state.notice = Some(ReportNotice::PhotoCaptured);
     let on_ok = ctx.effects.bind(PhotoBytesLoaded, reduce_with!(on_photo_bytes_loaded));
@@ -460,10 +712,16 @@ pub fn on_photo_bytes_loaded(
     state: &mut WorkOrderReportState,
     ctx: &mut ReducerContext<WorkOrderReportState>,
 ) {
+    state.photo_pending = false;
     if let Some(evidence) = ctx.input.job_ok(READ_EVIDENCE_BYTES_JOB) {
         state.photo_bytes = Some(evidence.bytes.clone());
+        state.photo_details = state.pending_photo_details.take();
         state.error = None;
         state.notice = Some(ReportNotice::PhotoAttached);
+    } else {
+        state.pending_photo_details = None;
+        state.notice = None;
+        state.error = Some(ReportIssue::PhotoStreamReadFailed);
     }
 }
 
@@ -472,7 +730,11 @@ pub fn on_photo_bytes_failed(
     state: &mut WorkOrderReportState,
     ctx: &mut ReducerContext<WorkOrderReportState>,
 ) {
-    let _ = ctx.input.job_err(READ_EVIDENCE_BYTES_JOB);
+    state.photo_pending = false;
+    state.pending_photo_details = None;
+    state.diagnostic = Some(ctx.input.job_err(READ_EVIDENCE_BYTES_JOB)
+        .map(|error| error.message)
+        .unwrap_or_else(|| "Image reader returned no failure details".into()));
     state.error = Some(ReportIssue::PhotoStreamReadFailed);
     state.notice = None;
 }
@@ -599,19 +861,134 @@ pub fn on_flashlight_failed(
 }
 ```
 </TabItem>
-<TabItem label="src/app/widgets.rs">
-<!-- fission:file path="src/app/widgets.rs" -->
+<TabItem label="src/app/jobs.rs">
+<!-- fission:file path="src/app/jobs.rs" -->
+```rust
+use fission::core::{DataStreamId, JobCtx, JobRef, JobSpec};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EvidenceBytesRequest {
+    pub stream: DataStreamId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EvidenceBytes {
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EvidenceReadError {
+    pub message: String,
+}
+
+#[derive(Debug)]
+pub struct ReadEvidenceBytesJob;
+
+impl JobSpec for ReadEvidenceBytesJob {
+    type Request = EvidenceBytesRequest;
+    type Ok = EvidenceBytes;
+    type Err = EvidenceReadError;
+
+    const NAME: &'static str = "northbank.work-order.read-evidence";
+}
+
+pub const READ_EVIDENCE_BYTES_JOB: JobRef<ReadEvidenceBytesJob> =
+    JobRef::new(ReadEvidenceBytesJob::NAME);
+
+pub async fn read_evidence_bytes(
+    request: EvidenceBytesRequest,
+    ctx: JobCtx,
+) -> Result<EvidenceBytes, EvidenceReadError> {
+    let mut stream = ctx.open_data_stream(request.stream).map_err(|error| EvidenceReadError {
+        message: error.to_string(),
+    })?;
+    // Image::memory needs a contiguous preview buffer. Bound it rather than
+    // treating an arbitrary media stream as a small result.
+    const MAX_PREVIEW_BYTES: usize = 4 * 1024 * 1024;
+    let mut bytes = Vec::new();
+    while let Some(chunk) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
+        let chunk = chunk.map_err(|error| EvidenceReadError { message: error.to_string() })?;
+        if chunk.len() > MAX_PREVIEW_BYTES.saturating_sub(bytes.len()) {
+            return Err(EvidenceReadError { message: "Image exceeds the 4 MiB preview limit".into() });
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(EvidenceBytes { bytes })
+}
+```
+</TabItem>
+<TabItem label="src/app/form.rs">
+<!-- fission:file path="src/app/form.rs" -->
 ```rust
 use fission::prelude::*;
+use super::{WorkOrder, WorkOrderReportState};
 
-use super::{
-    on_capture_evidence_photo, on_check_camera_availability, on_inspection_note_changed,
-    on_set_flashlight, on_set_report_locale, WorkOrderReportState, CheckCameraAvailability,
-    CaptureEvidencePhoto, InspectionNoteChanged, SetFlashlight, SetReportLocale,
+fission_component! {
+    pub OpenWorkOrder<WorkOrderReportState> {
+        state {
+            reference: String = String::new(),
+            title: String = String::new(),
+            site: String = String::new(),
+            asset_id: String = String::new(),
+            asset_name: String = String::new(),
+            instruction: String = String::new(),
+            invalid: bool = false,
+        }
+    }
+    view(draft, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.s, children: [
+        Text(cx.tr("photo.open.title")).size(tokens.typography.heading2_size),
+        TextInput(label: Some(cx.tr("photo.open.reference").into()), bind: draft.reference,
+            required: true, semantics_identifier: "photo.open.reference".to_string()),
+        TextInput(label: Some(cx.tr("photo.open.summary").into()), bind: draft.title,
+            required: true, semantics_identifier: "photo.open.summary".to_string()),
+        TextInput(label: Some(cx.tr("photo.open.site").into()), bind: draft.site,
+            required: true, semantics_identifier: "photo.open.site".to_string()),
+        TextInput(label: Some(cx.tr("photo.open.asset_id").into()), bind: draft.asset_id,
+            required: true, semantics_identifier: "photo.open.asset-id".to_string()),
+        TextInput(label: Some(cx.tr("photo.open.asset_name").into()), bind: draft.asset_name,
+            required: true, semantics_identifier: "photo.open.asset-name".to_string()),
+        TextInput(label: Some(cx.tr("photo.open.instruction").into()), bind: draft.instruction,
+            required: true, multiline: true, semantics_identifier: "photo.open.instruction".to_string()),
+        Button(
+            child: Text(cx.tr("photo.open.action")),
+            key: "open-work-order",
+            on_press: reduce {
+                draft.invalid = [
+                    &draft.reference, &draft.title, &draft.site,
+                    &draft.asset_id, &draft.asset_name, &draft.instruction,
+                ].iter().any(|value| value.trim().is_empty());
+                if !draft.invalid {
+                    state.work_order = Some(WorkOrder {
+                        reference: draft.reference.trim().to_owned(),
+                        title: draft.title.trim().to_owned(),
+                        site: draft.site.trim().to_owned(),
+                        asset_id: draft.asset_id.trim().to_owned(),
+                        asset_name: draft.asset_name.trim().to_owned(),
+                        instruction: draft.instruction.trim().to_owned(),
+                    });
+                }
+            },
+        ).semantics_identifier("photo.open"),
+        if draft.invalid { Text(cx.tr("photo.open.invalid")).color(tokens.colors.error) },
+    ])
+}
+```
+</TabItem>
+<TabItem label="src/app/widgets/report.rs">
+<!-- fission:file path="src/app/widgets/report.rs" -->
+```rust
+use fission::prelude::*;
+use crate::app::{
+    on_check_camera_availability, on_set_report_locale,
+    WorkOrderReportState, CheckCameraAvailability, SetReportLocale,
 };
+use super::{WorkOrderFact, WorkOrderEvidenceColumns, WorkOrderEvidenceStack};
 
 const COMPACT_BREAKPOINT: f32 = 700.0;
-const ILLUSTRATION_STACK_BREAKPOINT: f32 = 420.0;
 
 fission_component! {
     pub WorkOrderReport<WorkOrderReportState> {}
@@ -629,7 +1006,7 @@ fission_component! {
                 Column(gap: tokens.spacing.m, children: [
                     Container(
                         Row(gap: tokens.spacing.s, children: [
-                            Container(Text("N").weight(tokens.typography.font_weight_bold).color(tokens.colors.surface))
+                            Container(Text(cx.tr("photo.brand.mark")).weight(tokens.typography.font_weight_bold).color(tokens.colors.surface))
                                 .padding_all(tokens.spacing.s)
                                 .bg(tokens.colors.text_primary)
                             .border_radius(tokens.radii.medium),
@@ -659,18 +1036,12 @@ fission_component! {
                             Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
                                 WorkOrderFact::new(cx.tr("photo.fact.site"), order.site.clone()),
                                 WorkOrderFact::new(cx.tr("photo.fact.asset"), order.asset_name.clone()),
-                                WorkOrderFact::new(cx.tr("photo.fact.due"), order.due.clone()),
-                                WorkOrderFact::new(
-                                    cx.tr("photo.fact.priority"),
-                                    cx.tr(order.priority.translation_key()),
-                                ),
                             ]),
                             Responsive::new(WorkOrderEvidenceColumns::new())
                                 .case(ResponsiveCase::max_width(COMPACT_BREAKPOINT, WorkOrderEvidenceStack::new())),
                         ])
                     } else {
-                        Text(cx.tr("photo.empty.work_order"))
-                            .color(tokens.colors.text_secondary)
+                        crate::app::form::OpenWorkOrder::new()
                     },
                     if let Some(error) = &state.error {
                         Text(cx.tr(error.translation_key())).color(tokens.colors.error)
@@ -678,6 +1049,7 @@ fission_component! {
                     if let Some(notice) = &state.notice {
                         Text(cx.tr(notice.translation_key())).color(tokens.colors.text_secondary)
                     },
+                    if let Some(diagnostic) = &state.diagnostic { Code(text: diagnostic.clone()) },
                     Text(cx.tr("photo.session_notice")).color(tokens.colors.text_secondary),
                 ])
             )
@@ -693,6 +1065,13 @@ fission_component! {
         ),
     )
 }
+```
+</TabItem>
+<TabItem label="src/app/widgets/fact.rs">
+<!-- fission:file path="src/app/widgets/fact.rs" -->
+```rust
+use fission::prelude::*;
+
 
 fission_component! {
     pub WorkOrderFact<()> { props { label: String, value: String } }
@@ -710,6 +1089,14 @@ fission_component! {
     .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.medium)
 }
+```
+</TabItem>
+<TabItem label="src/app/widgets/columns.rs">
+<!-- fission:file path="src/app/widgets/columns.rs" -->
+```rust
+use fission::prelude::*;
+use crate::app::WorkOrderReportState;
+use super::{CompressorReferenceCard, InspectionEvidenceCard};
 
 fission_component! {
     pub WorkOrderEvidenceColumns<WorkOrderReportState> {}
@@ -726,6 +1113,14 @@ fission_component! {
         ],
     )
 }
+```
+</TabItem>
+<TabItem label="src/app/widgets/stack.rs">
+<!-- fission:file path="src/app/widgets/stack.rs" -->
+```rust
+use fission::prelude::*;
+use crate::app::WorkOrderReportState;
+use super::{CompressorReferenceCard, InspectionEvidenceCard};
 
 fission_component! {
     pub WorkOrderEvidenceStack<WorkOrderReportState> {}
@@ -735,121 +1130,13 @@ fission_component! {
         InspectionEvidenceCard,
     ])
 }
-
-fission_component! {
-    pub CompressorAirIntake<()> {}
-    view(_intake, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    Column(gap: tokens.spacing.xs, children: [
-        Text(cx.tr("photo.schematic.air_intake")).color(tokens.colors.text_secondary),
-        Container(
-            Column(gap: tokens.spacing.xs, children: [
-                Container(child: None).size(118.0, 4.0).bg(tokens.colors.border_strong).border_radius(tokens.radii.medium),
-                Container(child: None).size(118.0, 4.0).bg(tokens.colors.border_strong).border_radius(tokens.radii.medium),
-                Container(child: None).size(118.0, 4.0).bg(tokens.colors.border_strong).border_radius(tokens.radii.medium),
-                Container(child: None).size(118.0, 4.0).bg(tokens.colors.border_strong).border_radius(tokens.radii.medium),
-                Container(child: None).size(118.0, 4.0).bg(tokens.colors.border_strong).border_radius(tokens.radii.medium),
-            ])
-        )
-        .padding_all(tokens.spacing.s)
-        .bg(tokens.colors.surface_sunken)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.medium),
-        Text(cx.tr("photo.schematic.filter_pressure")).color(tokens.colors.text_secondary),
-    ])
-}
-
-fission_component! {
-    pub CompressorPressureGauge<()> {}
-    view(_gauge, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    Column(gap: tokens.spacing.xs, children: [
-        Text(cx.tr("photo.schematic.system_pressure")).color(tokens.colors.text_secondary),
-        Container(
-            Column(gap: tokens.spacing.none, children: [
-                Text("4.2").weight(tokens.typography.font_weight_bold).color(tokens.colors.primary),
-                    Text(cx.tr("photo.schematic.bar_unit")).color(tokens.colors.text_secondary),
-            ])
-        )
-        .size(72.0, 72.0)
-        .padding_all(tokens.spacing.s)
-        .bg(tokens.colors.primary_subtle)
-        .border(tokens.colors.primary, 2.0)
-        .border_radius(tokens.radii.large),
-    ])
-}
-
-fission_component! {
-    pub CompressorReferenceIllustration<()> {}
-    view(_illustration, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let narrow = cx.view.viewport_size().width <= ILLUSTRATION_STACK_BREAKPOINT;
-    } =>
-    Container(
-        Column(gap: tokens.spacing.s, children: [
-            Row(gap: tokens.spacing.s, children: [
-                Column(gap: tokens.spacing.none, children: [
-                    Text(cx.tr("photo.schematic.site")).weight(tokens.typography.font_weight_bold),
-                    Text(cx.tr("photo.schematic.room")).color(tokens.colors.text_secondary),
-                ]),
-                Spacer(flex_grow: 1.0),
-                Container(Text("A7").weight(tokens.typography.font_weight_bold).color(tokens.colors.on_primary))
-                    .padding_all(tokens.spacing.s)
-                    .bg(tokens.colors.primary)
-                    .border_radius(tokens.radii.medium),
-            ]),
-            Container(
-                Column(gap: tokens.spacing.s, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(cx.tr("photo.schematic.compressor")).weight(tokens.typography.font_weight_bold),
-                        Text("CMP-7A-2219 · R-507 system").color(tokens.colors.text_secondary),
-                    ]),
-                    if narrow {
-                        Column(gap: tokens.spacing.s, children: [
-                            CompressorAirIntake,
-                            CompressorPressureGauge,
-                        ])
-                    } else {
-                        Row(gap: tokens.spacing.m, children: [
-                            CompressorAirIntake,
-                            Spacer(flex_grow: 1.0),
-                            CompressorPressureGauge,
-                        ])
-                    },
-                    Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                        Container(
-                            Row(gap: tokens.spacing.xs, children: [
-                                Text("!").weight(tokens.typography.font_weight_bold).color(tokens.colors.warning),
-                                Text(cx.tr("photo.schematic.repair_required")).weight(tokens.typography.font_weight_bold),
-                            ])
-                        )
-                        .padding_all(tokens.spacing.xs)
-                        .bg(tokens.colors.surface)
-                        .border(tokens.colors.warning, 1.0)
-                        .border_radius(tokens.radii.small),
-                        Spacer(flex_grow: 1.0),
-                        Text(cx.tr("photo.schematic.do_not_restart")).color(tokens.colors.text_secondary),
-                    ]),
-                ])
-            )
-            .padding_all(tokens.spacing.m)
-            .bg(tokens.colors.surface_sunken)
-            .border(tokens.colors.border, 1.0)
-            .border_radius(tokens.radii.medium),
-            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                Text(cx.tr("photo.schematic.reference_only")).color(tokens.colors.text_secondary),
-                Spacer(flex_grow: 1.0),
-                Text(cx.tr("photo.schematic.asset_tag")).color(tokens.colors.primary),
-            ]),
-        ])
-    )
-    .padding_all(tokens.spacing.m)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
-}
+```
+</TabItem>
+<TabItem label="src/app/widgets/reference.rs">
+<!-- fission:file path="src/app/widgets/reference.rs" -->
+```rust
+use fission::prelude::*;
+use crate::app::WorkOrderReportState;
 
 fission_component! {
     pub CompressorReferenceCard<WorkOrderReportState> {}
@@ -864,11 +1151,10 @@ fission_component! {
                 Text(cx.tr("photo.asset_reference.description"))
                     .color(tokens.colors.text_secondary),
             ]),
-            CompressorReferenceIllustration,
             if let Some(order) = order {
                 Column(gap: tokens.spacing.xs, children: [
                     Text(order.asset_name.clone()).weight(tokens.typography.font_weight_semibold),
-                    Text(format!("{} · {}", order.asset_type, order.asset_id))
+                    Text(order.asset_id.clone())
                         .color(tokens.colors.text_secondary),
                 ])
             },
@@ -881,19 +1167,28 @@ fission_component! {
     .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.large)
 }
+```
+</TabItem>
+<TabItem label="src/app/widgets/evidence.rs">
+<!-- fission:file path="src/app/widgets/evidence.rs" -->
+```rust
+use fission::prelude::*;
+use crate::app::{
+    on_capture_evidence_photo, on_set_flashlight, WorkOrderReportState,
+    CaptureEvidencePhoto, SetFlashlight,
+};
 
 fission_component! {
     pub InspectionEvidenceCard<WorkOrderReportState> {}
     view(_card, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let image_width = (cx.view.viewport_size().width - 36.0).clamp(200.0, 420.0);
+        let image_width = (cx.view.viewport_size().width - tokens.spacing.m * 4.0).clamp(1.0, 420.0);
         let photo_size = state.photo_details.as_ref()
             .and_then(|details| details.kibibytes)
             .map(|size| format!("{size} KiB"))
             .unwrap_or_else(|| cx.tr("photo.evidence.size_unknown"));
         let capture = with_reducer!(cx.build, CaptureEvidencePhoto(cx.tr("photo.permission.camera_reason")), on_capture_evidence_photo);
         let flashlight = with_reducer!(cx.build, SetFlashlight(!state.flashlight_on, cx.tr("photo.permission.flashlight_reason")), on_set_flashlight);
-        let note_changed = with_reducer!(cx.build, InspectionNoteChanged, on_inspection_note_changed);
     } =>
     Container(
         Column(gap: tokens.spacing.s, children: [
@@ -912,7 +1207,9 @@ fission_component! {
                     Image::memory(bytes.clone())
                         .size(image_width, 210.0)
                         .fit(ir_op::ImageFit::Cover)
-                        .semantic_label(cx.tr("photo.evidence.image_semantics")),
+                        .semantic_label(cx.tr("photo.evidence.image_semantics")
+                            .replace("{asset}", state.work_order.as_ref()
+                                .map(|order| order.asset_name.as_str()).unwrap_or(""))),
                     if let Some(details) = &state.photo_details {
                         Text(cx.tr("photo.evidence.metadata")
                             .replace("{width}", &details.width.to_string())
@@ -966,13 +1263,24 @@ fission_component! {
                 Text(cx.tr("photo.camera.checking"))
                     .color(tokens.colors.text_secondary)
             },
+            if state.photo_pending || state.flashlight_pending || !state.camera_availability_checked {
+                Spinner(
+                    motion: Some(SpinnerMotion::Default),
+                    label: cx.tr(if state.photo_pending {
+                        "photo.action.opening_camera"
+                    } else if state.flashlight_pending {
+                        "photo.action.changing_flashlight"
+                    } else {
+                        "photo.camera.checking"
+                    }),
+                )
+            },
             TextInput(
                 label: Some(cx.tr("photo.note.label").into()),
                 placeholder: Some(cx.tr("photo.note.placeholder").into()),
                 bind: state.inspection_note,
                 multiline: true,
                 helper_text: Some(cx.tr("photo.note.help").into()),
-                on_input: note_changed,
                 semantics_identifier: "work-order.inspection-note".to_string(),
             ),
         ])
@@ -984,310 +1292,14 @@ fission_component! {
 }
 ```
 </TabItem>
-<TabItem label="src/lib.rs">
-<!-- fission:file path="src/lib.rs" -->
-```rust
-pub mod app;
-#[cfg(target_arch = "wasm32")]
-#[path = "../preview/fixtures.rs"]
-mod fixtures;
-
-use app::{read_evidence_bytes, WorkOrderReport, WorkOrderReportState, READ_EVIDENCE_BYTES_JOB};
-use fission::prelude::*;
-
-#[cfg(target_os = "android")]
-fn mobile_app() -> MobileApp<WorkOrderReportState, WorkOrderReport> {
-    MobileApp::<WorkOrderReportState, _>::new(WorkOrderReport::new())
-        .with_title("Northbank Field Service")
-        .with_env(app::translations::create_env())
-        .with_sync_env(|state, env| env.locale = state.locale.clone())
-        .with_startup_action(app::CheckCameraAvailability)
-        .with_async(|asyncs| {
-            asyncs.register_job(READ_EVIDENCE_BYTES_JOB, |request, ctx| async move {
-                read_evidence_bytes(request, ctx).await
-            });
-        })
-}
-
-#[cfg(target_os = "android")]
-pub fn run_mobile() -> anyhow::Result<()> {
-    mobile_app().run()
-}
-
-#[cfg(target_os = "android")]
-#[no_mangle]
-fn android_main(app_handle: AndroidApp) {
-    let _ = mobile_app().run_with_android_app(app_handle);
-}
-
-#[cfg(target_arch = "wasm32")]
-fn web_app() -> WebApp<WorkOrderReportState, WorkOrderReport> {
-    WebApp::<WorkOrderReportState, _>::new(WorkOrderReport::new())
-        .with_state_init(|state| *state = fixtures::preview_work_order())
-        .with_env(app::translations::create_env())
-        .with_sync_env(|state, env| env.locale = state.locale.clone())
-        .with_startup_action(app::CheckCameraAvailability)
-        .with_async(|asyncs| {
-            asyncs.register_job(READ_EVIDENCE_BYTES_JOB, |request, ctx| async move {
-                read_evidence_bytes(request, ctx).await
-            });
-        })
-        .with_title("Northbank field inspection")
-        .mount("#fission-web-mount")
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen::prelude::wasm_bindgen(start)]
-pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
-    console_error_panic_hook::set_once();
-    web_app()
-        .run()
-        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-<TabItem label="preview/fixtures.rs">
-<!-- fission:file path="preview/fixtures.rs" -->
-```rust
-use crate::app::{WorkOrder, WorkOrderPriority, WorkOrderReportState};
-
-pub fn preview_work_order() -> WorkOrderReportState {
-    WorkOrderReportState {
-        work_order: Some(WorkOrder {
-            reference: "WO-1048".into(),
-            title: "Cold-room compressor inspection".into(),
-            site: "Northbank Food Hub".into(),
-            asset_id: "CMP-7A-2219".into(),
-            asset_name: "Compressor bank A7".into(),
-            asset_type: "Industrial refrigeration · Cold room 2".into(),
-            due: "Today · 14:30".into(),
-            priority: WorkOrderPriority::High,
-            instruction: "Document the cracked access panel before replacing the guard. Keep the compressor isolated until the repair is complete.".into(),
-        }),
-        inspection_note: "Access panel is cracked along the lower hinge. Keep the compressor isolated until the guard is replaced.".into(),
-        ..Default::default()
-    }
-}
-```
-</TabItem>
-<TabItem label="src/main.rs · Android entry point">
-<!-- fission:file path="src/main.rs" -->
-```rust
-#[cfg(target_os = "android")]
-fn main() -> anyhow::Result<()> {
-    northbank_field_report::run_mobile()
-}
-
-#[cfg(not(target_os = "android"))]
-fn main() {}
-```
-</TabItem>
-<TabItem label="src/app/translations.rs">
-<!-- fission:file path="src/app/translations.rs" -->
-```rust
-use std::collections::HashMap;
-
-use fission::i18n::{Locale, TranslationBundle};
-use fission::prelude::Env;
-
-const SOURCES: [(&str, &str); 2] = [
-    ("en-US", include_str!("../../i18n/en-US.yaml")),
-    ("es-ES", include_str!("../../i18n/es-ES.yaml")),
-];
-
-pub fn create_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    for (locale, source) in SOURCES {
-        let messages: HashMap<String, String> =
-            serde_yaml::from_str(source).expect("valid field-report translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(locale),
-            messages,
-        });
-    }
-    env
-}
-```
-</TabItem>
-<TabItem label="i18n/en-US.yaml">
-<!-- fission:file path="i18n/en-US.yaml" -->
-```yaml
-photo.brand: "Northbank Service"
-photo.section.work_orders: "Work orders"
-photo.locale.en: "English"
-photo.locale.es: "Español"
-photo.title.field_inspection: "{reference} · Field inspection"
-photo.fact.site: "Site"
-photo.fact.asset: "Asset"
-photo.fact.due: "Due"
-photo.fact.priority: "Priority"
-photo.priority.high: "High"
-photo.priority.normal: "Standard"
-photo.empty.work_order: "Open a work order to record field evidence."
-photo.session_notice: "This note and photo stay in app memory for this session. Nothing is uploaded or persisted."
-photo.error.work_order_missing: "Open a work order before capturing evidence."
-photo.error.permission_result_missing: "The camera did not return a permission result. The work order is still available without a photo."
-photo.error.permission_denied: "Camera access was not granted. Keep the inspection note and enable access when a photo is required."
-photo.error.permission_unknown: "Camera permission is unknown. Try the request again; the work order is unchanged."
-photo.error.permission_request_failed: "The camera permission request failed. The work order remains unchanged."
-photo.error.capture_result_missing: "The camera returned no image. The inspection note is unchanged."
-photo.error.capture_denied: "Camera access was denied. No image was attached; allow access and try again."
-photo.error.capture_cancelled: "Photo capture was cancelled. No image was attached, and the inspection note is unchanged."
-photo.error.camera_unavailable: "No usable camera is available on this host. The work order remains available without a photo."
-photo.error.camera_in_use: "Another app is using the camera. Close it before trying again; no image was attached."
-photo.error.capture_failed: "The photo could not be captured. No image was attached; try again."
-photo.error.photo_stream_read_failed: "The camera returned a photo, but its image stream could not be read. The note remains unchanged."
-photo.error.flashlight_permission_result_missing: "The camera did not return a permission result. The flashlight state is unchanged."
-photo.error.flashlight_permission_denied: "Camera access is required before this host can use its flashlight. The report is unchanged."
-photo.error.flashlight_permission_failed_on: "Camera access could not be confirmed, so the flashlight was not turned on. Its previous state is unchanged."
-photo.error.flashlight_permission_failed_off: "Camera access could not be confirmed, so the flashlight state was not changed."
-photo.error.flashlight_unavailable: "This camera has no usable flashlight. Continue the inspection without it."
-photo.error.flashlight_in_use: "Another app is using the camera, so the flashlight could not be changed. Close that app and try again."
-photo.error.flashlight_change_failed: "The host did not confirm the flashlight change. Its previous state is unchanged."
-photo.notice.checking_camera: "Checking camera access…"
-photo.notice.opening_camera: "Opening the camera…"
-photo.notice.photo_captured: "Photo captured. Preparing the evidence preview…"
-photo.notice.photo_attached: "Current photo attached to this work order. It has not been uploaded."
-photo.notice.checking_flashlight_on: "Checking camera access before turning on the flashlight…"
-photo.notice.checking_flashlight_off: "Checking camera access before changing the flashlight…"
-photo.notice.changing_flashlight_on: "Turning the flashlight on…"
-photo.notice.changing_flashlight_off: "Turning the flashlight off…"
-photo.notice.flashlight_on: "Flashlight is on."
-photo.notice.flashlight_off: "Flashlight is off."
-photo.camera.availability_failed: "Camera features could not be checked. The flashlight control stays hidden; photo capture may still be available."
-photo.camera.flashlight_unavailable: "This camera does not provide a flashlight. Capture the inspection photo without it."
-photo.camera.checking: "Checking whether this camera has a flashlight…"
-photo.action.opening_camera: "Opening camera…"
-photo.action.take_another: "Take another photo"
-photo.action.capture: "Capture site photo"
-photo.action.changing_flashlight: "Changing flashlight…"
-photo.action.flashlight_on: "Turn flashlight on"
-photo.action.flashlight_off: "Turn flashlight off"
-photo.evidence.title: "Inspection evidence"
-photo.evidence.count_one: "1 photo"
-photo.evidence.count_zero: "0 photos"
-photo.evidence.description: "Attach a current photo and explain what changed."
-photo.evidence.image_semantics: "Current photo of the compressor access panel"
-photo.evidence.metadata: "{width} × {height} · {content_type} · {size}"
-photo.evidence.size_unknown: "size not reported"
-photo.evidence.waiting: "Waiting for camera…"
-photo.evidence.empty: "No new photo yet"
-photo.evidence.empty_help: "Capture the cracked access panel before the guard is replaced."
-photo.note.label: "Inspection note"
-photo.note.placeholder: "Describe the damage and what the next technician should know."
-photo.note.help: "Kept in app memory for this session only."
-photo.permission.camera_reason: "Photograph the damaged compressor access panel for the selected work order."
-photo.permission.flashlight_reason: "Use the camera flashlight while photographing the compressor access panel."
-photo.schematic.air_intake: "AIR INTAKE"
-photo.schematic.filter_pressure: "FILTER · 2.1 BAR"
-photo.schematic.system_pressure: "SYSTEM PRESSURE"
-photo.schematic.bar_unit: "BAR"
-photo.schematic.site: "NORTHBANK FOOD HUB"
-photo.schematic.room: "Cold room 2"
-photo.schematic.compressor: "COMPRESSOR"
-photo.schematic.repair_required: "REPAIR REQUIRED"
-photo.schematic.do_not_restart: "Do not restart before guard replacement"
-photo.schematic.reference_only: "REFERENCE SCHEMATIC · NOT PHOTO EVIDENCE"
-photo.schematic.asset_tag: "ASSET A7"
-photo.asset_reference.title: "Asset reference"
-photo.asset_reference.description: "Confirm the equipment before adding current site evidence."
-photo.asset_reference.disclaimer: "This schematic identifies the equipment. It is not a captured inspection photo."
-```
-</TabItem>
-<TabItem label="i18n/es-ES.yaml">
-<!-- fission:file path="i18n/es-ES.yaml" -->
-```yaml
-photo.brand: "Servicio Northbank"
-photo.section.work_orders: "Órdenes de trabajo"
-photo.locale.en: "Inglés"
-photo.locale.es: "Español"
-photo.title.field_inspection: "{reference} · Inspección de campo"
-photo.fact.site: "Centro"
-photo.fact.asset: "Activo"
-photo.fact.due: "Fecha límite"
-photo.fact.priority: "Prioridad"
-photo.priority.high: "Alta"
-photo.priority.normal: "Estándar"
-photo.empty.work_order: "Abre una orden de trabajo para registrar pruebas de campo."
-photo.session_notice: "La nota y la foto permanecen en la memoria de la aplicación durante esta sesión. No se cargan ni se guardan."
-photo.error.work_order_missing: "Abre una orden de trabajo antes de capturar pruebas."
-photo.error.permission_result_missing: "La cámara no devolvió el resultado del permiso. La orden sigue disponible sin una foto."
-photo.error.permission_denied: "No se concedió acceso a la cámara. Conserva la nota y habilita el acceso si necesitas una foto."
-photo.error.permission_unknown: "El permiso de cámara es desconocido. Vuelve a intentarlo; la orden no ha cambiado."
-photo.error.permission_request_failed: "No se pudo solicitar el permiso de cámara. La orden no ha cambiado."
-photo.error.capture_result_missing: "La cámara no devolvió una imagen. La nota de inspección no ha cambiado."
-photo.error.capture_denied: "Se denegó el acceso a la cámara. No se adjuntó ninguna imagen; concede acceso y vuelve a intentarlo."
-photo.error.capture_cancelled: "Se canceló la captura. No se adjuntó ninguna imagen y la nota no ha cambiado."
-photo.error.camera_unavailable: "Este dispositivo no tiene una cámara disponible. La orden sigue disponible sin foto."
-photo.error.camera_in_use: "Otra aplicación está usando la cámara. Ciérrala antes de volver a intentarlo; no se adjuntó ninguna imagen."
-photo.error.capture_failed: "No se pudo capturar la foto. No se adjuntó ninguna imagen; vuelve a intentarlo."
-photo.error.photo_stream_read_failed: "La cámara devolvió una foto, pero no se pudo leer su flujo de imagen. La nota no ha cambiado."
-photo.error.flashlight_permission_result_missing: "La cámara no devolvió el resultado del permiso. El estado de la linterna no ha cambiado."
-photo.error.flashlight_permission_denied: "Este dispositivo necesita acceso a la cámara para usar la linterna. El informe no ha cambiado."
-photo.error.flashlight_permission_failed_on: "No se pudo confirmar el acceso a la cámara y no se encendió la linterna. Su estado anterior no ha cambiado."
-photo.error.flashlight_permission_failed_off: "No se pudo confirmar el acceso a la cámara y no se cambió la linterna."
-photo.error.flashlight_unavailable: "Esta cámara no tiene una linterna disponible. Continúa la inspección sin ella."
-photo.error.flashlight_in_use: "Otra aplicación está usando la cámara y no se pudo cambiar la linterna. Cierra esa aplicación y vuelve a intentarlo."
-photo.error.flashlight_change_failed: "El dispositivo no confirmó el cambio de linterna. Su estado anterior no ha cambiado."
-photo.notice.checking_camera: "Comprobando el acceso a la cámara…"
-photo.notice.opening_camera: "Abriendo la cámara…"
-photo.notice.photo_captured: "Foto capturada. Preparando la vista previa de las pruebas…"
-photo.notice.photo_attached: "Foto actual adjunta a esta orden de trabajo. No se ha cargado."
-photo.notice.checking_flashlight_on: "Comprobando el acceso a la cámara antes de encender la linterna…"
-photo.notice.checking_flashlight_off: "Comprobando el acceso a la cámara antes de cambiar la linterna…"
-photo.notice.changing_flashlight_on: "Encendiendo la linterna…"
-photo.notice.changing_flashlight_off: "Apagando la linterna…"
-photo.notice.flashlight_on: "La linterna está encendida."
-photo.notice.flashlight_off: "La linterna está apagada."
-photo.camera.availability_failed: "No se pudieron comprobar las funciones de la cámara. El control de la linterna permanece oculto; quizá aún puedas capturar una foto."
-photo.camera.flashlight_unavailable: "Esta cámara no tiene linterna. Captura la foto de inspección sin ella."
-photo.camera.checking: "Comprobando si esta cámara tiene linterna…"
-photo.action.opening_camera: "Abriendo la cámara…"
-photo.action.take_another: "Tomar otra foto"
-photo.action.capture: "Capturar foto del lugar"
-photo.action.changing_flashlight: "Cambiando la linterna…"
-photo.action.flashlight_on: "Encender la linterna"
-photo.action.flashlight_off: "Apagar la linterna"
-photo.evidence.title: "Pruebas de inspección"
-photo.evidence.count_one: "1 foto"
-photo.evidence.count_zero: "0 fotos"
-photo.evidence.description: "Adjunta una foto actual y explica qué ha cambiado."
-photo.evidence.image_semantics: "Foto actual del panel de acceso del compresor"
-photo.evidence.metadata: "{width} × {height} · {content_type} · {size}"
-photo.evidence.size_unknown: "tamaño no indicado"
-photo.evidence.waiting: "Esperando a la cámara…"
-photo.evidence.empty: "Todavía no hay fotos nuevas"
-photo.evidence.empty_help: "Fotografía el panel agrietado antes de sustituir la protección."
-photo.note.label: "Nota de inspección"
-photo.note.placeholder: "Describe el daño y qué debería saber el siguiente técnico."
-photo.note.help: "Se conserva solo en la memoria de la aplicación durante esta sesión."
-photo.permission.camera_reason: "Fotografiar el panel de acceso dañado del compresor de la orden seleccionada."
-photo.permission.flashlight_reason: "Usar la linterna de la cámara al fotografiar el panel de acceso del compresor."
-photo.schematic.air_intake: "ENTRADA DE AIRE"
-photo.schematic.filter_pressure: "FILTRO · 2,1 BAR"
-photo.schematic.system_pressure: "PRESIÓN DEL SISTEMA"
-photo.schematic.bar_unit: "BAR"
-photo.schematic.site: "CENTRO DE ALIMENTOS NORTHBANK"
-photo.schematic.room: "Cámara fría 2"
-photo.schematic.compressor: "COMPRESOR"
-photo.schematic.repair_required: "REQUIERE REPARACIÓN"
-photo.schematic.do_not_restart: "No reiniciar antes de sustituir la protección"
-photo.schematic.reference_only: "ESQUEMA DE REFERENCIA · NO ES UNA FOTO"
-photo.schematic.asset_tag: "ACTIVO A7"
-photo.asset_reference.title: "Referencia del activo"
-photo.asset_reference.description: "Confirma el equipo antes de añadir pruebas actuales del lugar."
-photo.asset_reference.disclaimer: "Este esquema identifica el equipo. No es una foto de inspección."
-```
-</TabItem>
 </Tabs>
 
-The reference schematic helps the technician identify the asset, while the **0 photos** count makes the evidence requirement visible. Tap **Capture site photo** to start the provider flow. On a browser with a camera, the browser requests its own permission and the preview displays the image returned by that camera. On a host with no camera or denied access, the report shows the returned error and keeps the note intact. The browser does not receive a manufactured image.
+The entered asset details give the report its context, whilst the **0 photos** count makes the evidence requirement visible. Tap **Capture site photo** to start the provider flow. On a browser with a camera, the browser requests its own permission and the preview displays the image returned by that camera. On a host with no camera or denied access, the report shows the returned error and keeps the note intact. The browser does not receive a manufactured image.
 
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Edit the inspection note and choose **Capture site photo**. If this browser has a camera, allow access and confirm a real image appears in the evidence card. If the host has no camera, check that the error is clear and that the note is still present. The note and captured image remain in memory for this session; this sample has no persistence service. In the Android app, pass an assigned work order into this screen from the app's work-order flow before capture. On a device with a torch, the startup availability check reveals the flashlight control; if no camera advertises a torch, the control stays hidden and photo capture remains available.
+Enter a report for WO-1048, Northbank Food Hub, asset CMP-7A-2219 / Compressor bank A7. Add a work summary and instructions describing the damaged access panel, open the report, then edit the inspection note and choose **Capture site photo**. If this browser has a camera, allow access and confirm a real image appears in the evidence card. If the host has no camera, check that the error is clear and that the note is still present. The note and captured image remain in memory for this session; this sample has no persistence service. The Android app has the same entry form; no separate fixture needs to be injected before capture. On a device with a torch, the startup availability check reveals the flashlight control; if no camera advertises a torch, the control stays hidden and photo capture remains available.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -1296,7 +1308,7 @@ Edit the inspection note and choose **Capture site photo**. If this browser has 
 
 A browser preview checks the shared Fission reducers against the browser camera provider. It cannot prove that Android has a camera, that the OS permission is configured correctly, or that a physical flashlight is available. Test the installed app on an Android emulator for layout and permission behavior, then use a physical device for the actual camera and torch.
 
-In an app that supplies an assigned work order, wait for the availability check and capture the damaged panel. Confirm that the real photo appears before wiring persistence; this sample does not save it. Deny camera access and repeat: the report note should remain, no photo should be counted, and the screen should explain how to recover. Cancel a capture if the system UI offers cancellation. On hardware without a torch, confirm no flashlight action is shown while photo evidence remains available.
+Enter and open the report, wait for the availability check and capture the damaged panel. Confirm that the real photo appears before wiring persistence; this sample does not save it. Deny camera access and repeat: the note and any previously attached photo should remain, and the screen should explain how to recover. Before the first successful capture the count stays zero; a cancelled replacement must not erase earlier evidence. Cancel a capture if the system UI offers cancellation. On hardware without a torch, confirm no flashlight action is shown while photo evidence remains available.
 
 <Tabs>
 <TabItem label="Run and verify">

@@ -7,7 +7,9 @@ description: Learn how Fission moves an app from a built artifact to a signed pa
 
 Shipping a Fission app takes more than producing a runnable binary. You may also need release files, metadata, checks, and receipts for a store, static host, object store, or release page. Here's how the release workflow brings them together.
 
-You do not need to memorize every provider rule before you start. The important idea is that Fission keeps the release process explicit. Each command does one job, writes inspectable output, and gives you a clear error when something is missing.
+The artifact manifest is the handoff between building and publishing. Inspect
+it before an upload, then retain the provider's receipt with that exact build.
+This separates “a command ran” from “these bytes reached this destination”.
 
 ## The release workflow
 
@@ -46,17 +48,6 @@ Use guided flows for discovery. Use direct manifest-backed commands for CI and
 repeatable automation.
 
 ## Keep release metadata reviewable
-
-## Lifecycle fit and verification
-
-Once packaging finishes, check the artifact and its manifest before sending it to a store or release provider. Keep the readiness result, validation output and distribution receipt with the build so you can see exactly what was shipped.
-
-| Stage question | Verification |
-| --- | --- |
-| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
-| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
-| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
-| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |
 
 [`fission.toml`](/reference/config/fission-toml/) is the root of the release configuration. It should contain the stable facts a reviewer expects to find quickly: app identity, package identifiers, provider IDs, active release, tracks, locales, and paths to the files that contain longer release content.
 
@@ -201,6 +192,14 @@ fission distribute status --project-dir . --provider microsoft-store --site prod
 ```
 
 When a provider requires a manual first-time setup step, readiness should say exactly what to do and which values from [`fission.toml`](/reference/config/fission-toml/) to copy into the provider portal.
+
+## Lifecycle fit and verification
+
+Keep the readiness report, exact package manifest, signature/install checks,
+release-content validation, and provider receipt together. If a build number
+changes, package again; do not relabel the old artifact. If upload succeeds but
+review or processing remains pending, report that state instead of claiming
+the release is public.
 
 ## Where to go next
 

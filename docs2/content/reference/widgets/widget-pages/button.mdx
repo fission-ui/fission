@@ -23,89 +23,60 @@ The full flow looks like this:
 1. `component conversion` creates a `Button` and gives it an `on_press` action.
 2. The user presses the button with a pointer, keyboard, or accessibility action.
 3. The runtime dispatches that action.
-4. The bound reducer runs and updates `GlobalState`.
+4. The bound reducer runs, updates local or app state, and requests effects when needed.
 5. Fission converts the user interface again from the updated state.
 
-The key term in the middle is `ActionEnvelope`. That is just Fission's packaged form of an action: the action type plus its encoded payload. Most app authors do not build an `ActionEnvelope` by hand. You usually create it with `with_reducer!(...)`, which both:
-
-- registers the reducer that should handle the action, and
-- returns the packaged action value the button will dispatch.
+`ActionEnvelope` is Fission's packaged action identity and encoded payload.
+Compose creates it and registers the handler for an inline `reduce` or `effect`
+block. Reusable actions can still be registered with `with_reducer!(...)`; a
+button uses the same runtime dispatch contract in either case.
 
 ## Example
 
-This example shows a realistic "Save draft" button from a compose screen. The important product rules are:
+This example opens a message preview only when both required draft fields are
+present. That rule is checked in two places for different reasons:
 
-- the user should not be able to save an empty draft
-- the user should not be able to submit the same save repeatedly while a save is already in flight
-- the button label should reflect the current state
+- `disabled` tells the user when preview is available;
+- the reducer checks current state when the event arrives, rather than assuming
+  the earlier view still describes it.
 
 ```rust
 use fission::prelude::*;
 
-#[fission_action]
-struct SaveDraft;
-
+#[derive(Debug, Default)]
 struct ComposerState {
     title: String,
     body: String,
-    is_saving: bool,
 }
 
-fn on_save_draft(
-    state: &mut ComposerState,
-    _action: SaveDraft,
-    _ctx: &mut ReducerContext<ComposerState>,
-) {
-    if state.is_saving || state.title.trim().is_empty() || state.body.trim().is_empty() {
-        return;
-    }
+impl GlobalState for ComposerState {}
 
-    state.is_saving = true;
-}
-
-
-
-fission_component!
-{
-    pub SaveDraftButton<ComposerState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<ComposerState>();
-                let save_draft = with_reducer!(ctx, SaveDraft, on_save_draft);
-
-                let can_save = !view.state().is_saving
-                    && !view.state().title.trim().is_empty()
-                    && !view.state().body.trim().is_empty();
-
-                Button {
-                    child: Some(
-                        Text::new(if view.state().is_saving {
-                            "Saving..."
-                        } else {
-                            "Save draft"
-                        })
-                        .into(),
-                    ),
-                    on_press: Some(save_draft),
-                    variant: ButtonVariant::Filled,
-                    disabled: !can_save,
-                    ..Default::default()
-                }
-                .into()
-    }
+fission_component! {
+    pub PreviewMessageButton<ComposerState>
+    view(_button, state, cx) =>
+    Button(
+        child: Text(cx.tr("composer.preview")),
+        key: "preview-message",
+        variant: ButtonVariant::Primary,
+        disabled: state.title.trim().is_empty() || state.body.trim().is_empty(),
+        on_press: reduce {
+            if !state.title.trim().is_empty() && !state.body.trim().is_empty() {
+                cx.effects.navigate("/message/preview");
+            }
+        },
+    )
+    .semantics_identifier("composer.preview")
 }
 ```
-Even if you are new to Rust, the structure is more important than every keyword.
+The translation bundle gives `composer.preview` a label such as “Preview
+message”. The button requests navigation; the application's route handler and
+`Router` show the preview screen using the same draft state. It does not make a
+second copy of the draft or claim to persist it.
 
-The `#[fission_action]` line is framework and serialization scaffolding. It tells Fission how to recognize and move the `SaveDraft` action through the runtime without making you repeat the same derives on every action type.
-
-`fn on_save_draft(...)` is the reducer function. It receives mutable app state, the action value, and a `ReducerContext`. This reducer is deliberately small. It does not try to save to disk or call a server directly. It only updates state to say "a save is now in progress." That keeps the button path deterministic and easy to test.
-
-The `SaveDraftButton` Compose component declares the app state it reads. Its `view(button, state, cx)` block can read the current state, while `cx.bind(...)` creates the typed action the button will dispatch.
-
-The `with_reducer!(ctx, SaveDraft, on_save_draft)` call connects the concrete action value to the reducer that handles it without forcing the example to spell out `Handler<ComposerState, SaveDraft>` by hand.
-
-Finally, notice the `disabled: !can_save` line. That is good production behavior. The app does not wait until after a bad press to discover the action should be rejected. It communicates availability clearly in the user interface and prevents double submission while saving is already underway.
+If activation starts a save or network request instead, use an `effect` with
+explicit `on_ok` and `on_err` handling, and disable repeated submissions while
+that request is active. See [Compose effects](/compose/#async-effects-without-lifecycle-boilerplate)
+for that separate lifetime.
 
 ## Field reference
 
@@ -190,8 +161,6 @@ immediate final-state animation and transitions for the same browser
 preference.
 
 ## Accessibility and production guidance
-
-A strong production button is clear, specific, and honest.
 
 Use labels that tell the user what will happen, such as "Save draft," "Delete file," or "Send invite," instead of vague text like "OK" when the action has a concrete effect. When the button has only an icon, add an explicit semantic label so screen readers do not encounter an unnamed control.
 

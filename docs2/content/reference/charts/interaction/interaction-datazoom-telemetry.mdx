@@ -8,85 +8,80 @@ description: Fission Charts reference for Telemetry zoom.
 
 ![Telemetry zoom screenshot](/img/charts/interaction-datazoom-telemetry.png)
 
-This example uses Fission Charts' typed Rust API. Use it for monitoring and investigation. The screenshot is from Fission's chart gallery.
+A telemetry window helps an operator inspect a short spike without discarding the surrounding measurements. Keeping that context matters: a single high sample does not show when the change began or whether it recovered. The screenshot is from Fission's chart gallery.
 
 ## What the chart is for
 
-This chart is in the **Interaction** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
+The example uses one response-time measurement per minute and initially displays a narrower range. Zooming changes the visible window, not the sampling interval or the source history. It does not compute finer-resolution telemetry.
 
 ## Data model
 
-This example uses `Long ordered telemetry values with zoom`. Keep the source values in Rust types and map them to the series or component below.
+Supply regularly bucketed labels and values in matching order, then configure DataZoom with percentage bounds. Fetch or aggregate telemetry through the application's normal async workflow before constructing this chart.
 
 ## Rust API
 
-| Field | Type | Notes |
+| Setting | Type | Meaning |
 | --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
+| `Chart::data_zoom` | `DataZoom` | Adds the initial visible range. |
+| `DataZoom::start_percent` | `f32` | Sets the start of the ordered window. |
+| `DataZoom::end_percent` | `f32` | Sets the end of the ordered window. |
+| `DataZoom::zoom_type` | `DataZoomType` | Chooses slider or inside-plot interaction. |
 
 ## Example
 
 ```rust
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{Axis, Chart, DataZoom, LineSeries};
 
 let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
+    .title("API response time by minute (ms)")
+    .x_axis(Axis::category(vec!["09:00", "09:01", "09:02", "09:03", "09:04", "09:05"]))
     .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
+    .data_zoom(DataZoom::new().start_percent(20.0).end_percent(80.0))
+    .series(vec![LineSeries::new("Response time (ms)")
+        .data(vec![80.0, 84.0, 190.0, 240.0, 110.0, 86.0])
         .into()]);
 ```
 
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
 ## Authoring from a Fission component
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Pass the prepared values to the chart and let its built-in retained interaction own the visible window. The example keeps its category list fixed; pass labels alongside values when the reporting period is variable.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{Axis, Chart, DataZoom, LineSeries};
 
-
-
-fission_component!
-{
+// The parent resolves display labels from its translation bundles.
+fission_component! {
     pub TelemetryZoomChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            category_labels: Vec<String>,
+            values: Vec<f32>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
-    }
+    view(history, _state, _cx) =>
+        Chart(
+            title: Some(history.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                history.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            data_zoom: Some(DataZoom::new()
+                .start_percent(20.0)
+                .end_percent(80.0)),
+            series: vec![LineSeries::new(&history.series_label)
+                .data(history.values.clone())
+                .into()],
+        )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+## Testing and accessibility
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Check label/value alignment at both zoom boundaries and a dataset shorter than the usual history. Keep missing telemetry distinct from a zero-millisecond response, and make reset-to-full-history available in the product workflow.
+
+Check the actual zoom gesture and offer a keyboard-accessible way to choose the reporting range where that choice is essential to the task.
 
 Tags: `dataZoom`, `telemetry`.
 

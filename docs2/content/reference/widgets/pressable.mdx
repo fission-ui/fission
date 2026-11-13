@@ -6,32 +6,45 @@ slug: /widgets/pressable
 
 # Pressable
 
-`Pressable` is the low-level interaction surface for custom controls. It contributes no visual chrome unless you provide style, but it does provide focus handling, activation, semantics, pointer state, optional transitions, and optional ripple feedback.
+An entire report tile may need to act as one control, rather than placing a
+small button beside its contents. `Pressable` supplies that interaction
+boundary without deciding what the tile looks like. It owns focus, activation,
+semantics, pointer state, and optional motion and ripple feedback.
 
 Use built-in widgets such as `Button`, `Link`, `MenuItem`, `Checkbox`, and `Switch` when they fit. Use `Pressable` when the visual shape is custom but the interaction is still a button, link, or menu item.
 
 ```rust
-let (_ctx, view) = fission::build::current::<ReportsState>();
-let spacing = &view.env().theme.tokens.spacing;
-let open_report_label = view
-    .env()
-    .i18n
-    .get(&view.env().locale, "reports.open")
-    .unwrap_or("reports.open")
-    .to_string();
+use fission::prelude::*;
 
-Pressable::new(Text::new(TextContent::Key("reports.open".into())))
-    .id(WidgetId::explicit("report.open"))
-    .semantics_identifier("report.open")
-    .label(open_report_label)
-    .role(PressableRole::Button)
-    .on_press(open_report)
-    .layout(BoxStyle::default().padding_symmetric(
-        Length::points(spacing.m),
-        Length::points(spacing.s),
-    ))
-    .into()
+fission_component! {
+    pub ReportTile<()> {
+        props {
+            content: Widget,
+            accessible_label: String,
+            open_report: ActionEnvelope,
+        }
+    }
+    view(tile, _state, cx) {
+        let spacing = &cx.view.env().theme.tokens.spacing;
+    } =>
+    Pressable(
+        child: tile.content.clone(),
+        on_press: tile.open_report.clone(),
+        label: tile.accessible_label.clone(),
+        role: PressableRole::Button,
+        layout: BoxStyle::default().padding_symmetric(
+            Length::points(spacing.m),
+            Length::points(spacing.s),
+        ),
+    )
+}
 ```
+
+The parent supplies the report content, translated accessible label, and an
+action already bound to the correct report. For a dynamic collection, call
+`ReportTile(content, label, open_report, key: report.id.clone())` so retained
+interaction state follows the report rather than its list position. Do not
+put another button inside a tile that already acts as one button.
 
 ## Important fields
 

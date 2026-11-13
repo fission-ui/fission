@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Support iOS Dynamic Type, dark appearance and contrast
-description: "Support iOS Dynamic Type, dark appearance and contrast using Fission."
-goal: Use design-system tokens and verify enlarged text and system appearance changes.
+description: "Build a text reader which follows host text scaling and selected appearance, with a separate explicit stronger-border setting."
+goal: "Keep system appearance and text scaling distinct from app preferences, without claiming an unavailable iOS contrast signal."
 path: /blog/support-ios-dynamic-type-dark-appearance-and-contrast/
 order: 80
 difficulty: Beginner
@@ -10,235 +10,340 @@ duration: 35 minutes
 run_command: "fission run --target ios --project-dir ."
 app: ios-support-ios-dynamic-type-dark-appearance-and-contrast
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the iOS workflow and follow physical-device checks when the task requires them
+  - Mirror the appearance choice into the active generated theme
+  - Let the host text scaler affect real user-entered content
+  - Expose stronger borders as an app choice rather than pretending it tracks native Increase Contrast
 ---
 
-## Create the project and add the target
+Text size, colour scheme and contrast are related, but they are not one setting. Enlarging a single sample label does not implement Dynamic Type, and switching the background to dark does not establish that every foreground colour remains readable.
 
-Create a shared Rust app and add the iOS target. Fission generates the native host; keep the app behaviour in Rust.
+We will build a reader for text the user enters. It follows Fission's host text scaler, offers System, Light and Dark appearance choices, and provides an explicit app preference for primary-colour text and stronger borders. There is an important current boundary: Fission exposes system light/dark appearance and text scaling, but this example has no native iOS Increase Contrast signal. The app preference is not presented as automatic synchronization with that setting.
+
+## Create the shared reader
+
+Complete [iOS setup](/blog/set-up-rust-ios-development-with-fission/) if needed.
 
 ```sh
 cargo install cargo-fission
 fission init ios-support-ios-dynamic-type-dark-appearance-and-contrast
 cd ios-support-ios-dynamic-type-dark-appearance-and-contrast
 fission add-target ios --project-dir .
+cargo add serde_yaml
 ```
 
-## Files created by Fission
-
-Fission creates this starter tree. Shared Rust code stays in `src/`; the generated host under `platforms/ios/` handles iOS launch and packaging.
-
-```text
-ios-support-ios-dynamic-type-dark-appearance-and-contrast/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
-├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
-└── platforms/
-    └── ios/                  # generated iOS host
-```
-
-Keep app behaviour in shared Rust. Add a feature module only when it creates a useful boundary, and keep iOS APIs behind the generated host.
+Keep the generated `src/main.rs`. The shared library below starts this reader on native and Web targets.
 
 <!-- fission:step id="start-screen" -->
-## Create the app screen
+## Synchronize app choices into one environment
+
+The screen reads colours and sizes from the active theme. It does not keep private light and dark palettes. The app-wide appearance preference belongs to `GlobalState`, and `.with_sync_env(...)` resolves that preference into the environment each build.
+
+System means using `env.system_theme_mode`, not remembering whatever appearance happened to be active at launch. Light and Dark are explicit overrides. The synchronization function rebuilds the theme before applying the optional stronger-contrast changes, so turning that preference off restores the design system rather than leaving modified colours behind.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
-use fission::prelude::*;
-fission_component! {
-    pub AccessibleReadingPreview<()> {
-        state {
-            large_text: bool = false,
-        }
-    }
-    view(reader, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let sample_size = if reader.large_text {
-            tokens.typography.heading2_size
-        } else {
-            tokens.typography.body_medium_size
-        };
-        let scale_action = if reader.large_text {
-            cx.tr("appearance.action.standard")
-        } else {
-            cx.tr("appearance.action.large")
-        };
-    } =>
-    SemanticsRegion(
-        identifier: Some("ios-accessible-reading-preview".to_string()),
-        label: Some(cx.tr("appearance.screen.label")),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Text(cx.tr("appearance.app.name"))
-                        .weight(tokens.typography.font_weight_bold),
-                    Text(cx.tr("appearance.route"))
-                        .color(tokens.colors.text_secondary),
-                ]),
-                Badge(text: cx.tr("appearance.preview.badge")),
-                Divider(),
-                Text(cx.tr("appearance.title"))
-                    .size(tokens.typography.heading2_size),
-                Text(cx.tr("appearance.summary"))
-                    .color(tokens.colors.text_secondary),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text(cx.tr("appearance.article.title"))
-                            .weight(tokens.typography.font_weight_semibold),
-                        Text(cx.tr("appearance.article.body"))
-                            .size(sample_size),
-                        Text(cx.tr("appearance.article.caption"))
-                            .color(tokens.colors.text_secondary),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-                Button(
-                    child: Text(scale_action.clone()),
-                    key: "toggle-dynamic-type-sample",
-                    on_press: reduce { reader.large_text = !reader.large_text; },
-                    semantics: Some(Semantics {
-                        role: Role::Button,
-                        label: Some(scale_action.clone()),
-                        identifier: Some("appearance.toggle-text-size".to_string()),
-                        ..Default::default()
-                    }),
-                ),
-                Text(cx.tr("appearance.preview.note"))
-                    .color(tokens.colors.text_secondary),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
-}
-
+mod screen;
+pub mod state;
+pub use screen::ReadingScreen;
+pub use state::ReadingState;
 ```
 </TabItem>
+
+<TabItem label="src/app/state.rs">
+<!-- fission:file path="src/app/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Appearance {
+    System,
+    Light,
+    Dark,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReadingState {
+    pub locale: Locale,
+    pub appearance: Appearance,
+    pub stronger_contrast: bool,
+}
+
+impl Default for ReadingState {
+    fn default() -> Self {
+        Self {
+            locale: Locale::from("en-US"),
+            appearance: Appearance::System,
+            stronger_contrast: false,
+        }
+    }
+}
+
+impl GlobalState for ReadingState {}
+```
+</TabItem>
+
+<TabItem label="src/app/screen.rs">
+<!-- fission:file path="src/app/screen.rs" -->
+```rust
+use super::state::{Appearance, ReadingState};
+use fission::prelude::*;
+
+fission_component! {
+    pub ReadingScreen<ReadingState> {
+        state {
+            title: String = String::new(),
+            body: String = String::new(),
+        }
+    }
+    view(reader, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } => SafeArea(
+        child: Scroll(
+            child: Container(Column(gap: tokens.spacing.m, children: [
+                Text(cx.tr("reader.heading")).size(tokens.typography.heading2_size),
+                Text(cx.tr("reader.explanation")).color(tokens.colors.text_secondary),
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Button(
+                        child: Text(cx.tr("appearance.system")), key: "system",
+                        disabled: state.appearance == Appearance::System,
+                        on_press: reduce { state.appearance = Appearance::System; },
+                    ),
+                    Button(
+                        child: Text(cx.tr("appearance.light")), key: "light",
+                        disabled: state.appearance == Appearance::Light,
+                        on_press: reduce { state.appearance = Appearance::Light; },
+                    ),
+                    Button(
+                        child: Text(cx.tr("appearance.dark")), key: "dark",
+                        disabled: state.appearance == Appearance::Dark,
+                        on_press: reduce { state.appearance = Appearance::Dark; },
+                    ),
+                ]),
+                Button(
+                    child: Text(if state.stronger_contrast {
+                        cx.tr("appearance.standard_contrast")
+                    } else {
+                        cx.tr("appearance.stronger_contrast")
+                    }),
+                    key: "contrast",
+                    on_press: reduce { state.stronger_contrast = !state.stronger_contrast; },
+                ),
+                Row(gap: tokens.spacing.s, children: [
+                    Button(
+                        child: Text(cx.tr("language.english")), key: "english",
+                        on_press: reduce { state.locale = Locale::from("en-US"); },
+                    ),
+                    Button(
+                        child: Text(cx.tr("language.spanish")), key: "spanish",
+                        on_press: reduce { state.locale = Locale::from("es-ES"); },
+                    ),
+                ]),
+                TextInput(
+                    value: reader.title.clone(), bind(on_input): to(reader.title),
+                    label: Some(TextContent::Key("reader.title".into())),
+                ),
+                TextInput(
+                    value: reader.body.clone(), bind(on_input): to(reader.body),
+                    label: Some(TextContent::Key("reader.body".into())),
+                    multiline: true, keyboard_type: TextInputType::Multiline,
+                ),
+                Divider(),
+                Text(cx.tr("reader.preview")).color(tokens.colors.text_secondary),
+                if reader.title.is_empty() && reader.body.is_empty() {
+                    Text(cx.tr("reader.empty"))
+                } else {
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(reader.title.clone()).size(tokens.typography.heading2_size),
+                        Text(reader.body.clone()).size(tokens.typography.body_medium_size),
+                    ])
+                },
+                Text(cx.tr("reader.session")).color(tokens.colors.text_secondary),
+            ]))
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface),
+        ),
+    )
+}
+```
+</TabItem>
+
+<TabItem label="src/i18n.rs">
+<!-- fission:file path="src/i18n.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use fission::theme::DesignSystem;
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid reader translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+
+pub fn sync_env(state: &crate::app::ReadingState, env: &mut Env) {
+    env.locale = state.locale.clone();
+    let mode = match state.appearance {
+        crate::app::state::Appearance::System => env.system_theme_mode,
+        crate::app::state::Appearance::Light => DesignMode::Light,
+        crate::app::state::Appearance::Dark => DesignMode::Dark,
+    };
+    env.theme = fission::theme::FissionDefaultDesignSystem::theme(mode);
+    if state.stronger_contrast {
+        let colors = &mut env.theme.tokens.colors;
+        colors.text_secondary = colors.text_primary;
+        colors.border = colors.text_primary;
+    }
+}
+```
+</TabItem>
+
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod i18n;
+
+use app::{ReadingScreen, ReadingState};
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<ReadingState, _>::new(ReadingScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    MobileApp::<ReadingState, _>::new(ReadingScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = MobileApp::<ReadingState, _>::new(ReadingScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<ReadingState, _>::new(ReadingScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod i18n;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
-    TranslationBundle {
-        locale: Locale::from(locale),
-        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
-    }
-}
-
-fn preview_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    env.i18n
-        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
-    env.i18n
-        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
-    env
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::AccessibleReadingPreview)
-        .with_env(preview_env())
-        .with_title("Northstar Reader")
+    WebApp::<app::ReadingState, _>::new(app::ReadingScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+```
+</TabItem>
 
-```
-</TabItem>
 <TabItem label="i18n/en-US.yaml">
-<!-- fission:file path="src/i18n/en-US.yaml" -->
+<!-- fission:file path="i18n/en-US.yaml" -->
 ```yaml
-appearance.screen.label: "Reading appearance and type-size preview"
-appearance.app.name: "Northstar Reader"
-appearance.route: "Accessibility · Reading appearance"
-appearance.preview.badge: "Uses active Fission theme tokens"
-appearance.title: "Make this page easier to read"
-appearance.summary: "The layout follows the active theme. Increase the sample text, then verify Dynamic Type and contrast on iOS."
-appearance.article.title: "Your saved places"
-appearance.article.body: "Keep the places you want to return to, with details that remain readable at larger text sizes."
-appearance.article.caption: "The sample uses typography and colour tokens from the current Env."
-appearance.action.standard: "Use standard sample text"
-appearance.action.large: "Preview larger text"
-appearance.preview.note: "The browser preview changes sample type size only; use Simulator settings to verify real iOS appearance and Dynamic Type."
+reader.heading: "Reading appearance"
+reader.explanation: "Enter text you need to read, then choose the appearance that works for you. Text size follows the host's accessibility scale."
+reader.title: "Reading title"
+reader.body: "Text to read"
+reader.preview: "Reading preview"
+reader.empty: "Enter some text above to review its appearance."
+reader.session: "Text and preferences last for this session only."
+appearance.system: "Use system appearance"
+appearance.light: "Light"
+appearance.dark: "Dark"
+appearance.stronger_contrast: "Use primary text and stronger borders"
+appearance.standard_contrast: "Restore standard text and borders"
+language.english: "English"
+language.spanish: "Español"
 ```
 </TabItem>
+
 <TabItem label="i18n/es-ES.yaml">
-<!-- fission:file path="src/i18n/es-ES.yaml" -->
+<!-- fission:file path="i18n/es-ES.yaml" -->
 ```yaml
-appearance.screen.label: "Vista previa de apariencia y tamaño de texto"
-appearance.app.name: "Lector Northstar"
-appearance.route: "Accesibilidad · Apariencia de lectura"
-appearance.preview.badge: "Usa los tokens del tema activo de Fission"
-appearance.title: "Haz que esta página sea más fácil de leer"
-appearance.summary: "El diseño sigue el tema activo. Amplía el texto de ejemplo y comprueba Dynamic Type y el contraste en iOS."
-appearance.article.title: "Tus lugares guardados"
-appearance.article.body: "Guarda los lugares a los que quieres volver y mantén los detalles legibles con tamaños de texto mayores."
-appearance.article.caption: "El ejemplo usa tokens de tipografía y color del Env actual."
-appearance.action.standard: "Usar texto de tamaño normal"
-appearance.action.large: "Previsualizar texto más grande"
-appearance.preview.note: "La vista web solo cambia el tamaño del texto de ejemplo; usa los ajustes del simulador para verificar la apariencia y Dynamic Type de iOS."
+reader.heading: "Apariencia de lectura"
+reader.explanation: "Introduce el texto que necesitas leer y elige la apariencia que te resulte más cómoda. El tamaño sigue la escala de accesibilidad del host."
+reader.title: "Título de lectura"
+reader.body: "Texto para leer"
+reader.preview: "Vista previa de lectura"
+reader.empty: "Introduce texto arriba para revisar su apariencia."
+reader.session: "El texto y las preferencias duran solo esta sesión."
+appearance.system: "Usar apariencia del sistema"
+appearance.light: "Claro"
+appearance.dark: "Oscuro"
+appearance.stronger_contrast: "Usar texto principal y bordes más marcados"
+appearance.standard_contrast: "Restaurar texto y bordes normales"
+language.english: "Inglés"
+language.spanish: "Español"
 ```
 </TabItem>
 </Tabs>
+
 <!-- fission:preview -->
+<!-- fission:checkpoint -->
+Enter several paragraphs and compare Light and Dark. Enable the stronger-border preference, then restore standard colours. Switch languages whilst keeping the text unchanged. The user-entered content must remain intact throughout.
+<!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Use design-system tokens and verify enlarged text and system appearance changes
+## Let the host scale text instead of replacing its font size
 
-Read colours, type sizes, spacing and component properties from the active design-system tokens rather than maintaining parallel light/dark constants in each component. Store a user theme override in GlobalState and mirror it into Env; let system appearance apply when the preference is Automatic. Keep layouts flexible when text grows, and do not truncate essential labels to fit a fixed card. Test light, dark, high contrast and the largest supported font scale on a real target.
+A `Text` widget without an explicit scaler uses `Env.text_scaler`. The current iOS shell reads the preferred content-size category and maps it to an accessibility scale. The authored token size remains the starting size; multiplying every font size in the component as well would apply the adjustment twice.
 
+This is Fission's scaling behavior, not a claim that it reproduces every UIKit text style's scaling curve. Test the actual controls and paragraphs at the largest supported category. A correct scale can still expose a fixed-height container, clipped button label or unreachable action.
 
+The stronger-contrast preference changes secondary text and borders to the theme's primary text colour. Its name describes that concrete change; it does not certify a contrast ratio or implement every iOS contrast option. Measure the foreground/background combinations used by the design, including disabled, focused and error states, before claiming accessibility conformance.
 
 <!-- fission:preview -->
-
 <!-- fission:checkpoint -->
-The compiled preview changes browser-local state only; it does not perform this task on the iOS Simulator or an iPhone, inspect your toolchain or access native hardware. Use the commands below to verify the generated project on the target.
+Use a long title and enough text to scroll. Browser zoom can reveal layout pressure, but it does not prove the iOS content-size category is delivered. Keep that distinction when recording the result.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Check the layout and system settings on iOS
-
-Run the same screen at a narrow phone width and a wider window. Resize or rotate while it is open, then change the system text size and appearance where this tutorial covers them. Content should reflow without clipping essential controls or status messages.
-
-Use real platform insets for safe-area checks and let Fission’s responsive layout choose the arrangement. Avoid fixing a problem with device-specific padding that breaks the other sizes.
-
-### Run, test and build
-
-```sh
-cargo test
-fission doctor ios --project-dir .
-fission run --target ios --project-dir .
-fission test --target ios --project-dir .
-fission build --target ios --project-dir . --release
-```
-
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Xcode, simulator SDK or Rust targets, `fission run` launches an iOS Simulator, and `fission test` checks that the generated host can start. A release build checks the simulator package; it does not verify iPhone signing or physical-device behavior.
-
-
-### Simulator and device commands
-
-Fission’s run command discovers iOS simulators. Run these checks from the generated project root:
+## Check native preferences and live changes
 
 ```sh
 fission doctor ios --project-dir .
@@ -247,13 +352,11 @@ fission run --target ios --project-dir .
 fission test --target ios --project-dir .
 ```
 
+Select a simulator using [the simulator guide](/blog/choose-boot-and-launch-an-ios-simulator-with-fission/). With System selected, change iOS appearance and verify the screen changes. Select Light and repeat: the explicit override should remain light. Return to System and verify that it follows the current host value rather than the old one.
 
-### Current references
+Change iOS text size, including accessibility categories, and check titles, paragraphs, inputs and buttons. Repeat on a physical device, with both languages and in landscape. The generated launch smoke test does not perform those checks.
 
-These references explain the API contract behind the example and the target-specific behavior to verify:
+Turn on iOS Increase Contrast too, but do not mistake the app's manual stronger-border button for evidence that this OS setting has been detected. Automatic contrast-preference delivery remains an upstream capability gap; this tutorial makes that boundary explicit rather than silently claiming the full native integration.
 
-- [Theming](/docs/guides/theming-and-i18n/)
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
+The reader keeps its text and preferences in memory. Add persistence separately if they must survive restart; appearance synchronization should remain limited to presentation inputs, not become a place to start storage or network work.
 <!-- /fission:step -->

@@ -48,7 +48,11 @@ This explicit geometry stage is why layout can be inspected directly in tests an
 
 Semantics describe what the interface means, not how its pixels look.
 
-They include roles, labels, values, focus structure, and other accessibility information from the shared runtime. Each shell maps that information to its platform accessibility APIs.
+They include roles, labels, values, focus structure, and other accessibility
+information from the shared runtime. Shells expose it where their bridge
+supports that contract. The shared representation does not imply complete
+platform coverage: for example, the Web canvas does not mirror its full tree
+to DOM accessibility. See the [support matrix](/reference/platform/accessibility/).
 
 The runtime produces semantics alongside the visual output, so accessibility is not an extra layer added after rendering.
 

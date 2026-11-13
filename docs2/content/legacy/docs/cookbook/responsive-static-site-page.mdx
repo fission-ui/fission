@@ -5,45 +5,71 @@ description: Build a static page that lowers responsive layout and grid tracks t
 
 # Responsive static site page
 
-Static pages should still use normal Fission layout primitives.
+A pricing page usually needs fewer columns on a narrow screen, not a different
+pricing model. Start with a grid that fits the available space. Use separate
+`Responsive` branches only when the content order or interaction genuinely
+changes.
+
+The page receives already-authored plan cards from its parent. It owns their
+layout, not a second copy of prices, feature lists, or checkout state:
 
 ```rust
 use fission::prelude::*;
 
-const PHONE_BREAKPOINT: f32 = 720.0;
+const PLAN_CARD_MIN_WIDTH: f32 = 240.0;
+const PHONE_BREAKPOINT: f32 = 600.0;
 
-
-
-fission_component!
-{
+fission_component! {
     pub PricingPage<()> {
+        props { cards: Vec<Widget> }
     }
-    view(_component, _state, _cx) => rust {
-        Responsive::new(PricingDesktop)
-                    .case(ResponsiveCase::max_width(PHONE_BREAKPOINT, PricingPhone))
-                    .into()
-    }
+    view(page, _state, cx) {
+        let spacing = &cx.view.env().theme.tokens.spacing;
+    } =>
+    Grid(
+        columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+            GridTrack::Points(PLAN_CARD_MIN_WIDTH),
+            GridTrack::Fr(1.0),
+        ))],
+        column_gap: spacing.m,
+        row_gap: spacing.m,
+        children: page.cards.clone(),
+    )
 }
 ```
-For repeated cards, use responsive grid tracks instead of manual column counts.
+
+`auto_fit` adds columns when space permits and collapses unused tracks. The
+240-point minimum is a plan-card constraint, not a phone detector. A parent
+narrower than that minimum needs a smaller minimum or a compact presentation;
+fractional sizing cannot erase the constraint.
+
+If the phone experience actually differs, keep independently constructed
+branches behind an explicit identity:
 
 ```rust
-const PLAN_CARD_MIN_WIDTH: f32 = 240.0;
-
-let (_ctx, view) = fission::build::current::<PricingState>();
-let spacing = &view.env().theme.tokens.spacing;
-
-Grid {
-    columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-        GridTrack::Points(PLAN_CARD_MIN_WIDTH),
-        GridTrack::Fr(1.0),
-    ))],
-    column_gap: Some(spacing.m),
-    row_gap: Some(spacing.m),
-    children: plan_cards,
-    ..Default::default()
+fission_component! {
+    pub PricingRoute<PricingState> {}
+    view(_route, _state, _cx) =>
+        Responsive::new_with_id(
+            WidgetId::explicit("pricing.layout"),
+            || PricingDesktop,
+        ).case_max_width_with(PHONE_BREAKPOINT, || PricingPhone)
 }
-.into()
 ```
 
-The static-site shell lowers supported layout, paint, font, and responsive primitives to HTML and CSS.
+Here `PricingDesktop` and `PricingPhone` are app components that read the same
+plan data. Construct each tree separately; do not clone one retained card tree
+into both. A parent can call `PricingPage(cards)` using its generated constructor,
+or use a fully specified Rust struct literal for named required props.
+The component does not acquire a fake empty `Default` merely to make a
+required cards argument optional.
+
+The Static site shell lowers supported grid and responsive primitives to
+HTML/CSS. Both branches exist in the output, so neither should contain secrets
+or private account data. Use normal links for plan destinations; a client-side
+checkout action needs a browser runtime or island.
+
+Inspect the generated page at narrow and wide widths and activate its links.
+See [Static and SSR fidelity](/docs/develop/static-and-ssr-fidelity/) for the
+target boundary and [Responsive](/reference/widgets/responsive/) for the query
+contract.

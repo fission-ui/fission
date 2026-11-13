@@ -13,7 +13,7 @@ Start with the [Deep links guide](/docs/capabilities/deep-links/) to add the fea
 
 | Item | Value |
 | --- | --- |
-| Effect helper or entrypoint | `inbound `DeepLinkReceived` action` |
+| Effect helper or entrypoint | Inbound `DeepLinkReceived` action |
 | Provider trait or host contract | `DeepLinkConfig / shell startup` |
 | Test provider or test entrypoint | `startup deep-link tests` |
 | Primary request types | `DeepLinkConfig / DeepLink` |
@@ -38,7 +38,7 @@ Start with the [Deep links guide](/docs/capabilities/deep-links/) to add the fea
 
 Deep links use `DeepLinkConfig`, `DeepLinkReceived`, and the shell startup path rather than a provider trait. Use `.with_startup_deep_link(...)` in tests or custom launchers to simulate a cold-start native route. Do not use it to mirror browser history: Web automatically provides the initial pathname/hash and subsequent back/forward changes through `ShellRouteChanged`.
 
-Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
+The shell's filter decides which external links become actions. The app's reducer must still validate the accepted path and identifier, then select its logical route. For example, `fission:///documents/42` has path `/documents/42`, whereas `fission://documents/42` has host `documents` and path `/42`; a `/documents` prefix rule distinguishes them.
 
 ## Platform configuration
 
@@ -48,7 +48,7 @@ When a CLI value exists, `fission add-capability <value> --project-dir .` record
 
 ## Runtime behavior
 
-Capability calls are queued from reducers through `ctx.effects`. The active shell resolves the request with the registered provider and then dispatches the configured success or error action. Missing providers should produce typed unsupported errors. Packaging mistakes usually show up as denied permissions, missing entitlements, missing route registration, or provider-specific failures.
+Startup and runtime links enter the registered deep-link handler through the normal reducer path. This is not a capability call with `on_ok`/`on_err` callbacks. Reject an invalid link without changing the current route, and use the native Router and any protected-route policy for accepted destinations. Handle browser history through `with_route_handler` rather than reflecting it back into another navigation effect.
 
 ## Related pages
 

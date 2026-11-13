@@ -8,85 +8,50 @@ description: Fission Charts reference for Nested-style donut.
 
 ![Nested-style donut screenshot](/img/charts/pie-nested-like.png)
 
-Donut-style chart with more categories and central whitespace. Use it when a central status label will be added by surrounding UI. The screenshot is from Fission's chart gallery.
+A donut can leave room for a separate status or total, but the empty centre does not create another level of data. This example remains one flat part-to-whole breakdown. The screenshot is from Fission's chart gallery.
 
 ## What the chart is for
 
-This chart is in the **Pie and radial** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
+Use it for mutually exclusive storage classes within one account, such as documents, images and archived exports. If those classes have meaningful children, preserve the hierarchy in a Sunburst or treemap rather than calling a flat donut nested.
 
 ## Data model
 
-This example uses `Label/value pairs plus inner radius`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Chart, Legend, PieSeries};
-
-let chart = Chart::new()
-    .title("Share")
-    .legend(Legend::top_right())
-    .series(vec![PieSeries::new("Share")
-        .inner_radius(48.0)
-        .data(vec![("Search", 38.0), ("Direct", 32.0), ("Ads", 18.0)])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
+`PieSeries` stores label/value pairs, not parent/child records. `inner_radius` changes the hole in logical pixels; it does not create nested rings, a centre label or an automatic total. Supply finite non-negative values in one unit and reporting snapshot.
 
 ## Authoring from a Fission component
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+The parent supplies storage totals in GiB and resolved display labels. Keep byte-accurate values in the data model and use this floating-point projection only for presentation.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Chart, Legend, PieSeries};
+use fission::charts::{Chart, PieSeries};
 
-
-
-fission_component!
-{
-    pub NestedStyleDonutChart<()> {
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub AccountStorageClasses<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            size_gib_by_class: Vec<(String, f32)>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Share")
-                    .legend(Legend::top_right())
-                    .series(vec![PieSeries::new("Share")
-                        .inner_radius(48.0)
-                        .data(vec![("Search", 38.0), ("Direct", 32.0), ("Ads", 18.0)])
-                        .into()])
-                    .into()
-    }
+    view(report, _state, _cx) {
+        let values = report.size_gib_by_class.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .inner_radius(48.0)
+            .into()],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+## Testing and accessibility
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Check zero-sized classes, unavailable storage measurements and a single dominant class. Provide exact values and the total alongside the chart. Inspect the largest expected labels at mobile widths; adding categories to a donut is not a substitute for a readable detailed report.
 
 Tags: `pie`, `nested`.
 

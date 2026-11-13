@@ -13,13 +13,22 @@ mixed styles or inline widgets, use [`RichText`](/reference/widgets/rich-text).
 
 ```rust
 use fission::prelude::*;
-let title = Text::new(TextContent::Key("settings.profile_title".into()))
-    .size(20.0)
-    .weight(700)
-    .into();
+
+fission_component! {
+    pub ProfileHeading<()> {}
+
+    view(_heading, _state, cx) {
+        let typography = &cx.view.env().theme.tokens.typography;
+    } =>
+        Text(cx.tr("settings.profile_title"))
+            .size(typography.heading2_size)
+            .weight(typography.font_weight_bold)
+}
 ```
 
-`Text::new(...)` is the most beginner-friendly entry point because it gives you a text widget with wrapping already enabled.
+The positional `Text(...)` call uses the real `Text::new` constructor and
+therefore enables wrapping. The heading reads the current locale and design
+system; its reusable component does not hard-code English or a second font scale.
 
 ## Content table
 
@@ -95,15 +104,16 @@ distinct adjustment.
 
 ## Specific advice
 
-Prefer `Text::new(...)` over manual `Text { ..Default::default() }` when starting out. It gives you a more natural default by enabling wrapping, which avoids a common beginner surprise.
+Prefer `Text(...)` in Compose for ordinary content. A named-only call initializes
+`Default` before assigning fields, so set `wrap` explicitly when that is the
+form you need. The difference comes from the existing constructor contract,
+not from a separate Compose text implementation.
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Use `semantics` when visible content alone is not enough for assistive technology, especially for icon-only controls or custom surfaces.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test long translations, bidi paragraphs, large text scale, and narrow constraints.
+- Keep selectable content and ids stable when selection must survive rebuilds.
+- Use semantic heading structure where the page needs navigable sections.
 
 ## Related
 

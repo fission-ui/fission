@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Build an offline-first notes app for Android and iOS
-description: "Build a shared Rust field-notes app with offline editing, SQLite storage, and safe sync state on Android and iOS using Fission."
-goal: Build a field-notes workspace that saves changes locally, keeps unsent edits visible, and accepts only current sync results.
+description: Create and edit field notes through real SQLite effects, keep an uncertain write visible, and guard the revision boundary for a future sync service.
+goal: Save field notes locally without presenting an in-memory edit or an old sync response as current saved data
 path: /blog/build-an-offline-first-notes-app-for-android-and-ios/
 order: 111
 difficulty: Beginner
@@ -10,10 +10,10 @@ duration: 40 minutes
 run_command: "fission run --target android --project-dir ."
 app: mobile-build-an-offline-first-notes-app-for-android-and-ios
 outcomes:
-  - Model field notes with stable ids and revisions
-  - Create, search, and edit notes while offline
-  - Persist notes with SQLite and reject stale sync results
-  - Run the same Rust feature on Android and iOS
+  - Give stored notes SQLite-assigned IDs and checked revisions
+  - Create, search and edit notes before a network service is available
+  - Confirm local writes and block blind retries after an uncertain result
+  - Leave notes waiting for sync until a real service confirms their revision
 ---
 
 ## Create a shared field-notes project
@@ -65,31 +65,9 @@ We’ll build **Harbour Field Notes** for a maintenance crew. Each record has a 
 Start with the record type and a screen that helps the technician find a note. `FieldNoteListItem` and `FieldNotesWorkspace` are named `fission_component!` components, so the screen has reusable boundaries instead of one anonymous tree.
 
 <Tabs>
-<TabItem label="src/app.rs">
-
-<!-- fission:file path="src/app.rs" -->
+<TabItem label="src/models.rs">
+<!-- fission:file path="src/models.rs" -->
 ```rust
-use fission::i18n::{Locale, TranslationBundle};
-use fission::prelude::*;
-use std::collections::HashMap;
-
-pub fn create_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    for (locale, yaml) in [
-        ("en-US", include_str!("../i18n/en-US.yaml")),
-        ("es-ES", include_str!("../i18n/es-ES.yaml")),
-    ] {
-        let messages: HashMap<String, String> =
-            serde_yaml::from_str(yaml).expect("valid Harbour Field Notes translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(locale),
-            messages,
-        });
-    }
-    env
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NoteSyncStatus {
     Synced,
@@ -115,41 +93,52 @@ pub struct FieldNote {
     pub revision: u32,
     pub sync_status: NoteSyncStatus,
 }
-
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+use crate::models::*;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FieldNotesState {
     pub notes: Vec<FieldNote>,
 }
 
 impl GlobalState for FieldNotesState {}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
 
-fission_component! {
-    pub FieldNoteListItem<()> {
-        note: FieldNote,
-        selected: bool,
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(yaml).expect("valid Harbour Field Notes translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
     }
-    view(row, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let status = if row.selected { "notes.row.selected" } else { row.note.sync_status.translation_key() };
-    } =>
-    Container(
-        Column(gap: tokens.spacing.xs, children: [
-            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                Text(cx.tr(&row.note.title))
-                    .weight(tokens.typography.font_weight_semibold),
-                Spacer(flex_grow: 1.0),
-                Text(cx.tr(status)),
-            ]),
-            Text(cx.tr(&row.note.site)).color(tokens.colors.text_secondary),
-            Text(cx.tr(&row.note.updated_at)).color(tokens.colors.text_secondary),
-        ]),
-    )
-    .padding_all(tokens.spacing.m)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.medium)
+    env
 }
-
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{models::*, state::*};
+use crate::widgets::*;
 fission_component! {
     pub FieldNotesWorkspace<FieldNotesState> {}
     view(_workspace, state, cx) {
@@ -230,16 +219,16 @@ fission_component! {
                         Container(
                             Column(gap: tokens.spacing.s, children: [
                                 Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                                    Text(cx.tr(&selected.site))
+                                    Text(selected.site.clone())
                                         .color(tokens.colors.text_secondary),
                                     Spacer(flex_grow: 1.0),
                                     Text(cx.tr(selected.sync_status.translation_key())),
                                 ]),
-                                Text(cx.tr(&selected.title))
+                                Text(selected.title.clone())
                                     .weight(tokens.typography.font_weight_bold),
-                                Text(cx.tr(&selected.observation)),
+                                Text(selected.observation.clone()),
                                 Text(cx.tr("notes.updated_revision")
-                                    .replace("{time}", &cx.tr(&selected.updated_at))
+                                    .replace("{time}", &if selected.updated_at.is_empty() { cx.tr("notes.time.not_committed") } else { selected.updated_at.clone() })
                                     .replace("{revision}", &selected.revision.to_string()))
                                     .color(tokens.colors.text_secondary),
                             ]),
@@ -260,17 +249,99 @@ fission_component! {
     )
 }
 ```
+</TabItem>
+<TabItem label="src/widgets/mod.rs">
+<!-- fission:file path="src/widgets/mod.rs" -->
+```rust
+mod field_note_list_item;
+pub use field_note_list_item::FieldNoteListItem;
+```
+</TabItem>
+<TabItem label="src/widgets/field_note_list_item.rs">
+<!-- fission:file path="src/widgets/field_note_list_item.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{models::*, state::*};
+fission_component! {
+    pub FieldNoteListItem<()> {
+        props {
+        note: FieldNote,
+        selected: bool,
+        }
+    }
+    view(row, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let status = if row.selected { "notes.row.selected" } else { row.note.sync_status.translation_key() };
+    } =>
+    Container(
+        Column(gap: tokens.spacing.xs, children: [
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Text(row.note.title.clone())
+                    .weight(tokens.typography.font_weight_semibold),
+                Spacer(flex_grow: 1.0),
+                Text(cx.tr(status)),
+            ]),
+            Text(row.note.site.clone()).color(tokens.colors.text_secondary),
+            Text(row.note.updated_at.clone()).color(tokens.colors.text_secondary),
+        ]),
+    )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+```
+</TabItem>
 
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod models;
+mod state;
+mod widgets;
+mod app;
+mod translations;
+use fission::prelude::*;
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::FieldNotesState, _>::new(app::FieldNotesWorkspace::new())
+        .with_env(translations::create_env()).with_title("Harbour Field Notes")
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<state::FieldNotesState, app::FieldNotesWorkspace> {
+    MobileApp::new(app::FieldNotesWorkspace::new())
+        .with_env(translations::create_env()).with_title("Harbour Field Notes")
+
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) { let _ = mobile_app().run_with_android_app(app_handle); }
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    WebApp::<state::FieldNotesState, _>::new(app::FieldNotesWorkspace::new())
+        .with_env(translations::create_env()).with_title("Harbour Field Notes")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
 </TabItem>
 <TabItem label="preview/lib.rs">
 
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod models;
+mod state;
+mod widgets;
+mod translations;
 #[path = "../preview/fixtures.rs"]
 mod fixtures;
 
-use app::FieldNotesState;
+use state::FieldNotesState;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
@@ -279,7 +350,7 @@ pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     WebApp::<FieldNotesState, _>::new(app::FieldNotesWorkspace::new())
         .with_state_init(|state| state.notes = fixtures::sample_notes())
-        .with_env(app::create_env())
+        .with_env(translations::create_env())
         .with_title("Harbour Field Notes")
         .mount("#fission-web-mount")
         .run()
@@ -291,34 +362,34 @@ pub fn run() -> Result<(), JsValue> {
 <TabItem label="preview/fixtures.rs">
 <!-- fission:file path="preview/fixtures.rs" -->
 ```rust
-use crate::app::{FieldNote, NoteSyncStatus};
+use crate::models::{FieldNote, NoteSyncStatus};
 
 pub fn sample_notes() -> Vec<FieldNote> {
     vec![
         FieldNote {
             id: 501,
-            site: "notes.sample.site.gate".into(),
-            title: "notes.sample.title.gate".into(),
-            observation: "notes.sample.observation.gate".into(),
-            updated_at: "notes.sample.time.today_918".into(),
+            site: "North Yard · Gate 3".into(),
+            title: "Latch catches after the gate closes".into(),
+            observation: "The hinge is clear. Check the strike plate before ordering a replacement.".into(),
+            updated_at: "Today · 09:18".into(),
             revision: 1,
             sync_status: NoteSyncStatus::Synced,
         },
         FieldNote {
             id: 502,
-            site: "notes.sample.site.inverter".into(),
-            title: "notes.sample.title.inverter".into(),
-            observation: "notes.sample.observation.inverter".into(),
-            updated_at: "notes.sample.time.today_852".into(),
+            site: "Rooftop Array · Inverter B".into(),
+            title: "West fan vibration is increasing".into(),
+            observation: "Vibration is strongest at the west fan mount. Recheck it during the afternoon round.".into(),
+            updated_at: "Today · 08:52".into(),
             revision: 4,
             sync_status: NoteSyncStatus::WaitingToSync,
         },
         FieldNote {
             id: 503,
-            site: "notes.sample.site.drain".into(),
-            title: "notes.sample.title.drain".into(),
-            observation: "notes.sample.observation.drain".into(),
-            updated_at: "notes.sample.time.yesterday_436".into(),
+            site: "Loading Dock · Drain 4".into(),
+            title: "Standing water cleared from the grate".into(),
+            observation: "Leaves were cleared from the grate. Check the low corner after the next delivery.".into(),
+            updated_at: "Yesterday · 16:36".into(),
             revision: 2,
             sync_status: NoteSyncStatus::Synced,
         },
@@ -337,7 +408,7 @@ notes.app.subtitle: "Maintenance rounds · North and East sites"
 notes.workspace.a11y: "Field notes workspace"
 notes.device.available: "Available on this device"
 notes.summary.notes: "{count} field notes"
-notes.summary.device: "Saved on this device"
+notes.summary.device: "Current notebook records"
 notes.summary.waiting: "{count} waiting to sync"
 notes.summary.sync: "When a connection is available"
 notes.list.title: "Recent field notes"
@@ -358,6 +429,7 @@ notes.sample.time.today_918: "Today · 9:18 AM"
 notes.sample.time.today_852: "Today · 8:52 AM"
 notes.sample.time.yesterday_436: "Yesterday · 4:36 PM"
 notes.time.just_now: "Just now"
+notes.time.not_committed: "working copy, not stored"
 notes.updated_revision: "Updated {time} · revision {revision}"
 notes.action.open: "Open note"
 notes.detail.title: "Field note: {title}"
@@ -374,16 +446,18 @@ notes.field.title: "Note title"
 notes.field.title.placeholder: "What should the next technician notice?"
 notes.field.observation: "Observation"
 notes.field.observation.placeholder: "Record what you checked, what you found, and what should happen next."
+notes.notice.limit: "This example supports up to 500 notes. No partial list was accepted."
+notes.action.reload_discard: "Reload saved notes and discard this draft"
 notes.notice.ready: "Your field notes are available on this device."
 notes.notice.new_prompt: "Add the site, a short title, and what you observed."
 notes.notice.missing: "That note is no longer available."
 notes.notice.editing: "Edits stay on this device until they can sync."
-notes.notice.required: "Add a site, title, and observation before saving this note."
+notes.notice.required: "Use a site of 1–80 characters, title of 1–160 and observation of 1–4,000."
 notes.notice.fields_complete: "All required fields are present. Save again to store the note."
 notes.notice.no_changes: "No changes to save."
 notes.notice.not_available: "That note is no longer available. Keep the text and choose another note."
 notes.notice.draft_discarded: "The draft was discarded; saved notes are unchanged."
-notes.notice.saved_waiting: "Saved on this device. Items waiting to sync: {count}."
+notes.notice.saved_waiting: "Working copy updated in memory; not yet stored. {count} waiting to sync."
 notes.notice.sqlite_empty: "SQLite returned no field-note result."
 notes.notice.read_failed: "A saved field note could not be read."
 notes.notice.storage_failed: "SQLite could not complete the field-notes operation."
@@ -435,7 +509,7 @@ notes.app.subtitle: "Rondas de mantenimiento · centros norte y este"
 notes.workspace.a11y: "Espacio de notas de campo"
 notes.device.available: "Disponible en este dispositivo"
 notes.summary.notes: "{count} notas de campo"
-notes.summary.device: "Guardadas en este dispositivo"
+notes.summary.device: "Registros del cuaderno actual"
 notes.summary.waiting: "{count} pendientes de sincronizar"
 notes.summary.sync: "Cuando haya conexión"
 notes.list.title: "Notas de campo recientes"
@@ -456,6 +530,7 @@ notes.sample.time.today_918: "Hoy · 9:18"
 notes.sample.time.today_852: "Hoy · 8:52"
 notes.sample.time.yesterday_436: "Ayer · 16:36"
 notes.time.just_now: "Ahora mismo"
+notes.time.not_committed: "copia de trabajo, sin guardar"
 notes.updated_revision: "Actualizada {time} · revisión {revision}"
 notes.action.open: "Abrir nota"
 notes.detail.title: "Nota de campo: {title}"
@@ -472,16 +547,18 @@ notes.field.title: "Título de la nota"
 notes.field.title.placeholder: "¿Qué debería tener en cuenta el siguiente técnico?"
 notes.field.observation: "Observación"
 notes.field.observation.placeholder: "Anota qué revisaste, qué encontraste y cuál debería ser el siguiente paso."
+notes.notice.limit: "Este ejemplo admite hasta 500 notas. No se ha aceptado una lista parcial."
+notes.action.reload_discard: "Recargar las notas guardadas y descartar este borrador"
 notes.notice.ready: "Tus notas de campo están disponibles en este dispositivo."
 notes.notice.new_prompt: "Añade el centro, un título breve y lo que observaste."
 notes.notice.missing: "La nota ya no está disponible."
 notes.notice.editing: "Los cambios permanecen en este dispositivo hasta que puedan sincronizarse."
-notes.notice.required: "Añade el centro, el título y la observación antes de guardar."
+notes.notice.required: "Usa un centro de 1–80 caracteres, título de 1–160 y observación de 1–4000."
 notes.notice.fields_complete: "Ya están todos los campos obligatorios. Guarda de nuevo para conservar la nota."
 notes.notice.no_changes: "No hay cambios que guardar."
 notes.notice.not_available: "La nota ya no está disponible. Conserva el texto y elige otra nota."
 notes.notice.draft_discarded: "Se descartó el borrador; las notas guardadas no han cambiado."
-notes.notice.saved_waiting: "Guardada en este dispositivo. Elementos pendientes de sincronizar: {count}."
+notes.notice.saved_waiting: "Copia en memoria actualizada; aún no se guarda. {count} pendientes de sincronizar."
 notes.notice.sqlite_empty: "SQLite no devolvió un resultado de notas."
 notes.notice.read_failed: "No se pudo leer una nota guardada."
 notes.notice.storage_failed: "SQLite no pudo completar la operación de notas."
@@ -539,31 +616,9 @@ Search belongs to the workspace because it only changes which rows are visible. 
 The save reducer validates the draft, assigns a stable ID to a new note, increments the revision on edit, and keeps sync status truthful. Selecting another row is disabled while a draft is open, so an unfinished observation can’t disappear after an accidental tap.
 
 <Tabs>
-<TabItem label="src/app.rs">
-
-<!-- fission:file path="src/app.rs" -->
+<TabItem label="src/models.rs">
+<!-- fission:file path="src/models.rs" -->
 ```rust
-use fission::i18n::{Locale, TranslationBundle};
-use fission::prelude::*;
-use std::collections::HashMap;
-
-pub fn create_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    for (locale, yaml) in [
-        ("en-US", include_str!("../i18n/en-US.yaml")),
-        ("es-ES", include_str!("../i18n/es-ES.yaml")),
-    ] {
-        let messages: HashMap<String, String> =
-            serde_yaml::from_str(yaml).expect("valid Harbour Field Notes translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(locale),
-            messages,
-        });
-    }
-    env
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NoteSyncStatus {
     Synced,
@@ -590,13 +645,19 @@ pub struct FieldNote {
     pub sync_status: NoteSyncStatus,
 }
 
-fn matches_note(note: &FieldNote, query: &str) -> bool {
+pub fn matches_note(note: &FieldNote, query: &str) -> bool {
     query.is_empty()
         || note.site.to_lowercase().contains(query)
         || note.title.to_lowercase().contains(query)
         || note.observation.to_lowercase().contains(query)
 }
-
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+use crate::models::*;
 #[derive(Clone, Debug, PartialEq)]
 pub struct FieldNotesState {
     pub notes: Vec<FieldNote>,
@@ -651,7 +712,7 @@ pub fn on_select_field_note(state: &mut FieldNotesState, note_id: i64) {
     }
 }
 
-fn start_new_field_note(state: &mut FieldNotesState) {
+pub fn start_new_field_note(state: &mut FieldNotesState) {
     if state.is_editing || state.is_saving {
         return;
     }
@@ -719,7 +780,7 @@ pub fn on_save_field_note(state: &mut FieldNotesState) {
             site,
             title,
             observation,
-            updated_at: "notes.time.just_now".into(),
+            updated_at: String::new(),
             revision: 1,
             sync_status: NoteSyncStatus::WaitingToSync,
         });
@@ -782,220 +843,39 @@ pub fn on_cancel_field_note_draft(state: &mut FieldNotesState) {
     state.has_error = false;
     state.validation_error = false;
 }
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
 
-fission_component! {
-    pub FieldNoteListItem<FieldNotesState> {
-        note: FieldNote,
-        selected: bool,
-        editing: bool,
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(yaml).expect("valid Harbour Field Notes translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
     }
-    view(row, _app, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let selected_bg = if row.selected {
-            tokens.colors.primary_subtle
-        } else {
-            tokens.colors.surface
-        };
-        let selected_border = if row.selected {
-            tokens.colors.primary
-        } else {
-            tokens.colors.border
-        };
-        let status_color = if row.note.sync_status == NoteSyncStatus::WaitingToSync {
-            tokens.colors.warning
-        } else {
-            tokens.colors.success
-        };
-        let status = cx.tr(row.note.sync_status.translation_key());
-        let selected_label = if row.selected {
-            cx.tr("notes.row.selected")
-        } else {
-            cx.tr("notes.action.open")
-        };
-    } =>
-    SemanticsRegion(
-        identifier: Some(format!("field-note.{}", row.note.id)),
-        label: Some(format!("{}, {}", cx.tr(&row.note.title), cx.tr(&row.note.site))),
-        child: Container(
-            Column(gap: tokens.spacing.s, children: [
-                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                    Column(gap: tokens.spacing.xs, children: [
-                        Text(cx.tr(&row.note.title))
-                            .weight(tokens.typography.font_weight_semibold),
-                        Text(cx.tr(&row.note.site))
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Spacer(flex_grow: 1.0),
-                    Text(status).color(status_color),
-                ]),
-                Text(cx.tr(&row.note.updated_at))
-                    .color(tokens.colors.text_secondary),
-                Button(
-                    child: Text(selected_label),
-                    key: format!("open-field-note-{}", row.note.id),
-                    disabled: row.editing || row.selected,
-                    variant: ButtonVariant::Outline,
-                    on_press: with_reducer!(
-                        cx.build,
-                        SelectFieldNote(row.note.id),
-                        on_select_field_note,
-                    ),
-                ).semantics_identifier(format!("field-notes.open.{}", row.note.id)),
-            ]),
-        )
-        .padding_all(tokens.spacing.m)
-        .bg(selected_bg)
-        .border(selected_border, 1.0)
-        .border_radius(tokens.radii.medium),
-    )
+    env
 }
-
-fission_component! {
-    pub FieldNoteDetail<FieldNotesState> { note: FieldNote }
-    view(detail, app, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let waiting = detail.note.sync_status == NoteSyncStatus::WaitingToSync;
-        let heading = cx.tr("notes.detail.title")
-            .replace("{title}", &cx.tr(&detail.note.title));
-    } =>
-    SemanticsRegion(
-        identifier: Some(format!("field-note.detail.{}", detail.note.id)),
-        label: Some(heading),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                    Text(cx.tr(&detail.note.site)).color(tokens.colors.text_secondary),
-                    Spacer(flex_grow: 1.0),
-                    Text(cx.tr(detail.note.sync_status.translation_key())),
-                ]),
-                Text(cx.tr(&detail.note.title))
-                    .weight(tokens.typography.font_weight_bold),
-                Text(cx.tr(&detail.note.observation)),
-                Text(cx.tr("notes.updated_revision")
-                    .replace("{time}", &cx.tr(&detail.note.updated_at))
-                    .replace("{revision}", &detail.note.revision.to_string()))
-                    .color(tokens.colors.text_secondary),
-                if waiting {
-                    Text(cx.tr("notes.detail.saved_waiting"))
-                        .color(tokens.colors.text_secondary)
-                } else {
-                    Text(cx.tr("notes.detail.synced"))
-                        .color(tokens.colors.text_secondary)
-                },
-                Button(
-                    child: Text(cx.tr("notes.action.edit")),
-                    key: format!("edit-field-note-{}", detail.note.id),
-                    disabled: app.is_editing,
-                    variant: ButtonVariant::Primary,
-                    on_press: with_reducer!(
-                        cx.build,
-                        BeginEditFieldNote(detail.note.id),
-                        on_begin_edit_field_note,
-                    ),
-                ).semantics_identifier(format!("field-notes.edit.{}", detail.note.id)),
-            ]),
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
-}
-
-fission_component! {
-    pub FieldNoteEditor<FieldNotesState> { new_note: bool }
-    view(editor, app, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let heading = if editor.new_note {
-            cx.tr("notes.editor.new")
-        } else {
-            cx.tr("notes.editor.edit")
-        };
-        let missing_required_fields = app.site_draft.trim().is_empty()
-            || app.title_draft.trim().is_empty()
-            || app.observation_draft.trim().is_empty();
-        let notice = if app.has_error && app.validation_error && !missing_required_fields {
-            cx.tr("notes.notice.fields_complete")
-        } else if app.has_error {
-            cx.tr("notes.status.needs_attention")
-                .replace("{message}", &cx.tr(&app.notice))
-        } else {
-            cx.tr(&app.notice)
-        };
-    } =>
-    SemanticsRegion(
-        identifier: Some("field-notes.editor".to_string()),
-        label: Some(heading.to_string()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(heading).weight(tokens.typography.font_weight_bold),
-                Text(cx.tr("notes.editor.help"))
-                    .color(tokens.colors.text_secondary),
-                TextInput(
-                    label: Some(cx.tr("notes.field.site").into()),
-                    placeholder: Some(cx.tr("notes.field.site.placeholder").into()),
-                    bind: app.site_draft,
-                    enabled: !app.is_saving,
-                    key: "field-note-site",
-                    semantics_identifier: "field-notes.site".to_string(),
-                ),
-                TextInput(
-                    label: Some(cx.tr("notes.field.title").into()),
-                    placeholder: Some(cx.tr("notes.field.title.placeholder").into()),
-                    bind: app.title_draft,
-                    enabled: !app.is_saving,
-                    key: "field-note-title",
-                    semantics_identifier: "field-notes.title".to_string(),
-                ),
-                TextInput(
-                    label: Some(cx.tr("notes.field.observation").into()),
-                    placeholder: Some(cx.tr("notes.field.observation.placeholder").into()),
-                    multiline: true,
-                    min_lines: Some(5),
-                    max_lines: Some(9),
-                    bind: app.observation_draft,
-                    enabled: !app.is_saving,
-                    key: "field-note-observation",
-                    semantics_identifier: "field-notes.observation".to_string(),
-                ),
-                Text(notice).color(tokens.colors.text_secondary),
-                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                    Button(
-                        child: Text(if app.is_saving {
-                            cx.tr("notes.status.saving")
-                        } else {
-                            cx.tr("notes.action.save")
-                        }),
-                        key: "save-field-note",
-                        variant: ButtonVariant::Primary,
-                        disabled: app.is_saving,
-                        on_press: with_reducer!(
-                            cx.build,
-                            SaveFieldNote,
-                            on_save_field_note,
-                        ),
-                    ).semantics_identifier("field-notes.save".to_string()),
-                    Button(
-                        child: Text(cx.tr("notes.action.cancel")),
-                        key: "cancel-field-note-draft",
-                        variant: ButtonVariant::Outline,
-                        disabled: app.is_saving,
-                        on_press: with_reducer!(
-                            cx.build,
-                            CancelFieldNoteDraft,
-                            on_cancel_field_note_draft,
-                        ),
-                    ).semantics_identifier("field-notes.cancel".to_string()),
-                ]),
-            ]),
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
-}
-
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{models::*, state::*};
+use crate::widgets::*;
 fission_component! {
     pub FieldNotesWorkspace<FieldNotesState> {
         state {
@@ -1101,7 +981,7 @@ fission_component! {
                     ),
                     Grid(
                         columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-                            GridTrack::Points(300.0),
+                            GridTrack::Points(220.0),
                             GridTrack::Fr(1.0),
                         ))],
                         rows: vec![GridTrack::Auto],
@@ -1254,17 +1134,265 @@ fission_component! {
     )
 }
 ```
-
 </TabItem>
+<TabItem label="src/widgets/mod.rs">
+<!-- fission:file path="src/widgets/mod.rs" -->
+```rust
+mod field_note_list_item;
+mod field_note_detail;
+mod field_note_editor;
+pub use field_note_list_item::FieldNoteListItem;
+pub use field_note_detail::FieldNoteDetail;
+pub use field_note_editor::FieldNoteEditor;
+```
+</TabItem>
+<TabItem label="src/widgets/field_note_list_item.rs">
+<!-- fission:file path="src/widgets/field_note_list_item.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{models::*, state::*};
+fission_component! {
+    pub FieldNoteListItem<FieldNotesState> {
+        props {
+        note: FieldNote,
+        selected: bool,
+        editing: bool,
+        }
+    }
+    view(row, _app, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let selected_bg = if row.selected {
+            tokens.colors.primary_subtle
+        } else {
+            tokens.colors.surface
+        };
+        let selected_border = if row.selected {
+            tokens.colors.primary
+        } else {
+            tokens.colors.border
+        };
+        let status_color = if row.note.sync_status == NoteSyncStatus::WaitingToSync {
+            tokens.colors.warning
+        } else {
+            tokens.colors.success
+        };
+        let status = cx.tr(row.note.sync_status.translation_key());
+        let selected_label = if row.selected {
+            cx.tr("notes.row.selected")
+        } else {
+            cx.tr("notes.action.open")
+        };
+    } =>
+    SemanticsRegion(
+        identifier: Some(format!("field-note.{}", row.note.id)),
+        label: Some(format!("{}, {}", row.note.title.clone(), row.note.site.clone())),
+        child: Container(
+            Column(gap: tokens.spacing.s, children: [
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(row.note.title.clone())
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(row.note.site.clone())
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                    Spacer(flex_grow: 1.0),
+                    Text(status).color(status_color),
+                ]),
+                Text(row.note.updated_at.clone())
+                    .color(tokens.colors.text_secondary),
+                Button(
+                    child: Text(selected_label),
+                    key: format!("open-field-note-{}", row.note.id),
+                    disabled: row.editing || row.selected,
+                    variant: ButtonVariant::Outline,
+                    on_press: with_reducer!(
+                        cx.build,
+                        SelectFieldNote(row.note.id),
+                        on_select_field_note,
+                    ),
+                ).semantics_identifier(format!("field-notes.open.{}", row.note.id)),
+            ]),
+        )
+        .padding_all(tokens.spacing.m)
+        .bg(selected_bg)
+        .border(selected_border, 1.0)
+        .border_radius(tokens.radii.medium),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/widgets/field_note_detail.rs">
+<!-- fission:file path="src/widgets/field_note_detail.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{models::*, state::*};
+fission_component! {
+    pub FieldNoteDetail<FieldNotesState> { props { note: FieldNote } }
+    view(detail, app, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let waiting = detail.note.sync_status == NoteSyncStatus::WaitingToSync;
+        let heading = cx.tr("notes.detail.title")
+            .replace("{title}", &detail.note.title.clone());
+    } =>
+    SemanticsRegion(
+        identifier: Some(format!("field-note.detail.{}", detail.note.id)),
+        label: Some(heading),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Text(detail.note.site.clone()).color(tokens.colors.text_secondary),
+                    Spacer(flex_grow: 1.0),
+                    Text(cx.tr(detail.note.sync_status.translation_key())),
+                ]),
+                Text(detail.note.title.clone())
+                    .weight(tokens.typography.font_weight_bold),
+                Text(detail.note.observation.clone()),
+                Text(cx.tr("notes.updated_revision")
+                    .replace("{time}", &if detail.note.updated_at.is_empty() { cx.tr("notes.time.not_committed") } else { detail.note.updated_at.clone() })
+                    .replace("{revision}", &detail.note.revision.to_string()))
+                    .color(tokens.colors.text_secondary),
+                if waiting {
+                    Text(cx.tr("notes.detail.saved_waiting"))
+                        .color(tokens.colors.text_secondary)
+                } else {
+                    Text(cx.tr("notes.detail.synced"))
+                        .color(tokens.colors.text_secondary)
+                },
+                Button(
+                    child: Text(cx.tr("notes.action.edit")),
+                    key: format!("edit-field-note-{}", detail.note.id),
+                    disabled: app.is_editing,
+                    variant: ButtonVariant::Primary,
+                    on_press: with_reducer!(
+                        cx.build,
+                        BeginEditFieldNote(detail.note.id),
+                        on_begin_edit_field_note,
+                    ),
+                ).semantics_identifier(format!("field-notes.edit.{}", detail.note.id)),
+            ]),
+        )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.large),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/widgets/field_note_editor.rs">
+<!-- fission:file path="src/widgets/field_note_editor.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{models::*, state::*};
+fission_component! {
+    pub FieldNoteEditor<FieldNotesState> { props { new_note: bool } }
+    view(editor, app, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let heading = if editor.new_note {
+            cx.tr("notes.editor.new")
+        } else {
+            cx.tr("notes.editor.edit")
+        };
+        let missing_required_fields = app.site_draft.trim().is_empty()
+            || app.title_draft.trim().is_empty()
+            || app.observation_draft.trim().is_empty();
+        let notice = if app.has_error && app.validation_error && !missing_required_fields {
+            cx.tr("notes.notice.fields_complete")
+        } else if app.has_error {
+            cx.tr("notes.status.needs_attention")
+                .replace("{message}", &cx.tr(&app.notice))
+        } else {
+            cx.tr(&app.notice)
+        };
+    } =>
+    SemanticsRegion(
+        identifier: Some("field-notes.editor".to_string()),
+        label: Some(heading.to_string()),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Text(heading).weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("notes.editor.help"))
+                    .color(tokens.colors.text_secondary),
+                TextInput(
+                    label: Some(cx.tr("notes.field.site").into()),
+                    placeholder: Some(cx.tr("notes.field.site.placeholder").into()),
+                    bind: app.site_draft,
+                    enabled: !app.is_saving,
+                    key: "field-note-site",
+                    semantics_identifier: "field-notes.site".to_string(),
+                ),
+                TextInput(
+                    label: Some(cx.tr("notes.field.title").into()),
+                    placeholder: Some(cx.tr("notes.field.title.placeholder").into()),
+                    bind: app.title_draft,
+                    enabled: !app.is_saving,
+                    key: "field-note-title",
+                    semantics_identifier: "field-notes.title".to_string(),
+                ),
+                TextInput(
+                    label: Some(cx.tr("notes.field.observation").into()),
+                    placeholder: Some(cx.tr("notes.field.observation.placeholder").into()),
+                    multiline: true,
+                    min_lines: Some(5),
+                    max_lines: Some(9),
+                    bind: app.observation_draft,
+                    enabled: !app.is_saving,
+                    key: "field-note-observation",
+                    semantics_identifier: "field-notes.observation".to_string(),
+                ),
+                Text(notice).color(tokens.colors.text_secondary),
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Button(
+                        child: Text(if app.is_saving {
+                            cx.tr("notes.status.saving")
+                        } else {
+                            cx.tr("notes.action.save")
+                        }),
+                        key: "save-field-note",
+                        variant: ButtonVariant::Primary,
+                        disabled: app.is_saving,
+                        on_press: with_reducer!(
+                            cx.build,
+                            SaveFieldNote,
+                            on_save_field_note,
+                        ),
+                    ).semantics_identifier("field-notes.save".to_string()),
+                    Button(
+                        child: Text(cx.tr("notes.action.cancel")),
+                        key: "cancel-field-note-draft",
+                        variant: ButtonVariant::Outline,
+                        disabled: app.is_saving,
+                        on_press: with_reducer!(
+                            cx.build,
+                            CancelFieldNoteDraft,
+                            on_cancel_field_note_draft,
+                        ),
+                    ).semantics_identifier("field-notes.cancel".to_string()),
+                ]),
+            ]),
+        )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.large),
+    )
+}
+```
+</TabItem>
+
 <TabItem label="preview/lib.rs">
 
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod models;
+mod state;
+mod widgets;
+mod translations;
 #[path = "../preview/fixtures.rs"]
 mod fixtures;
 
-use app::FieldNotesState;
+use state::FieldNotesState;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
@@ -1272,7 +1400,7 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     WebApp::<FieldNotesState, _>::new(app::FieldNotesWorkspace::new())
-        .with_env(app::create_env())
+        .with_env(translations::create_env())
         .with_state_init(|state| {
             state.notes = fixtures::sample_notes();
             state.selected_note_id = Some(501);
@@ -1300,21 +1428,741 @@ Search for “inverter”, edit the observation, and save it. Then choose **New 
 <!-- fission:step id="sqlite-and-sync" -->
 ## Persist each revision and ignore stale sync results
 
-The browser preview keeps edits in memory and starts with three sample site visits. The native app should start with an empty list and load notes from SQLite; sample visits belong in an explicit demo mode, not in a technician’s work history. In the native app, **Saved on this device** means SQLite committed the note. A network effect should only start after that commit succeeds. This tutorial leaves that effect and its server endpoint out, so notes remain waiting to sync. If the local write fails, keep the editor open and report the storage error; don’t say the note was saved.
+The earlier editing checkpoint uses sample visits in memory. This final checkpoint starts empty and loads the real database on both Web and native targets; sample visits belong in an explicit demo mode, not in a technician’s work history. In the native app, **Saved on this device** means SQLite committed the note. A network effect should only start after that commit succeeds. This tutorial leaves that effect and its server endpoint out, so notes remain waiting to sync. If the local write fails, keep the editor open and report the storage error; don’t say the note was saved.
 
-Start with a migration for the note ID, worksite, title, observation, revision, and sync status. The revision matters: if revision 5 is sent while the technician writes revision 6, a late response for revision 5 must not mark the newer text as synced. SQLite stores `updated_at` as UTC text; format it for the device’s locale before showing it. The browser preview uses shorter display strings to keep the example focused on editing and sync state.
+SQLite allocates each durable note ID. The editor snapshots an optional existing ID for updates; new notes do not derive their identity from a list index or the current maximum ID. Start with a migration for the worksite, title, observation, revision and sync status. The revision matters: if revision 5 is sent while the technician writes revision 6, a late response for revision 5 must not mark the newer text as synced. SQLite stores `updated_at` as UTC text; format it for the device’s locale before showing it. The earlier preview uses shorter display strings. Database timestamps are UTC; this compact example leaves them as UTC rather than pretending an untranslated local time was produced.
 
 <Tabs>
-<TabItem label="Create the table and run the migration">
+<TabItem label="src/models.rs">
+<!-- fission:file path="src/models.rs" -->
+```rust
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NoteSyncStatus {
+    Synced,
+    WaitingToSync,
+}
 
+impl NoteSyncStatus {
+    pub fn translation_key(&self) -> &'static str {
+        match self {
+            Self::Synced => "notes.sync.synced",
+            Self::WaitingToSync => "notes.sync.waiting",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FieldNote {
+    pub id: i64,
+    pub site: String,
+    pub title: String,
+    pub observation: String,
+    pub updated_at: String,
+    pub revision: u32,
+    pub sync_status: NoteSyncStatus,
+}
+
+pub fn matches_note(note: &FieldNote, query: &str) -> bool {
+    query.is_empty()
+        || note.site.to_lowercase().contains(query)
+        || note.title.to_lowercase().contains(query)
+        || note.observation.to_lowercase().contains(query)
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct PendingFieldNote {
+    pub target_id: Option<i64>,
+    pub site: String,
+    pub title: String,
+    pub observation: String,
+    pub revision: u32,
+}
+
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
 ```rust
 use fission::prelude::*;
+use crate::models::*;
+#[derive(Clone, Debug, PartialEq)]
+pub struct FieldNotesState {
+    pub notes: Vec<FieldNote>,
+    pub selected_note_id: Option<i64>,
+        pub pending_note: Option<PendingFieldNote>,
+    pub site_draft: String,
+    pub title_draft: String,
+    pub observation_draft: String,
+    pub is_editing: bool,
+    pub is_new_note: bool,
+    pub is_saving: bool,
+    pub is_loading: bool,
+    pub requires_reload: bool,
+    pub notice: String,
+    pub has_error: bool,
+    pub validation_error: bool,
+}
+
+impl Default for FieldNotesState {
+    fn default() -> Self {
+        Self {
+            notes: Vec::new(),
+            selected_note_id: None,
+            pending_note: None,
+            site_draft: String::new(),
+            title_draft: String::new(),
+            observation_draft: String::new(),
+            is_editing: false,
+            is_new_note: false,
+            is_saving: false,
+            is_loading: true,
+            requires_reload: false,
+            notice: "notes.notice.ready".into(),
+            has_error: false,
+            validation_error: false,
+        }
+    }
+}
+
+impl GlobalState for FieldNotesState {}
+
+#[fission_reducer(SelectFieldNote)]
+pub fn on_select_field_note(state: &mut FieldNotesState, note_id: i64) {
+    if state.is_editing || state.is_saving {
+        return;
+    }
+    if state.notes.iter().any(|note| note.id == note_id) {
+        state.selected_note_id = Some(note_id);
+        state.notice.clear();
+        state.has_error = false;
+        state.validation_error = false;
+    }
+}
+
+pub fn start_new_field_note(state: &mut FieldNotesState) {
+    if state.is_editing || state.is_saving {
+        return;
+    }
+    state.site_draft.clear();
+    state.title_draft.clear();
+    state.observation_draft.clear();
+    state.pending_note = None;
+    state.is_editing = true;
+    state.is_new_note = true;
+    state.notice = "notes.notice.new_prompt".into();
+    state.has_error = false;
+    state.validation_error = false;
+}
+
+#[fission_reducer(BeginNewFieldNote)]
+pub fn on_begin_new_field_note(
+    state: &mut FieldNotesState,
+    _ctx: &mut ReducerContext<FieldNotesState>,
+) {
+    start_new_field_note(state);
+}
+
+#[fission_reducer(BeginEditFieldNote)]
+pub fn on_begin_edit_field_note(state: &mut FieldNotesState, note_id: i64) {
+    if state.is_editing || state.is_saving {
+        return;
+    }
+    let Some(note) = state.notes.iter().find(|note| note.id == note_id).cloned() else {
+        state.notice = "notes.notice.missing".into();
+        state.has_error = true;
+        state.validation_error = false;
+        return;
+    };
+    state.selected_note_id = Some(note_id);
+    state.site_draft = note.site;
+    state.title_draft = note.title;
+    state.observation_draft = note.observation;
+    state.is_editing = true;
+    state.is_new_note = false;
+    state.notice = "notes.notice.editing".into();
+    state.has_error = false;
+    state.validation_error = false;
+}
+
+#[fission_reducer(CancelFieldNoteDraft)]
+pub fn on_cancel_field_note_draft(state: &mut FieldNotesState) {
+    if state.is_saving {
+        return;
+    }
+    state.site_draft.clear();
+    state.title_draft.clear();
+    state.observation_draft.clear();
+    state.pending_note = None;
+    state.is_editing = false;
+    state.is_new_note = false;
+    state.notice = "notes.notice.draft_discarded".into();
+    state.has_error = false;
+    state.validation_error = false;
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(yaml).expect("valid Harbour Field Notes translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{models::*, state::*};
+use crate::widgets::*;
+use crate::storage::*;
+fission_component! {
+    pub FieldNotesWorkspace<FieldNotesState> {
+        state {
+            search: String = String::new(),
+        }
+    }
+    view(workspace, app, cx) {
+        let _startup = cx.bind(PrepareFieldNotes, reduce!(prepare_field_notes));
+        let tokens = &cx.view.env().theme.tokens;
+        let query = workspace.search.trim().to_lowercase();
+        let visible_notes: Vec<FieldNote> = app.notes.iter()
+            .filter(|note| matches_note(note, &query))
+            .cloned()
+            .collect();
+        let selected_note = visible_notes.iter()
+            .find(|note| Some(note.id) == app.selected_note_id)
+            .or_else(|| visible_notes.first())
+            .cloned();
+        let pending_count = app.notes.iter()
+            .filter(|note| note.sync_status == NoteSyncStatus::WaitingToSync)
+            .count();
+        let notice_message = if let Some((key, count)) = app.notice.split_once('|') {
+            cx.tr(key).replace("{count}", count)
+        } else {
+            cx.tr(&app.notice)
+        };
+        let notice = if app.has_error {
+            cx.tr("notes.status.needs_attention").replace("{message}", &notice_message)
+        } else {
+            notice_message
+        };
+    } =>
+    SemanticsRegion(
+        identifier: Some("harbour-field-notes".to_string()),
+        label: Some(cx.tr("notes.app.title")),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            semantic_label: Some(cx.tr("notes.workspace.a11y")),
+            child: Container(
+                Column(gap: tokens.spacing.l, children: [
+                    if app.requires_reload {
+                        Button(
+                            child: Text(cx.tr("notes.action.reload_discard")),
+                            key: "reload-field-notes",
+                            on_press: reduce {
+                                app.is_editing = false;
+                                app.is_new_note = false;
+                                app.site_draft.clear();
+                                app.title_draft.clear();
+                                app.observation_draft.clear();
+                                app.pending_note = None;
+                                prepare_field_notes(app, PrepareFieldNotes, cx);
+                            },
+                        )
+                    },
+                    Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text(cx.tr("notes.app.title"))
+                                .weight(tokens.typography.font_weight_bold),
+                            Text(cx.tr("notes.app.subtitle"))
+                                .color(tokens.colors.text_secondary),
+                        ]),
+                        Spacer(flex_grow: 1.0),
+                        Button(
+                            child: Text(if app.is_loading {
+                                cx.tr("notes.action.loading")
+                            } else if app.has_error && app.notes.is_empty() {
+                                cx.tr("notes.status.storage_unavailable")
+                            } else {
+                                cx.tr("notes.action.new")
+                            }),
+                            key: "new-field-note",
+                            disabled: app.is_editing
+                                || app.is_saving
+                                || app.is_loading
+                                || app.requires_reload
+                                || (app.has_error && app.notes.is_empty()),
+                            variant: ButtonVariant::Primary,
+                            on_press: reduce {
+                                workspace.search.clear();
+                                start_new_field_note(app);
+                            },
+                        ).semantics_identifier("field-notes.new".to_string()),
+                    ]),
+                    Grid(
+                        columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                            GridTrack::Points(150.0),
+                            GridTrack::Fr(1.0),
+                        ))],
+                        rows: vec![GridTrack::Auto],
+                        column_gap: tokens.spacing.m,
+                        row_gap: tokens.spacing.s,
+                        children: [
+                            Column(children: [
+                                Text(if app.is_loading {
+                                    cx.tr("notes.action.loading")
+                                } else if app.has_error && app.notes.is_empty() {
+                                    cx.tr("notes.status.notes_unavailable")
+                                } else {
+                                    cx.tr("notes.summary.notes")
+                                        .replace("{count}", &app.notes.len().to_string())
+                                })
+                                    .weight(tokens.typography.font_weight_semibold),
+                                Text(cx.tr("notes.status.on_device"))
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Column(children: [
+                                Text(if app.is_loading {
+                                    cx.tr("notes.status.reading_records")
+                                } else {
+                                    cx.tr("notes.status.waiting_count")
+                                        .replace("{count}", &pending_count.to_string())
+                                })
+                                    .weight(tokens.typography.font_weight_semibold),
+                                Text(cx.tr("notes.status.waiting_detail"))
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                        ],
+                    ),
+                    Grid(
+                        columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                            GridTrack::Points(220.0),
+                            GridTrack::Fr(1.0),
+                        ))],
+                        rows: vec![GridTrack::Auto],
+                        column_gap: tokens.spacing.l,
+                        row_gap: tokens.spacing.l,
+                        children: [
+                            Column(gap: tokens.spacing.m, children: [
+                                if app.is_editing {
+                                    Text(cx.tr("notes.status.finish_draft"))
+                                        .color(tokens.colors.text_secondary)
+                                } else {
+                                    TextInput(
+                                        label: Some(cx.tr("notes.field.search").into()),
+                                        placeholder: Some(cx.tr("notes.field.search.placeholder").into()),
+                                        bind: workspace.search,
+                                        key: "field-notes-search",
+                                        semantics_identifier: "field-notes.search".to_string(),
+                                    )
+                                },
+                                Column(gap: tokens.spacing.s, children: [
+                                    Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                                        Text(cx.tr("notes.status.recent"))
+                                            .weight(tokens.typography.font_weight_semibold),
+                                        Spacer(flex_grow: 1.0),
+                                        Text(cx.tr("notes.status.shown_waiting")
+                                            .replace("{shown}", &visible_notes.len().to_string())
+                                            .replace("{waiting}", &pending_count.to_string()))
+                                            .color(tokens.colors.text_secondary),
+                                    ]),
+                                    if app.is_loading {
+                                        Container(
+                                            Column(gap: tokens.spacing.s, children: [
+                                                Widget::from(Spinner {
+                                                    id: WidgetId::explicit("field-notes-loading"),
+                                                    color: None,
+                                                    motion: Some(SpinnerMotion::Default),
+                                                    label: Some(cx.tr("notes.status.loading_open").into()),
+                                                }),
+                                                Text(cx.tr("notes.status.loading_open"))
+                                                    .color(tokens.colors.text_secondary),
+                                            ]),
+                                        )
+                                        .padding_all(tokens.spacing.m)
+                                        .bg(tokens.colors.surface)
+                                        .border(tokens.colors.border, 1.0)
+                                        .border_radius(tokens.radii.medium)
+                                    } else if app.has_error && app.notes.is_empty() {
+                                        Container(
+                                            Column(gap: tokens.spacing.s, children: [
+                                                Text(cx.tr("notes.error.open")),
+                                                Text(cx.tr("notes.error.restore_access"))
+                                                    .color(tokens.colors.text_secondary),
+                                            ]),
+                                        )
+                                        .padding_all(tokens.spacing.m)
+                                        .bg(tokens.colors.surface)
+                                        .border(tokens.colors.border, 1.0)
+                                        .border_radius(tokens.radii.medium)
+                                    } else if app.notes.is_empty() {
+                                        Container(
+                                            Column(gap: tokens.spacing.s, children: [
+                                                Text(cx.tr("notes.empty.title")),
+                                                Text(cx.tr("notes.empty.help"))
+                                                    .color(tokens.colors.text_secondary),
+                                            ]),
+                                        )
+                                        .padding_all(tokens.spacing.m)
+                                        .bg(tokens.colors.surface)
+                                        .border(tokens.colors.border, 1.0)
+                                        .border_radius(tokens.radii.medium)
+                                    } else if visible_notes.is_empty() {
+                                        Container(
+                                            Column(gap: tokens.spacing.s, children: [
+                                                Text(cx.tr("notes.empty.search")),
+                                                Text(cx.tr("notes.empty.search_help"))
+                                                    .color(tokens.colors.text_secondary),
+                                                Button(
+                                                    child: Text(cx.tr("notes.action.clear_search")),
+                                                    key: "clear-field-note-search",
+                                                    variant: ButtonVariant::Outline,
+                                                    on_press: reduce { workspace.search.clear(); },
+                                                ),
+                                            ]),
+                                        )
+                                        .padding_all(tokens.spacing.m)
+                                        .bg(tokens.colors.surface)
+                                        .border(tokens.colors.border, 1.0)
+                                        .border_radius(tokens.radii.medium)
+                                    } else {
+                                        Column(gap: tokens.spacing.s, children: [
+                                            for note in visible_notes.iter() {
+                                                FieldNoteListItem(
+                                                    note.clone(),
+                                                    selected_note.as_ref()
+                                                        .map(|selected| selected.id == note.id)
+                                                        .unwrap_or(false)
+                                                        && !app.is_new_note,
+                                                    app.is_editing || app.is_saving || app.requires_reload,
+                                                    key: note.id,
+                                                ).id(WidgetId::explicit(&format!("field-note.{}", note.id)))
+                                            },
+                                        ])
+                                    },
+                                ]),
+                            ]),
+                            Column(gap: tokens.spacing.m, children: [
+                                if app.is_editing {
+                                    FieldNoteEditor(app.is_new_note)
+                                } else if app.is_loading {
+                                    Text(cx.tr("notes.status.wait_for_load"))
+                                        .color(tokens.colors.text_secondary)
+                                } else if app.has_error && app.notes.is_empty() {
+                                    Text(cx.tr("notes.status.storage_unavailable_detail"))
+                                        .color(tokens.colors.text_secondary)
+                                } else if visible_notes.is_empty() {
+                                    Container(
+                                        Column(gap: tokens.spacing.s, children: [
+                                            Text(cx.tr("notes.empty.open_title")),
+                                            Text(if app.notes.is_empty() {
+                                                cx.tr("notes.empty.first_note")
+                                            } else {
+                                                cx.tr("notes.empty.clear_search")
+                                            })
+                                                .color(tokens.colors.text_secondary),
+                                        ]),
+                                    )
+                                    .padding_all(tokens.spacing.l)
+                                    .bg(tokens.colors.surface)
+                                    .border(tokens.colors.border, 1.0)
+                                    .border_radius(tokens.radii.large)
+                                } else if let Some(note) = selected_note.clone() {
+                                    FieldNoteDetail(note)
+                                } else {
+                                    Text(cx.tr("notes.empty.select_detail"))
+                                        .color(tokens.colors.text_secondary)
+                                },
+                                if !app.is_editing {
+                                    Text(notice).color(tokens.colors.text_secondary)
+                                },
+                            ]),
+                        ],
+                    ),
+                ]),
+            )
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.background),
+        ),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/widgets/mod.rs">
+<!-- fission:file path="src/widgets/mod.rs" -->
+```rust
+mod field_note_list_item;
+mod field_note_detail;
+mod field_note_editor;
+pub use field_note_list_item::FieldNoteListItem;
+pub use field_note_detail::FieldNoteDetail;
+pub use field_note_editor::FieldNoteEditor;
+```
+</TabItem>
+<TabItem label="src/widgets/field_note_list_item.rs">
+<!-- fission:file path="src/widgets/field_note_list_item.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{models::*, state::*};
+fission_component! {
+    pub FieldNoteListItem<FieldNotesState> {
+        props {
+        note: FieldNote,
+        selected: bool,
+        editing: bool,
+        }
+    }
+    view(row, _app, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let selected_bg = if row.selected {
+            tokens.colors.primary_subtle
+        } else {
+            tokens.colors.surface
+        };
+        let selected_border = if row.selected {
+            tokens.colors.primary
+        } else {
+            tokens.colors.border
+        };
+        let status_color = if row.note.sync_status == NoteSyncStatus::WaitingToSync {
+            tokens.colors.warning
+        } else {
+            tokens.colors.success
+        };
+        let status = cx.tr(row.note.sync_status.translation_key());
+        let selected_label = if row.selected {
+            cx.tr("notes.row.selected")
+        } else {
+            cx.tr("notes.action.open")
+        };
+    } =>
+    SemanticsRegion(
+        identifier: Some(format!("field-note.{}", row.note.id)),
+        label: Some(format!("{}, {}", row.note.title.clone(), row.note.site.clone())),
+        child: Container(
+            Column(gap: tokens.spacing.s, children: [
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(row.note.title.clone())
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(row.note.site.clone())
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                    Spacer(flex_grow: 1.0),
+                    Text(status).color(status_color),
+                ]),
+                Text(row.note.updated_at.clone())
+                    .color(tokens.colors.text_secondary),
+                Button(
+                    child: Text(selected_label),
+                    key: format!("open-field-note-{}", row.note.id),
+                    disabled: row.editing || row.selected,
+                    variant: ButtonVariant::Outline,
+                    on_press: with_reducer!(
+                        cx.build,
+                        SelectFieldNote(row.note.id),
+                        on_select_field_note,
+                    ),
+                ).semantics_identifier(format!("field-notes.open.{}", row.note.id)),
+            ]),
+        )
+        .padding_all(tokens.spacing.m)
+        .bg(selected_bg)
+        .border(selected_border, 1.0)
+        .border_radius(tokens.radii.medium),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/widgets/field_note_detail.rs">
+<!-- fission:file path="src/widgets/field_note_detail.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{models::*, state::*};
+fission_component! {
+    pub FieldNoteDetail<FieldNotesState> { props { note: FieldNote } }
+    view(detail, app, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let waiting = detail.note.sync_status == NoteSyncStatus::WaitingToSync;
+        let heading = cx.tr("notes.detail.title")
+            .replace("{title}", &detail.note.title.clone());
+    } =>
+    SemanticsRegion(
+        identifier: Some(format!("field-note.detail.{}", detail.note.id)),
+        label: Some(heading),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Text(detail.note.site.clone()).color(tokens.colors.text_secondary),
+                    Spacer(flex_grow: 1.0),
+                    Text(cx.tr(detail.note.sync_status.translation_key())),
+                ]),
+                Text(detail.note.title.clone())
+                    .weight(tokens.typography.font_weight_bold),
+                Text(detail.note.observation.clone()),
+                Text(cx.tr("notes.updated_revision")
+                    .replace("{time}", &if detail.note.updated_at.is_empty() { cx.tr("notes.time.not_committed") } else { detail.note.updated_at.clone() })
+                    .replace("{revision}", &detail.note.revision.to_string()))
+                    .color(tokens.colors.text_secondary),
+                if waiting {
+                    Text(cx.tr("notes.detail.saved_waiting"))
+                        .color(tokens.colors.text_secondary)
+                } else {
+                    Text(cx.tr("notes.detail.synced"))
+                        .color(tokens.colors.text_secondary)
+                },
+                Button(
+                    child: Text(cx.tr("notes.action.edit")),
+                    key: format!("edit-field-note-{}", detail.note.id),
+                    disabled: app.is_editing || app.is_saving || app.requires_reload,
+                    variant: ButtonVariant::Primary,
+                    on_press: with_reducer!(
+                        cx.build,
+                        BeginEditFieldNote(detail.note.id),
+                        on_begin_edit_field_note,
+                    ),
+                ).semantics_identifier(format!("field-notes.edit.{}", detail.note.id)),
+            ]),
+        )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.large),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/widgets/field_note_editor.rs">
+<!-- fission:file path="src/widgets/field_note_editor.rs" -->
+```rust
+use fission::prelude::*;
+use crate::storage::{SaveFieldNoteToSqlite, save_field_note_to_sqlite};
+use crate::{models::*, state::*};
+fission_component! {
+    pub FieldNoteEditor<FieldNotesState> { props { new_note: bool } }
+    view(editor, app, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let heading = if editor.new_note {
+            cx.tr("notes.editor.new")
+        } else {
+            cx.tr("notes.editor.edit")
+        };
+        let missing_required_fields = app.site_draft.trim().is_empty()
+            || app.title_draft.trim().is_empty()
+            || app.observation_draft.trim().is_empty();
+        let notice = if app.has_error && app.validation_error && !missing_required_fields {
+            cx.tr("notes.notice.fields_complete")
+        } else if app.has_error {
+            cx.tr("notes.status.needs_attention")
+                .replace("{message}", &cx.tr(&app.notice))
+        } else {
+            cx.tr(&app.notice)
+        };
+    } =>
+    SemanticsRegion(
+        identifier: Some("field-notes.editor".to_string()),
+        label: Some(heading.to_string()),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Text(heading).weight(tokens.typography.font_weight_bold),
+                Text(cx.tr("notes.editor.help"))
+                    .color(tokens.colors.text_secondary),
+                TextInput(
+                    label: Some(cx.tr("notes.field.site").into()),
+                    placeholder: Some(cx.tr("notes.field.site.placeholder").into()),
+                    bind: app.site_draft,
+                    enabled: !app.is_saving && !app.requires_reload,
+                    key: "field-note-site",
+                    semantics_identifier: "field-notes.site".to_string(),
+                ),
+                TextInput(
+                    label: Some(cx.tr("notes.field.title").into()),
+                    placeholder: Some(cx.tr("notes.field.title.placeholder").into()),
+                    bind: app.title_draft,
+                    enabled: !app.is_saving,
+                    key: "field-note-title",
+                    semantics_identifier: "field-notes.title".to_string(),
+                ),
+                TextInput(
+                    label: Some(cx.tr("notes.field.observation").into()),
+                    placeholder: Some(cx.tr("notes.field.observation.placeholder").into()),
+                    multiline: true,
+                    min_lines: Some(5),
+                    max_lines: Some(9),
+                    bind: app.observation_draft,
+                    enabled: !app.is_saving,
+                    key: "field-note-observation",
+                    semantics_identifier: "field-notes.observation".to_string(),
+                ),
+                Text(notice).color(tokens.colors.text_secondary),
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Button(
+                        child: Text(if app.is_saving {
+                            cx.tr("notes.status.saving")
+                        } else {
+                            cx.tr("notes.action.save")
+                        }),
+                        key: "save-field-note",
+                        variant: ButtonVariant::Primary,
+                        disabled: app.is_saving || app.requires_reload,
+                        on_press: with_reducer!(
+                            cx.build,
+                            SaveFieldNoteToSqlite,
+                            save_field_note_to_sqlite,
+                        ),
+                    ).semantics_identifier("field-notes.save".to_string()),
+                    Button(
+                        child: Text(cx.tr("notes.action.cancel")),
+                        key: "cancel-field-note-draft",
+                        variant: ButtonVariant::Outline,
+                        disabled: app.is_saving,
+                        on_press: with_reducer!(
+                            cx.build,
+                            CancelFieldNoteDraft,
+                            on_cancel_field_note_draft,
+                        ),
+                    ).semantics_identifier("field-notes.cancel".to_string()),
+                ]),
+            ]),
+        )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.large),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/storage.rs">
+<!-- fission:file path="src/storage.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{models::*, state::*};
 
 #[fission_reducer(PrepareFieldNotes)]
 pub fn prepare_field_notes(
     _state: &mut FieldNotesState,
     ctx: &mut ReducerContext<FieldNotesState>,
 ) {
+    if _state.is_saving { return; }
     _state.is_loading = true;
     _state.has_error = false;
     let mut migrations = SqlMigrations::new();
@@ -1334,28 +2182,25 @@ pub fn prepare_field_notes(
             ON field_notes(site, updated_at DESC);",
     )).expect("migration versions are unique");
 
+    let loaded = ctx.effects.bind(LoadFieldNotes, reduce!(load_field_notes));
+    let failed = ctx.effects.bind(FieldNotesStorageFailed, reduce!(field_notes_storage_failed));
     ctx.effects.sql().migrate(migrations)
-        .on_ok(ActionEnvelope::from(LoadFieldNotes))
-        .on_err(ActionEnvelope::from(FieldNotesStorageFailed));
+        .on_ok(loaded).on_err(failed);
 }
-```
 
-</TabItem>
-<TabItem label="Load the saved notes">
-
-```rust
 #[fission_reducer(LoadFieldNotes)]
 pub fn load_field_notes(
     _state: &mut FieldNotesState,
     ctx: &mut ReducerContext<FieldNotesState>,
 ) {
+    let loaded = ctx.effects.bind(FieldNotesLoaded, reduce!(field_notes_loaded));
+    let failed = ctx.effects.bind(FieldNotesStorageFailed, reduce!(field_notes_storage_failed));
     ctx.effects.sql().query(SqlStatement::new(
         "SELECT id, site, title, observation, revision, sync_status, updated_at
          FROM field_notes
-         ORDER BY updated_at DESC, id DESC",
+         ORDER BY updated_at DESC, id DESC LIMIT 501",
     ))
-    .on_ok(ActionEnvelope::from(FieldNotesLoaded))
-    .on_err(ActionEnvelope::from(FieldNotesStorageFailed));
+    .on_ok(loaded).on_err(failed);
 }
 
 #[fission_reducer(FieldNotesLoaded)]
@@ -1366,9 +2211,17 @@ pub fn field_notes_loaded(
     let Some(rows) = ctx.input.sql_rows() else {
         state.is_loading = false;
         state.has_error = true;
+        state.requires_reload = true;
         state.notice = "notes.notice.sqlite_empty".into();
         return;
     };
+    if rows.rows.len() > 500 {
+        state.is_loading = false;
+        state.has_error = true;
+        state.requires_reload = true;
+        state.notice = "notes.notice.limit".into();
+        return;
+    }
     let loaded_notes: Result<Vec<FieldNote>, String> = rows.rows.iter().map(|row| {
         let id = row.get::<i64>("id").map_err(|error| error.to_string())?;
         let site = row.get::<String>("site").map_err(|error| error.to_string())?;
@@ -1405,17 +2258,14 @@ pub fn field_notes_loaded(
             state.is_loading = false;
             state.has_error = true;
             state.validation_error = false;
+            state.requires_reload = true;
             state.notice = "notes.notice.read_failed".into();
             return;
         }
     };
-    state.next_note_id = state.notes.iter()
-        .map(|note| note.id)
-        .max()
-        .unwrap_or(0)
-        .saturating_add(1);
     state.is_loading = false;
     state.has_error = false;
+    state.requires_reload = false;
 
     if let Some(note) = state.notes.first() {
         state.selected_note_id = Some(note.id);
@@ -1429,114 +2279,108 @@ pub fn field_notes_storage_failed(
 ) {
     state.is_loading = false;
     state.is_saving = false;
-    state.pending_note = None;
+    state.requires_reload = true;
     state.has_error = true;
     state.validation_error = false;
     state.notice = "notes.notice.storage_failed".into();
 }
-```
 
-</TabItem>
-<TabItem label="Write a local revision">
-
-```rust
 #[fission_reducer(SaveFieldNoteToSqlite)]
 pub fn save_field_note_to_sqlite(
     state: &mut FieldNotesState,
     ctx: &mut ReducerContext<FieldNotesState>,
 ) {
-    if state.is_saving || !state.is_editing {
-        return;
-    }
-
-    let site = state.site_draft.trim().to_string();
-    let title = state.title_draft.trim().to_string();
-    let observation = state.observation_draft.trim().to_string();
-    if site.is_empty() || title.is_empty() || observation.is_empty() {
+    if state.is_saving || state.is_loading || state.requires_reload || !state.is_editing { return; }
+    let site = state.site_draft.trim().to_owned();
+    let title = state.title_draft.trim().to_owned();
+    let observation = state.observation_draft.trim().to_owned();
+    if site.is_empty() || title.is_empty() || observation.is_empty()
+        || site.chars().count() > 80 || title.chars().count() > 160 || observation.chars().count() > 4000 {
         state.notice = "notes.notice.required".into();
         state.has_error = true;
         state.validation_error = true;
         return;
     }
 
-    let is_new_note = state.is_new_note;
-    let (note_id, revision) = if is_new_note {
-        (state.next_note_id, 1)
-    } else {
-        let Some(current) = state.notes.iter()
-            .find(|note| Some(note.id) == state.selected_note_id)
-        else {
-            state.notice = "notes.notice.not_available".into();
+    let (target_id, revision) = if state.is_new_note {
+        if state.notes.len() >= 500 {
+            state.notice = "notes.notice.limit".into();
             state.has_error = true;
-            state.validation_error = false;
+            return;
+        }
+        (None, 1)
+    } else {
+        let Some(current) = state.notes.iter().find(|note| Some(note.id) == state.selected_note_id) else { return; };
+        let Some(revision) = current.revision.checked_add(1) else {
+            state.notice = "notes.notice.newer_revision".into();
+            state.has_error = true;
             return;
         };
-        (current.id, current.revision.saturating_add(1))
+        (Some(current.id), revision)
     };
 
-    let note = FieldNote {
-        id: note_id,
-        site,
-        title,
-        observation,
-        updated_at: "notes.time.just_now".into(),
-        revision,
-        sync_status: NoteSyncStatus::WaitingToSync,
-    };
-    let statement = SqlStatement::new(
-        "INSERT INTO field_notes
-            (id, site, title, observation, revision, sync_status, updated_at)
-         VALUES (:id, :site, :title, :observation, :revision, 'waiting', CURRENT_TIMESTAMP)
-         ON CONFLICT(id) DO UPDATE SET
-            site = excluded.site,
-            title = excluded.title,
-            observation = excluded.observation,
-            revision = excluded.revision,
-            sync_status = 'waiting',
-            updated_at = CURRENT_TIMESTAMP
-         WHERE excluded.revision > field_notes.revision",
-    )
-    .bind_named(":id", note.id)
-    .bind_named(":site", note.site.clone())
-    .bind_named(":title", note.title.clone())
-    .bind_named(":observation", note.observation.clone())
-    .bind_named(":revision", i64::from(note.revision));
+    let statement = match target_id {
+        None => SqlStatement::new(
+            "INSERT INTO field_notes (site, title, observation, revision, sync_status, updated_at)
+             VALUES (:site, :title, :observation, 1, 'waiting', CURRENT_TIMESTAMP)"
+        ),
+        Some(id) => SqlStatement::new(
+            "UPDATE field_notes SET site = :site, title = :title, observation = :observation,
+             revision = :revision, sync_status = 'waiting', updated_at = CURRENT_TIMESTAMP
+             WHERE id = :id AND revision = :previous_revision"
+        ).bind_named(":id", id)
+         .bind_named(":revision", i64::from(revision))
+         .bind_named(":previous_revision", i64::from(revision - 1)),
+    }.bind_named(":site", site.clone())
+     .bind_named(":title", title.clone())
+     .bind_named(":observation", observation.clone());
 
-    state.pending_note = Some(note.clone());
+    state.pending_note = Some(PendingFieldNote { target_id, site, title, observation, revision });
     state.is_saving = true;
     state.has_error = false;
     state.validation_error = false;
     state.notice = "notes.notice.saving".into();
-    ctx.effects.sql().execute(statement)
-        .on_ok(ActionEnvelope::from(FieldNoteStored(note.id, note.revision)))
-        .on_err(ActionEnvelope::from(FieldNotesStorageFailed));
+    let stored = ctx.effects.bind(FieldNoteStored, reduce!(field_note_stored));
+    let failed = ctx.effects.bind(FieldNotesStorageFailed, reduce!(field_notes_storage_failed));
+    ctx.effects.sql().execute(statement).on_ok(stored).on_err(failed);
 }
 
 #[fission_reducer(FieldNoteStored)]
-pub fn field_note_stored(
-    state: &mut FieldNotesState,
-    note_id: i64,
-    revision: u32,
-) {
-    let Some(note) = state.pending_note.take() else { return; };
-    if note.id != note_id || note.revision != revision {
-        state.pending_note = Some(note);
+pub fn field_note_stored(state: &mut FieldNotesState, ctx: &mut ReducerContext<FieldNotesState>) {
+    let Some(result) = ctx.input.sql_execute_result() else {
+        field_notes_storage_failed(state, FieldNotesStorageFailed, ctx);
         return;
-    }
-    if state.is_new_note {
-        state.next_note_id = state.next_note_id.saturating_add(1);
-        state.notes.push(note);
-    } else if let Some(current) = state.notes.iter_mut().find(|note| note.id == note_id) {
-        *current = note;
-    } else {
+    };
+    if result.affected_rows != 1 {
         state.is_saving = false;
         state.has_error = true;
-        state.validation_error = false;
-        state.notice = "notes.notice.saved_not_visible".into();
+        state.requires_reload = true;
+        state.notice = "notes.notice.newer_revision".into();
         return;
     }
-
-    state.selected_note_id = Some(note_id);
+    let Some(pending) = state.pending_note.take() else { return; };
+    let Some(id) = pending.target_id.or(result.last_insert_rowid) else {
+        state.pending_note = Some(pending);
+        field_notes_storage_failed(state, FieldNotesStorageFailed, ctx);
+        return;
+    };
+    let note = FieldNote {
+        id, site: pending.site, title: pending.title, observation: pending.observation,
+        revision: pending.revision, updated_at: String::new(),
+        sync_status: NoteSyncStatus::WaitingToSync,
+    };
+    if pending.target_id.is_none() {
+        state.notes.insert(0, note);
+    } else if let Some(current) = state.notes.iter_mut().find(|note| note.id == id) {
+        *current = note;
+    } else {
+        state.requires_reload = true;
+        state.has_error = true;
+        state.notice = "notes.notice.saved_not_visible".into();
+        state.is_saving = false;
+        return;
+    }
+    state.selected_note_id = Some(id);
     state.site_draft.clear();
     state.title_draft.clear();
     state.observation_draft.clear();
@@ -1546,33 +2390,10 @@ pub fn field_note_stored(
     state.has_error = false;
     state.validation_error = false;
     state.notice = "notes.notice.saved_on_device".into();
+    state.is_loading = true;
+    load_field_notes(state, LoadFieldNotes, ctx);
 }
-```
 
-</TabItem>
-<TabItem label="Connect the native save action">
-
-```rust
-Button(
-    child: Text(if app.is_saving {
-        cx.tr("notes.status.saving")
-    } else {
-        cx.tr("notes.action.save")
-    }),
-    key: "save-field-note",
-    disabled: app.is_saving,
-    on_press: with_reducer!(
-        cx.build,
-        SaveFieldNoteToSqlite,
-        save_field_note_to_sqlite,
-    ),
-)
-```
-
-</TabItem>
-<TabItem label="Reject an old response">
-
-```rust
 #[fission_reducer(SyncNoteSucceeded)]
 pub fn on_sync_note_succeeded(
     state: &mut FieldNotesState,
@@ -1580,6 +2401,9 @@ pub fn on_sync_note_succeeded(
     sent_revision: u32,
     ctx: &mut ReducerContext<FieldNotesState>,
 ) {
+    if state.is_saving || state.is_loading || state.requires_reload {
+        return;
+    }
     let Some(note) = state.notes.iter().find(|note| note.id == note_id) else {
         return;
     };
@@ -1596,9 +2420,10 @@ pub fn on_sync_note_succeeded(
     .bind_named(":id", note_id)
     .bind_named(":revision", i64::from(sent_revision));
 
-    ctx.effects.sql().execute(statement)
-        .on_ok(ActionEnvelope::from(FieldNoteSyncStatusStored(note_id, sent_revision)))
-        .on_err(ActionEnvelope::from(FieldNotesStorageFailed));
+    let stored = ctx.effects.bind(FieldNoteSyncStatusStored(note_id, sent_revision), reduce!(field_note_sync_status_stored));
+    let failed = ctx.effects.bind(FieldNotesStorageFailed, reduce!(field_notes_storage_failed));
+    state.is_saving = true;
+    ctx.effects.sql().execute(statement).on_ok(stored).on_err(failed);
 }
 
 #[fission_reducer(FieldNoteSyncStatusStored)]
@@ -1608,45 +2433,111 @@ pub fn field_note_sync_status_stored(
     sent_revision: u32,
     ctx: &mut ReducerContext<FieldNotesState>,
 ) {
-    let Some(result) = ctx.input.sql_execute_result() else { return; };
-    if result.affected_rows == 0 {
+    state.is_saving = false;
+    let Some(result) = ctx.input.sql_execute_result() else {
+        field_notes_storage_failed(state, FieldNotesStorageFailed, ctx);
+        return;
+    };
+    if result.affected_rows != 1 {
+        state.has_error = true;
+        state.validation_error = false;
+        state.requires_reload = true;
         state.notice = "notes.notice.newer_revision".into();
         return;
     }
     let Some(note) = state.notes.iter_mut().find(|note| note.id == note_id) else {
+        state.has_error = true;
+        state.validation_error = false;
+        state.requires_reload = true;
+        state.notice = "notes.notice.saved_not_visible".into();
         return;
     };
-    if note.revision == sent_revision {
-        note.sync_status = NoteSyncStatus::Synced;
+    if note.revision != sent_revision {
+        state.has_error = true;
+        state.validation_error = false;
+        state.requires_reload = true;
+        state.notice = "notes.notice.newer_revision".into();
+        return;
     }
+    note.sync_status = NoteSyncStatus::Synced;
 }
 ```
-
 </TabItem>
-<TabItem label="Register database result actions">
-
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
 ```rust
-// In FieldNotesWorkspace's view block, register reducers that receive
-// results from a SQLite effect instead of a direct button press.
-cx.build.register::<PrepareFieldNotes, _>(reduce!(prepare_field_notes));
-cx.build.register::<LoadFieldNotes, _>(reduce!(load_field_notes));
-cx.build.register::<FieldNotesLoaded, _>(reduce!(field_notes_loaded));
-cx.build.register::<FieldNotesStorageFailed, _>(reduce!(field_notes_storage_failed));
-cx.build.register::<FieldNoteStored, _>(reduce!(field_note_stored));
-cx.build.register::<SyncNoteSucceeded, _>(reduce!(on_sync_note_succeeded));
-cx.build.register::<FieldNoteSyncStatusStored, _>(reduce!(field_note_sync_status_stored));
+mod models;
+mod state;
+mod storage;
+mod widgets;
+mod app;
+mod translations;
+use fission::prelude::*;
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::FieldNotesState, _>::new(app::FieldNotesWorkspace::new())
+        .with_env(translations::create_env()).with_title("Harbour Field Notes")
+        .with_startup_action(storage::PrepareFieldNotes).run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<state::FieldNotesState, app::FieldNotesWorkspace> {
+    MobileApp::new(app::FieldNotesWorkspace::new())
+        .with_env(translations::create_env()).with_title("Harbour Field Notes")
+        .with_startup_action(storage::PrepareFieldNotes)
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) { let _ = mobile_app().run_with_android_app(app_handle); }
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    WebApp::<state::FieldNotesState, _>::new(app::FieldNotesWorkspace::new())
+        .with_env(translations::create_env()).with_title("Harbour Field Notes")
+        .with_startup_action(storage::PrepareFieldNotes).run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
 ```
-
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod models;
+mod state;
+mod storage;
+mod widgets;
+mod app;
+mod translations;
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::FieldNotesState, _>::new(app::FieldNotesWorkspace::new())
+        .with_env(translations::create_env()).with_title("Harbour Field Notes")
+        .with_startup_action(storage::PrepareFieldNotes)
+        .mount("#fission-web-mount").run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
 </TabItem>
 </Tabs>
 
-The preview’s **Save on this device** reducer updates memory because there is no native storage host. In the native app, bind the button to `SaveFieldNoteToSqlite`. It validates and snapshots the draft, disables editing during the write, and updates the visible note only after `FieldNoteStored` confirms the commit. The SQLite effect runs outside the reducer, so it doesn’t block a frame. On failure, `FieldNotesStorageFailed` re-enables the editor and keeps the draft. This tutorial does not send a sync request. When you add a network effect, send the note ID and revision and dispatch `SyncNoteSucceeded` only after the service confirms that revision. The reducers check that revision before the local status write, in the SQL `WHERE` clause, and again before updating the visible note.
+The final preview and native app both bind **Save on this device** to the real `SaveFieldNoteToSqlite` reducer. It validates and snapshots the draft, disables editing during the write, and updates the visible note only after `FieldNoteStored` confirms the commit. The SQLite effect runs outside the reducer, so it doesn’t block a frame. On an uncertain failure, `FieldNotesStorageFailed` keeps the draft visible and blocks another write. The explicit reload action discards that draft and reads the database before allowing new work; it does not silently replay an insert that may already have committed. This tutorial does not send a sync request. When you add a network effect, send the note ID and revision and bind `SyncNoteSucceeded` to its reducer before dispatching it after the service confirms that revision. The reducers check that revision before the local status write, in the SQL `WHERE` clause, and again before updating the visible note. That status write shares the same busy guard as manual saves and loading. A missing result, unexpected row count or missing acknowledged record requires reload rather than silently releasing another operation's guard or marking the note synced.
+
+The busy guard returns immediately; it does not queue a server acknowledgement
+for later. If an acknowledgement arrives while a save or load is in flight, the
+note remains waiting to sync. A future service integration must retry or
+reconcile that same note ID and revision under an idempotent server contract.
+It must not assume this reducer retained the acknowledgement or apply it to a
+newer revision. No service or acknowledgement queue is implemented here.
 
 Test the boundary deliberately: store revision 5, edit and store revision 6, then dispatch the `SyncNoteSucceeded` completion for revision 5. The visible text must stay at revision 6 and remain waiting to sync. Also test an empty database, a failed local write, and a process restart with a pending revision. A successful remote sync requires a real service effect, which is outside this tutorial.
 
 ### Run the shared app on Android and iOS
 
-Register the result reducers in `FieldNotesWorkspace::view` as shown above, then start the same mobile core on Android and iOS. `with_startup_action` dispatches the migration action after Fission builds the widget registry; `with_state_init` removes the browser preview records and shows the loading state before the first frame. The migration then loads the technician's saved notes from SQLite.
+The final source includes normal `src/lib.rs` target launchers. The workspace binds migration unconditionally; each storage request binds its completion reducers. The startup action queues migration and then loading. The final Web preview follows that same SQLite path and contains no sample records.
 
 Run the target commands from the project root. `fission doctor` checks the installed toolchains, and `fission test` verifies that each generated host can launch the shared app.
 
@@ -1671,24 +2562,7 @@ fission build --target ios --project-dir . --release
 ```
 
 </TabItem>
-<TabItem label="Shared mobile startup">
 
-```rust
-fn mobile_app() -> MobileApp<FieldNotesState, FieldNotesWorkspace> {
-    MobileApp::<FieldNotesState, _>::new(FieldNotesWorkspace::new())
-        .with_env(create_env())
-        .with_title("Harbour Field Notes")
-        .with_state_init(|state| {
-            state.notes.clear();
-            state.selected_note_id = None;
-            state.is_loading = true;
-            state.notice = "notes.notice.opening".into();
-        })
-        .with_startup_action(PrepareFieldNotes)
-}
-```
-
-</TabItem>
 </Tabs>
 
 Use the [storage and SQLite guide](/docs/guides/storage-and-sqlite/) for provider setup, parameterized statements, transactions, and migrations. The [state and effects guide](/docs/guides/state-handles-and-providers/) explains why reducers describe transitions while effects perform storage and network work. The [component reference](/reference/widgets/catalog/) covers the Fission components used to compose the field-notes screen.

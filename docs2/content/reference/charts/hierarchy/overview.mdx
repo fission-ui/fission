@@ -6,7 +6,7 @@ description: Fission Charts reference for the Hierarchy family.
 
 # Hierarchy
 
-This family has 19 chart variants. Pick one that matches your data. Each page has a screenshot, data shape, API notes, and code you can adapt.
+These charts put relationships into the layout. A tree preserves parent-child structure, a graph allows shared connections, and a treemap or sunburst compares quantities inside a hierarchy. The data relationship decides which of those views is valid; the shape alone does not.
 
 Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
 
@@ -25,7 +25,7 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 | [Energy balance sankey](./sankey-energy-balance) | Flow nodes and links. | Use it for transfer and loss diagrams. |
 | [Feature area sunburst](./sunburst-feature-areas) | Nested values in radial layers. | Use it for hierarchical composition with depth. |
 | [File ownership tree](./tree-file-ownership) | Nested file or team ownership nodes. | Use it for repository and ownership views. |
-| [Lead flow sankey](./sankey-lead-flow) | Nodes and directed weighted links. | Use it when movement between stages is the question. |
+| [Lead flow sankey](./sankey-lead-flow) | Nodes and unweighted source/target links. | Use it to describe routes, not conversion amounts. |
 | [Org revenue sunburst](./sunburst-org-revenue) | Hierarchy values as radial rings. | Use it when hierarchy and whole composition both matter. |
 | [Platform module tree](./tree-platform-modules) | Nested named nodes with values. | Use it for ownership and dependency hierarchy. |
 | [Platform topology graph](./graph-platform-topology) | Platform nodes and dependency edges. | Use it for system overview screens. |
@@ -38,7 +38,7 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 
 ## Choosing within this family
 
-First decide what the user needs to compare or understand. Pick the simplest chart that shows it; add interaction only when it helps, and use animation only when it explains a change.
+Start with the relationship the application actually owns. A module tree shows containment, not every dependency. A service graph shows connectivity, not current health. The current Sankey API has equal-width, unweighted bands, so it cannot make quantitative claims about energy or lead flow. Keep those measures in an exact report or a suitable quantitative chart.
 
 ## Authoring from a Fission component
 
@@ -46,22 +46,24 @@ Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or re
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{Chart, TreeSeries, TreemapNode};
 
-
-
-fission_component!
-{
+// The parent resolves display labels from its translation bundles.
+fission_component! {
     pub HierarchyChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            modules: Vec<TreemapNode>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Hierarchy")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
+    view(hierarchy, _state, _cx) =>
+        Chart(
+            title: Some(hierarchy.chart_title.clone()),
+            series: vec![TreeSeries::new(&hierarchy.series_label)
+                .data(hierarchy.modules.clone())
+                .into()],
+        )
 }
 ```
 Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.

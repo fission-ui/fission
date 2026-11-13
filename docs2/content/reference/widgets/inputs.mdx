@@ -7,9 +7,10 @@ description: Choose Fission controls for actions, editing, and selecting values.
 
 Input widgets let people change a value or trigger an action.
 
-That is the difference from a display widget: a display widget shows state, while an input widget also tells the app what the user changed.
-
-In Fission, most input widgets send an `ActionEnvelope` to a reducer. The reducer updates state or requests an effect.
+The important boundary is the proposed change. A control dispatches an action;
+the reducer decides whether that change is valid and updates the authoritative
+state or requests an effect. Rendering a checked value, a range, or a disabled
+button is not a substitute for validating the corresponding transition.
 
 ## Choosing among input widgets
 
@@ -52,7 +53,7 @@ These widgets are the ones most closely tied to the runtime's input, clipboard, 
 | `Select` | [Select](/reference/widgets/select) | Closed choice list with a dedicated picker surface |
 | `SelectItem` | [SelectItem](/reference/widgets/select-item) | Supporting item type for `Select` |
 | `Combobox` | [Combobox](/reference/widgets/combobox) | Typing plus filtered suggestion selection |
-| `DropDown` | [DropDown](/reference/widgets/drop-down) | Dropdown helper or composition surface |
+| `DropDown` | [DropDown](/reference/widgets/drop-down) | Trigger for a separately owned popup; does not render options |
 | `DatePicker` | [DatePicker](/reference/widgets/date-picker) | Date choice |
 | `DateRangePicker` | [DateRangePicker](/reference/widgets/date-range-picker) | Start and end date choice |
 | `TimePicker` | [TimePicker](/reference/widgets/time-picker) | Time-of-day choice |

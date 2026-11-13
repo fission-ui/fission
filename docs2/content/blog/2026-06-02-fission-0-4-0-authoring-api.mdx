@@ -12,6 +12,11 @@ categories:
 
 Fission 0.4.0 changes how you write widgets and access state while building them. It also gives retained, widget-local state a clear model. The work is in [PR #63](https://github.com/fission-ui/fission/pull/63).
 
+This post describes that release's authoring boundary. New applications should
+start with [Compose](/compose/), which generates the ordinary Rust component
+and reducer wiring shown here. The historical examples explain what changed
+in 0.4.0; they are not the recommended amount of ceremony for a new counter.
+
 The short version: a component is an ordinary Rust struct, converted into `Widget` with `impl From<Component> for Widget`. The old public widget-authoring boundary is gone. Fission still owns the internal `Widget` representation, but app and library authors no longer have to implement a public `Widget` trait or return internal node types.
 
 

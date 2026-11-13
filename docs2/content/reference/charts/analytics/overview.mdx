@@ -1,78 +1,56 @@
 ---
 title: Analytics
 sidebar_label: Overview
-description: Fission Charts reference for the Analytics family.
+description: Choose analytics charts from the reporting question, counting rules and current renderer capabilities.
 ---
 
 # Analytics
 
-This family has 20 chart variants. Pick one that matches your data. Each page has a screenshot, data shape, API notes, and code you can adapt.
+An analytics chart is a projection of a report, not the report's source of truth. Before choosing a shape, decide what is counted, which records are eligible, and what period the values describe. Those choices determine whether the parts can be added and whether two values can reasonably be compared.
 
-Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
+The twenty examples below use the ordinary chart widget through Compose. Their inputs come from application state; network requests and aggregation belong in the reporting layer and asynchronous effect flow, not component conversion.
 
 ![Acquisition trend screenshot](/img/charts/analytics-acquisition-line.png)
 
 ## Variants
 
-| Chart | Data shape | Use when |
+| Chart | Data shape | Question or boundary |
 | --- | --- | --- |
-| [Acquisition trend](./analytics-acquisition-line) | Acquisition values over time. | Use it for growth dashboards. |
-| [Analytics score gauge](./analytics-gauge-score) | One score value in a bounded range. | Use it for primary scorecards. |
-| [Channel stack](./analytics-channel-stack) | Channel values stacked by category. | Use it for acquisition mix. |
-| [Cohort heatmap](./analytics-cohort-heatmap) | Cohort matrix values. | Use it for retention and cohort intensity. |
-| [Conversion funnel](./analytics-conversion-funnel) | Ordered conversion stage values. | Use it for product funnel analysis. |
-| [Device mix donut](./analytics-device-donut) | Device values in a donut chart. | Use it when device share matters. |
-| [Engagement calendar](./analytics-calendar-engagement) | Daily engagement values. | Use it for engagement consistency over time. |
-| [Engagement routes](./analytics-route-engagement) | Map plus route lines. | Use it for spatial engagement flows. |
-| [Feature treemap](./analytics-treemap-features) | Feature values in a hierarchy. | Use it for feature usage share. |
-| [Journey graph](./analytics-journey-graph) | Journey nodes and links. | Use it for relationship-heavy behavior views. |
-| [Journey sankey](./analytics-journey-sankey) | Journey stages and flow links. | Use it for user movement between stages. |
-| [Market share pie](./analytics-market-pie) | Label/value market share pairs. | Use it for small whole comparisons. |
-| [Portfolio sunburst](./analytics-sunburst-portfolio) | Portfolio hierarchy in radial layers. | Use it for hierarchical portfolio composition. |
-| [Product radar](./analytics-radar-product) | Product dimensions as profile vectors. | Use it to compare product health dimensions. |
-| [Region sales map](./analytics-region-sales) | Sales values by named region. | Use it for geographic sales analysis. |
-| [Report toolbox chart](./analytics-toolbox-report) | Chart with report actions. | Use it when analytics views need built-in controls. |
-| [Retention area](./analytics-retention-area) | Retention values with area fill. | Use it when volume and trend both matter. |
-| [Segment bubbles](./analytics-segment-bubbles) | Segment x, y, and value triples. | Use it for multidimensional segment comparison. |
-| [Segment parallel](./analytics-parallel-segments) | Segment rows across several dimensions. | Use it for segment tradeoff analysis. |
-| [Source theme river](./analytics-source-river) | Source values over time. | Use it for changing source composition. |
+| [Acquisition trend](./analytics-acquisition-line) | New accounts per equal reporting period. | Is activation growing? |
+| [Analytics score gauge](./analytics-gauge-score) | One defined 0–100 score. | How much of a declared target is complete? |
+| [Channel stack](./analytics-channel-stack) | Exclusive channel counts per period. | Which channels explain the total? |
+| [Cohort heatmap](./analytics-cohort-heatmap) | Observed cohort/age retention cells. | Do newer cohorts retain differently at the same age? |
+| [Conversion funnel](./analytics-conversion-funnel) | Ordered stage counts for one cohort. | Where do eligible checkouts stop progressing? |
+| [Device mix donut](./analytics-device-donut) | Exclusive device-session categories. | How are sessions distributed? |
+| [Engagement calendar](./analytics-calendar-engagement) | Complete daily account counts. | Is activity consistent across days? |
+| [Engagement routes](./analytics-route-engagement) | Schematic endpoint pairs and counts. | Which locations connect? Map and line fitting are independent. |
+| [Feature treemap](./analytics-treemap-features) | Additive top-level event counts. | Which feature areas account for activity? Nested children are not drawn. |
+| [Journey graph](./analytics-journey-graph) | Stable page nodes and connections. | Which loops and alternative paths exist? |
+| [Journey sankey](./analytics-journey-sankey) | Unweighted relationships. | Use the current two-column view for connections, not flow volumes. |
+| [Market share pie](./analytics-market-pie) | Exclusive categories of one market. | How is a clearly defined whole divided? |
+| [Portfolio sunburst](./analytics-sunburst-portfolio) | Additive parent/child amounts. | Where does each project sit in the portfolio? |
+| [Product radar](./analytics-radar-product) | Ordered 0–100 health measures. | What is the profile, rather than a single invented score? |
+| [Region sales map](./analytics-region-sales) | Sales keyed to supplied GeoJSON. | Does location explain the sales pattern? |
+| [Report toolbox chart](./analytics-toolbox-report) | Chart plus registered application commands. | Provide real buttons; built-in toolbox labels do not implement export. |
+| [Retention area](./analytics-retention-area) | One cohort's measured age percentages. | How does retention develop from a stable denominator? |
+| [Segment bubbles](./analytics-segment-bubbles) | Two rates plus cohort size. | Which segment outcomes differ, and how large are those segments? |
+| [Segment parallel](./analytics-parallel-segments) | Ordered comparable profile dimensions. | Which measures move together across selected segments? |
+| [Source theme river](./analytics-source-river) | Complete source/period counts. | How does composition change over time? |
 
-## Choosing within this family
+## Decide the comparison first
 
-First decide what the user needs to compare or understand. Pick the simplest chart that shows it; add interaction only when it helps, and use animation only when it explains a change.
+Use a line for a trend over equal periods, bars for category comparisons, and a heatmap when two categorical dimensions matter. A pie or donut requires exclusive parts of one whole. A hierarchy requires the same additive measure at each level.
 
-## Authoring from a Fission component
+A rate needs a denominator as well as a numerator. A retention cohort needs a declared age and enough time to reach it. An unknown observation is not automatically a zero. Resolve those distinctions before projecting records into `Vec<f32>`.
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+## Compose and the application boundary
 
-```rust
-use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+Enable Fission's `charts` feature, then use the named components in the individual examples. Pass translated labels and a ready snapshot from the parent; keep report filters in the appropriate application state and use reducers to update them.
 
+The examples avoid a separate chart-authoring model. `Chart(...)` remains a normal Compose node, whilst typed series and axes are ordinary Rust values. A projection that needs validation should return a result in the reporting layer so the screen can show a meaningful loading, empty or error state.
 
+## Read the current boundaries
 
-fission_component!
-{
-    pub AnalyticsChart<()> {
-    }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Analytics")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
-}
-```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
+The specific pages explain limits that affect interpretation: radar and parallel profiles use a fixed 0–100 scale; Sankey ribbons are unweighted; the treemap draws top-level nodes; geographic routes do not inherit a shared projection merely by appearing beside a map series. These are reasons to choose a suitable view, not details to conceal behind a convincing screenshot.
 
-## Options, accessibility, and diagnostics
-
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+The gallery images are reference fixtures. Test the application's aggregation and mapping independently, then use LiveTest to inspect its actual small and large layouts. Keep exact values, category names and important conclusions available in text or tables rather than requiring colour, hover or shape alone.

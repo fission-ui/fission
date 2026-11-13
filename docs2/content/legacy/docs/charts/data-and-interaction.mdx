@@ -6,156 +6,211 @@ description: Understand datasets, axes, visual maps, zoom, tooltips, brushing, e
 
 # Data and interaction
 
-A chart is useful only when the data model and the interaction model match the question the user is trying to answer.
+A report has two related contracts: which records become marks on the chart,
+and what selecting one of those marks means. Keep both explicit. Drawing the
+right numbers does not prove a click opens the right product after a refresh.
 
-Fission Charts keeps both parts typed. Data is represented with Rust structs and enums. Interaction is represented as chart configuration and typed events that can enter the normal Fission reducer loop. You do not pass a large stringly typed object into a browser runtime and hope the chart interprets it the way you meant.
+Fission represents data, encodings, and interaction as Rust values. The app
+still owns loading, validation, durable selection, and navigation.
 
 ## Choose direct series data first
 
-The simplest chart puts values directly on each series. This is the right first choice when the chart is local to one screen and the series are easy to read inline.
+Use one series value vector when a chart only needs one small sequence.
+The [series guide](/docs/charts/series-and-datasets/#start-with-direct-series-data)
+shows a complete Compose request-history component with actual parent-supplied
+daily records, empty state, translated labels, and an explicit zero baseline.
 
-```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Weekly revenue")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![
-        LineSeries::new("Revenue")
-            .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-            .into(),
-    ]);
-```
-
-Use direct data when the series itself explains the model. The code above is readable because there is one category axis, one value axis, and one series.
+A category line spaces those buckets equally. It is not a timestamp plot merely
+because its labels look like dates.
 
 ## Move to datasets when data is shared or tabular
 
-A dataset gives the chart named dimensions. Each series can then choose which dimensions it reads. Use this when several series share the same table, when field names make the chart easier to review, or when the data arrives from a structured source such as a query, report, or resource result.
+A product sales report can compare two years using the same rows. Use grouped
+bars for category comparisons rather than connecting unrelated products with a
+line that implies a continuous trend:
 
 ```rust
-use fission::charts::{Axis, BarSeries, Chart, DataValue, Dataset, Encode, LineSeries};
+use fission::prelude::*;
+use fission::charts::{
+    Axis, BarSeries, Chart, ChartInteraction, ChartTooltipTrigger,
+    Dataset, Encode, Series,
+};
 
-let chart = Chart::new()
-    .title("Product sales")
-    .dataset(
-        Dataset::new()
+#[derive(Clone)]
+pub struct ProductSales {
+    pub id: String,
+    pub label: String,
+    pub units_2025: u32,
+    pub units_2026: u32,
+}
+
+fission_component! {
+    pub YearlySalesChart<()> {
+        props {
+            products: Vec<ProductSales>,
+            select_product: ActionEnvelope,
+        }
+    }
+    view(report, _state, cx) {
+        let dataset = Dataset::new()
             .dimensions(vec!["product".into(), "2025".into(), "2026".into()])
-            .source(vec![
-                vec![DataValue::String("Coffee".into()), DataValue::Number(43.3), DataValue::Number(85.8)],
-                vec![DataValue::String("Tea".into()), DataValue::Number(83.1), DataValue::Number(73.4)],
-            ]),
-    )
-    .x_axis(Axis::category(vec!["Coffee", "Tea"]))
-    .y_axis(Axis::value())
-    .series(vec![
-        BarSeries::new("2025").encode(Encode::new().x("product").y("2025")).into(),
-        LineSeries::new("2026").encode(Encode::new().x("product").y("2026")).into(),
-    ]);
+            .source(report.products.iter().map(|product| vec![
+                product.label.clone().into(),
+                (product.units_2025 as f32).into(),
+                (product.units_2026 as f32).into(),
+            ]).collect());
+    } =>
+    if report.products.is_empty() {
+        EmptyState(title: cx.tr("sales.no_products"))
+    } else {
+        Chart(
+            title: cx.tr("sales.units_by_product"),
+            dataset: dataset,
+            x_axis: Axis::category(report.products.iter()
+                .map(|product| product.label.as_str()).collect()),
+            y_axis: Axis::value().min(0.0),
+            series: vec![
+                Series::Bar(BarSeries::new("2025")
+                    .encode(Encode::new().x("product").y("2025"))),
+                Series::Bar(BarSeries::new("2026")
+                    .encode(Encode::new().x("product").y("2026"))),
+            ],
+            interaction: ChartInteraction::tooltips(ChartTooltipTrigger::Axis)
+                .emit_events(true),
+            on_interaction: report.select_product.clone(),
+        )
+    }
+}
 ```
 
-The important idea is not that datasets are more advanced. They are simply better when the chart data is shaped like rows and columns.
+Enable the `charts` feature and supply the `sales.*` messages in the app's
+translation bundles. The two series measure the same unit. Their year labels
+describe this fixed report period, not the machine's current date.
 
-| Use direct series data when... | Use a dataset when... |
+The parent derives these display records from authoritative sales data. Keep
+the original integer totals for accounting or exact labels; converting to
+`f32` for paint does not replace those records.
+
+| Use direct series data when | Use a dataset when |
 | --- | --- |
-| One series owns its own values. | Several series read from the same rows. |
-| The chart is small and local. | Field names make review clearer. |
-| The data is already in a vector for the widget. | The data arrives as records, tables, or reports. |
-| The example should teach the chart shape quickly. | The screen needs multiple encodings from one source. |
+| One layer owns a small vector. | Several series read the same rows. |
+| The mapping is clear from the series type. | Stable dimension names make the mapping clearer. |
+| A value-vector test explains the requirement. | A table/encoding test explains the requirement. |
 
 ## Think about large or live data as an app architecture problem
 
-Some products need charts over huge or continuous data: device telemetry, audit logs, financial ticks, industrial readings, or decades of history. Do not try to put terabytes of data directly into one `Vec` in app state.
+Keep a bounded visible window in app state and load its data through a job,
+service, or resource. Rendering receives the currently available snapshot; it
+must not wait for the next database page.
 
-A practical Fission design separates three concerns:
+A live tail and a historical page can overlap. Deduplicate them by sample
+identity, release unused pages, and reject delayed results for an older query
+generation. Otherwise a correct renderer can still show duplicate data or
+replace the user's new range with an old response.
 
-1. **Visible window in app state.** Store the current time range, scroll position, selected device, aggregation level, and loading state.
-2. **Data access through resources, jobs, or services.** Fetch or stream the data needed for the current visible window. Keep the historical store outside the widget tree.
-3. **Chart model for the current frame.** Build the chart from the loaded slice, summary, or aggregation that is actually visible.
-
-For a live IoT chart, a service might receive new readings and update a bounded in-memory buffer for the latest window. When the user scrolls back, a resource or job can request older pages from the durable store and merge them into the visible slice. The chart still receives typed Rust values, but the app does not pretend the entire history belongs in one synchronous in-memory dataset.
-
-That distinction matters because Fission's chart API is intentionally synchronous at conversion time. `component conversion` should read the data that is currently available and describe the chart. It should not block while fetching the next page from a database or device.
+For large histories, derive an aggregation level from the visible range and
+resolution. Do not send decades of raw readings simply because `Dataset`
+accepts a vector.
 
 ## Axes turn values into position
 
-An axis tells the chart how to interpret position.
-
-| Axis kind | Use it for | Watch out for |
+| Axis kind | Use it for | Boundary to check |
 | --- | --- | --- |
-| Category | Named buckets such as weekdays, products, regions, or build numbers. | Long labels can crowd the chart. Prefer horizontal bars or shorter labels when needed. |
-| Value | Numeric measurements such as counts, latency, price, temperature, or percentage. | Do not mix unrelated units on one scale without a clear reason. |
-| Time | Time-ordered values where spacing and range matter. | Make the visible window and timezone behavior explicit. |
-| Logarithmic | Values that span large orders of magnitude. | Explain the scale clearly; many users read log scales incorrectly if not labeled. |
+| Category | Names or equally spaced buckets. | Missing buckets and long labels need an explicit policy. |
+| Value | Numeric counts or measurements. | Preserve units; comparisons need an honest baseline. |
+| Time | Time values with meaningful position/range. | Keep timestamp data and check the series' actual x-value support. |
+| Logarithmic | Measurements spanning orders of magnitude. | Explain the scale and validate nonpositive values before rendering. |
 
-Keep axes honest. If two charts sit near each other, use consistent scales unless the interface clearly explains the difference.
+A y-only `LineSeries::data(Vec<f32>)` does not restore timestamps discarded by
+the app. Likewise, putting orders and revenue on one value axis does not make
+those units comparable. Test the mapping and scale, not only whether the
+constructor accepts the values.
 
 ## Visual maps turn values into color
 
-A visual map turns a numeric value into a visual property, usually color. Heatmaps and scatter charts use this to show intensity without adding another axis.
+A visual map maps a bounded numeric range to colour. Its bounds should come
+from the report's meaning, not from whichever sample happened to arrive last.
+
+For a percentage score with a known 0–100 range, view setup can use theme
+colours:
 
 ```rust
 use fission::charts::VisualMap;
-use fission::core::op::Color;
 
+let tokens = &cx.view.env().theme.tokens;
 let visual_map = VisualMap::new()
     .min(0.0)
     .max(100.0)
-    .in_range_colors(vec![
-        Color { r: 219, g: 234, b: 254, a: 255 },
-        Color { r: 96, g: 165, b: 250, a: 255 },
-        Color { r: 30, g: 64, b: 175, a: 255 },
-    ]);
+    .in_range_colors(vec![tokens.colors.surface, tokens.colors.primary]);
 ```
 
-Use the active design system or chart palette where possible. Random one-off color scales make dashboards harder to read and harder to theme.
+This is configuration data passed to the chart. Keep numeric readouts, labels,
+or a legend available so colour is not the only way to understand a result.
+A categorical palette is not automatically a meaningful low-to-high scale.
 
 ## Tooltips, zoom, brush, and events
 
-Tooltips and axis pointers answer "what exact value is under the pointer?" Data zoom lets the user inspect part of an ordered series without losing the overall context. Brush selection lets the user select a region of points or values. Toolbox actions keep common chart commands close to the chart they affect.
+Tooltips and axis pointers provide temporary readouts. They do not own a
+durable selected product. The component above receives a bound application
+action for `on_interaction`, and its current event is decoded separately from
+that action's stable payload.
+
+For example, the parent can bind its report generation to this reducer.
+`SalesState` owns `report_generation`, the corresponding `visible_products`,
+and `selected_product_id`:
 
 ```rust
-use fission::charts::{ChartBrush, ChartInteraction, ChartTooltipTrigger};
+use fission::charts::{ChartInteractionEvent, ChartInteractionKind};
 
-let interaction = ChartInteraction::tooltips(ChartTooltipTrigger::Axis)
-    .brush(ChartBrush::rect())
-    .emit_events(true);
+#[fission_reducer(SelectSalesProduct)]
+fn select_sales_product(
+    state: &mut SalesState,
+    generation: u64,
+    cx: &mut ReducerContext<SalesState>,
+) {
+    if generation != state.report_generation { return; }
+    let Some((_source, event)) = ChartInteractionEvent::from_action_input(cx.input) else {
+        return;
+    };
+    if event.kind != ChartInteractionKind::Press { return; }
+    let Some(index) = event.hit.and_then(|hit| hit.data_index) else { return; };
+    let Some(product) = state.visible_products.get(index) else { return; };
+    state.selected_product_id = Some(product.id.clone());
+}
 ```
 
-When event emission is enabled, chart hit testing dispatches typed `ChartInteractionEvent` values with resolved series indexes, data indexes, and values. Your reducer can store the selected point, open a details panel, change the visible range, or request a data fetch through the same explicit action path used by buttons and forms.
+The parent builds the chart from exactly that generation's ordered records.
+Do not treat the numeric data index as a durable product ID.
 
-Do not put product state inside tooltip internals. The tooltip can display temporary readout information. The app state should own durable selections and navigation decisions.
+Brush configuration is separate from committing a brushed result. Configure
+`ChartInteraction::brush(ChartBrush::rect())` and bind `Chart::on_brush` when
+the app needs the completed selection; decode it with
+`ChartBrushSelection::from_action_input`. Do not expect `emit_events(true)` to
+implement an app's filtering, paging, or navigation on its own.
 
 ## Animation should explain change
 
-Chart animation is useful when it shows how data entered, changed, moved, or settled. Bars can grow from zero, lines can draw from left to right, radial charts can sweep to their final angle, and route effects can show direction.
+Use motion when it clarifies how values changed. A finished report generally
+should settle rather than loop indefinitely. Keep loading state separate from
+chart entrance motion: a bar finishing its animation is not a network
+completion signal.
 
-Avoid looping animation unless movement is part of the meaning. A progress indicator may animate while work is ongoing, but a finished bar chart should usually animate once and stop. Repeating decorative motion makes dashboards tiring and can make values harder to read.
-
-Fission represents chart animation as typed chart data: duration, delay, stagger, easing, reduced-motion behavior, and family-specific animation intent. That makes animation inspectable and testable instead of being hidden in ad-hoc timers.
+Chart animation describes rendering behaviour, not business progress. Check
+reduced-motion preferences and avoid hiding values behind continuous effects.
 
 ## Testing chart behavior
 
-Treat chart tests as product tests, not only renderer tests.
-
 | Test layer | What to prove |
 | --- | --- |
-| Unit tests | Domain extraction, stacking, dataset encoding, visual-map calculation, and filtering. |
-| Lowering tests | The chart emits the expected Fission IR or 3D primitives. |
-| Interaction tests | Hit testing emits the expected typed event for hover, press, brush, or zoom. |
-| Screenshot tests | Visual output changed intentionally and chart-only screenshots are refreshed. |
-| Shell tests | The target host presents the chart correctly on the platform you plan to ship. |
-
-A chart can be wrong in several different ways. Testing the layers separately keeps failures small enough to fix.
+| Domain tests | Correct totals, shared units, distinct sample identity, and bounded windows. |
+| Mapping tests | Matching labels/rows, valid encodings, and appropriate axes. |
+| Interaction tests | Correct source generation and stable record selection. |
+| Screenshot tests | Readable labels, intended scale, theme and narrow-layout behaviour. |
+| Shell tests | Actual rendering and input on the target you ship. |
 
 ## Lifecycle fit and verification
 
-Keep values on the series while one chart owns them. Add a typed `DataSet` when the same rows need to drive multiple series, filters or transformations, then test that mapping before checking rendered output.
-
-| Stage question | Verification |
-| --- | --- |
-| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
-| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
-| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
-| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |
+A useful failure case is refreshing the report while an old selection or
+query result is pending. Verify that its generation guard preserves the new
+records. Then inspect the actual selected product and visible detail, not only
+a chart highlight or an emitted event count.

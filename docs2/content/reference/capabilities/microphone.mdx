@@ -34,7 +34,7 @@ Start with the [Microphone guide](/docs/capabilities/microphone/) to add the fea
 
 Register a `MicrophoneHost` with `.with_microphone_host(...)`. Use `MemoryMicrophoneHost` in tests. Providers should keep capture bounded and return typed errors for denied permission, no input devices, and unsupported formats.
 
-`MicrophoneCapture` returns a `DataStreamId` plus metadata such as byte length, content type, sample rate, channel count, sample format, and duration. The provider should register the audio stream through `CapabilityCtx::register_data_stream(...)`; reducers should pass that handle to a job or service for decoding, upload, or storage.
+`MicrophoneCapture` returns a `DataStreamId` plus metadata such as byte length, content type, sample rate, channel count, and duration. Select the requested sample format with `MicrophoneCaptureRequest::sample_format`; inspect the returned content type and actual capture metadata before consuming the stream. The provider should register the audio stream through `CapabilityCtx::register_data_stream(...)`; reducers should pass that handle to a job or service for decoding, upload, or storage. A stream id is not a durable recording path.
 
 Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
 

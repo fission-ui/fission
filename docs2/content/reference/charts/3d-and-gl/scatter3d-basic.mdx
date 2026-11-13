@@ -1,91 +1,69 @@
 ---
 title: 3D scatter
 sidebar_label: 3D scatter
-description: Fission Charts reference for 3D scatter.
+description: Display three meaningful coordinates and make any radius or colour encoding explicit.
 ---
 
 # 3D scatter
 
 ![3D scatter screenshot](/img/charts/scatter3d-basic.png)
 
-Points positioned in three dimensions with native scene primitives. Use it when all three dimensions are meaningful and the app benefits from spatial inspection. The screenshot is from Fission's chart gallery.
+A three-dimensional scatter view gives each observation a position on three axes. That is useful when the coordinates describe real space or three measurements whose joint relationship matters. It is not useful to add depth merely to separate points which would otherwise overlap.
 
-## What the chart is for
+The gallery represents observations with spheres in a native scene. Their positions, radii and colours are supplied explicitly; no statistical interpretation or axis labelling is inferred from those primitives.
 
-This chart is in the **3D and GL** family. Use it when a visual makes the pattern easier to spot.
+## Compose example
 
-Avoid it when a two-dimensional chart answers the question more directly; 3D should clarify spatial data, not decorate ordinary comparisons.
-
-## Data model
-
-`Vec<(x, y, z, radius)> lowered into Scene3D spheres.` Keep the source values in Rust types. Fission Charts uses typed series and options, not string-based configuration.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `scene` | `Scene3D` | Owns retained native 3D primitives for the chart viewport. |
-| `primitive` | `Primitive3D` | Uses cuboids, spheres, or meshes for the chart geometry. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::three_d::{Point3D, Primitive3D, Scene3D};
-use fission::core::op::Color;
-
-let scene = Scene3D::new()
-    .add_primitive(Primitive3D::Sphere {
-        center: Point3D::new(0.0, 0.0, 0.0),
-        radius: 0.4,
-        color: Color { r: 20, g: 184, b: 166, a: 255 },
-    });
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Keep the original observations and identifiers in the application model. This small display projection contains only the geometry and colour needed by the scene.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::core::op::Color;
+use fission::three_d::{Point3D, Primitive3D, Scene3D};
 
+#[derive(Clone)]
+pub struct SpatialSample {
+    pub position: Point3D,
+    pub radius: f32,
+    pub color: Color,
+}
 
-
-fission_component!
-{
-    pub Fission3DScatterChart<()> {
+fission_component! {
+    pub SpatialScatter<()> {
+        props {
+            title: TextContent,
+            samples: Vec<SpatialSample>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("3D scatter")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
+    view(scatter, _state, _cx) {
+        let mut scene = Scene3D::new().height(320.0);
+        for sample in &scatter.samples {
+            scene = scene.add_primitive(Primitive3D::Sphere {
+                center: sample.position.clone(),
+                radius: sample.radius,
+                color: sample.color,
+            });
+        }
+    } => Column(children: [
+        Text(scatter.title.clone()),
+        scene,
+    ])
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Place these types in `widgets/spatial_scatter.rs` and enable the `three-d` feature. Require finite coordinates and finite positive radii before building the component. The parent supplies translated text and colours from its design system.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## Do not let appearance invent another measurement
+
+Use a constant radius if every sphere means one observation. If radius encodes uncertainty or size, state the rule. Doubling a sphere's radius increases its volume eightfold; radius is not a visually neutral way to encode an ordinary count.
+
+Likewise, preserve classifications outside the colour. Provide names, coordinate units and important measurements in a labelled list or table so the same question can be answered without seeing the scene.
+
+## API and checks
+
+`fission::three_d::Scene3D` contains `Vec<Primitive3D>` and optional viewport dimensions. It has no chart title or axis fields and does not emit per-observation `ChartInteractionEvent` values. Use an explicit picking-capable interface if selection inside the scene is required.
+
+Test coordinate transforms and encodings independently, then inspect overlap, large radii and points hidden by perspective. The screenshot uses gallery fixtures rather than this component's inputs.
 
 Tags: `3d`, `scatter`.
 

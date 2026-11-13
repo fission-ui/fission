@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Use the Android clipboard safely
-description: "Use Android clipboard access from Rust through Fission, with clear copy and paste actions."
-goal: Copy and paste through the Fission capability and give clear feedback without exposing sensitive values.
+description: "Copy a validated work-order reference and inspect an explicit paste without copying the private note or echoing rejected clipboard contents."
+goal: "Copy and paste only a bounded valid work-order reference while preserving private draft text and the last valid reference on failure."
 path: /blog/use-the-android-clipboard-safely/
 order: 47
 difficulty: Beginner
@@ -10,95 +10,315 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-use-the-android-clipboard-safely
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - "Pass an owned reference snapshot into the copy effect"
+  - "Read typed clipboard results through registered callbacks"
+  - "Validate pasted input before replacing the current reference"
+  - "Keep private notes, automatic polling and rejected clipboard payloads out of the flow"
 ---
 
-## Create the project and add the target
+## Share the intended value, not the whole screen
 
-Create the project and add Android as a target. Clipboard access comes from the built-in shell, so this example does not need a project capability declaration.
+A clipboard is a hand-off to other applications, not private application storage. That distinction matters even when the text looks harmless: a work-order reference can reveal information about a customer or a job. Here, the user enters a reference and chooses when to copy it. A separate private note is never part of that request.
+
+The second step adds paste. Clipboard text is external input, so the app checks its format before changing the reference. A failure preserves the existing fields instead of clearing work the user has already done. Checking the format does not prove that the work order exists or that this user may open it; those are separate application checks.
+
+## Create the project and add Android
+
+Clipboard text access is part of Fission's shell. It does not need an additional capability declaration. Add the YAML parser used for the checked-in translations.
 
 ```sh
 cargo install cargo-fission
 fission init android-use-the-android-clipboard-safely
 cd android-use-the-android-clipboard-safely
 fission add-target android --project-dir .
+cargo add serde_yaml
 ```
 
-## Files created by Fission
-
-This is the starter tree Fission generates. Keep shared app code in `src/`; the generated platform files handle native launch and packaging.
-
-```text
-android-use-the-android-clipboard-safely/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
-├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
-└── platforms/
-    └── android/              # generated Android host
-```
-
-Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
+For SDK/NDK setup, follow [the Android setup tutorial](/blog/set-up-rust-android-gui-development-with-fission/). Launch [an emulator](/blog/create-and-launch-a-fission-android-emulator/) or connect [an Android phone](/blog/run-a-fission-app-on-a-physical-android-phone/) before the native checks below. Keep the generated `src/main.rs`; replace the shared library entrypoint so the Android app runs this screen, not the starter counter.
 
 <!-- fission:step id="start-screen" -->
-## Build the safe hand-off screen
+## Copy one validated reference
 
-Start with the short hand-off a technician needs to share. The screen shows a safe work-order reference and gives the technician a separate private note field. The next step copies only the public reference, never this note, which makes the privacy boundary visible in the example.
+The state owns the reference and the current clipboard operation. The private note belongs to the screen's retained local state because no other screen or effect needs it. The copy reducer takes an owned snapshot of the reference, not the component or its private note.
+
+The pending operation also prevents two requests from overlapping. That keeps completion handling small: this example needs one outstanding clipboard operation, not a queue or a second copy of the clipboard.
 
 <Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Operation { Copy, Paste }
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Notice {
+    #[default]
+    Ready,
+    Copied,
+    Pasted,
+    InvalidReference,
+    EmptyClipboard,
+    Unsupported,
+    Denied,
+    Failed,
+}
+
+impl Notice {
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Ready => "handoff.ready",
+            Self::Copied => "handoff.copied",
+            Self::Pasted => "handoff.pasted",
+            Self::InvalidReference => "handoff.invalid",
+            Self::EmptyClipboard => "handoff.empty",
+            Self::Unsupported => "handoff.unsupported",
+            Self::Denied => "handoff.denied",
+            Self::Failed => "handoff.failed",
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct ClipboardState {
+    pub reference: String,
+    pub pending: Option<Operation>,
+    pub notice: Notice,
+}
+
+impl GlobalState for ClipboardState {}
+
+pub fn valid_reference(input: &str) -> bool {
+    let Some(number) = input.strip_prefix("WO-") else { return false; };
+    !number.is_empty()
+        && number.len() <= 12
+        && number.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+pub fn copy_reference(state: &mut ClipboardState, ctx: &mut ReducerContext<ClipboardState>) {
+    if state.pending.is_some() { return; }
+    let reference = state.reference.trim().to_owned();
+    if !valid_reference(&reference) {
+        state.notice = Notice::InvalidReference;
+        return;
+    }
+    state.pending = Some(Operation::Copy);
+    state.notice = Notice::Ready;
+    let ok = ctx.effects.bind(ReferenceCopied, reduce_with!(reference_copied));
+    let err = ctx.effects.bind(ClipboardFailed, reduce_with!(clipboard_failed));
+    ctx.effects.clipboard()
+        .write_text(ClipboardWriteTextRequest { text: reference })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(ReferenceCopied)]
+fn reference_copied(state: &mut ClipboardState, ctx: &mut ReducerContext<ClipboardState>) {
+    if state.pending != Some(Operation::Copy) { return; }
+    state.pending = None;
+    state.notice = if ctx.input.capability_ok(WRITE_CLIPBOARD_TEXT).is_some() {
+        Notice::Copied
+    } else {
+        Notice::Failed
+    };
+}
+
+#[fission_reducer(ClipboardFailed)]
+fn clipboard_failed(state: &mut ClipboardState, ctx: &mut ReducerContext<ClipboardState>) {
+    let code = match state.pending.take() {
+        Some(Operation::Copy) => ctx.input.capability_error(WRITE_CLIPBOARD_TEXT)
+            .map(|error| error.code),
+        Some(Operation::Paste) => ctx.input.capability_error(READ_CLIPBOARD_TEXT)
+            .map(|error| error.code),
+        None => return,
+    };
+    state.notice = match code.as_deref() {
+        Some("unsupported") => Notice::Unsupported,
+        Some("permission_denied") | Some("not_allowed") => Notice::Denied,
+        _ => Notice::Failed,
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_only_the_reference_format() {
+        assert!(valid_reference("WO-1048"));
+        for input in ["", "WO-", "WO-a", "WO-1\nprivate note", "WO-１２", "WO-1234567890123"] {
+            assert!(!valid_reference(input), "accepted invalid reference format");
+        }
+    }
+}
+```
+</TabItem>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+use crate::state::{self, ClipboardState};
 
 fission_component! {
-    pub WorkOrderScreen<()> {
-        state {
-            note_draft: String = String::new(),
-        }
+    pub HandoffScreen<ClipboardState> {
+        state { private_note: String = String::new() }
     }
-    view(screen, _state, cx) {
+    view(screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    SemanticsRegion(
-        identifier: Some("work-order-screen".to_string()),
-        label: Some(cx.tr("work.title")),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(cx.tr("work.site"))
-                    .weight(tokens.typography.font_weight_bold),
-                Text(cx.tr("work.title"))
-                    .size(tokens.typography.heading2_size),
-                Text(cx.tr("work.asset"))
-                    .color(tokens.colors.text_secondary),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text(cx.tr("work.context")),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-                TextInput(
-                    label: Some(cx.tr("work.note.label").into()),
-                    placeholder: Some(cx.tr("work.note.placeholder").into()),
-                    helper_text: Some(cx.tr("work.note.help").into()),
-                    bind: screen.note_draft,
-                    multiline: true,
-                    semantics_identifier: "work-order.private-note".to_string(),
-                ),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+    SafeArea(
+        child: Scroll(
+            child: Container(
+                child: Column(gap: tokens.spacing.m, children: [
+                    Text(cx.tr("handoff.title")).size(tokens.typography.heading2_size),
+                    Text(cx.tr("handoff.context")),
+                    TextInput(
+                        label: Some(cx.tr("handoff.reference").into()),
+                        helper_text: Some(cx.tr("handoff.format").into()),
+                        enabled: state.pending.is_none(),
+                        bind: state.reference,
+                        semantics_identifier: "handoff.reference".to_string(),
+                    ),
+                    TextInput(
+                        label: Some(cx.tr("handoff.note").into()),
+                        helper_text: Some(cx.tr("handoff.note_help").into()),
+                        multiline: true,
+                        bind: screen.private_note,
+                        semantics_identifier: "handoff.private-note".to_string(),
+                    ),
+                    Button(
+                        child: Text(cx.tr("handoff.copy")),
+                        key: "copy-reference",
+                        disabled: state.pending.is_some(),
+                        on_press: reduce { state::copy_reference(state, cx); },
+                    ).semantics_identifier("handoff.copy"),
+                    if let Some(operation) = state.pending {
+                        Spinner(
+                            motion: Some(SpinnerMotion::Default),
+                            label: cx.tr(match operation {
+                                state::Operation::Copy => "handoff.copying",
+                                state::Operation::Paste => "handoff.pasting",
+                            }),
+                        )
+                    } else {
+                        Text(cx.tr(state.notice.key()))
+                    },
+                ]),
+            ).padding_all(tokens.spacing.l),
+        ),
     )
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+handoff.title: "Hand off a work-order reference"
+handoff.context: "Choose the reference you intend to share. Copy excludes the private note, but the reference itself may still be sensitive."
+handoff.reference: "Work-order reference"
+handoff.format: "WO- followed by 1 to 12 digits."
+handoff.note: "Private note"
+handoff.note_help: "This note stays in this screen's memory. Copy never includes it; this example does not save or encrypt it."
+handoff.copy: "Copy reference"
+handoff.paste: "Paste reference"
+handoff.copying: "Copying the reference…"
+handoff.pasting: "Reading the clipboard…"
+handoff.ready: "Clipboard access starts only when you choose an action."
+handoff.copied: "Reference copied. Private note excluded."
+handoff.pasted: "Reference pasted. Review it before using it."
+handoff.invalid: "The reference must be WO- followed by 1 to 12 digits. Existing fields were preserved."
+handoff.empty: "There is no text to paste. Existing fields were preserved."
+handoff.unsupported: "This host does not support the requested clipboard operation."
+handoff.denied: "Clipboard access was not allowed. Check the browser or operating-system access policy."
+handoff.failed: "The clipboard operation failed. Your fields have not been cleared."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+handoff.title: "Compartir una referencia de orden"
+handoff.context: "Elige la referencia que quieres compartir. Copiar excluye la nota privada, pero la propia referencia también puede ser sensible."
+handoff.reference: "Referencia de la orden"
+handoff.format: "WO- seguido de 1 a 12 dígitos."
+handoff.note: "Nota privada"
+handoff.note_help: "Esta nota permanece en la memoria de esta pantalla. Copiar nunca la incluye; este ejemplo no la guarda ni la cifra."
+handoff.copy: "Copiar referencia"
+handoff.paste: "Pegar referencia"
+handoff.copying: "Copiando la referencia…"
+handoff.pasting: "Leyendo el portapapeles…"
+handoff.ready: "El acceso al portapapeles solo empieza cuando eliges una acción."
+handoff.copied: "Referencia copiada. Nota privada excluida."
+handoff.pasted: "Referencia pegada. Revísala antes de usarla."
+handoff.invalid: "La referencia debe ser WO- seguido de 1 a 12 dígitos. Se conservaron los campos."
+handoff.empty: "No hay texto que pegar. Se conservaron los campos."
+handoff.unsupported: "Este host no admite la operación de portapapeles solicitada."
+handoff.denied: "No se permitió el acceso. Revisa la política del navegador o del sistema operativo."
+handoff.failed: "La operación falló. No se han borrado tus campos."
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod state;
+mod translations;
+
+use app::HandoffScreen;
+use state::ClipboardState;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<ClipboardState, _>::new(HandoffScreen::new())
+        .with_env(translations::create_env())
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<ClipboardState, HandoffScreen> {
+    let app = MobileApp::<ClipboardState, _>::new(HandoffScreen::new())
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<ClipboardState, _>::new(HandoffScreen::new())
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
@@ -106,66 +326,17 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
-
-use std::collections::HashMap;
+mod state;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-fn preview_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    env.i18n.add_bundle(TranslationBundle {
-        locale: Locale::from("en-US"),
-        messages: HashMap::from([
-            ("work.site".into(), "Northbank Maintenance · hand-off".into()),
-            ("work.title".into(), "Share a safe repair summary".into()),
-            ("work.asset".into(), "CMP-7A-2219 · inspection ready for review".into()),
-            ("work.pending".into(), "Summary approval pending".into()),
-            ("work.complete".into(), "Safe summary approved".into()),
-            ("work.mark".into(), "Approve safe summary".into()),
-            ("work.recorded".into(), "Summary approved".into()),
-            ("work.waiting".into(), "Waiting for the Fission host…".into()),
-            ("work.error".into(), "The host could not complete this action".into()),
-            ("work.result".into(), "Host result".into()),
-            ("work.ready".into(), "Ready. This preview uses a deterministic in-memory provider.".into()),
-            ("work.note.label".into(), "Private work-order note · not copied".into()),
-            ("work.note.placeholder".into(), "Add a private note for the technician".into()),
-            ("work.note.help".into(), "The clipboard action copies only WO-1048 · CMP-7A-2219.".into()),
-            ("work.context".into(), "The reference to copy is WO-1048 · CMP-7A-2219. It contains the work-order and equipment IDs, not private notes or credentials.".into()),
-            ("work.action".into(), "Record summary review".into())
-        ]),
-    });
-    env.i18n.add_bundle(TranslationBundle {
-        locale: Locale::from("es-ES"),
-        messages: HashMap::from([
-            ("work.site".into(), "Mantenimiento Northbank · entrega".into()),
-            ("work.title".into(), "Compartir un resumen seguro de la reparación".into()),
-            ("work.asset".into(), "CMP-7A-2219 · inspección lista para revisión".into()),
-            ("work.pending".into(), "Resumen pendiente de aprobación".into()),
-            ("work.complete".into(), "Resumen seguro aprobado".into()),
-            ("work.mark".into(), "Aprobar el resumen seguro".into()),
-            ("work.recorded".into(), "Resumen aprobado".into()),
-            ("work.waiting".into(), "Esperando al host de Fission…".into()),
-            ("work.error".into(), "El host no pudo completar esta acción".into()),
-            ("work.result".into(), "Resultado del host".into()),
-            ("work.ready".into(), "Listo. Esta vista previa usa un proveedor en memoria.".into()),
-            ("work.note.label".into(), "Nota privada de la orden · no se copia".into()),
-            ("work.note.placeholder".into(), "Añade una nota privada para el técnico".into()),
-            ("work.note.help".into(), "El portapapeles solo copia WO-1048 · CMP-7A-2219.".into()),
-            ("work.context".into(), "La referencia que se copiará es WO-1048 · CMP-7A-2219. Solo contiene los identificadores de la orden y el equipo, no notas privadas ni credenciales.".into()),
-            ("work.action".into(), "Registrar revisión del resumen".into())
-        ]),
-    });
-    env
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::WorkOrderScreen)
-        .with_env(preview_env())
-        .with_title("Work-order preview")
+    WebApp::<state::ClipboardState, _>::new(app::HandoffScreen::new())
+        .with_env(translations::create_env())
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -176,222 +347,219 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-This stage is an app screen with a real state transition, not a device mock. The next stage connects a separate user action to the typed Clipboard capability and shows its success or error result.
+Enter a reference such as `WO-1048`, add a different private note, then copy. Paste into a scratch text editor and check that only the reference appears. An empty or malformed reference should produce validation feedback without a host request.
+
+The embedded app uses the browser clipboard provider, not a memory substitute. Browser policy, secure-context requirements or restrictions on an embedded page may reject access; that must produce an error, not a fabricated success.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Run the Clipboard operation through Fission
+## Paste without trusting the clipboard
 
-Keep host work out of component conversion. The button dispatches a typed action, its reducer queues the capability request, and separate completion reducers update the screen. The Web preview installs `MemoryClipboardHost` and sends the same operation through Fission’s typed capability path. Its deterministic response is not a claim about device hardware, OS permission or native platform support.
+Paste runs only after a deliberate user action. Do not read the clipboard during startup, on a timer or whenever a field receives focus. Apart from unnecessary access, that would replace the reference when the user had not asked for a change.
 
-The Web preview installs MemoryClipboardHost, so the write reaches Fission's typed clipboard effect without changing the browser or OS clipboard.
+The successful callback receives `ClipboardText` from `ctx.input`. Only a matching reference reaches application state; empty text and other clipboard contents leave the current value alone. In particular, the error message does not echo rejected clipboard text, which might contain a password or another application's private data.
+
+Replace `src/state.rs` with the version below. The screen adds a Paste action; native and Web entrypoints remain unchanged.
 
 <Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
 ```rust
 use fission::prelude::*;
 
-#[derive(Debug, Default)]
-pub struct WorkOrderState {
-    pub pending: bool,
-    pub result: Option<String>,
-    pub error: Option<String>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Operation { Copy, Paste }
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Notice {
+    #[default]
+    Ready,
+    Copied,
+    Pasted,
+    InvalidReference,
+    EmptyClipboard,
+    Unsupported,
+    Denied,
+    Failed,
 }
 
-impl GlobalState for WorkOrderState {}
+impl Notice {
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Ready => "handoff.ready",
+            Self::Copied => "handoff.copied",
+            Self::Pasted => "handoff.pasted",
+            Self::InvalidReference => "handoff.invalid",
+            Self::EmptyClipboard => "handoff.empty",
+            Self::Unsupported => "handoff.unsupported",
+            Self::Denied => "handoff.denied",
+            Self::Failed => "handoff.failed",
+        }
+    }
+}
 
-#[fission_reducer(RunCapability)]
-pub fn run_capability(state: &mut WorkOrderState, ctx: &mut ReducerContext<WorkOrderState>) {
-    state.pending = true;
-    state.result = None;
-    state.error = None;
+#[derive(Debug, Default)]
+pub struct ClipboardState {
+    pub reference: String,
+    pub pending: Option<Operation>,
+    pub notice: Notice,
+}
 
-    let ok: ActionEnvelope = CapabilitySucceeded.into();
-    let err: ActionEnvelope = CapabilityFailed.into();
+impl GlobalState for ClipboardState {}
 
-    ctx.effects
-        .clipboard().write_text(ClipboardWriteTextRequest {
-            text: "WO-1048 · CMP-7A-2219".into(),
-        })
+pub fn valid_reference(input: &str) -> bool {
+    let Some(number) = input.strip_prefix("WO-") else { return false; };
+    !number.is_empty()
+        && number.len() <= 12
+        && number.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+pub fn copy_reference(state: &mut ClipboardState, ctx: &mut ReducerContext<ClipboardState>) {
+    if state.pending.is_some() { return; }
+    let reference = state.reference.trim().to_owned();
+    if !valid_reference(&reference) {
+        state.notice = Notice::InvalidReference;
+        return;
+    }
+    state.pending = Some(Operation::Copy);
+    state.notice = Notice::Ready;
+    let ok = ctx.effects.bind(ReferenceCopied, reduce_with!(reference_copied));
+    let err = ctx.effects.bind(ClipboardFailed, reduce_with!(clipboard_failed));
+    ctx.effects.clipboard()
+        .write_text(ClipboardWriteTextRequest { text: reference })
         .on_ok(ok)
         .on_err(err);
 }
 
-#[fission_reducer(CapabilitySucceeded)]
-pub fn capability_succeeded(
-    state: &mut WorkOrderState,
-    ctx: &mut ReducerContext<WorkOrderState>,
-) {
-    state.pending = false;
-    state.error = None;
-    state.result = ctx
-        .input
-        .capability_ok(WRITE_CLIPBOARD_TEXT)
-        .map(|_value| "Work-order reference copied to the host clipboard.".to_string());
-    if state.result.is_none() {
-        state.error = Some("The host completed without the expected typed result.".into());
+#[fission_reducer(ReferenceCopied)]
+fn reference_copied(state: &mut ClipboardState, ctx: &mut ReducerContext<ClipboardState>) {
+    if state.pending != Some(Operation::Copy) { return; }
+    state.pending = None;
+    state.notice = if ctx.input.capability_ok(WRITE_CLIPBOARD_TEXT).is_some() {
+        Notice::Copied
+    } else {
+        Notice::Failed
+    };
+}
+
+#[fission_reducer(ClipboardFailed)]
+fn clipboard_failed(state: &mut ClipboardState, ctx: &mut ReducerContext<ClipboardState>) {
+    let code = match state.pending.take() {
+        Some(Operation::Copy) => ctx.input.capability_error(WRITE_CLIPBOARD_TEXT)
+            .map(|error| error.code),
+        Some(Operation::Paste) => ctx.input.capability_error(READ_CLIPBOARD_TEXT)
+            .map(|error| error.code),
+        None => return,
+    };
+    state.notice = match code.as_deref() {
+        Some("unsupported") => Notice::Unsupported,
+        Some("permission_denied") | Some("not_allowed") => Notice::Denied,
+        _ => Notice::Failed,
+    };
+}
+
+pub fn paste_reference(state: &mut ClipboardState, ctx: &mut ReducerContext<ClipboardState>) {
+    if state.pending.is_some() { return; }
+    state.pending = Some(Operation::Paste);
+    state.notice = Notice::Ready;
+    let ok = ctx.effects.bind(ReferencePasted, reduce_with!(reference_pasted));
+    let err = ctx.effects.bind(ClipboardFailed, reduce_with!(clipboard_failed));
+    ctx.effects.clipboard().read_text().on_ok(ok).on_err(err);
+}
+
+#[fission_reducer(ReferencePasted)]
+fn reference_pasted(state: &mut ClipboardState, ctx: &mut ReducerContext<ClipboardState>) {
+    if state.pending != Some(Operation::Paste) { return; }
+    state.pending = None;
+    match ctx.input.capability_ok(READ_CLIPBOARD_TEXT) {
+        Some(ClipboardText { text: Some(text) }) if valid_reference(text.trim()) => {
+            state.reference = text.trim().to_owned();
+            state.notice = Notice::Pasted;
+        }
+        Some(ClipboardText { text: None }) => state.notice = Notice::EmptyClipboard,
+        Some(ClipboardText { text: Some(text) }) if text.trim().is_empty() => {
+            state.notice = Notice::EmptyClipboard;
+        }
+        Some(_) => state.notice = Notice::InvalidReference,
+        None => state.notice = Notice::Failed,
     }
 }
 
-#[fission_reducer(CapabilityFailed)]
-pub fn capability_failed(
-    state: &mut WorkOrderState,
-    ctx: &mut ReducerContext<WorkOrderState>,
-) {
-    state.pending = false;
-    state.result = None;
-    state.error = Some(ctx
-        .input
-        .capability_error(WRITE_CLIPBOARD_TEXT)
-        .map(|error| format!("{}: {}", error.code, error.message))
-        .or_else(|| {
-            ctx.input
-                .capability_error_message(WRITE_CLIPBOARD_TEXT)
-                .map(str::to_owned)
-        })
-        .unwrap_or_else(|| "The host returned an error without details.".into()));
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-pub fn callback_registry() -> ActionRegistry<WorkOrderState> {
-    let mut registry = ActionRegistry::new();
-    registry.register(reduce_with!(capability_succeeded));
-    registry.register(reduce_with!(capability_failed));
-    registry
-}
-
-fission_component! {
-    pub WorkOrderScreen<WorkOrderState> {
-        state {
-            note_draft: String = String::new(),
+    #[test]
+    fn accepts_only_the_reference_format() {
+        assert!(valid_reference("WO-1048"));
+        for input in ["", "WO-", "WO-a", "WO-1\nprivate note", "WO-１２", "WO-1234567890123"] {
+            assert!(!valid_reference(input), "accepted invalid reference format");
         }
     }
-    view(screen, state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let action = with_reducer!(cx.build, RunCapability, run_capability);
-        let status = if state.pending {
-            cx.tr("work.waiting")
-        } else if let Some(error) = &state.error {
-            format!("{}: {error}", cx.tr("work.error"))
-        } else if let Some(result) = &state.result {
-            format!("{}: {result}", cx.tr("work.result"))
-        } else {
-            cx.tr("work.ready")
-        };
-    } =>
-    SemanticsRegion(
-        identifier: Some("work-order-clipboard".to_string()),
-        label: Some(cx.tr("work.title")),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(cx.tr("work.site"))
-                    .weight(tokens.typography.font_weight_bold),
-                Text(cx.tr("work.title"))
-                    .size(tokens.typography.heading2_size),
-                Text(cx.tr("work.asset"))
-                    .color(tokens.colors.text_secondary),
-                Text(cx.tr("work.context")),
-                TextInput(
-                    label: Some(cx.tr("work.note.label").into()),
-                    placeholder: Some(cx.tr("work.note.placeholder").into()),
-                    helper_text: Some(cx.tr("work.note.help").into()),
-                    bind: screen.note_draft,
-                    multiline: true,
-                    semantics_identifier: "work-order.private-note".to_string(),
-                ),
-                Button(
-                    child: Text(cx.tr("work.action")),
-                    key: "run-capability",
-                    variant: ButtonVariant::Primary,
-                    disabled: state.pending,
-                    loading: state.pending,
-                    on_press: action,
-                ),
-                Container(Text(status))
-                    .padding_all(tokens.spacing.m)
-                    .bg(tokens.colors.background)
-                    .border(tokens.colors.border, 1.0)
-                    .border_radius(tokens.radii.medium),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
 }
 ```
 </TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
 ```rust
-mod app;
-
-use std::collections::HashMap;
-
 use fission::prelude::*;
-use wasm_bindgen::prelude::*;
+use crate::state::{self, ClipboardState};
 
-fn preview_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    env.i18n.add_bundle(TranslationBundle {
-        locale: Locale::from("en-US"),
-        messages: HashMap::from([
-            ("work.site".into(), "Northbank Food Hub".into()),
-            ("work.title".into(), "WO-1048 · Cold-room compressor".into()),
-            ("work.asset".into(), "Asset CMP-7A-2219 · due today".into()),
-            ("work.pending".into(), "Summary not prepared".into()),
-            ("work.complete".into(), "Work-order reference copied · private notes excluded".into()),
-            ("work.mark".into(), "Copy work-order reference".into()),
-            ("work.recorded".into(), "Reference copied".into()),
-            ("work.waiting".into(), "Waiting for the Fission host…".into()),
-            ("work.error".into(), "The host could not complete this action".into()),
-            ("work.result".into(), "Host result".into()),
-            ("work.ready".into(), "Ready. This preview uses a deterministic in-memory provider.".into()),
-            ("work.note.label".into(), "Private work-order note · not copied".into()),
-            ("work.note.placeholder".into(), "Add a private note for the technician".into()),
-            ("work.note.help".into(), "The clipboard action copies only WO-1048 · CMP-7A-2219.".into()),
-            ("work.context".into(), "The reference to copy is WO-1048 · CMP-7A-2219. It contains the work-order and equipment IDs, not private notes or credentials.".into()),
-            ("work.action".into(), "Copy work-order reference".into())
-        ]),
-    });
-    env.i18n.add_bundle(TranslationBundle {
-        locale: Locale::from("es-ES"),
-        messages: HashMap::from([
-            ("work.site".into(), "Centro de alimentos Northbank".into()),
-            ("work.title".into(), "OT-1048 · Compresor de cámara fría".into()),
-            ("work.asset".into(), "Activo CMP-7A-2219 · vence hoy".into()),
-            ("work.pending".into(), "Resumen sin preparar".into()),
-            ("work.complete".into(), "Referencia copiada · se excluyeron las notas privadas".into()),
-            ("work.mark".into(), "Copiar la referencia de la orden".into()),
-            ("work.recorded".into(), "Referencia copiada".into()),
-            ("work.waiting".into(), "Esperando al host de Fission…".into()),
-            ("work.error".into(), "El host no pudo completar esta acción".into()),
-            ("work.result".into(), "Resultado del host".into()),
-            ("work.ready".into(), "Listo. Esta vista previa usa un proveedor en memoria.".into()),
-            ("work.note.label".into(), "Nota privada de la orden · no se copia".into()),
-            ("work.note.placeholder".into(), "Añade una nota privada para el técnico".into()),
-            ("work.note.help".into(), "El portapapeles solo copia WO-1048 · CMP-7A-2219.".into()),
-            ("work.context".into(), "La referencia que se copiará es WO-1048 · CMP-7A-2219. Solo contiene los identificadores de la orden y el equipo, no notas privadas ni credenciales.".into()),
-            ("work.action".into(), "Copiar la referencia de la orden".into())
-        ]),
-    });
-    env
-}
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    let mut app = WebApp::<app::WorkOrderState, _>::new(app::WorkOrderScreen)
-        .with_env(preview_env())
-        .with_clipboard_host(MemoryClipboardHost::default())
-        .with_title("Android Clipboard capability preview");
-    app.absorb_registry(app::callback_registry());
-    app.mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
+fission_component! {
+    pub HandoffScreen<ClipboardState> {
+        state { private_note: String = String::new() }
+    }
+    view(screen, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SafeArea(
+        child: Scroll(
+            child: Container(
+                child: Column(gap: tokens.spacing.m, children: [
+                    Text(cx.tr("handoff.title")).size(tokens.typography.heading2_size),
+                    Text(cx.tr("handoff.context")),
+                    TextInput(
+                        label: Some(cx.tr("handoff.reference").into()),
+                        helper_text: Some(cx.tr("handoff.format").into()),
+                        enabled: state.pending.is_none(),
+                        bind: state.reference,
+                        semantics_identifier: "handoff.reference".to_string(),
+                    ),
+                    TextInput(
+                        label: Some(cx.tr("handoff.note").into()),
+                        helper_text: Some(cx.tr("handoff.note_help").into()),
+                        multiline: true,
+                        bind: screen.private_note,
+                        semantics_identifier: "handoff.private-note".to_string(),
+                    ),
+                    Button(
+                        child: Text(cx.tr("handoff.copy")),
+                        key: "copy-reference",
+                        disabled: state.pending.is_some(),
+                        on_press: reduce { state::copy_reference(state, cx); },
+                    ).semantics_identifier("handoff.copy"),
+                    Button(
+                        child: Text(cx.tr("handoff.paste")),
+                        key: "paste-reference",
+                        disabled: state.pending.is_some(),
+                        on_press: reduce { state::paste_reference(state, cx); },
+                    ).semantics_identifier("handoff.paste"),
+                    if let Some(operation) = state.pending {
+                        Spinner(
+                            motion: Some(SpinnerMotion::Default),
+                            label: cx.tr(match operation {
+                                state::Operation::Copy => "handoff.copying",
+                                state::Operation::Paste => "handoff.pasting",
+                            }),
+                        )
+                    } else {
+                        Text(cx.tr(state.notice.key()))
+                    },
+                ]),
+            ).padding_all(tokens.spacing.l),
+        ),
+    )
 }
 ```
 </TabItem>
@@ -399,44 +567,34 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-The preview exercises the Clipboard operation with an in-memory host. On Android, keep the native permission and unsupported/error outcomes visible, then verify the same user action on the supported simulator or a physical device.
+Copy one reference, edit the field, then paste to restore the copied value. Next copy unrelated text in another application and paste again. The original reference and private note should remain unchanged, and the message should explain the rejected format without repeating the clipboard contents.
+
+The copy acknowledgement says that the host accepted the write. It does not say that another application has read it, nor that the clipboard can keep it confidential.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Verify the native request on Android
+## Check the Android host, not just the Web preview
 
-The website preview cannot exercise the native provider. Build and launch this target on a supported emulator or device, then use the feature action from the component above. Check the result the host actually returns, including denial, cancellation or unsupported hardware where those outcomes apply.
-
-Repeat with the feature unavailable, denied or cancelled, as applicable. Confirm the screen preserves the user’s existing data and offers the right recovery step. Use a physical device when the behavior depends on real hardware or an operating-system prompt.
-
-### Run, test and build
+Run the same screen on an emulator and a phone. Android and a browser have different clipboard policies; a successful browser request is not evidence for native behaviour.
 
 ```sh
 cargo test
 fission doctor android --project-dir .
+fission devices --target android --project-dir .
 fission run --target android --project-dir .
 fission test --target android --project-dir .
 fission build --target android --project-dir . --release
 ```
 
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
+Check copy and paste with the app in the foreground, an empty clipboard, unrelated text, and the host's denied or unsupported result where available. Verify the private note never enters the copied text and remains editable after failure. Do not use real credentials or customer notes as test clipboard content.
 
+The format test runs without a device. `fission test` checks the generated host can launch, but neither command proves the clipboard interaction works. Complete the manual cross-application checks before relying on the feature.
 
-### Emulator and connected-device commands
-
-Run these emulator checks from the generated project root:
-
-```sh
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
-```
-
+<!-- fission:checkpoint -->
+You now have explicit copy and paste actions, typed success and error handling, and a native entrypoint using the same code as the Web app. The privacy boundary is the request payload: only the chosen reference is sent. The local note is still only in memory, not saved or encrypted.
 
 ### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
 
 - [Clipboard capability guide](/docs/capabilities/clipboard/)
 - [Clipboard capability reference](/reference/capabilities/clipboard/)

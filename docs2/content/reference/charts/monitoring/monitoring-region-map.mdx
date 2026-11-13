@@ -8,87 +8,53 @@ description: Fission Charts reference for Operational region map.
 
 ![Operational region map screenshot](/img/charts/monitoring-region-map.png)
 
-This example uses Fission Charts' typed Rust API. Use it for geographic operations. The screenshot is from Fission's chart gallery.
+A region map is useful when location explains an operational difference. For example, a failed-request rate by service region may reveal a regional problem which disappears in a global average. The screenshot is from Fission's chart gallery.
 
 ## What the chart is for
 
-This chart is in the **Monitoring** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
+Compare the same measure and reporting period in every region. Use a rate when the question is reliability rather than traffic volume, and retain the request counts needed to judge a small sample. Geographic area must not be mistaken for a region's share of requests.
 
 ## Data model
 
-This example uses `Region values with color scale`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
+`MapSeries` needs GeoJSON geometry; `map_type` alone does not fetch a map. Feature names come from `name_property`, which defaults to `name`, and must match the names in the data. The current parser supports Polygon and MultiPolygon features. Unmatched regions remain without a value rather than becoming measured zero.
 
 ## Authoring from a Fission component
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Supply validated GeoJSON and region/error-percentage pairs from the parent. This example joins on a stable `region_id` property instead of translated display labels.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{Chart, MapSeries, VisualMap};
 
-
-
-fission_component!
-{
-    pub OperationalRegionMapChart<()> {
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub RegionalErrorMap<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            region_geojson: String,
+            error_percent: Vec<(String, f32)>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
-    }
+    view(regions, _state, _cx) {
+        let values = regions.error_percent.iter()
+            .map(|(id, value)| (id.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(regions.chart_title.clone()),
+        visual_map: Some(VisualMap::new().min(0.0).max(100.0)),
+        series: vec![MapSeries::new(&regions.series_label, "service-regions")
+            .geojson(&regions.region_geojson)
+            .name_property("region_id")
+            .data(values)
+            .into()],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+## Testing and accessibility
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Test unknown region IDs, duplicate data names, invalid geometry and a region with no eligible requests. Invalid or missing GeoJSON currently produces no region paths, so report preparation must surface that failure. Provide a region table with rates, counts and unavailable states; colour and polygon size are not a substitute for those values.
 
 Tags: `monitoring`, `map`.
 

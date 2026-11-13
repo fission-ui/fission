@@ -5,21 +5,27 @@ slug: /widgets/link
 ---
 # Link
 
-`Link` is a text-style action for inline navigation or secondary actions such
-as “Learn more” or “Open settings”. Use [`Button`](/reference/widgets/button)
-when the action should have more visual weight.
+Navigation needs a destination, not only text that looks clickable. Use
+`Link::to` for a real destination so HTML targets can emit an `href` and
+native shells can dispatch the corresponding navigation command. A plain
+`on_click` action is a different case: it performs application behaviour using
+link styling without pretending to be a URL.
 
 ## Example
 
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Link {
-    text: "Open billing settings".into(),
-    on_click: Some(open_billing_settings_action),
+fission_component! {
+    pub BillingLink<()> {}
+    view(_link, _state, cx) =>
+    Link::to(cx.tr("billing.open_settings"), "/settings/billing")
 }
-.into();
 ```
+
+Register the destination in the app's router. `Link::to` is an ordinary Rust
+constructor inside Compose; it creates the typed navigation metadata as well
+as the action. You do not need a `rust {}` wrapper or a hand-serialised envelope.
 
 ## Field table
 
@@ -30,9 +36,16 @@ let widget: Widget = Link {
 
 ## What kind of link this is
 
-The checked-in widget is built from a ghost [`Button`](/reference/widgets/button) plus underlined text. That means it behaves like an explicit action inside Fission's state loop, not like a browser-native anchor tag with an `href`.
+`Link::to` and `Link::hyperlink` lower through a semantic pressable carrying
+genuine hyperlink metadata. Use `Link::hyperlink(label, Hyperlink::new(href)
+.target(LinkTarget::NewWindow))` when target/relationship/download policy is
+needed. Validate untrusted destinations according to your product's policy.
 
-In practice that is often what you want: the action can navigate within your app, open a settings view, or ask the reducer to emit an `OPEN_URL` capability. Just remember that the widget itself does not know about URLs.
+For a non-navigation action, a Compose view can use
+`Link(text: cx.tr("filters.clear"), on_click: clear_filters)`, with
+`clear_filters` already bound to the application's reducer. That form renders
+through a ghost button, not a browser anchor. Choose it deliberately rather
+than losing link behaviour such as copying a destination or opening a new tab.
 
 ## Specific advice
 
@@ -40,9 +53,9 @@ Use link styling for low-emphasis actions. If the choice is primary, destructive
 
 ## Production checklist
 
-- Bind `on_click` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+For navigation, inspect the generated HTML destination and test the native
+router path. For an action, test the state transition. Styling both as a link
+does not make those two contracts interchangeable.
 
 ## Related
 

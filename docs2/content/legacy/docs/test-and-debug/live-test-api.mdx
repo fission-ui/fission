@@ -61,6 +61,8 @@ ordinary rendered HTML, including real server navigation and browser session
 cookies:
 
 ```rust
+use fission_test_driver::SelectorQuery;
+
 let client = LiveTestClient::launch_browser(
     BrowserTestOptions::new("http://127.0.0.1:3000/sign-in").website(),
 )?;
@@ -74,10 +76,12 @@ Website mode uses standard HTML labels, accessible roles, element ids and
 present. It drives Chromium through the test process and does not add a remotely
 accessible test endpoint to the application.
 
-Keep this client alive to resize the same page while retaining app state and
-route. Enable Web test control on the compiling command, for example
+Keep the client alive to resize the same page while retaining its app state and
+route. For `.fission_canvas()` mode, enable Web test control on the compiling command, for example
 `FISSION_WEB_TEST_CONTROL=1 ./platforms/web/build-wasm.sh`, and serve the build
 through the existing `fission serve-web --project-dir .` helper or your test host.
+Website mode needs neither that compile-time flag nor a Fission app; it reads
+the rendered DOM through the browser driver.
 Resize uses CSS pixels, preserves the configured device scale and mobile mode
 (scale 1 and desktop mode by default), validates dimensions, and waits
 for actual viewport/canvas/submitted-layout frame dimensions and paint within

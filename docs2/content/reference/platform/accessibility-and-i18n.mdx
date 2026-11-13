@@ -8,7 +8,11 @@ description: Reference contract for semantic output, translated text, locale, an
 
 Accessibility and internationalization affect the whole app: what the runtime says each control is, how text is selected, how layouts adapt to translation, and what platform shells expose to assistive technology.
 
-In Fission, widgets add semantics to the normal tree, text can use translation keys, and `Env` holds the active locale and translation bundles. Each shell exposes the result through its platform's accessibility services.
+Widgets add semantics to the normal tree, text can use translation keys, and
+`Env` holds the active locale and translation bundles. A shell translates that
+information to its target where supported. The Web canvas does not expose a
+complete DOM accessibility tree, so a shared semantic model must not be
+mistaken for identical assistive-technology coverage on every target.
 
 For the dedicated accessibility support matrix, native bridge contract, role mapping, and screen-reader compatibility targets, use [Accessibility reference](/reference/platform/accessibility/). This page keeps accessibility and locale together because platform shells often need to validate both at the same time.
 

@@ -22,17 +22,36 @@ Do not start here if you only need to display logs or captured output. In that c
 
 ```rust
 use fission::prelude::*;
+use std::sync::Arc;
 
-let terminal = TerminalView::new(session.clone(), panel_width, panel_height)
-    .font_size(13.0)
-    .line_height(18.0)
-    .padding(10.0, 10.0)
-    .into();
+fission_component! {
+    pub TerminalPane<()> {
+        props {
+            session: Arc<TerminalSession>,
+            width: f32,
+            height: f32,
+        }
+    }
+
+    view(pane, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let font_size = tokens.typography.font_size_sm;
+    } =>
+        TerminalView(pane.session.clone(), pane.width, pane.height)
+            .font_size(font_size)
+            .line_height(font_size * tokens.typography.line_height_normal)
+            .padding(tokens.spacing.s, tokens.spacing.s)
+}
 ```
 
 The important idea is that `session` is the already-running terminal session and `TerminalView` is the visible terminal pane built around it.
 
-If you are new to Rust, `session.clone()` here does not copy the whole terminal process. It copies the shared handle to the same running session. That is why the field type is `Arc<TerminalSession>`. `Arc` stands for atomically reference-counted, which you can treat as "a safe shared pointer to one live session."
+The component receives one already-running session and real parent-constrained
+viewport dimensions. Cloning its `Arc` shares that session; it does not launch
+another process. Enable `terminal-widget` on the `fission` dependency for this
+example. That forwards to the underlying `fission-widgets` crate's `terminal`
+feature; the names are not interchangeable. The widget requires a native
+non-mobile target, not Web, Android, or iOS.
 
 ## Field and builder reference
 
@@ -49,7 +68,8 @@ If you are new to Rust, `session.clone()` here does not copy the whole terminal 
 
 During component conversion, `TerminalView` tells the session to resize itself for the current viewport. That is how the terminal knows how many rows and columns should fit in the available space.
 
-After that, the widget returns a custom render object. In beginner terms, that means a lower-level drawing and interaction object that can do terminal-specific work ordinary widgets do not need. It handles keyboard input, pointer selection, clipboard copy and paste, and terminal scrolling while the session keeps the actual process and terminal state alive.
+After that, the widget returns a custom render object. That object handles terminal-specific drawing and interaction below ordinary
+widget composition. It handles keyboard input, pointer selection, clipboard copy and paste, and terminal scrolling while the session keeps the actual process and terminal state alive.
 
 This is why `TerminalView` behaves differently from a normal input widget. It does not dispatch a typed application action for every key press. Terminal interaction goes straight into the running session because that is how a real terminal surface has to work.
 

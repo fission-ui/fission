@@ -5,7 +5,10 @@ description: Declarative layout lengths for fixed, percentage, viewport, intrins
 
 # Length
 
-`Length` describes a layout length as data. It is used by `Container`, `BoxStyle`, positioning, padding, margin, and other typed layout APIs.
+`Length` describes a size before layout has resolved it. This distinction lets
+the same widget ask for fixed points, a share of its parent or a share of the
+viewport without computing pixel values while building the view. `Container`,
+`BoxStyle`, positioning, padding and margin use the same type.
 
 | Variant or constructor | Meaning |
 | --- | --- |
@@ -25,11 +28,18 @@ description: Declarative layout lengths for fixed, percentage, viewport, intrins
 const PROFILE_MIN_WIDTH: f32 = 280.0;
 const PROFILE_MAX_WIDTH: f32 = 480.0;
 
-Container::new(ProfileCard)
-    .width_length(Length::clamp(
-        Length::points(PROFILE_MIN_WIDTH),
-        Length::percent(36.0),
-        Length::points(PROFILE_MAX_WIDTH),
-    ))
-    .into()
+fission_component! {
+    pub ProfilePanel<AppState>
+    view(_panel, _state, _cx) =>
+    Container(ProfileCard)
+        .width_length(Length::clamp(
+            Length::points(PROFILE_MIN_WIDTH),
+            Length::percent(36.0),
+            Length::points(PROFILE_MAX_WIDTH),
+        ))
+}
 ```
+
+The preferred width is 36% of the containing axis, bounded by the two fixed
+limits. It is not 36% of the screen; use `vw` when the viewport is the intended
+reference.

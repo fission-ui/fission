@@ -12,12 +12,15 @@ from: a literal value, a translation key, or a key with fallback text.
 
 ```rust
 use fission::prelude::*;
-let title = Text::new(TextContent::Key("settings.title".into())).into();
-let caption = Text::new(TextContent::Literal("Version 1.2.0".into())).into();
-let menu_item = Text::new(TextContent::KeyWithFallback {
-    key: "menu.copy".into(),
-    fallback: "Copy".into(),
-}).into();
+// Inside a Compose view: key, literal data, and library fallback differ.
+Column(children: [
+    Text(TextContent::Key("settings.title".into())),
+    Text(TextContent::Literal(app_version.clone())),
+    Text(TextContent::KeyWithFallback {
+        key: "menu.copy".into(),
+        fallback: "Copy".into(),
+    }),
+])
 ```
 
 ## Choice table

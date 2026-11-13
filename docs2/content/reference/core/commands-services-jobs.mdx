@@ -72,7 +72,11 @@ The runtime performs the work and returns its result through the same action and
 
 When a reducer uses `ctx.effects`, it is only requesting the work. Later, when the runtime routes results back, reducers can read them from `ctx.input`.
 
-Reducers can read job success or failure payloads, service events, service command results, and other returned data through the typed input helpers. This keeps async result handling out of global state and out of hidden shell callbacks.
+Reducers read returned payloads through the typed input helpers, then store the
+product result or error in app state. The temporary completion envelope stays
+in `ctx.input`; the application does not need a second hidden callback state
+store. Include operation identity when a late result could overwrite a newer
+edit or the state for another document.
 
 ## Choosing the right tool
 

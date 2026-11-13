@@ -1,94 +1,63 @@
 ---
 title: Priority queue bars
 sidebar_label: Priority queue bars
-description: Fission Charts reference for Priority queue bars.
+description: Compare outstanding work by priority without sorting urgency away.
 ---
 
 # Priority queue bars
 
 ![Priority queue bars screenshot](/img/charts/bar-priority-queue.png)
 
-This example uses Fission Charts' typed Rust API. Use it when bars sit inside a polished app surface. The screenshot is from Fission's chart gallery.
+The largest queue is not necessarily the most urgent one. A priority overview should keep critical work visible even when there are only a few critical tickets. Preserve the application's priority order rather than sorting every view by ticket count.
 
-## What the chart is for
+Rounded bars change presentation, not meaning. The priority labels and counts still need to be readable without relying on a colour associated with urgency.
 
-This chart is in the **Bar** family. Use it when a visual makes the pattern easier to spot.
+## Compose example
 
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Rounded bars for a compact queue view`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, BarSeries, Chart};
-
-let chart = Chart::new()
-    .title("Orders")
-    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-    .y_axis(Axis::value())
-    .series(vec![BarSeries::new("Orders")
-        .data(vec![120.0, 156.0, 184.0, 212.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+The parent supplies rows in priority order, from most urgent to least urgent, and obtains their counts from the same outstanding-work query.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, BarSeries, Chart};
+use fission::charts::{Axis, BarSeries, Chart, Series};
 
+#[derive(Clone)]
+pub struct PriorityCount {
+    pub priority_label: String,
+    pub open_tickets: f32,
+}
 
-
-fission_component!
-{
-    pub PriorityQueueBarsChart<()> {
+fission_component! {
+    pub PriorityQueuesChart<()> {
+        props {
+            title: String,
+            tickets_label: String,
+            corner_radius: f32,
+            rows: Vec<PriorityCount>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Orders")
-                    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-                    .y_axis(Axis::value())
-                    .series(vec![BarSeries::new("Orders")
-                        .data(vec![120.0, 156.0, 184.0, 212.0])
-                        .into()])
-                    .into()
-    }
+    view(queues, _state, _cx) {
+        let labels = queues.rows.iter().map(|row| row.priority_label.as_str()).collect();
+        let counts = queues.rows.iter().map(|row| row.open_tickets).collect();
+    } => Chart(
+        title: Some(queues.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        series: vec![
+            Series::Bar(BarSeries::new(&queues.tickets_label)
+                .border_radius(queues.corner_radius)
+                .data(counts)),
+        ],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Enable Fission's `charts` feature. `BarSeries::border_radius(f32)` supplies the rounding, whilst `data(Vec<f32>)` supplies the values. Take the radius from the parent's design system and provide translated labels as props.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## Checks
+
+Test that a critical queue stays first when a lower-priority queue grows. Distinguish a genuine zero count from a failed query: an unavailable count must not make urgent work appear absent.
+
+Provide exact counts in an accessible list or table and inspect long translated priority names at narrow widths. If selecting a bar opens a filtered ticket list, handle that through a typed chart event and reducer using the priority's durable identifier, not its translated label. The screenshot uses gallery sample data.
 
 Tags: `bar`, `rounded`.
 

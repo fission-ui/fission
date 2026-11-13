@@ -16,10 +16,10 @@ Do not assume system volume is writable. Treat unsupported as a normal platform 
 Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
 
 ```rust
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct VolumeControlState {
-    // Add these fields to your existing app state.
     volume: Option<VolumeLevel>,
+    adjusting: bool,
     volume_error: Option<String>,
 }
 
@@ -54,14 +54,21 @@ The volume request completes after its starting reducer returns. Handle the resu
 
 ```rust
 #[fission_reducer(VolumeChanged)]
-fn on_volume_changed(state: &mut VolumeControlState, level: VolumeLevel) {
-    state.volume = Some(level);
+fn on_volume_changed(state: &mut VolumeControlState, ctx: &mut ReducerContext<VolumeControlState>) {
+    state.adjusting = false;
+    state.volume = ctx.input.capability_ok(ADJUST_VOLUME_LEVEL);
     state.volume_error = None;
 }
 
 #[fission_reducer(VolumeChangeFailed)]
-fn on_volume_change_failed(state: &mut VolumeControlState, error: VolumeError) {
-    state.volume_error = Some(error.message);
+fn on_volume_change_failed(state: &mut VolumeControlState, ctx: &mut ReducerContext<VolumeControlState>) {
+    state.adjusting = false;
+    state.volume_error = Some(
+        ctx.input.capability_error(ADJUST_VOLUME_LEVEL)
+            .map(|error| error.message)
+            .or_else(|| ctx.input.capability_error_message(ADJUST_VOLUME_LEVEL).map(str::to_owned))
+            .unwrap_or_else(|| "Volume adjustment unavailable".into()),
+    );
 }
 ```
 
@@ -72,24 +79,29 @@ Unsupported system-volume control is expected on some targets. Keep the app usab
 Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
 
 ```rust
-ctx.effects
-    .volume()
-    .adjust_level(VolumeAdjustRequest {
-        stream: VolumeStream::Media,
-        direction: VolumeAdjustDirection::Up,
-        step: 5,
-    })
-    .on_ok(ctx.effects.bind(
-        VolumeChanged(VolumeLevel::default()),
-        reduce_with!(on_volume_changed),
-    ))
-    .on_err(ctx.effects.bind(
-        VolumeChangeFailed(VolumeError::default()),
-        reduce_with!(on_volume_change_failed),
-    ));
+#[fission_reducer(RaiseVolume)]
+fn on_raise_volume(state: &mut VolumeControlState, ctx: &mut ReducerContext<VolumeControlState>) {
+    if state.adjusting { return; }
+    state.adjusting = true;
+    state.volume_error = None;
+    let changed = ctx.effects.bind(VolumeChanged, reduce_with!(on_volume_changed));
+    let failed = ctx.effects.bind(VolumeChangeFailed, reduce_with!(on_volume_change_failed));
+    ctx.effects
+        .volume()
+        .adjust_level(VolumeAdjustRequest {
+            stream: VolumeStream::Media,
+            direction: VolumeAdjustDirection::Up,
+            step: 5,
+        })
+        .on_ok(changed)
+        .on_err(failed);
+}
 ```
 
-The call records a typed host request; the provider applies the platform's volume policy.
+The host may clamp the request or reject it. Display its returned level rather
+than add five to local state and assume that reflects system volume. Bind the
+callbacks before queuing the request; completion data comes from `ctx.input`,
+not from a default `VolumeLevel` authored in the callback action.
 
 ## 5. Trigger the reducer from the UI
 
@@ -98,19 +110,25 @@ Bind each control to a reducer that requests the current level or an adjustment:
 ```rust
 
 
-fission_component!
-{
-    pub RaiseVolumeButton<VolumeControlState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<VolumeControlState>();
-                let run = with_reducer!(ctx, RaiseVolume, on_raise_volume);
-
-                Button::new("Raise volume")
-                    .disabled(false)
-                    .on_press(run)
-                    .into()
-    }
+fission_component! {
+    pub RaiseVolumeButton<VolumeControlState>
+    view(_button, state, cx) {
+        let run = cx.bind(RaiseVolume, reduce!(on_raise_volume));
+    } =>
+    Column(children: [
+        Button(
+            child: Text(cx.tr("volume.raise")),
+            disabled: state.adjusting,
+            on_press: run,
+        ),
+        if state.adjusting { Spinner(motion: SpinnerMotion::Default, label: cx.tr("volume.adjusting")) },
+        if let Some(volume) = &state.volume {
+            Text(volume.level.to_string())
+        },
+        if let Some(error) = &state.volume_error {
+            Alert(kind: AlertKind::Warning, title: error.clone())
+        },
+    ])
 }
 ```
 The reducer requests the change, and a completion reducer updates the displayed level or error.

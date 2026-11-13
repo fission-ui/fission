@@ -16,9 +16,11 @@ outcomes:
   - Run and verify the shared interface on Android
 ---
 
-The last check before a weekend hike is easy to get wrong. The water filter is packed—but are the spare batteries? In this tutorial, we will build Harbour Trail, a checklist that shows each item's category and quantity, marks gear as packed, and hides completed rows while you finish the rest.
+Packing is not just a list of names. A row needs a quantity, and its status must distinguish gear that is still on the shelf from gear already in the bag. In this tutorial, we will build Harbour Trail, a checklist that shows each item's category and quantity, marks gear as packed, and hides completed rows while you finish the rest.
 
-The checklist is small, but it behaves like a real task. Its summary updates as you pack, the button tells you what will happen next, and you can put an item back on the list if it comes out of the bag. The data stays in memory for now; we can add persistence later without changing these interactions. The browser preview gets sample gear from its preview shell. The shared component never invents production data, so a native app with no loaded checklist shows an honest empty state.
+The item list is shared application data because both the summary and the rows read it. The remaining-items filter only changes this screen, so it belongs to the component. We will keep those two lifetimes separate, then use stable item IDs so filtering cannot redirect an action to a different row.
+
+The final app starts empty and lets the user create a weekend-hike checklist from a small curated template. That is an explicit creation action, not a fabricated saved trip. Newly created gear starts unpacked. The documentation preview seeds a partly packed trip separately so you can try both states. Nothing is persisted in this first app; reloading starts again.
 
 ## Create an Android project
 
@@ -43,7 +45,10 @@ harbour-trail/
 ├── src/
 │   ├── main.rs             # generated app entry point
 │   ├── lib.rs              # shared app setup
-│   └── app.rs              # PackingChecklist and pack-item rows
+│   ├── app.rs              # PackingChecklist screen
+│   ├── state.rs            # item model and state transitions
+│   ├── translations.rs     # embedded language bundles
+│   └── widgets/item_row.rs # reusable gear row
 └── platforms/
     └── android/            # generated Android host and packaging
 ```
@@ -57,69 +62,18 @@ Keep the checklist model in shared Rust. The generated host handles Android star
 
 Each row needs enough detail to make “done” mean something. The name tells you what to find, the category groups related gear, and the quantity makes clear whether one or both bottles are packed. A text status keeps the information clear without relying on colour.
 
-Start with an item record and five essentials to check before setting out. The preview shell supplies these sample items as component props; the component itself only renders the data it receives. In the next step, the shared app state owns checklist changes and the preview shell seeds that state for the browser. A native app can instead load its own checklist and show the empty state until one is available.
+Start with an item record and five essentials to check before setting out. The preview shell supplies these sample items as component props; the component itself only renders the data it receives. In the next step, the shared app state owns checklist changes and the preview shell seeds that state for the browser. The first stage displays an empty native list; the next stage adds the user action that creates a new checklist.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
-use std::collections::HashMap;
-
-use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
-use serde::{Deserialize, Serialize};
-
-pub fn create_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    for (locale, yaml) in [
-        ("en-US", include_str!("../i18n/en-US.yaml")),
-        ("es-ES", include_str!("../i18n/es-ES.yaml")),
-    ] {
-        let messages: HashMap<String, String> =
-            serde_yaml::from_str(yaml).expect("valid Harbour Trail translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(locale),
-            messages,
-        });
-    }
-    env
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct PackItem {
-    pub id: u32,
-    pub name_key: String,
-    pub category_key: String,
-    pub quantity: u32,
-    pub packed: bool,
-}
+use crate::state::{PackItem};
+use crate::widgets::PackItemRow;
 
 fission_component! {
-    pub PackItemRow<()> { item: PackItem }
-    view(row, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    Container(
-        Column(gap: tokens.spacing.xs, children: [
-            Text(cx.tr(&row.item.name_key)).weight(tokens.typography.font_weight_semibold),
-            Text(format!(
-                "{} · {} {}",
-                cx.tr(&row.item.category_key),
-                row.item.quantity,
-                cx.tr(if row.item.quantity == 1 { "pack.unit.one" } else { "pack.unit.many" })
-            )).color(tokens.colors.text_secondary),
-            Text(cx.tr(if row.item.packed { "pack.status.packed" } else { "pack.status.remaining" })),
-        ]),
-    )
-    .padding_all(tokens.spacing.m)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.medium)
-    .width_length(Length::percent(100.0))
-}
-
-fission_component! {
-    pub PackingChecklist<()> { items: Vec<PackItem> }
+    pub PackingChecklist<()> { props { items: Vec<PackItem> } }
     view(checklist, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let items = &checklist.items;
@@ -181,10 +135,139 @@ fission_component! {
 }
 ```
 </TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PackItem {
+    pub id: u32,
+    pub name_key: String,
+    pub category_key: String,
+    pub quantity: u32,
+    pub packed: bool,
+}
+```
+</TabItem>
+<TabItem label="src/widgets/mod.rs">
+<!-- fission:file path="src/widgets/mod.rs" -->
+```rust
+mod item_row;
+pub use item_row::PackItemRow;
+```
+</TabItem>
+<TabItem label="src/widgets/item_row.rs">
+<!-- fission:file path="src/widgets/item_row.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::{PackItem};
+
+fission_component! {
+    pub PackItemRow<()> { props { item: PackItem } }
+    view(row, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(gap: tokens.spacing.xs, children: [
+            Text(cx.tr(&row.item.name_key)).weight(tokens.typography.font_weight_semibold),
+            Text(format!(
+                "{} · {} {}",
+                cx.tr(&row.item.category_key),
+                row.item.quantity,
+                cx.tr(if row.item.quantity == 1 { "pack.unit.one" } else { "pack.unit.many" })
+            )).color(tokens.colors.text_secondary),
+            Text(cx.tr(if row.item.packed { "pack.status.packed" } else { "pack.status.remaining" })),
+        ]),
+    )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+    .width_length(Length::percent(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(yaml).expect("valid Harbour Trail translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod state;
+mod widgets;
+mod app;
+mod translations;
+
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(app::PackingChecklist::new(Vec::new()))
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), app::PackingChecklist> {
+    let app = MobileApp::<(), _>::new(app::PackingChecklist::new(Vec::new()))
+        .with_env(translations::create_env())
+        .with_title("Harbour Trail packing checklist");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::PackingChecklist::new(Vec::new()))
+        .with_env(translations::create_env())
+        .with_title("Harbour Trail packing checklist")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod state;
+mod widgets;
+mod translations;
 #[path = "../preview/fixtures.rs"]
 mod fixtures;
 
@@ -195,7 +278,7 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     WebApp::<(), _>::new(app::PackingChecklist::new(fixtures::starter_items()))
-        .with_env(app::create_env())
+        .with_env(translations::create_env())
         .with_title("Harbour Trail packing checklist")
         .mount("#fission-web-mount")
         .run()
@@ -206,7 +289,7 @@ pub fn run() -> Result<(), JsValue> {
 <TabItem label="preview/fixtures.rs">
 <!-- fission:file path="preview/fixtures.rs" -->
 ```rust
-use crate::app::PackItem;
+use crate::state::PackItem;
 
 pub fn starter_items() -> Vec<PackItem> {
     vec![
@@ -278,7 +361,7 @@ Find the headlamp row and note its category and quantity. The summary should rep
 <!-- fission:step id="pack-and-filter" -->
 ## Mark gear packed and focus on what remains
 
-The summary and each row need the same packed status, so the item list belongs in shared application state. An inline `reduce` block changes one item by its stable ID and updates the confirmation. The “show only what is left” switch affects this screen alone, so keep it in the checklist component's retained local state.
+The summary and each row need the same packed status, so the item list belongs in shared application state. An inline `reduce` block changes one item by its stable ID and updates the confirmation. The “show only what is left” control affects this screen alone, so keep it in the checklist component's retained local state. The creation button builds a fresh template only when the list is empty; it cannot overwrite a trip already in progress.
 
 Each row uses the reusable `PackItemRow` component. Its item ID keeps the row's identity stable when filtering removes completed gear. After the generated reducer runs, the action changes from “Mark packed” to “Unpack item”, so the next step is always clear.
 
@@ -286,86 +369,9 @@ Each row uses the reusable `PackItemRow` component. Its item ID keeps the row's 
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
-use std::collections::HashMap;
-
-use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
-use serde::{Deserialize, Serialize};
-
-pub fn create_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    for (locale, yaml) in [
-        ("en-US", include_str!("../i18n/en-US.yaml")),
-        ("es-ES", include_str!("../i18n/es-ES.yaml")),
-    ] {
-        let messages: HashMap<String, String> =
-            serde_yaml::from_str(yaml).expect("valid Harbour Trail translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(locale),
-            messages,
-        });
-    }
-    env
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct PackItem {
-    pub id: u32,
-    pub name_key: String,
-    pub category_key: String,
-    pub quantity: u32,
-    pub packed: bool,
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct PackListState {
-    pub items: Vec<PackItem>,
-    pub last_change: Option<(u32, bool)>,
-}
-impl GlobalState for PackListState {}
-
-fission_component! {
-    pub PackItemRow<PackListState> { item: PackItem }
-    view(row, state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    Container(
-        Column(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Start, children: [
-            Column(gap: tokens.spacing.xs, children: [
-                Text(cx.tr(&row.item.name_key)).weight(tokens.typography.font_weight_semibold),
-                Text(format!(
-                    "{} · {} {}",
-                    cx.tr(&row.item.category_key),
-                    row.item.quantity,
-                    cx.tr(if row.item.quantity == 1 { "pack.unit.one" } else { "pack.unit.many" })
-                )).color(tokens.colors.text_secondary),
-                Text(cx.tr(if row.item.packed { "pack.status.packed" } else { "pack.status.remaining" })),
-            ]),
-            Button(
-                child: Text(cx.tr(if row.item.packed { "pack.action.unpack" } else { "pack.action.mark" })),
-                key: "toggle-packed",
-                variant: if row.item.packed {
-                    ButtonVariant::Outline
-                } else {
-                    ButtonVariant::Primary
-                },
-                on_press: reduce {
-                    if let Some(item) = state.items.iter_mut().find(|item| item.id == row.item.id) {
-                        item.packed = !item.packed;
-                        let packed = item.packed;
-                        state.last_change = Some((row.item.id, packed));
-                    }
-                },
-            ),
-        ]),
-    )
-    .padding_all(tokens.spacing.m)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.medium)
-    .width_length(Length::percent(100.0))
-}
+use crate::state::{fresh_hiking_list, PackItem, PackListState};
+use crate::widgets::PackItemRow;
 
 fission_component! {
     pub PackingChecklist<PackListState> {
@@ -429,6 +435,18 @@ fission_component! {
                                             checklist.only_unpacked = !checklist.only_unpacked;
                                         },
                                     ),
+                                    if app.items.is_empty() {
+                                        Button(
+                                            child: Text(cx.tr("pack.create")),
+                                            key: "create-packing-list",
+                                            on_press: reduce {
+                                                if app.items.is_empty() {
+                                                    app.items = fresh_hiking_list();
+                                                    app.last_change = None;
+                                                }
+                                            },
+                                        )
+                                    },
                                     if visible_items.is_empty() {
                                         Text(cx.tr(if app.items.is_empty() { "pack.empty" } else { "pack.complete" }))
                                     } else {
@@ -459,12 +477,181 @@ fission_component! {
 }
 ```
 </TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use serde::{Deserialize, Serialize};
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PackItem {
+    pub id: u32,
+    pub name_key: String,
+    pub category_key: String,
+    pub quantity: u32,
+    pub packed: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PackListState {
+    pub items: Vec<PackItem>,
+    pub last_change: Option<(u32, bool)>,
+}
+impl GlobalState for PackListState {}
+
+pub fn fresh_hiking_list() -> Vec<PackItem> {
+    [
+        (11, "pack.item.water_filter", "pack.category.water", 1),
+        (12, "pack.item.bottles", "pack.category.water", 2),
+        (13, "pack.item.first_aid", "pack.category.safety", 1),
+        (14, "pack.item.rain_shell", "pack.category.clothing", 1),
+        (15, "pack.item.headlamp", "pack.category.lighting", 1),
+    ].into_iter().map(|(id, name, category, quantity)| PackItem {
+        id, name_key: name.into(), category_key: category.into(),
+        quantity, packed: false,
+    }).collect()
+}
+
+impl PackListState {
+    pub fn toggle_packed(&mut self, item_id: u32) {
+        let Some(item) = self.items.iter_mut().find(|item| item.id == item_id) else { return };
+        item.packed = !item.packed;
+        self.last_change = Some((item.id, item.packed));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_new_trip_has_unique_ids_and_no_assumed_packed_gear() {
+        let items = fresh_hiking_list();
+        let ids: std::collections::HashSet<_> = items.iter().map(|item| item.id).collect();
+        assert_eq!(ids.len(), items.len());
+        assert!(items.iter().all(|item| !item.packed && item.quantity > 0));
+    }
+
+    #[test]
+    fn toggling_one_item_does_not_change_other_gear() {
+        let mut state = PackListState { items: fresh_hiking_list(), ..Default::default() };
+        state.toggle_packed(13);
+        assert_eq!(state.items.iter().filter(|item| item.packed).map(|item| item.id).collect::<Vec<_>>(), vec![13]);
+        state.toggle_packed(13);
+        assert!(state.items.iter().all(|item| !item.packed));
+    }
+
+    #[test]
+    fn a_missing_item_does_not_record_a_change() {
+        let mut state = PackListState::default();
+        state.toggle_packed(999);
+        assert_eq!(state.last_change, None);
+    }
+}
+```
+</TabItem>
+<TabItem label="src/widgets/item_row.rs">
+<!-- fission:file path="src/widgets/item_row.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::{PackItem, PackListState};
+
+fission_component! {
+    pub PackItemRow<PackListState> { props { item: PackItem } }
+    view(row, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Start, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text(cx.tr(&row.item.name_key)).weight(tokens.typography.font_weight_semibold),
+                Text(format!(
+                    "{} · {} {}",
+                    cx.tr(&row.item.category_key),
+                    row.item.quantity,
+                    cx.tr(if row.item.quantity == 1 { "pack.unit.one" } else { "pack.unit.many" })
+                )).color(tokens.colors.text_secondary),
+                Text(cx.tr(if row.item.packed { "pack.status.packed" } else { "pack.status.remaining" })),
+            ]),
+            Button(
+                child: Text(cx.tr(if row.item.packed { "pack.action.unpack" } else { "pack.action.mark" })),
+                key: "toggle-packed",
+                variant: if row.item.packed {
+                    ButtonVariant::Outline
+                } else {
+                    ButtonVariant::Primary
+                },
+                on_press: reduce {
+                    state.toggle_packed(row.item.id);
+                },
+            ),
+        ]),
+    )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+    .width_length(Length::percent(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod state;
+mod widgets;
+mod app;
+mod translations;
+
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::PackListState, _>::new(app::PackingChecklist::new())
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<state::PackListState, app::PackingChecklist> {
+    let app = MobileApp::<state::PackListState, _>::new(app::PackingChecklist::new())
+        .with_env(translations::create_env())
+        .with_title("Harbour Trail packing checklist");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::PackListState, _>::new(app::PackingChecklist::new())
+        .with_env(translations::create_env())
+        .with_title("Harbour Trail packing checklist")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod state;
+mod widgets;
+mod translations;
 
-use app::{PackItem, PackListState};
+use state::{PackItem, PackListState};
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
@@ -472,7 +659,7 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     WebApp::<PackListState, _>::new(app::PackingChecklist::new())
-        .with_env(app::create_env())
+        .with_env(translations::create_env())
         .with_state_init(|state| {
             state.items = vec![
                 PackItem { id: 11, name_key: "pack.item.water_filter".into(), category_key: "pack.category.water".into(), quantity: 1, packed: true },
@@ -514,7 +701,8 @@ pack.action.unpack: "Unpack item"
 pack.action.mark: "Mark packed"
 pack.filter.all: "Show the full checklist"
 pack.filter.remaining: "Show only what is left"
-pack.empty: "Your packing list has not loaded yet. Connect it to saved or service data before use."
+pack.empty: "No packing list yet. Create one for your weekend hike."
+pack.create: "Create a weekend packing list"
 pack.complete: "Everything on this checklist is packed."
 pack.feedback.ready: "The list is ready to check."
 pack.feedback.packed: "Packed:"
@@ -546,7 +734,8 @@ pack.action.unpack: "Sacar del equipaje"
 pack.action.mark: "Marcar como preparado"
 pack.filter.all: "Mostrar toda la lista"
 pack.filter.remaining: "Mostrar solo lo que falta"
-pack.empty: "La lista aún no se ha cargado. Conéctala a datos guardados o a un servicio antes de usarla."
+pack.empty: "Aún no hay lista. Crea una para tu excursión."
+pack.create: "Crear una lista para el fin de semana"
 pack.complete: "Todo lo de esta lista está preparado."
 pack.feedback.ready: "La lista está lista para revisar."
 pack.feedback.packed: "Preparado:"
@@ -564,7 +753,7 @@ Mark the first-aid kit and headlamp packed; the summary should move from two of 
 <!-- fission:step id="run-on-android" -->
 ## Run the checklist on Android
 
-The component and reducer stay in shared Rust. Fission's Android target supplies the native shell, so the emulator and browser preview use the same checklist rules. The browser preview seeds sample rows for this tutorial; the native app starts empty until real checklist data is loaded. The Android build is still a native app, not a web page inside a browser.
+The component and reducer stay in shared Rust. Fission's Android target supplies the native shell, so the emulator and browser preview use the same checklist rules. The browser preview seeds sample rows for this tutorial. On Android, create a fresh weekend list with the visible creation action; its five items start unpacked. The Android build is still a native app, not a web page inside a browser.
 
 Run these commands from the project root. Start with the emulator, then repeat the pack and unpack flow on a connected phone when you need to check a device build.
 
@@ -577,62 +766,8 @@ fission test --target android --project-dir .
 fission build --target android --project-dir . --release
 ```
 </TabItem>
-<TabItem label="Wire the shared app">
-`fission init` points `src/lib.rs` at the starter `CounterApp`. Replace that wiring with the checklist so Android and the other targets start the same component and state:
-
-```rust
-pub mod app;
-
-use crate::app::{PackListState, PackingChecklist};
-use fission::prelude::*;
-
-#[cfg(target_os = "android")]
-const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
-
-#[cfg(any(target_os = "android", target_os = "ios"))]
-fn mobile_app() -> MobileApp<PackListState, PackingChecklist> {
-    let app = MobileApp::<PackListState, _>::new(PackingChecklist::new())
-        .with_env(app::create_env())
-        .with_title("Harbour Trail packing checklist");
-    #[cfg(target_os = "android")]
-    let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
-    app
-}
-
-#[cfg(target_arch = "wasm32")]
-fn web_app() -> WebApp<PackListState, PackingChecklist> {
-    WebApp::<PackListState, _>::new(PackingChecklist::new())
-        .with_env(app::create_env())
-        .with_title("Harbour Trail packing checklist")
-}
-
-#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
-pub fn run_desktop() -> anyhow::Result<()> {
-    DesktopApp::<PackListState, _>::new(PackingChecklist::new())
-        .with_env(app::create_env())
-        .run()
-}
-
-#[cfg(any(target_os = "android", target_os = "ios"))]
-pub fn run_mobile() -> anyhow::Result<()> {
-    mobile_app().run()
-}
-
-#[cfg(target_os = "android")]
-#[no_mangle]
-fn android_main(app_handle: AndroidApp) {
-    let _ = mobile_app().run_with_android_app(app_handle);
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen::prelude::wasm_bindgen(start)]
-pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
-    console_error_panic_hook::set_once();
-    web_app()
-        .run()
-        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
-}
-```
+<TabItem label="Shared startup">
+The `src/lib.rs` from step two already wires the same component and state into the native launchers. Keep `preview/fixtures.rs` out of that startup path. On a new Android launch, choose “Create a weekend packing list” to create five unpacked items.
 </TabItem>
 <TabItem label="Choose a connected device">
 ```sh

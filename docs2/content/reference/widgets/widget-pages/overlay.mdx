@@ -15,22 +15,29 @@ Use `Overlay` when the relationship is naturally "main thing plus one covering l
 
 ```rust
 use fission::prelude::*;
-let widget: Widget = Overlay {
-    content: Text::new("Invoice list").into(),
-    overlay:
-        Container::new(Text::new("Syncing...").into())
-            .bg(fission::core::op::Color {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 110,
-            })
-            .into(),
-    ,
-    ..Default::default()
+
+fission_component! {
+    pub ReportWithProgress<()> {
+        props { report: Widget }
+    }
+
+    view(region, _state, cx) =>
+        Overlay(
+            content: region.report.clone(),
+            overlay: Center(
+                Spinner(
+                    motion: SpinnerMotion::Default,
+                    label: Some(cx.tr("report.refreshing")),
+                ),
+            ),
+        )
 }
-.into();
 ```
+
+Show this presentation only while the parent has a refresh in flight. The
+report remains readable underneath, and the spinner names the real operation.
+This is not a blocking security or focus boundary: a painted overlay alone does
+not disable underlying controls. Use `Modal` for a blocking decision.
 
 ## Field table
 

@@ -15,15 +15,27 @@ Its value model is intentionally simple: one `hour` from `0` to `23` and one `mi
 use fission::prelude::*;
 use std::sync::Arc;
 
-let widget: Widget = TimePicker {
-hour: view.state().start_hour,
-minute: view.state().start_minute,
-on_change: Some(Arc::new(move |hour, minute| ActionEnvelope {
-    id: set_start_time_id,
-    payload: serde_json::to_vec(&SetStartTime { hour, minute }).unwrap(),
-})),
+fission_component! {
+    pub ReminderTime<()> {
+        props {
+            hour: u32,
+            minute: u32,
+            choose_time: Arc<dyn Fn(u32, u32) -> ActionEnvelope + Send + Sync>,
+        }
+    }
+
+    view(reminder, _state, cx) =>
+        Column(
+            children: [
+                Text(cx.tr("reminder.local_time")),
+                TimePicker(
+                    hour: reminder.hour,
+                    minute: reminder.minute,
+                    on_change: reminder.choose_time.clone(),
+                ),
+            ],
+        )
 }
-.into();
 ```
 
 The reducer receives both parts together, which makes it easy to keep the state consistent.

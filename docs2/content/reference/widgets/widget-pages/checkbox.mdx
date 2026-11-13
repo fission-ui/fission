@@ -15,26 +15,32 @@ option from a group.
 
 ```rust
 use fission::prelude::*;
-#[fission_action]
-struct ToggleNewsletter;
 
-fn on_toggle(state: &mut SettingsState, _action: ToggleNewsletter, _ctx: &mut ReducerContext<SettingsState>) {
-state.receive_newsletter = !state.receive_newsletter;
-}
+fission_component! {
+    pub NewsletterChoice<()> {
+        state { subscribed: bool = false }
+    }
 
-let widget: Widget = Checkbox {
-checked: view.state().receive_newsletter,
-label: Some("Receive product updates".into()),
-on_toggle: Some(ctx.bind(
-    ToggleNewsletter,
-    reduce_with!(on_toggle),
-)),
-..Default::default()
+    view(choice, _state, cx) =>
+        Checkbox(
+            checked: choice.subscribed,
+            label: Some(cx.tr("preferences.product_updates")),
+            on_toggle: reduce {
+                choice.subscribed = !choice.subscribed;
+            },
+        )
 }
-.into();
 ```
 
-The checkbox does not flip itself. It emits an action, the reducer changes `GlobalState`, and the next conversion pass reads the new `checked` value from `ViewHandle`.
+This component owns a pending form choice, not a persisted account preference.
+Its retained state follows the component identity. If other screens or a saved
+profile depend on the value, put it in `GlobalState` and update it through the
+parent's reducer instead.
+
+The checkbox does not flip its own `checked` field. It emits an action and the
+reducer changes the state that owns the choice. Here that is the component's
+retained `subscribed` value; a shared preference would instead belong to
+`GlobalState`. The next build supplies the updated value to the control.
 
 ## Field table
 
@@ -62,13 +68,14 @@ For a repeated server-form field, give every option the same `name` and a
 distinct `form_value`:
 
 ```rust
-Checkbox {
+// Inside a Compose view; region and selected_regions come from the parent model.
+Checkbox(
     name: Some("regions".into()),
     form_id: Some("connect".into()),
     form_value: Some(region.code.clone()),
+    label: Some(region.display_name.clone()),
     checked: selected_regions.contains(&region.code),
-    ..Default::default()
-}
+)
 ```
 
 Declare the matching schema field with `ServerFormField::repeated("regions")`
@@ -76,10 +83,9 @@ and deserialize it into `#[serde(default)] regions: Vec<String>`.
 
 ## Production checklist
 
-- Bind `on_toggle` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test the retained choice across parent rebuilds and submission.
+- For repeated controls, derive identity from the option's durable id.
+- Verify the label, checked state, and server-form field cardinality together.
 
 ## Related
 

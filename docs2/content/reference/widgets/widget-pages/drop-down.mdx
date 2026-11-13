@@ -14,14 +14,28 @@ control, use [`Select`](/reference/widgets/select).
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = DropDown {
-selected: Some(view.state().sort_label.clone()),
-on_toggle: Some(toggle_sort_panel_action),
-options: vec!["Newest".into(), "Oldest".into()],
-on_select: None,
+fission_component! {
+    pub SortSheetTrigger<()> {
+        props {
+            selected_label: String,
+            open: bool,
+            toggle_sheet: ActionEnvelope,
+        }
+    }
+
+    view(sort, _state, _cx) =>
+        DropDown(
+            selected: Some(sort.selected_label.clone()),
+            is_open: sort.open,
+            on_toggle: sort.toggle_sheet.clone(),
+        )
 }
-.into();
 ```
+
+The parent supplies the translated current sort label and owns the separate
+sheet. Leaving `options` unset is intentional: this trigger does not render
+choices. If there is no separate sheet, use `Select` rather than building half
+of a selection control.
 
 This is a good fit when some other part of your user interface owns the actual popup or sheet, and you only want a trigger with dropdown styling.
 
@@ -32,6 +46,7 @@ This is a good fit when some other part of your user interface owns the actual p
 | `on_toggle` | `Option<ActionEnvelope>` | Action dispatched when the trigger is pressed. | Defaults to `None`. Usually opens or closes some surrounding surface. |
 | `options` | `Vec<String>` | Option labels associated with the control. | Present in the struct, but not currently rendered by the widget itself. |
 | `on_select` | `Option<ActionEnvelope>` | Selection action placeholder. | Present in the struct, but not currently used by the widget itself. |
+| `is_open` | `bool` | Expanded state of the separately owned surface. | Reported to assistive technology; it does not construct the popup. |
 | `selected` | `Option<String>` | Currently displayed label. | If `None`, the trigger shows "Select an option". |
 
 ## Current behavior
@@ -44,9 +59,9 @@ Reach for `DropDown` only when that limitation is exactly what you want. If the 
 
 ## Production checklist
 
-- Bind `on_toggle`, `on_select` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Verify the separately owned popup and this trigger expose the same open state.
+- Test dismissal, focus return, and the current translated label together.
+- Do not advertise unused `options` or `on_select` as functional selection support.
 
 ## Related
 

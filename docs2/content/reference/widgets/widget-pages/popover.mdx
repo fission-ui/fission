@@ -19,34 +19,29 @@ stable anchor ID, and positions the popup when state says it is open.
 ```rust
 use fission::prelude::*;
 
-let popover = Popover {
-    id: WidgetId::explicit("sort_popover"),
-    is_open: view.state().show_sort_menu,
-    on_close: Some(ctx.bind(
-        ToggleSortMenu(false),
-        reduce_with!((|state: &mut GlobalState, action: ToggleSortMenu, _| {
-            state.show_sort_menu = action.0;
-        })),
-    )),
-    trigger:
-        Button {
-            child: Some(Text::new("Sort").into()),
-            on_press: Some(toggle_sort_menu),
-            ..Default::default()
-        }
-        .into(),
-    content:
-        Menu {
-            items: vec![
-                MenuItem::action("Newest", choose_newest),
-                MenuItem::action("Oldest", choose_oldest),
-            ],
-            ..Default::default()
-        }
-        .into(),
+fission_component! {
+    pub FormattingPopover<()> {
+        props { formatting_controls: Widget }
+        state { open: bool = false }
+    }
+
+    view(panel, _state, cx) =>
+        Popover(
+            id: WidgetId::explicit("editor.formatting"),
+            is_open: panel.open,
+            trigger: Button(
+                child: Text(cx.tr("editor.formatting")),
+                on_press: reduce { panel.open = !panel.open; },
+            ),
+            content: panel.formatting_controls.clone(),
+            on_close: reduce { panel.open = false; },
+        )
 }
-.into();
 ```
+
+The trigger is the only activation owner. Backdrop dismissal sets `open = false`;
+it does not reuse the trigger's toggle and accidentally reopen a closed panel.
+Formatting values stay in the parent editor model while the open flag is local.
 
 Notice that the trigger's own button handles the open and close action. That keeps the event flow explicit.
 
@@ -57,6 +52,7 @@ Notice that the trigger's own button handles the open and close action. That kee
 | `id` | `WidgetId` | Stable identity for the anchor and portal entry. | Required. The widget derives an internal anchor id from this value. |
 | `is_open` | `bool` | Whether the popup content should be visible. | When `false`, only the trigger is rendered. |
 | `on_close` | `Option<ActionEnvelope>` | Action dispatched when the optional backdrop is tapped. | If set, the widget adds a transparent full-screen backdrop behind the popup. |
+| `motion` | `Option<PopoverMotion>` | Surface entry/exit policy. | `None` follows standard widget motion; choose `Some(PopoverMotion::None)` to opt out. |
 | `trigger` | `Widget` | Inline anchor and activation owner. | Supply an actionable semantic widget such as `Button` or `Pressable`; Popover never wraps or replaces its action. |
 | `content` | `Widget` | Popup body shown in the flyout layer when open. | Positioned relative to the trigger and clamped within the viewport. |
 
@@ -74,11 +70,9 @@ The trigger owns opening and closing the popover. Use a button, pressable, or an
 
 ## Production checklist
 
-- Bind the trigger action and `on_close` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Check trigger activation, outside close, Escape policy, and focus return.
+- Test constrained viewport placement and reduced-motion exit.
+- Keep the trigger and close action idempotent where a dismissal can be delivered twice.
 
 ## Related
 

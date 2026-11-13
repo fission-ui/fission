@@ -1,90 +1,43 @@
 ---
 title: Stacked bar
 sidebar_label: Stacked bar
-description: Fission Charts reference for Stacked bar.
+description: Use a shared stack key only for exclusive contributions to one order total.
 ---
 
 # Stacked bar
 
 ![Stacked bar screenshot](/img/charts/bar-stacked.png)
 
-Bars stacked into a cumulative total for each category. Use it to show composition and total at the same time. The screenshot is from Fission's chart gallery.
+A stack shows both a total and its composition. It differs from grouping because the second contribution starts where the first ends, rather than at zero.
 
-## What the chart is for
+That addition is only meaningful when the components are exclusive parts of the same measure. An order attributed to two channels must not appear twice in the total.
 
-This chart is in the **Cartesian** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-`Multiple bar series sharing one stack key.` Keep the source values in Rust types. Fission Charts uses typed series and options, not string-based configuration.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis / y_axis` | `Axis` | Vertical bars use category x/value y; horizontal bars use value x/category y. |
-| `series` | `BarSeries` | Holds values plus stack, orientation, radius, background, and color styling. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, BarSeries, Chart};
-
-let chart = Chart::new()
-    .title("Category comparison")
-    .x_axis(Axis::category(vec!["A", "B", "C", "D"]))
-    .y_axis(Axis::value())
-    .series(vec![BarSeries::new("Orders").data(vec![120.0, 200.0, 150.0, 80.0]).into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+The [channel stack example](../bar/bar-channel-stack) defines `ChannelPeriod` and `OrderChannelsChart`. Put them in `widgets/order_channels.rs`:
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, BarSeries, Chart};
+use crate::widgets::order_channels::{ChannelPeriod, OrderChannelsChart};
 
-
-
-fission_component!
-{
-    pub StackedBarChart<()> {
+fission_component! {
+    pub OrderSourceReport<()> {
+        props {
+            title: String,
+            direct_label: String,
+            partner_label: String,
+            periods: Vec<ChannelPeriod>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Category comparison")
-                    .x_axis(Axis::category(vec!["A", "B", "C", "D"]))
-                    .y_axis(Axis::value())
-                    .series(vec![BarSeries::new("Orders").data(vec![120.0, 200.0, 150.0, 80.0]).into()])
-                    .into()
+    view(report, _state, _cx) => OrderChannelsChart {
+        title: report.title.clone(),
+        direct_label: report.direct_label.clone(),
+        partner_label: report.partner_label.clone(),
+        rows: report.periods.clone(),
     }
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+The underlying component creates two `BarSeries` values sharing the `"order-channels"` stack key. That key is an internal grouping identifier; translated series names remain separate.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
-
-Tags: `bar`, `stack`.
+Reconcile each stack with the independently calculated period total. Test empty periods, one absent channel and incorrect attribution. Show values and channel names outside the coloured segments, and use grouped bars when precise comparisons of the upper segment are the main task. The image above is a separate gallery fixture.
 
 [Cartesian family overview](./overview)

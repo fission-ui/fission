@@ -18,8 +18,8 @@ Fission applies these protections to generated code and incoming requests:
 | Server action signing | Action tokens are signed over the route, target node, typed action id, payload bytes, expiry, and nonce. Tampered tokens are rejected. |
 | Replay protection | `verify_once` stores recently used action token identities and rejects replay of the same token. |
 | Expiry | Server action tokens are short lived. Expired tokens are rejected before reducer dispatch. |
-| Body size | Server action request bodies larger than `MAX_SERVER_ACTION_BODY_BYTES` are rejected. |
-| Origin checks | `ServerRenderer::with_allowed_action_origin` lets the host restrict action posts to known origins. |
+| Body size | The renderer rejects action bodies larger than `MAX_SERVER_ACTION_BODY_BYTES`. HTTP adapters must also bound body collection before dispatch. |
+| Origin checks | `ServerRenderer::with_allowed_action_origin` rejects a supplied origin outside the allow-list. Requests without `Origin` need a separate host policy if you want to reject them. |
 | Private route caching | `ServerPrivate` routes are not inserted into the public full-page cache. |
 | Revalidated action safety | A revalidated page that renders signed action forms fails the render instead of caching request-specific tokens. |
 | Cache keys | Revalidated page cache keys include normalized query data, app identity, locale, theme fingerprint, build id, and declared vary headers. |
@@ -54,7 +54,10 @@ let renderer = ServerRenderer::configured(app)?
     .with_allowed_action_origin("https://www.cards.example");
 ```
 
-Without configured origins, Fission accepts requests that have no `Origin` header. Same-origin form posts and some command-line tests don’t send one. Production hosts can be stricter with an allow-list and HTTP adapter middleware.
+Requests without `Origin` are accepted even when an allow-list is configured.
+Some command-line clients omit it. If the product requires that header, reject
+its absence in HTTP middleware as a separate policy; the renderer's allow-list
+does not promise that check.
 
 ## Use the existing Rust HTTP ecosystem
 
@@ -64,34 +67,48 @@ Hyper is available with the normal `server` feature:
 
 ```toml
 [dependencies]
-fission = { version = "0.15.1", features = ["server"] }
+fission = { version = "0.16.0", features = ["server"] }
 ```
 
 Axum and Actix adapters are feature-gated to avoid pulling those dependencies into projects that do not use them:
 
 ```toml
 [dependencies]
-fission = { version = "0.15.1", features = ["server", "server-axum"] }
-tower = "0.5"
+fission = { version = "0.16.0", features = ["server", "server-axum"] }
+axum = "0.8"
 ```
 
 A small Axum host can wrap the Fission handler with ordinary middleware:
 
 ```rust
-use axum::{routing::any, Router};
+use axum::{
+    extract::Request, http::HeaderValue,
+    middleware::{self, Next}, routing::any, Router,
+};
 use fission::server::{axum_adapter, ServerRenderer};
 use std::sync::Arc;
-use std::time::Duration;
-use tower::limit::RateLimitLayer;
 
 let renderer = Arc::new(ServerRenderer::configured(pokemon_card_store_server())?);
-let app = Router::new()
+let app: Router = Router::new()
     .fallback(any(axum_adapter::handle))
     .with_state(renderer)
-    .layer(RateLimitLayer::new(120, Duration::from_secs(60)));
+    .layer(middleware::from_fn(|request: Request, next: Next| async move {
+        let mut response = next.run(request).await;
+        response.headers_mut().insert(
+            "x-content-type-options",
+            HeaderValue::from_static("nosniff"),
+        );
+        response
+    }));
 ```
 
 Use the same pattern for authentication, tracing, request IDs, compression, timeouts, body limits, CORS, and provider-specific middleware. Keep cross-cutting HTTP policy in the HTTP framework and typed product behaviour in Fission reducers, jobs, and services.
+
+This middleware example adds one response header; it is not an authentication
+or rate-limit implementation. Configure those policies deliberately. In
+particular, inspect the chosen adapter's oversized-body response: an adapter
+may reject or replace a body before the renderer sees it, so not every host
+will expose the renderer's `413` response unchanged.
 
 ## Use hooks at the right layer
 
@@ -157,7 +174,7 @@ Test the cases attackers and operational mistakes are likely to trigger:
 | --- | --- |
 | Tampered action token | `403` and no reducer dispatch |
 | Replayed action token | First request succeeds, second request is rejected |
-| Oversized action body | `413` |
+| Oversized action body | Renderer returns `413`; verify the HTTP adapter's body collection policy separately. |
 | Wrong origin | `403` when an origin allow-list is configured |
 | Revalidated page with action form | Render fails before cache write |
 | Private route | No public full-page cache entry is written |

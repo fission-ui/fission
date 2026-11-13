@@ -32,4 +32,8 @@ Fission 0.2.0 is where the project began to look like a cross-platform app frame
 ## What this means for developers
 
 
-If you are building a data-heavy app or targeting Web and mobile, 0.2.0 gives you more of the pieces in one place. The practical test is still your own workflow: create a small project, run it on the target you care about, and check that the input, host capability, and release steps fit how you want to work. Tell us where they do not.
+For a data-heavy app, the important boundary is now clearer: a job or service
+loads the data, a reducer records its result, and a chart renders the available
+snapshot. For Web or mobile, the generated host supplies the platform setup,
+not another copy of those product rules. Validate that host on its own terms;
+shared runtime tests do not prove emulator launch or device permissions.

@@ -16,19 +16,24 @@ For regular spacing between siblings, set the row or column's `gap` instead.
 
 ```rust
 use fission::prelude::*;
-let widget: Widget = Row {
-    children: vec![
-        Text::new("Back").into(),
-        Spacer {
-            flex_grow: 1.0,
-            ..Default::default()
+
+fission_component! {
+    pub DocumentActions<()> {
+        props {
+            back: ActionEnvelope,
+            save: ActionEnvelope,
         }
-        .into(),
-        Text::new("Save").into(),
-    ],
-    ..Default::default()
+    }
+
+    view(actions, _state, cx) =>
+        Row(
+            children: [
+                Button(child: Text(cx.tr("navigation.back")), on_press: actions.back.clone()),
+                Spacer(flex_grow: 1.0),
+                Button(child: Text(cx.tr("document.save")), on_press: actions.save.clone()),
+            ],
+        )
 }
-.into();
 ```
 
 ## Field table

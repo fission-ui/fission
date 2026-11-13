@@ -13,13 +13,24 @@ Animation in Fission is runtime-owned motion requested against stable widget ide
 
 | Type | Purpose | Notes |
 | --- | --- | --- |
-| `AnimationPropertyId` | Identifies which visual property is animated | Examples include opacity, position, scale, or other supported properties. |
-| `AnimationStartValue` | Describes where the animation begins | Lets an animation start from a known value instead of guessing from current rendering. |
-| `AnimationRequest` | Full request for one animation | Contains property, target, timing, easing, and related metadata. |
-| `EasingFunction` | Timing curve | Controls how progress moves from start to end. |
+| `Motion` | Retained motion wrapper | Applies declarative tracks to one child. |
+| `Presence` | Enter/exit lifecycle wrapper | Keeps the child rendered while exit tracks finish. |
+| `RippleLayer` | Pointer-origin feedback | Declares ripple instances on a retained surface. |
+| `MotionPropertyId` | Animated visual property | Includes opacity, translation, scale, and supported layout/paint properties. |
+| `MotionStartValue` | Initial value policy | Explicit value or the supported runtime-derived start. |
+| `MotionTrack` | One property transition | Declares phase, start, target, and transition. |
+| `MotionTransition` / `MotionEasing` | Timing and progress curve | Shared by wrapper tracks and built-in presets. |
 | `WidgetId` | Stable target identity | Required when the runtime needs to track an animation across reconversions. |
 
-Widgets request animation through `ctx.request_animation_for(...)` or `ctx.anim_for(id).request(...)`. The runtime stores the active animation state and exposes current values through `ViewHandle`.
+Prefer the built-in widget's motion preset when it already owns the lifecycle.
+For a custom retained component, Compose can construct `Motion` or `Presence`
+using ordinary `MotionTrack` data. The runtime owns progress; there is no
+current public `request_animation_for` or `anim_for` builder contract to copy.
+
+`Env::motion_preference = MotionPreference::Reduced` resolves declared motion
+immediately. `WidgetMotion::Off` instead suppresses implicit built-in presets;
+an explicitly supplied preset is a separate choice. `Spinner` specifically
+needs an explicit `SpinnerMotion` to animate.
 
 Do not store per-frame animation progress in `GlobalState`. App state should hold durable facts such as "the panel is open" or "the item was selected." The runtime can animate from the old visual state to the new visual state.
 
@@ -69,7 +80,10 @@ Store the durable decision in app state; let the runtime manage the transient me
 
 Do not start side effects in `component conversion` to drive animation or media. Declare the desired widget tree and registrations, then let the runtime and shell handle frame progression.
 
-Do not put a modal or popover's open state inside a local widget field. Store `show_settings`, `active_menu`, or similar product-visible state in `GlobalState` and let the widget tree include or exclude the overlay from that state.
+Do not put retained open state in an ordinary mutable props field. An isolated
+popover can own it in Compose `state`; use `GlobalState` when routing, another
+screen, or an app-wide workflow must control it. The owner supplies the current
+value and dismissal action on every build.
 
 Do not use `WebView` as a substitute for building normal Fission screens. It is for embedded web content that genuinely needs a browser surface.
 

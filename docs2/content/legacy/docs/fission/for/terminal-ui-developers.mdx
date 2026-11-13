@@ -1,487 +1,203 @@
 ---
 title: Fission for Terminal UI developers
-description: Translate Ratatui-style app state, event loops, command palettes, keyboard interaction, scrollback, and snapshot tests into Fission widgets, reducers, Terminal shell, semantics, and LiveTest.
+description: Map terminal event loops, state, layout, logs and snapshot tests to Fission Compose and the Terminal shell.
 ---
-
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
 
 # Fission for Terminal UI developers
 
-Terminal UI developers already care about keyboard-first flows, focus, layout constraints, logs, progress, and deterministic rendering. Those instincts fit Fission well.
+Keyboard-first interaction and deterministic output remain useful starting
+points. What changes in Fission is the boundary around them: Terminal is a
+shell for the shared app model, not a separate event loop which every product
+must implement again.
 
-The main shift is that terminal is one Fission shell, not a separate app architecture. The same state, reducers, widgets, semantics, and tests can also run through desktop, web, mobile, static, and SSR targets where appropriate.
-
-Each migration guide builds the same checklist, so you can compare frameworks against the same features: draft input, actions, async loading, design tokens, routing, and tests.
+This is not a claim that a terminal cell can reproduce every graphical effect.
+Keep the product state and user intent shared, and choose a target-appropriate
+presentation where the output differs.
 
 ## The state ownership rule
 
-Before translating syntax, decide where state belongs:
+A terminal app struct often mixes current selection, loaded records and
+transient input. Separate them by ownership rather than move the whole struct
+into one widget.
 
-- Use `#[with_local_state]` and `#[local_state]` for retained UI memory owned by one widget identity.
-- Use `GlobalState` for product truth: todos, routing, persistence, sync state, user preferences, and shared filters.
-- Use reducers for named user intent and state transitions.
-- Use jobs, services, resources, capabilities, or runtime effects for outside work.
-- Add semantic identifiers to interactive widgets and meaningful regions so tests and accessibility tools can target product meaning instead of coordinates.
+- `GlobalState` holds shared product records, route state and request status.
+- Component `state` holds isolated retained interaction memory.
+- `props` carries parent inputs.
+- Reducers change state; effects/jobs/services/capabilities do outside work.
+- The runtime handles focus, pointer and keyboard mechanics.
+
+For a full app organised into state, pages and widgets, see
+[the task app tutorial](/blog/build-a-single-page-web-app-in-rust/). A Terminal
+entrypoint can host that shared core where its chosen widgets are supported.
 
 ## 1. Static UI
 
-<Tabs>
-<TabItem value="source" label="Terminal UI">
+Instead of writing directly into a terminal buffer, describe the content with
+ordinary widgets:
 
-```rust title="src/app.rs"
-pub struct App {
-    todos: Vec<Todo>,
-}
-
-impl Widget for TodoView<'_> {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        let block = Block::bordered().title("Ship checklist");
-        let rows = self.todos.iter().map(|todo| {
-            Line::from(vec![Span::raw(if todo.done { "Done" } else { "Open" }), Span::raw(&todo.title)])
-        });
-        Paragraph::new(rows.collect::<Vec<_>>()).block(block).render(area, buf);
-    }
-}
-```
-
-</TabItem>
-<TabItem value="fission" label="Fission">
-
-```rust title="src/widgets/todo_app.rs"
+```rust
 use fission::prelude::*;
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Todo {
-    pub id: u64,
-    pub title: String,
-    pub done: bool,
-}
-
-
 
 fission_component! {
-    pub TodoApp<()> {
+    pub RunSummary<()> {
+        props {
+            title: String,
+            details: String,
+        }
     }
-    view(_app, _state, _cx) => rust {
-        let todos = vec![
-                    Todo { id: 1, title: "Write release notes".into(), done: false },
-                    Todo { id: 2, title: "Test Android package".into(), done: true },
-                ];
-
-                let rows = todos.into_iter().map(|todo| {
-                    let status = if todo.done { "Done" } else { "Open" };
-                    Row {
-                        gap: Some(12.0),
-                        children: widgets![Text::new(status), Text::new(todo.title)],
-                        ..Default::default()
-                    }
-                    .into()
-                });
-
-                Container::new(Column {
-                    gap: Some(12.0),
-                    children: std::iter::once(Text::new("Ship checklist").size(28.0).weight(800).into())
-                        .chain(rows)
-                        .collect(),
-                    ..Default::default()
-                })
-                .padding_all(24.0)
-                .into()
-    }
+    view(summary, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(
+        gap: tokens.spacing.s,
+        children: [
+            Text(summary.title.clone()),
+            Text(summary.details.clone()),
+        ],
+    )
 }
 ```
-</TabItem>
-</Tabs>
 
-The Fission side is a concrete widget value. Conversion reads inputs and returns a widget tree; it is not the place to start outside work or hide product state.
+The caller supplies real run results and translated presentation. No fixture
+command output is inserted into production state to make the screen look busy.
 
 ## 2. Product state and interaction
 
-<Tabs>
-<TabItem value="source" label="Terminal UI">
+Raw keys should become intent rather than mutate data in an unrelated rendering
+branch. For an editable filter, the control can own its text-input behaviour
+and Compose can bind the value:
 
-```rust title="src/app.rs"
-match event::read()? {
-    Event::Key(key) if key.code == KeyCode::Enter => app.add_draft_todo(),
-    Event::Key(key) if key.code == KeyCode::Char(' ') => app.toggle_selected(),
-    Event::Key(key) if key.code == KeyCode::Char(c) => app.draft.push(c),
-    _ => {}
-}
-```
-
-</TabItem>
-<TabItem value="fission" label="Fission">
-
-```rust title="src/state.rs"
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TodoState {
-    pub draft: String,
-    pub todos: Vec<Todo>,
-    pub next_id: u64,
-    pub current_path: String,
-}
-
-impl Default for TodoState {
-    fn default() -> Self {
-        Self {
-            draft: String::new(),
-            todos: Vec::new(),
-            next_id: 1,
-            current_path: "/".into(),
-        }
-    }
-}
-
-impl GlobalState for TodoState {}
-
-#[fission_reducer(SetDraft)]
-fn set_draft(state: &mut TodoState, ctx: &mut ReducerContext<TodoState>) {
-    let Some(change) = ctx.input.text_change() else {
-        return;
-    };
-    state.draft = change.new_text.clone();
-}
-
-#[fission_reducer(AddDraftTodo)]
-fn add_draft_todo(state: &mut TodoState) {
-    let title = state.draft.trim();
-    if title.is_empty() {
-        return;
-    }
-
-    state.todos.push(Todo {
-        id: state.next_id,
-        title: title.to_string(),
-        done: false,
-    });
-    state.next_id += 1;
-    state.draft.clear();
-}
-
-#[fission_reducer(ToggleTodo)]
-fn toggle_todo(state: &mut TodoState, id: u64) {
-    if let Some(todo) = state.todos.iter_mut().find(|todo| todo.id == id) {
-        todo.done = !todo.done;
-    }
-}
-```
-
-```rust title="src/widgets/todo_screen.rs"
-
-
+```rust
 fission_component! {
-    pub TodoScreen<TodoState> {
+    pub LogFilter<()> {
+        state { query: String = String::new() }
     }
-    view(_screen, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<TodoState>();
-                let update_draft = with_reducer!(ctx, SetDraft, set_draft);
-                let add_todo = with_reducer!(ctx, AddDraftTodo, add_draft_todo);
-
-                let rows = view.state().todos.iter().map(|todo| {
-                    let toggle = with_reducer!(ctx, ToggleTodo(todo.id), toggle_todo);
-                    Row {
-                        gap: Some(12.0),
-                        children: widgets![
-                            Checkbox {
-                                checked: todo.done,
-                                on_toggle: Some(toggle),
-                                ..Default::default()
-                            }
-                            .semantics_identifier(format!("todo.toggle.{}", todo.id)),
-                            Text::new(todo.title.clone()),
-                        ],
-                        ..Default::default()
-                    }
-                    .semantics_identifier(format!("todo.row.{}", todo.id))
-                    .into()
-                });
-
-                Column {
-                    gap: Some(16.0),
-                    children: widgets![
-                        Text::new("Ship checklist").size(28.0).weight(800),
-                        Row {
-                            gap: Some(12.0),
-                            children: widgets![
-                                TextInput {
-                                    id: Some(WidgetId::explicit("todo-title")),
-                                    value: view.state().draft.clone(),
-                                    label: Some("New task".into()),
-                                    placeholder: Some("Add a task".into()),
-                                    on_input: Some(update_draft),
-                                    ..Default::default()
-                                }
-                                .semantics_identifier("todo.title"),
-                                Button {
-                                    child: Some(Text::new("Add task").into()),
-                                    on_press: Some(add_todo),
-                                    ..Default::default()
-                                }
-                                .semantics_identifier("todo.add"),
-                            ],
-                            ..Default::default()
-                        },
-                        Column { gap: Some(10.0), children: rows.collect(), ..Default::default() },
-                    ],
-                    ..Default::default()
-                }
-                .into()
-    }
+    view(filter, _state, cx) =>
+    TextInput(
+        label: Some(cx.tr("logs.filter").into()),
+        bind: filter.query,
+        semantics_identifier: Some("logs.filter".into()),
+    )
 }
 ```
-</TabItem>
-</Tabs>
 
-Fission makes the state transition explicit. The button does not mutate a captured local variable; it dispatches a named action and the reducer updates product state.
+This demonstrates the field's ownership; a real log view derives visible lines
+from the query without destroying the underlying bounded log buffer. Move the
+query to app state if several components need to share it.
+
+For an action such as Retry, use an inline `reduce`/`effect` handler or an
+existing reusable typed reducer. Do not keep a build handle or borrowed list
+row around for a later key event. Repeated stateful rows need durable data
+keys, not their current terminal line number.
 
 ## 3. Outside work
 
-<Tabs>
-<TabItem value="source" label="Terminal UI">
+A synchronous repository read in a terminal event loop can freeze input just
+as it can freeze a native window. Queue the work through an effect, job,
+service, resource or capability and keep explicit loading, result and error
+states.
 
-```rust title="src/app.rs"
-if app.should_load {
-    let todos = repository.load_todos()?;
-    app.todos = todos;
-    app.should_load = false;
-}
-```
+A long-running build or log stream usually belongs to a service/resource, not
+a new process started on every conversion. Bound the retained log buffer and
+define what happens on cancellation, exit and failure. A scrolling widget
+does not itself make an unbounded string safe.
 
-</TabItem>
-<TabItem value="fission" label="Fission">
-
-```rust title="src/api.rs"
-use fission::core::{JobRef, JobSpec};
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct LoadTodosRequest;
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ApiError {
-    pub message: String,
-}
-
-pub struct LoadTodosJob;
-
-impl JobSpec for LoadTodosJob {
-    type Request = LoadTodosRequest;
-    type Ok = Vec<Todo>;
-    type Err = ApiError;
-
-    const NAME: &'static str = "todo.load";
-}
-
-pub const LOAD_TODOS_JOB: JobRef<LoadTodosJob> = JobRef::new(LoadTodosJob::NAME);
-```
-
-```rust title="src/state.rs"
-#[fission_reducer(LoadTodos)]
-fn load_todos(state: &mut TodoState, ctx: &mut ReducerContext<TodoState>) {
-    state.loading = true;
-    ctx.effects
-        .app(LOAD_TODOS_JOB, LoadTodosRequest)
-        .on_ok(ctx.effects.bind(TodosLoaded, reduce_with!(todos_loaded)))
-        .on_err(ctx.effects.bind(TodosFailed, reduce_with!(todos_failed)));
-}
-```
-
-</TabItem>
-</Tabs>
-
-Do not perform outside work during component conversion. Reducers request work; jobs, services, resources, or capabilities perform it; results return as actions.
+For a one-shot component-owned async function, Compose requires `on_ok` and
+`on_err`. Show `Spinner` or progress while work is active. Use app-owned work
+when it must continue after the component unmounts.
 
 ## 4. Styling and theme
 
-<Tabs>
-<TabItem value="source" label="Terminal UI">
+Use the active design-system tokens rather than duplicate a terminal-only
+palette and every dimension. The Terminal shell maps supported paint to cells;
+image, blur and overlay geometry may need explicit fallbacks.
 
-```rust title="src/app.rs"
-Paragraph::new(todo.title.as_str())
-    .style(Style::default().fg(Color::White).bg(Color::Black))
-    .block(Block::bordered().border_style(Style::new().fg(Color::DarkGray)))
-```
+Prefer constraints and responsive composition to fixed 80-by-24 assumptions.
+Test compact terminals, longer translations and increased content. Use
+`LazyColumn` for large repeated lists and appropriate scroll widgets rather
+than render an unlimited history into one enormous column.
 
-</TabItem>
-<TabItem value="fission" label="Fission">
-
-```rust title="src/widgets/todo_row.rs"
-
-
-fission_component! {
-    pub TodoRow<TodoState> {
-        props {
-            todo: Todo,
-        }
-    }
-    view(row, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<TodoState>();
-                let tokens = &view.env().theme.tokens;
-                let toggle = with_reducer!(ctx, ToggleTodo(row.todo.id), toggle_todo);
-
-                Container::new(Row {
-                    gap: Some(tokens.spacing.s),
-                    children: widgets![
-                        Checkbox {
-                            checked: row.todo.done,
-                            on_toggle: Some(toggle),
-                            ..Default::default()
-                        }
-                        .semantics_identifier(format!("todo.toggle.{}", row.todo.id)),
-                        Text::new(row.todo.title)
-                            .size(tokens.typography.font_size_base)
-                            .color(tokens.colors.text_primary),
-                    ],
-                    ..Default::default()
-                })
-                .bg(tokens.colors.surface)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.large)
-                .padding([tokens.spacing.m, tokens.spacing.m, tokens.spacing.s, tokens.spacing.s])
-                .into()
-    }
-}
-```
-</TabItem>
-</Tabs>
-
-In Fission, the active theme is runtime environment. Read token values from `view.env().theme.tokens` and apply them through widget fields. That keeps the UI target-lowerable across native, web, mobile, terminal, static, and SSR shells.
+A keyboard user still needs a visible focus indication and a clear accessible
+name. Decorative text which resembles a button does not provide activation
+behaviour.
 
 ## 5. Routing
 
-<Tabs>
-<TabItem value="source" label="Terminal UI">
+A screen enum is one way to represent app navigation. Fission's native
+`Router` provides the shared route model used by other shells too:
 
-```rust title="src/app.rs"
-enum Screen {
-    Todos,
-    TodoDetail(u64),
-    Settings,
-}
-
-app.screen = Screen::TodoDetail(selected_id);
-```
-
-</TabItem>
-<TabItem value="fission" label="Fission">
-
-```rust title="src/routes.rs"
-use fission::widgets::{Route, Router};
-use std::sync::Arc;
-
-#[fission_reducer(NavigateTo)]
-fn navigate_to(state: &mut TodoState, path: String) {
-    state.current_path = path;
-}
-
-
-
+```rust
 fission_component! {
-    pub TodoRoutes<TodoState> {
-    }
-    view(_routes, _state, _cx) => rust {
-        let (_, view) = fission::build::current::<TodoState>();
-
-                Router::<TodoState> {
-                    current_path: view.state().current_path.clone(),
-                    routes: vec![
-                        Route {
-                            path: "/".into(),
-                            builder: Arc::new(|_, _, _| TodoScreen.into()),
-                        },
-                        Route {
-                            path: "/todos/:id".into(),
-                            builder: Arc::new(|_, _, params| TodoDetail {
-                                id: params["id"].parse().unwrap_or(0),
-                            }
-                            .into()),
-                        },
-                    ],
-                    not_found: Some(Arc::new(|_, _, _| Text::new("Not found").into())),
-                }
-                .into()
-    }
+    pub ToolRoutes<ToolState>
+    view(_routes, state, _cx) =>
+    Router::<ToolState>::new()
+        .with_path(state.current_path.clone())
+        .route_component("/runs", RunList)
+        .route_component("/runs/:id", RunRoute)
+        .route_component("/settings", SettingsScreen)
 }
 ```
-</TabItem>
-</Tabs>
 
-Use Fission's native `Router` and `RouterParams`. Shell URLs, deep links, static routes, server routes, and terminal route-like state should normalize into the same app-owned route state instead of each target inventing a different navigation model.
+This excerpt assumes `ToolState` and the named app screens. Install the normal
+route handler; navigation effects update shell history and app path through
+that contract. `RunRoute` reads and validates `RouteParams`. It does not need
+a second terminal-only record lookup model.
+
+A thin Terminal entrypoint hosts the shared root:
+
+```rust
+fission::terminal::TerminalApp::with_state(App, ToolState::default())
+    .with_env(create_env()?)
+    .with_title("Run monitor")
+    .run()
+```
+
+This assumes the app's `App` root and `create_env` translation/theme setup.
+Enable the Terminal target through the CLI; do not depend on an internal shell
+crate just to launch an app.
 
 ## 6. Testing
 
-<Tabs>
-<TabItem value="source" label="Terminal UI">
+A cell snapshot proves output at a chosen size, not keyboard focus, editing or
+host integration. Use the narrowest meaningful surface:
 
-```rust title="src/app.rs"
-let backend = TestBackend::new(80, 24);
-let mut terminal = Terminal::new(backend)?;
-terminal.draw(|frame| render_app(frame, &app))?;
-insta::assert_snapshot!(terminal.backend());
-```
+| Requirement | Fission test surface |
+| --- | --- |
+| Domain state rule | Pure transition/reducer test |
+| Layout, text and semantic tree | `TestHarness` |
+| Terminal frame at a fixed size | `TerminalApp::render_frame` |
+| Real key, pointer, focus and resize behaviour | LiveTest and `/cmd` in the actual shell |
 
-</TabItem>
-<TabItem value="fission" label="Fission">
-
-```rust title="tests/live.rs"
-use fission_test_driver::{LiveTestClient, SelectorQuery};
-
-#[test]
-#[ignore]
-fn user_can_add_a_todo_in_a_real_shell() {
-    let control_port = reserve_control_port();
-    let mut child = launch_todo_app(control_port);
-    let client = LiveTestClient::connect(control_port);
-
-    client.wait_for_ready(15_000).expect("app ready");
-    client
-        .fill_text_semantic_identifier("todo.title", "Publish release")
-        .expect("fill draft");
-    client
-        .tap_semantic_identifier("todo.add")
-        .expect("add todo");
-    client
-        .wait_for_visible(SelectorQuery::label("Publish release"), 5_000)
-        .expect("todo visible");
-    client
-        .screenshot(".artifacts/screenshots/todos/added.png")
-        .expect("screenshot");
-
-    client.quit().expect("quit app");
-    let _ = child.wait();
-}
-```
-
-</TabItem>
-</Tabs>
-
-Keep fast reducer tests for business rules. Use headless `fission-test` for widget/layout/semantics assertions. Use `LiveTestClient` and `/cmd` for real shell input, focus, screenshots, selectors, and target behavior.
+Use stable semantic identifiers instead of hard-coded cell positions for
+interaction. Follow [Terminal user interfaces](/docs/guides/terminal-user-interfaces/)
+and [Write a live UI test](/docs/cookbook/write-a-live-ui-test/) for the complete
+target and process setup.
 
 ## Vocabulary map
 
 | Terminal UI concept | Closest Fission concept | Important difference |
 | --- | --- | --- |
-| App struct | `GlobalState` | Product truth stays visible and reducer-owned. |
-| Event loop match | Bound actions and reducers | Raw input becomes named user intent. |
-| Ratatui widget | Fission widget | The same widget model can lower to terminal and other shells. |
-| Style | Design-system token fields | Terminal gets a target-specific theme without hard-coded duplicated sizes. |
-| Screen enum | Fission `Router` or route state | Routing remains app-owned. |
-| Snapshot test | `fission-test` and LiveTest screenshots | Use semantics and display output, not only terminal cell snapshots. |
+| App struct | `GlobalState` plus local component state | Ownership follows each value's lifetime and readers. |
+| Event-loop match | Bound actions and reducers | Raw input becomes explicit product intent. |
+| Ratatui widget | Fission widget | A shared description lowers through the chosen shell. |
+| Style | Design-system tokens and widget fields | Terminal uses the target's supported paint representation. |
+| Screen enum | Native `Router` or app route state | Navigation can remain shared across targets. |
+| Snapshot test | Harness/frame test plus LiveTest | Output and actual interaction need different evidence. |
 
 ## Common instincts to adjust
 
-Do not build a terminal-only product model unless the product is truly terminal-only. Keep reusable state, reducers, resources, and widgets shared.
+Share product logic when the product is shared; do not force graphical
+behaviour into a terminal simply to claim identical screens. A target fallback
+should preserve the user's task.
 
-Do not hard-code every terminal dimension into the UI. Use responsive layout and target-aware theme tokens.
-
-Keep the keyboard-first and deterministic-testing instincts. Add semantic identifiers so terminal workflows can be tested through meaning, not only cell coordinates.
+Keep the keyboard-first discipline. Check Tab order, disabled controls,
+scrolling and cleanup of running work. A successful screenshot is not evidence
+that those behaviours work.
 
 ## What to read next
 
-Read [Testing Fission apps](/docs/learn/testing/) for unit, headless integration, LiveTest, and `/cmd` workflows.
-
-Read [State, handles, and providers](/docs/guides/state-handles-and-providers/) for the durable-state, local-state, provider, and environment decision model.
-
-Read [Resources and async](/docs/guides/resources-and-async/) for jobs, services, resources, capabilities, and reducer effects.
+- [Complete task app](/blog/build-a-single-page-web-app-in-rust/)
+- [Terminal user interfaces](/docs/guides/terminal-user-interfaces/)
+- [Compose API](/compose/)
+- [Resources and async](/docs/guides/resources-and-async/)
+- [Testing Fission apps](/docs/learn/testing/)

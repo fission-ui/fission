@@ -79,6 +79,11 @@ asyncs.register_job(UPLOAD_ATTACHMENT_JOB, |request, ctx| async move {
 
 Only use `collect_data_stream` when an external API requires one contiguous buffer. Otherwise, process the stream in chunks.
 
+The upload job above illustrates consumption, not a complete server upload
+protocol: `upload_part` and finalisation belong to the application. Report
+success only after the destination acknowledges the upload, and enforce a
+byte limit before collecting an untrusted stream into memory.
+
 ## More capability surfaces moved to handles
 
 Streams are not just for file pickers. Fission 0.7.0 moves other large binary capability payloads behind stream handles too:
@@ -96,6 +101,10 @@ Small, bounded protocol values remain plain bytes. Passkey challenges, NFC recor
 `fission-shell-server` now supports streams through `ServerJobRegistry` and `ServerJobCtx`. Server-side jobs can open the same `DataStreamId` handles, keeping SSR flows aligned with native asynchronous hosts.
 
 An app can therefore accept an upload on a server host and process it through the same job abstraction it uses on native targets.
+
+Its HTTP integration still needs to receive and register the incoming stream.
+A stream handle is not an automatic multipart/form-data parser or permission
+to trust a file's declared type and length.
 
 ## Documentation added
 

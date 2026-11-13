@@ -26,12 +26,14 @@ Notarisation is not the same as signing. Signing identifies the publisher and pr
 
 ## 1. Keep the project configuration declarative
 
-The exact schema depends on the Fission version. The important shape is:
+Use the release overlay for direct-download signing. These are configuration
+references; the entitlement source must exist and the profile is a private
+input on the signing Mac, not a publishable release asset.
 
 ```toml
 [package.macos.release]
-entitlements = "platforms/macos/DeveloperDefenceScanner.entitlements"
-provisioning_profile = ".fission/signing/macos/DeveloperDefenceScanner.provisionprofile"
+entitlements = "platforms/macos/DirectDistribution.entitlements"
+provisioning_profile = "/path/to/private/DirectDistribution.provisionprofile"
 signing_identity = "Developer ID Application"
 installer_identity = "Developer ID Installer"
 notarize = true
@@ -39,7 +41,7 @@ notarize = true
 [distribution.github_releases.production]
 owner = "example"
 repo = "product"
-tag_prefix = "v"
+tag = "v1.0.0"
 ```
 
 Each block has one job:
@@ -167,7 +169,7 @@ Use a macOS runner for Apple signing and notarisation. Import the base64 `.p12` 
     fission distribute --project-dir .
     --provider github-releases
     --artifact target/fission/release/macos/pkg/artifact-manifest.json
-    --deploy "v${{ github.ref_name }}"
+    --deploy "${{ github.ref_name }}"
 ```
 
 Pin the Fission version or revision used by the project, record the artifact manifest, and make replacement of an existing GitHub asset explicit. Never use `--clobber` as an accidental retry policy.

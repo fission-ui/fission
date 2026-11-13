@@ -1,95 +1,44 @@
 ---
 title: Stacked revenue dataset
 sidebar_label: Stacked revenue dataset
-description: Fission Charts reference for Stacked revenue dataset.
+description: Encode exclusive revenue channels from the same reporting rows.
 ---
 
 # Stacked revenue dataset
 
 ![Stacked revenue dataset screenshot](/img/charts/dataset-stacked-revenue.png)
 
-This example uses Fission Charts' typed Rust API. Use it when stack series share the same source table. The screenshot is from Fission's chart gallery.
+A revenue stack should explain a total. Direct and partner sales can be added when each sale belongs to one channel; recognised revenue and cash received cannot, because they describe overlapping events.
 
-## What the chart is for
-
-This chart is in the **Dataset** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Multiple encoded measures over one category axis`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
+Use one row per reporting period and store money in minor units in the authoritative model:
 
 ```rust
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{BarSeries, DataValue, Dataset, Encode, Series};
 
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
-
-```rust
-use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
-
-
-
-fission_component!
-{
-    pub StackedRevenueDatasetChart<()> {
-    }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
-    }
+pub fn revenue_projection(
+    rows: &[(String, u64, u64)],
+    direct_label: &str,
+    partner_label: &str,
+) -> (Dataset, Vec<Series>) {
+    let dataset = Dataset::new()
+        .dimensions(vec!["period".into(), "direct".into(), "partner".into()])
+        .source(rows.iter().map(|(period, direct_minor, partner_minor)| vec![
+            DataValue::from(period.clone()),
+            DataValue::from(*direct_minor as f32 / 100.0),
+            DataValue::from(*partner_minor as f32 / 100.0),
+        ]).collect());
+    let series = vec![
+        Series::Bar(BarSeries::new(direct_label).stack("revenue")
+            .encode(Encode::new().x("period").y("direct"))),
+        Series::Bar(BarSeries::new(partner_label).stack("revenue")
+            .encode(Encode::new().x("period").y("partner"))),
+    ];
+    (dataset, series)
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Install these values on `Chart.dataset` and `Chart.series` in the [encoded bars Compose pattern](../dataset-and-dynamic/dataset-encoded-bars), with an empty category axis and a zero-based value axis. Translate the chart, currency-unit and channel labels; `revenue` is only the internal stack identifier.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
-
-Tags: `dataset`, `stack`.
+This projection assumes a currency with 100 minor units per major unit and a single currency per report. Change that explicit rule for currencies with different units; never add amounts across currencies without a stated conversion policy. Floating-point chart coordinates are not an accounting ledger. Test the integer channel totals before projection, retain exact formatted amounts, and distinguish missing data from a period confirmed to have no sales. The gallery uses separate data.
 
 [Dataset family overview](./overview)

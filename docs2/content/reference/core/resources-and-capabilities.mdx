@@ -67,6 +67,8 @@ pub const START_PAYMENT: CapabilityType<StartPaymentCapability> =
 Reducers invoke it the same way they invoke built-ins:
 
 ```rust
+let finished = ctx.effects.bind(PaymentFinished, reduce!(on_payment_finished));
+let failed = ctx.effects.bind(PaymentFailed, reduce!(on_payment_failed));
 ctx.effects
     .capability(
         START_PAYMENT,
@@ -74,8 +76,8 @@ ctx.effects
             checkout_id: state.checkout_id.clone(),
         },
     )
-    .on_ok(ctx.effects.bind(PaymentFinished, reduce_with!(on_payment_finished)))
-    .on_err(ctx.effects.bind(PaymentFailed, reduce_with!(on_payment_failed)));
+    .on_ok(finished)
+    .on_err(failed);
 ```
 
 The host shell chooses whether to support that capability and registers the provider:
@@ -92,11 +94,23 @@ app.with_async(|asyncs| {
 });
 ```
 
+`run_host_payment_flow` is the app's platform adapter, returning
+`Result<String, StartPaymentErr>`; declaring the capability does not implement
+that adapter. The completion reducers are also app-owned: decode the result
+with `ctx.input.capability_ok(START_PAYMENT)` or the typed error with
+`capability_error(START_PAYMENT)`. A client-visible receipt id is not independent
+proof of settlement. The server must validate the payment provider's result
+before granting a paid entitlement.
+
 Use reverse-DNS names such as `com.example.payment.start` for application-specific capabilities. That avoids collisions with framework-owned names such as `fission.ui.open_url`.
 
 ## Resources
 
-A resource is declared during component conversion through `BuildCtxHandle` resource methods. It tells the runtime which work should exist while that part of the widget tree is mounted.
+A resource is declared during component conversion through
+`cx.with_resources(|resources| ...)`, using `resources.job(...)`,
+`resources.service(...)`, or `resources.timer(...)`. It tells the runtime which
+work should exist while that declaration remains in the widget tree. The build
+handle has no public `resources` field to mutate directly.
 
 Use resources for timers, mounted polling, jobs owned by a subtree, or long-lived services whose lifetime should match that subtree.
 

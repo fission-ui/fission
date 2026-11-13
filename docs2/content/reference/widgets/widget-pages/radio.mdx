@@ -15,27 +15,40 @@ value for the group.
 
 ```rust
 use fission::prelude::*;
-let widgets = view
-.state
-.shipping_methods
-.iter()
-.enumerate()
-.map(|(index, label)| {
-    Radio {
-        checked: view.state().selected_shipping_index == index,
-        label: Some(label.clone()),
-        on_select: Some(ActionEnvelope {
-            id: set_shipping_method_id,
-            payload: serde_json::to_vec(&SetShippingMethod(index)).unwrap(),
-        }),
-        ..Default::default()
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShippingMethod { Standard, Express }
+
+fission_component! {
+    pub ShippingChoice<()> {
+        state { selected: ShippingMethod = ShippingMethod::Standard }
     }
-    .into()
-})
-.collect::<Vec<_>>();
+
+    view(choice, _state, cx) =>
+        Column(
+            children: [
+                Radio(
+                    checked: choice.selected == ShippingMethod::Standard,
+                    label: Some(cx.tr("shipping.standard")),
+                    on_select: reduce { choice.selected = ShippingMethod::Standard; },
+                ),
+                Radio(
+                    checked: choice.selected == ShippingMethod::Express,
+                    label: Some(cx.tr("shipping.express")),
+                    on_select: reduce { choice.selected = ShippingMethod::Express; },
+                ),
+            ],
+        )
+}
 ```
 
-Every radio in the group emits a concrete selection action. The reducer stores the chosen index, and the next conversion marks exactly one radio as checked.
+This is an isolated pending shipping choice. The enum makes mutual exclusion
+explicit and does not change meaning when labels are translated or reordered.
+A checkout that shares the selection with totals and delivery estimates should
+move it into the order's `GlobalState` rather than retaining another local copy.
+
+Every radio emits a concrete selection transition. The reducer stores one enum
+value and the next build marks exactly one option checked.
 
 ## Field table
 
@@ -48,7 +61,7 @@ Every radio in the group emits a concrete selection action. The reducer stores t
 
 ## Group behavior and accessibility
 
-The important product rule is not inside the widget. It is in the reducer: only one item in the group should end up selected after an action. That is why radios pair naturally with an enum or selected index in app state.
+The important product rule is not inside the widget. It is in the reducer: only one item in the group should end up selected after an action. That is why radios pair naturally with an enum or durable selected id in app state. An index is not a stable product identity.
 
 `Radio` exposes `Role::Radio`, uses `checked` for its selected state, and dispatches `on_select` through its default semantic action.
 
@@ -58,10 +71,9 @@ Use radios only when the available choices are few enough to stay visible togeth
 
 ## Production checklist
 
-- Bind `on_select` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Verify one enum/id remains selected after labels reorder or translate.
+- Test selection by keyboard and semantic action as well as pointer.
+- Keep server-form radio requirements separate; these fields do not expose native form membership.
 
 ## Related
 

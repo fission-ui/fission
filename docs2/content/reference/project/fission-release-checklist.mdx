@@ -10,19 +10,21 @@ description: Maintainer checklist for preparing, validating, publishing, tagging
 This checklist is for maintainers releasing the Fission framework itself. It is
 not the app-store publishing flow for apps built with Fission.
 
-Run the release from the repository root on `main`, after every PR intended for
-the release has merged and CI is green.
+Prepare the release in a branch, then merge its PR after local qualification and
+CI pass. Tag the resulting clean `main` commit, not an earlier branch revision
+or a working tree containing unreviewed edits. Run the following commands from
+the Fission checkout:
 
 ```sh
-cd /Users/zcourts/projects/fission/fission
 git switch main
 git pull --ff-only origin main
 git status --short
+git switch -c release/prepare-<new-version>
 ```
 
-The working tree should be clean before the version bump. If local changes are
-intentional release prep, commit them before tagging. Do not tag from a dirty
-tree.
+Start with a clean working tree so release preparation cannot accidentally
+include another change. Create the release-prep branch before editing versions.
+The tag and published packages must identify the exact qualified commit.
 
 ## 1. Confirm release scope
 
@@ -59,7 +61,7 @@ For a release from `<old-version>` to `<new-version>`, update these values:
 - documentation snippets that tell users to depend on the old Fission version;
 - generated-app snippets and `fission init` templates, including the generated
   `AGENTS.md` design-system codegen version;
-- `documentation/Cargo.toml` and site chrome that displays the current version;
+- `docs2/Cargo.toml` and site chrome that displays the current version;
 - `CHANGELOG.md`, release blog post, and any release notes source file.
 
 Keep these dependency versions unchanged unless the corresponding fork release
@@ -74,7 +76,7 @@ Useful search before and after the bump:
 ```sh
 OLD_VERSION="0.8.0" # replace with previous release version
 rg -n "${OLD_VERSION}|fission = \\{ version|fission-design-system-codegen" \
-  README.md CHANGELOG.md crates documentation examples
+  README.md CHANGELOG.md crates docs2 examples
 ```
 
 After editing, regenerate the lockfile:
@@ -126,11 +128,11 @@ capability or bug that changed, not just the module name.
 
 ## 5. Write the release blog post
 
-Create a blog post under `documentation/content/blog/` using the existing naming
+Create a blog post under `docs2/content/blog/` using the existing naming
 pattern:
 
 ```text
-documentation/content/blog/YYYY-MM-DD-fission-<version-with-dashes>-short-title.mdx
+docs2/content/blog/YYYY-MM-DD-fission-<version-with-dashes>-short-title.mdx
 ```
 
 The post must include:
@@ -152,8 +154,8 @@ Start with deterministic checks that do not mutate external services.
 ```sh
 cargo fmt --all -- --check
 cargo test --workspace
-cargo run -p cargo-fission --bin fission -- site check --project-dir documentation --release
-cargo run -p cargo-fission --bin fission -- package --project-dir documentation --target site --format static --release
+cargo run -p cargo-fission --bin fission -- site check --project-dir docs2 --release
+cargo run -p cargo-fission --bin fission -- package --project-dir docs2 --target static-site --format static --release
 ```
 
 For release workflow changes, run the narrow package/release tests too:
@@ -169,8 +171,10 @@ For shell or widget changes, run the affected examples or LiveTests. Prefer
 semantic LiveTest commands and screenshots over coordinate-only checks when the
 feature is visible UI.
 
-If a platform cannot be tested locally, record that limitation in the release
-notes and do not imply it was validated.
+If a required platform cannot be tested locally, use its approved build host.
+Record any remaining qualification gap and do not imply that the platform was
+validated. A missing required release check remains a blocker, not something a
+limitation note silently waives.
 
 ## 7. Dry-run crates.io publishing
 
@@ -199,58 +203,17 @@ by `scripts/publish_release_crates.sh`.
 Publish only first-party crates, not examples or the documentation site crate
 unless that is an explicit release goal.
 
-Use `--dry-run` first. The publish order must respect internal dependencies.
-The current first-party order is:
+Use `--dry-run` first. The release script owns the publish order; inspect it
+rather than maintaining another list in this page:
 
-```text
-fission-command-process
-fission-design-system-codegen
-fission-diagnostics
-fission-assets
-fission-scene
-fission-i18n
-fission-icons
-fission-ir
-fission-macros
-fission-store
-fission-test-driver
-fission-text-engine
-fission-command-server
-fission-layout
-fission-semantics
-fission-store-sqlite
-fission-theme
-fission-command-core
-fission-core
-fission-scene2d
-fission-scene3d
-fission-game
-fission-physics
-fission-physics-rapier2d
-fission-physics-rapier3d
-fission-render
-fission-3d
-fission-devtools
-fission-render-vello
-fission-shell
-fission-widgets
-fission-charts
-fission-shell-site
-fission-shell-terminal
-fission-shell-winit
-fission-shell-desktop
-fission-shell-mobile
-fission-shell-server
-fission-shell-web
-fission-test
-fission-command-site
-fission
-fission-command-run
-fission-command-package
-fission-command-release
-fission-command-ui
-cargo-fission
+```sh
+scripts/publish_release_crates.sh --list
 ```
+
+Before a release, compare that list with the publishable workspace packages and
+their internal dependencies. A newly introduced crate, including a Compose
+crate, must be present before a dependent facade can be published. A successful
+local path-dependency build does not prove that its registry dependencies exist.
 
 Command pattern:
 
@@ -265,33 +228,54 @@ short wait; do not change versions to work around indexing delay.
 
 ## 8. Commit, tag, and push
 
-Create one release-prep commit after all local checks pass.
+Commit only the reviewed release-prep files after local checks pass. Stage exact
+paths, not whole source directories that might contain unrelated edits:
 
 ```sh
 git status --short
-git add CHANGELOG.md README.md crates documentation examples
+git add <reviewed-release-file> <another-reviewed-release-file>
 git diff --cached --check
+git diff --cached
 git commit -m "chore(release): prepare fission <new-version>"
+git push -u origin release/prepare-<new-version>
+```
+
+Open and merge the release-prep PR through the repository's normal review flow.
+Then update local `main`, confirm its exact commit and clean status, and use the
+release workflow described above to create the immutable tag. The workflow owns
+tag creation in that path; do not create a competing tag manually.
+
+For an explicitly selected manual release, create the tag only after confirming
+that the qualified source revision is the merged `main` commit:
+
+```sh
+git switch main
+git pull --ff-only origin main
+git status --short
+git rev-parse HEAD
 git tag -a v<new-version> -m "Fission <new-version>"
-git push origin main
 git push origin v<new-version>
 ```
 
-Do not move a pushed release tag casually. If a tag is wrong, stop and decide
-whether to delete/recreate it before crates are published or issue a follow-up
-patch release after crates are live.
+Do not move a published tag. If the tagged source is wrong, stop publication and
+prepare a new version from a corrected commit. Keep any partially published
+packages attached to their original source revision.
 
 ## 9. Publish crates
 
 Run the real `cargo publish -p ...` sequence after the release-prep commit is on
 `main`. Publish from the same commit that carries the version bump and docs.
 
-After publishing, verify the public index for the main user-facing crates:
+After publishing, inspect the public index for the main user-facing crates:
 
 ```sh
 cargo search fission --limit 5
 cargo search cargo-fission --limit 5
 ```
+
+A search result establishes discoverability, not source or archive identity.
+Verify the package archives against the release commit through the release
+workflow's checks before calling the release complete.
 
 If one crate publishes and a later crate fails, fix forward with the smallest
 safe change. Do not yank a crate unless the published artifact is harmful or
@@ -304,7 +288,7 @@ Use the tag and the prepared release notes.
 ```sh
 gh release create v<new-version> \
   --title "Fission <new-version>" \
-  --notes-file /tmp/fission-<new-version>-release-notes.md
+  --notes-file path/to/prepared-release-notes.md
 ```
 
 The GitHub release notes should include:
@@ -346,13 +330,16 @@ cargo install cargo-fission --version <new-version> --locked
 fission --version
 ```
 
-Create or update a small app and verify the public happy path:
+Use your normal release-validation workspace outside the source checkout. In an
+unused child directory, create an app with the published CLI and verify the
+public happy path on a host available on that machine:
 
 ```sh
-fission init /tmp/fission-release-smoke --name release-smoke
-cd /tmp/fission-release-smoke
-fission add-target macos
-fission readiness package --target macos --format app --json
+fission init release-smoke --name release-smoke
+cd release-smoke
+fission add-target web
+fission test --target web
+fission run --target web --no-open
 ```
 
 Record any failures as follow-up issues. If the failure blocks normal use, ship a

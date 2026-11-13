@@ -5,28 +5,28 @@ description: Reference documentation for the Fission command-line interface, inc
 
 # Command-line interface overview
 
-The Fission command-line interface is the tool you use to put a new Fission app on disk, connect that shared app to real platform hosts, and keep the daily development loop consistent across macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets.
+The same Rust app needs different host setup on Android, iOS and desktop. Fission's
+CLI manages that setup: it creates projects, records targets and capabilities,
+generates host files, and invokes the tools that build and run them. App state,
+reducers, widgets and effects remain in shared Rust modules rather than being
+generated again for each target.
 
-That distinction matters. Fission's core architecture lives in your shared Rust code: your app state, actions, reducers, widgets, and effects. The command-line interface does not replace that architecture. Its job is narrower and more concrete. It gives you a correct starting scaffold, records which targets your app supports, generates scaffolded host folders where that target needs them, and gives you one place to discover devices, run the app, attach logs, build artifacts, and run smoke tests.
-
-If you are learning Fission, think of the command-line interface as the bridge between two layers:
-
-- your shared app model, which stays the same across platforms, and
-- the shell hosts, which package and launch that shared app in a macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, or SSR target.
-
-The command reference below follows that project loop, from scaffolding to release.
+Use this reference for the command contract. The platform guides explain the
+SDKs, signing and host behaviour behind each command; a successful scaffold or
+smoke test is not a substitute for those checks.
 
 ## How the command-line interface fits into a real workflow
 
-Most teams meet the command-line interface at two moments.
+Start with `fission init` to create the shared app and its manifest. Add the hosts
+you need with `fission add-target`, then use `doctor`, `devices` and `run` to
+check the toolchain, choose a destination and launch the app. Terminal uses its
+shell and package workflow rather than a mobile-style host folder.
 
-The first moment is the start of a project. You run `fission init` when you want a fresh app with the expected file layout, a starter application, an initial desktop host, and a [`fission.toml`](/reference/config/fission-toml/) manifest that records project metadata and target choices.
-
-The second moment is when your shared app is ready to run in another host. At that point, you use `fission add-target` to generate scaffolded host folders for Web, Android, iOS, Static site, SSR, or a specific desktop target when needed. Terminal uses the terminal shell and package workflow rather than a mobile-style generated host folder. The important idea is that you are not rewriting your app for each platform. You are using the host wrapper around the same shared app model.
-
-After that, the command-line interface becomes part of the normal development loop. You can ask it which devices are available, choose a device by id, run the app, attach to logs, build without launching, or run the generated smoke test. That keeps the workflow close to the app instead of forcing every developer on the team to memorize different shell scripts for each platform.
-
-Different teams choose a different first validation path. Many developers start on desktop because `cargo run` is a very short local loop on most machines. Others start in the browser because their product is web-first, or move into Android or iOS early because mobile input, screen size, and safe-area behavior are central to the product. The command-line interface supports that model: one shared app, multiple real hosts, generated when you need them.
+Choose the first target according to the product. Desktop gives a short local
+loop, but a phone app also needs early checks of keyboard, safe-area and touch
+behaviour on Android or iOS. Sharing the app does not make those host differences
+disappear. Use `build` for artifacts and `test` for host smoke checks, then add
+tests for the actual workflows your users depend on.
 
 ## Commands at a glance
 
@@ -87,7 +87,9 @@ These flags matter most in day-to-day use:
 | `--app-id <id>` | string | Sets the application identifier used by packaged hosts | Use a reverse-domain name such as `com.example.notes` if you already know your shipping identifier |
 | `--local-path <path>` | path | Points the scaffold at a local Fission checkout | Useful when developing against this repository instead of published crates |
 
-For a beginner, `--local-path` is the least obvious flag, so it is worth calling out directly. Rust projects normally depend on published crates from the package registry. When you pass `--local-path`, the scaffold instead points at a local Fission workspace on your machine. That is mainly useful when you are contributing to Fission itself or testing changes in the framework before publication.
+`--local-path` changes the dependency source from published crates to a local
+Fission checkout. Use it when contributing to the framework or testing a fix
+before publication, not as a path that other developers must reproduce.
 
 ## What `fission init` creates
 
@@ -251,11 +253,14 @@ Second, they contain scripts or host files. These are the concrete launch paths 
 | `platforms/android/AndroidManifest.xml` | Android manifest | Declares the generated Android app package | Written by the command-line interface as part of the host scaffold |
 | `platforms/ios/run-sim.sh` | shell script | Builds, installs, and launches the app on an iOS simulator | Uses the generated simulator host bundle |
 
-If you are a beginner, the practical rule is simple: edit your shared app in `src/`, then use `fission run --target <target>` when you want to validate a specific host. The generated scripts remain in `platforms/<target>/` for direct CI use and for advanced debugging, but the command-line interface is the normal front door.
+Edit shared app modules in `src/`, then use `fission run --target <target>` to
+exercise a host. Generated scripts remain available for CI and host debugging;
+they are not a reason to duplicate reducers or screens inside `platforms/`.
 
 ## A practical way to use the command-line interface without overthinking it
 
-The command-line interface works best when you treat it as a project-setup and host-generation tool, not as the place where application architecture lives.
+Keep project setup and host execution in the CLI, and keep product behaviour in
+the app modules. That gives changes a clear home:
 
 One common flow looks like this:
 
@@ -267,7 +272,8 @@ One common flow looks like this:
 6. When you need another platform host, run `fission add-target ...`.
 7. Before merging target work, run `fission test --target <target> --project-dir my-app`.
 
-That flow stays aligned with Fission's larger design. The shared app model comes first. The command-line interface then helps each platform shell host run that model in a concrete environment.
+The smoke test checks the host; reducer and LiveTest coverage must check the
+product. Run both when a change crosses that boundary.
 
 ## Command reference
 
@@ -375,7 +381,7 @@ Renders every static site route and validates generated internal links without p
 fission site build [--project-dir <dir>] [--release]
 ```
 
-Builds the static site into the output directory configured by `[site].out_dir` in [`fission.toml`](/reference/config/fission-toml/). For the Fission documentation site, that means `documentation/dist/site`. The build writes HTML, `site.css`, copied assets, optional search files, optional code-highlighting hooks, `sitemap.xml`, and `robots.txt` when those features are enabled.
+Builds the static site into the output directory configured by `[site].out_dir` in [`fission.toml`](/reference/config/fission-toml/). For the Fission documentation site, that means `docs2/dist/site`. The build writes HTML, `site.css`, copied assets, optional search files, optional code-highlighting hooks, `sitemap.xml`, and `robots.txt` when those features are enabled.
 
 ### `fission site serve`
 
@@ -598,23 +604,26 @@ secret values and secret file paths stay outside source control.
 
 The `site` commands are for documentation, marketing, reference, blog, and other mostly-static routes. They are separate from `fission run --target web`, which launches an interactive web application. A site build starts from the same Fission widget model but resolves it ahead of time into crawlable HTML and CSS.
 
-The Fission documentation site in `documentation/` is the production example in this repository. It uses a custom home page widget, Markdown content routes, sidebars, a generated table of contents, light and dark themes, a custom footer, copied static assets, favicon support, generated search, optional code highlighting, route-filtered page elements, sitemap and robots output, JSON-LD structured data, and link validation. You can inspect the route set with:
+The Fission documentation site in `docs2/` is the production example in this repository. It uses a custom home page widget, Markdown content routes, sidebars, a generated table of contents, light and dark themes, a custom footer, copied static assets, favicon support, generated search, optional code highlighting, route-filtered page elements, sitemap and robots output, JSON-LD structured data, and link validation. You can inspect the route set with:
 
 ```sh
-fission site routes --project-dir documentation
+fission site routes --project-dir docs2
 ```
 
 Then check or build it with:
 
 ```sh
-fission site check --project-dir documentation
-fission site build --project-dir documentation
+fission site check --project-dir docs2
+fission site build --project-dir docs2
 ```
 
 The generated output directory is build output, not source. Keep the site project, content, sidebars, assets, and Rust widgets in source control; publish the generated directory from continuous integration.
 
 ## What the command-line interface does not do
 
-The command-line interface does not explain the runtime model for you, choose your architecture, or replace platform documentation. It creates the shared scaffold and the host wrappers, but you still use the rest of the docs to understand how the app works and how each platform behaves.
+The CLI can generate a host and check prerequisites. It cannot decide which state
+belongs to a component, authorize an API request, or prove a layout usable on a
+phone. Those remain application and qualification work. Generated files are a
+starting point for that work, not evidence that it is finished.
 
 If you are still learning the overall shape of a Fission app, read [Quickstart](/docs/learn/quickstart) and [Runtime model](/docs/learn/runtime-model) next. If you are already working at the platform layer, continue to [Targets](/reference/platform/targets).

@@ -29,8 +29,9 @@ A worker entry receives a JSON bridge message and returns bridge output. Keep th
 
 ```rust
 pub fn catalog_filters_boot(input: &str) -> String {
-    let message: serde_json::Value = serde_json::from_str(input)
-        .unwrap_or_else(|_| serde_json::json!({ "type": "boot" }));
+    let Ok(message) = serde_json::from_str::<serde_json::Value>(input) else {
+        return serde_json::json!({ "messages": [], "bindings": [] }).to_string();
+    };
 
     serde_json::json!({
         "messages": [{
@@ -50,7 +51,12 @@ pub fn catalog_filters_boot(input: &str) -> String {
 }
 ```
 
-Use workers for small DOM tasks such as expanding filters, sorting rendered cards, toggling comparison rows, or handling keyboard shortcuts. Keep business state on the server or in an island, not in a worker.
+This entry is a bridge-status probe, not an implemented catalogue filter. It
+does not bind filter controls or change catalogue order. A real filter worker
+must validate its event payload, use the generated bridge's binding contract,
+and touch only its owned semantic targets. Invalid JSON above produces no
+commands instead of being reinterpreted as a valid boot request. Keep durable
+product state on the server rather than making DOM changes another authority.
 
 ## 2. Declare islands for focused app-like areas
 
@@ -63,7 +69,7 @@ Use workers for small DOM tasks such as expanding filters, sorting rendered card
         "cart-drawer",
     )
     .entry("pokemon_card_store::islands::cart_drawer_boot")
-    .description("Focused Fission island for cart state, checkout totals, and item edits."),
+    .description("Browser-side quantity selection inside the cart mount."),
 )
 ```
 
@@ -72,49 +78,64 @@ The mount ID should match the semantic region rendered by the server page. Each 
 On the server-rendered page, render a fallback region that remains readable if JavaScript or WASM fails:
 
 ```rust
-SemanticsRegion::new(
-    Container::new(Text::new("Island booting").into())
-        .padding_all(18.0)
-        .into(),
-)
-.id(fission::WidgetId::explicit("cart-drawer"))
-.identifier("cart-drawer")
-.into()
+fission_component! {
+    pub CartIslandFallback<()> {}
+    view(_fallback, _state, cx) =>
+    SemanticsRegion(
+        id: WidgetId::explicit("cart-drawer"),
+        identifier: Some("cart-drawer".into()),
+        child: Column(children: [
+            Text(cx.tr("cart.quantity_fallback")),
+            Link::to(cx.tr("cart.open_full_cart"), "/cart"),
+        ]),
+    )
+}
 ```
 
-The island is a normal Fission widget app with its own state and reducers:
+The island is a normal Fission widget app. This small example controls one
+quantity; it does not claim to implement a drawer, persist a cart, or calculate
+checkout totals:
 
 ```rust
-#[derive(Debug, Default, Clone)]
+use fission::prelude::*;
+use fission::site::{run_browser_island, BrowserIslandApp};
+
+const MAX_QUANTITY: u16 = 99;
+
+#[derive(Debug, Clone)]
 pub struct BrowserCartState {
-    count: u32,
+    quantity: u16,
+}
+
+impl Default for BrowserCartState {
+    fn default() -> Self { Self { quantity: 1 } }
 }
 
 impl GlobalState for BrowserCartState {}
 
-fission_component!
-{
-    pub CartDrawerIsland<BrowserCartState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<BrowserCartState>();
-                let add = ctx.bind(IslandAddToCart, reduce_with!(on_island_add_to_cart));
-
-                SemanticsRegion::new(
-                    Container::new(Text::new(format!("{} items", view.state().count)).into())
-                        .padding_all(12.0)
-                        .into(),
-                )
-                .identifier("island-action:add-card")
-                .role(fission::Role::Button)
-                .default_action(add)
-                .into()
-    }
-}
-
-#[fission_reducer(IslandAddToCart)]
-pub fn on_island_add_to_cart(state: &mut BrowserCartState) {
-    state.count += 1;
+fission_component! {
+    pub CartQuantityIsland<BrowserCartState> {}
+    view(_quantity, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.s, children: [
+        Text(cx.tr("cart.quantity")),
+        Row(gap: tokens.spacing.s, children: [
+            Button(
+                child: Text(cx.tr("cart.remove_one")),
+                key: "decrease",
+                disabled: state.quantity <= 1,
+                on_press: reduce { if state.quantity > 1 { state.quantity -= 1; } },
+            ),
+            Text(state.quantity.to_string()),
+            Button(
+                child: Text(cx.tr("cart.add_one")),
+                key: "increase",
+                disabled: state.quantity >= MAX_QUANTITY,
+                on_press: reduce { if state.quantity < MAX_QUANTITY { state.quantity += 1; } },
+            ),
+        ]),
+    ])
 }
 
 pub fn cart_drawer_boot(input: &str) -> String {
@@ -123,12 +144,26 @@ pub fn cart_drawer_boot(input: &str) -> String {
             "cart-drawer",
             "cart-drawer",
             BrowserCartState::default(),
-            CartDrawerIsland,
+            CartQuantityIsland,
         )
+        .with_env(crate::presentation::browser_env())
     })
 }
 ```
-The generated browser bridge binds actions in the island’s semantics. When someone activates one, the island dispatches its reducer, rebuilds its widget tree, and replaces only its own semantic region.
+`presentation::browser_env()` is an app-owned function returning the prepared
+`Env`, with the same theme, locale, and `cart.*` translation bundles as the
+surrounding page. An island owns its copy; it cannot read a server request's
+environment implicitly. Keep that setup in shared presentation code rather than
+repeating translation tables in every island.
+
+The standard buttons provide keyboard, focus, and activation semantics. There
+is no reason to imitate a button with a generic semantic region here. The
+bridge dispatches the reducer and patches only the island's mount.
+
+The 1–99 limit is a UI input constraint, not proof of stock or a valid order.
+The server must validate stock, price, account access, and quantity when a real
+cart mutation is submitted. This browser value resets with the island; use an
+explicit server-backed flow if it needs to survive navigation.
 
 ## 3. Generate artifacts
 

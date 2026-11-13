@@ -1,97 +1,62 @@
 ---
 title: Engagement calendar
 sidebar_label: Engagement calendar
-description: Fission Charts reference for Engagement calendar.
+description: Show a complete daily engagement window with CalendarHeatmapSeries and Compose.
 ---
 
 # Engagement calendar
 
 ![Engagement calendar screenshot](/img/charts/analytics-calendar-engagement.png)
 
-This example uses Fission Charts' typed Rust API. Use it for engagement consistency over time. The screenshot is from Fission's chart gallery.
+A weekly total can hide a product that is used heavily on one day and ignored for the rest of the week. An engagement calendar keeps each day visible, which makes that distinction much easier to see.
 
-## What the chart is for
+Define engagement before counting it. This example expects daily active accounts, not raw events: one account opening a screen twenty times should not become twenty active accounts.
 
-This chart is in the **Analytics** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Daily engagement values`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
-
-let chart = Chart::new()
-    .title("Load")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed"]))
-    .y_axis(Axis::category(vec!["AM", "PM"]))
-    .visual_map(VisualMap::new().min(0.0).max(10.0))
-    .series(vec![HeatmapSeries::new("Load")
-        .data(vec![(0, 0, 3.0), (1, 0, 8.0), (2, 1, 5.0)])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+## Compose example
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+use fission::charts::{CalendarHeatmapSeries, Chart, Series, VisualMap};
 
+#[derive(Clone)]
+pub struct EngagementDay {
+    pub date: String,
+    pub active_accounts: u32,
+}
 
-
-fission_component!
-{
-    pub EngagementCalendarChart<()> {
+fission_component! {
+    pub EngagementCalendar<()> {
+        props {
+            title: String,
+            metric_label: String,
+            start_date: String,
+            end_date: String,
+            days: Vec<EngagementDay>,
+            colour_scale: VisualMap,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Load")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed"]))
-                    .y_axis(Axis::category(vec!["AM", "PM"]))
-                    .visual_map(VisualMap::new().min(0.0).max(10.0))
-                    .series(vec![HeatmapSeries::new("Load")
-                        .data(vec![(0, 0, 3.0), (1, 0, 8.0), (2, 1, 5.0)])
-                        .into()])
-                    .into()
-    }
+    view(calendar, _state, _cx) {
+        let values = calendar.days.iter()
+            .map(|day| (day.date.as_str(), day.active_accounts as f32))
+            .collect();
+    } => Chart(
+        title: Some(calendar.title.clone()),
+        visual_map: Some(calendar.colour_scale.clone()),
+        series: vec![Series::CalendarHeatmap(
+            CalendarHeatmapSeries::new(&calendar.metric_label)
+                .range(&calendar.start_date, &calendar.end_date)
+                .data(values),
+        )],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Dates use `YYYY-MM-DD`. Aggregate in one declared reporting timezone, validate dates and reject duplicate days before passing the snapshot to the component. Supply a design-system-derived `VisualMap` whose range remains stable across the windows readers are comparing.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## Missing days need attention
 
-Tags: `analytics`, `calendar`.
+The renderer fills an absent date within the range with zero. Therefore, only use this calendar once the interval is known to be complete; show a loading or incomplete-data state otherwise. Inserting unknown days and calling them inactive would change the meaning of the chart.
+
+Check month boundaries, leap days and the reporting timezone. Provide an accompanying daily list or summary because colour intensity alone does not expose exact counts. The gallery screenshot is a separate fixture.
 
 [Analytics family overview](./overview)

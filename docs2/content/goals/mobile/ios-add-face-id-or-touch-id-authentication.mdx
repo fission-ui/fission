@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Add Face ID or Touch ID authentication with Rust
-description: "Build a refund approval screen with Fission's typed biometric API. Check device availability, handle cancellation, and keep account sign-in as a recovery path."
-goal: "Ask the current device user to verify a refund review, keep the refund unchanged when verification fails, and leave final authorization to the server."
+description: "Prepare a refund review and inspect real biometric availability. Native Face ID or Touch ID remains blocked until an iOS provider is installed."
+goal: "Prepare the refund and preserve it through unsupported or failed verification; the original native biometric goal remains blocked by the missing LocalAuthentication provider."
 path: /blog/add-face-id-or-touch-id-authentication/
 order: 89
 difficulty: Beginner
@@ -10,17 +10,16 @@ duration: 40 minutes
 run_command: "fission run --target ios --project-dir ."
 app: ios-add-face-id-or-touch-id-authentication
 outcomes:
-  - Build a realistic refund approval screen with the Fission biometric capability
-  - Check whether the host can verify a local user before showing the action
-  - Handle authentication success, cancellation, and unavailable-device errors
-  - Understand which native provider is needed before Face ID or Touch ID can run on iOS
+  - Validate an actual refund draft without authorizing or submitting it
+  - Report the current host's unavailable biometric result without fabricating success
+  - Identify the LocalAuthentication integration and server authorization still required
 ---
 
-At the end of a shift, a store manager reviews a **$428.50 refund** for order **GM-2841**. Before marking it ready to submit, the app asks the person holding the device to verify locally. Face ID, Touch ID, or another supported prompt can do that without asking the manager to type a password in a busy shop.
+Before a refund is submitted, a manager may need to confirm that the person holding the device is still present. That is a local verification step, not a second account system. We will enter a refund review, ask the host which authentication options exist, and preserve that review when verification is unavailable or cancelled.
 
 That device check is only one part of the decision. A successful result means the host verified its current local user; it does not prove an account identity to a server or authorize a refund. The refund API still has to check the signed-in manager, their role, and the amount. This screen stops at **ready for server review** so a local check cannot be mistaken for a completed refund.
 
-The browser can’t open Face ID or Touch ID. Fission’s Web host reports that standalone biometric prompts are unavailable and points the manager to account sign-in. You can inspect that recovery path and confirm the refund stays unchanged. The iOS shell in this checkout also lacks a LocalAuthentication provider, so this guide does not pretend a successful prompt exists.
+The browser cannot open a standalone Face ID or Touch ID prompt through this capability. Fission's Web host reports that local verification is unavailable; the screen explains that account sign-in is the alternative, rather than pretending to perform that separate flow. You can inspect the unavailable state and confirm the review stays unchanged. The iOS shell in this checkout also lacks a LocalAuthentication provider, so this guide does not pretend a successful prompt exists.
 
 ## Create the iOS app and declare the capability
 
@@ -44,8 +43,10 @@ refund-review/
 ├── fission.toml
 ├── src/
 │   ├── app.rs
+│   ├── lib.rs
 │   └── app/
 │       ├── approval.rs
+│       ├── translations.rs
 │       └── widgets.rs
 └── platforms/
     └── ios/
@@ -56,14 +57,16 @@ refund-review/
 
 The CLI records `biometric` in `fission.toml` and adds the Face ID usage description to the generated iOS property list. iOS shows that description when an app requests Face ID. It does not install the provider that performs authentication; we’ll check that platform boundary before trying the app on a device.
 
-The refund is application data, so the shared approval state owns it. A button draft or an open menu would belong to local component state, but this screen has no temporary field: its important state is the selected refund, device availability, and the provider’s eventual response.
+The draft and prepared review are part of the approval flow, so application state owns them alongside device availability and the eventual response. The form does not replace a valid review until all fields pass validation. A local open/closed menu would belong to retained component state instead.
+
+The example uses USD and a period as its decimal separator, storing exact cents rather than floating-point money. A multi-currency product needs its normal currency and locale rules rather than extending this parser by guesswork. No field creates a server refund ID: that remains the server's responsibility.
 
 <!-- fission:step id="review-refund" -->
 ## Build the approval screen and wait for the host result
 
 The screen checks whether authentication is available before enabling **Verify manager**. That avoids opening a prompt the device cannot complete. Pressing the button starts a request from a reducer; it returns immediately while Fission waits for the host.
 
-The tabs show how app state, screen, and browser host fit together. A real app would get the selected refund from the signed-in route. The preview seeds one review for the interaction; the default state has no production fixture data. The Web host returns its normal unsupported-biometric result, so you can test recovery without pretending Face ID ran.
+The tabs show how app state, screen, and normal native/Web launchers fit together. Enter the refund details rather than relying on a seeded review that only exists in the browser. A production app would load those details from its authenticated refund service; entering them here does not authorize or submit anything. The Web host returns its normal unavailable-biometric result, so the recovery state is real rather than a simulated authentication success.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -84,7 +87,6 @@ use fission::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RefundDraft {
-    pub refund_id: String,
     pub order_reference: String,
     pub customer_name: String,
     pub amount_cents: u32,
@@ -129,6 +131,7 @@ pub enum RefundNotice {
     TemporarilyLocked,
     AuthenticationUnavailable,
     AuthenticationFailed,
+    InvalidDraft,
 }
 
 impl RefundNotice {
@@ -149,6 +152,7 @@ impl RefundNotice {
             Self::TemporarilyLocked => "refund.status.temporarily_locked",
             Self::AuthenticationUnavailable => "refund.status.authentication_unavailable",
             Self::AuthenticationFailed => "refund.status.authentication_failed",
+            Self::InvalidDraft => "refund.status.invalid_draft",
         }
     }
 }
@@ -156,6 +160,10 @@ impl RefundNotice {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RefundApprovalState {
     pub locale: Locale,
+    pub order_input: String,
+    pub customer_input: String,
+    pub amount_input: String,
+    pub reason_input: String,
     pub refund: Option<RefundDraft>,
     pub availability: Option<BiometricAvailability>,
     pub checking_device: bool,
@@ -166,6 +174,55 @@ pub struct RefundApprovalState {
 }
 
 impl GlobalState for RefundApprovalState {}
+
+fn parse_usd_cents(input: &str) -> Option<u32> {
+    let input = input.trim();
+    let (whole, fraction) = input.split_once('.').unwrap_or((input, ""));
+    if whole.is_empty()
+        || !whole.bytes().all(|byte| byte.is_ascii_digit())
+        || fraction.len() > 2
+        || !fraction.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let fraction = match fraction.len() {
+        0 => 0,
+        1 => fraction.parse::<u32>().ok()?.checked_mul(10)?,
+        _ => fraction.parse::<u32>().ok()?,
+    };
+    whole
+        .parse::<u32>()
+        .ok()?
+        .checked_mul(100)?
+        .checked_add(fraction)
+}
+
+pub fn prepare_refund_review(state: &mut RefundApprovalState) {
+    if state.checking_device || state.authenticating {
+        return;
+    }
+    let Some(amount_cents) = parse_usd_cents(&state.amount_input).filter(|amount| *amount > 0)
+    else {
+        state.error = Some(RefundNotice::InvalidDraft);
+        return;
+    };
+    if state.order_input.trim().is_empty()
+        || state.customer_input.trim().is_empty()
+        || state.reason_input.trim().is_empty()
+    {
+        state.error = Some(RefundNotice::InvalidDraft);
+        return;
+    }
+    state.refund = Some(RefundDraft {
+        order_reference: state.order_input.trim().to_owned(),
+        customer_name: state.customer_input.trim().to_owned(),
+        amount_cents,
+        reason: state.reason_input.trim().to_owned(),
+    });
+    state.verified_with = None;
+    state.message = None;
+    state.error = None;
+}
 
 #[fission_reducer(SetRefundLocale)]
 pub fn on_set_refund_locale(state: &mut RefundApprovalState, locale: Locale) {
@@ -358,7 +415,9 @@ pub fn on_refund_manager_verification_failed(
     };
 
     state.error = Some(match error.code.as_str() {
-        "cancelled" | "canceled" | "user_cancel" | "system_cancelled" => RefundNotice::PromptCancelled,
+        "cancelled" | "canceled" | "user_cancel" | "system_cancelled" => {
+            RefundNotice::PromptCancelled
+        }
         "locked_out" | "lockout" => RefundNotice::TemporarilyLocked,
         "not_enrolled" | "unavailable" | "unsupported" | "permission_denied" => {
             RefundNotice::AuthenticationUnavailable
@@ -374,9 +433,9 @@ pub fn on_refund_manager_verification_failed(
 use fission::prelude::*;
 
 use super::approval::{
-    format_refund_amount, on_check_device_biometrics, on_set_refund_locale, on_verify_refund_manager,
-    CheckDeviceBiometrics, RefundApprovalState, RefundNotice, SetRefundLocale,
-    VerifyRefundManager,
+    format_refund_amount, on_check_device_biometrics, on_set_refund_locale,
+    on_verify_refund_manager, prepare_refund_review, CheckDeviceBiometrics, RefundApprovalState,
+    RefundNotice, SetRefundLocale, VerifyRefundManager,
 };
 
 fission_component! {
@@ -387,7 +446,7 @@ fission_component! {
             let amount = format_refund_amount(refund.amount_cents);
             (
                 cx.tr("refund.prompt.reason")
-                    .replace("{refund}", &refund.refund_id)
+                    .replace("{order}", &refund.order_reference)
                     .replace("{customer}", &refund.customer_name)
                     .replace("{amount}", &amount),
                 cx.tr("refund.prompt.subtitle")
@@ -431,7 +490,9 @@ fission_component! {
     SemanticsRegion(
         identifier: Some("refund-approval-screen".to_string()),
         label: Some(cx.tr("refund.screen.label")),
-        child: Container(
+        child: SafeArea(
+          child: Scroll(
+            child: Container(
             Row(children: [
                 Spacer(flex_grow: 1.0),
                 Container(
@@ -456,11 +517,57 @@ fission_component! {
                                 on_press: use_spanish,
                             ).semantics_identifier("refund.locale.es-ES"),
                         ]),
+                        FormControl(
+                            label: Some(cx.tr("refund.form.order")),
+                            required: true,
+                            child: TextInput(
+                                value: state.order_input.clone(),
+                                bind(on_input): to(state.order_input),
+                            ),
+                        ),
+                        FormControl(
+                            label: Some(cx.tr("refund.form.customer")),
+                            required: true,
+                            child: TextInput(
+                                value: state.customer_input.clone(),
+                                bind(on_input): to(state.customer_input),
+                            ),
+                        ),
+                        FormControl(
+                            label: Some(cx.tr("refund.form.amount")),
+                            required: true,
+                            child: TextInput(
+                                value: state.amount_input.clone(),
+                                bind(on_input): to(state.amount_input),
+                            ),
+                        ),
+                        FormControl(
+                            label: Some(cx.tr("refund.form.reason")),
+                            required: true,
+                            child: TextInput(
+                                value: state.reason_input.clone(),
+                                bind(on_input): to(state.reason_input),
+                            ),
+                        ),
+                        Button(
+                            child: Text(cx.tr("refund.form.prepare")),
+                            key: "prepare-refund",
+                            disabled: state.checking_device || state.authenticating,
+                            on_press: reduce { prepare_refund_review(state); },
+                        ),
+                        if state.checking_device || state.authenticating {
+                            Spinner(
+                                motion: Some(SpinnerMotion::Default),
+                                label: Some(if state.authenticating {
+                                    cx.tr("refund.status.waiting_for_prompt")
+                                } else {
+                                    cx.tr("refund.status.checking_device")
+                                }),
+                            )
+                        },
                         if let Some(refund) = &state.refund {
                             Column(gap: tokens.spacing.s, children: [
                                 Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
-                                    Text(refund.refund_id.clone())
-                                        .weight(tokens.typography.font_weight_semibold),
                                     Text(cx.tr("refund.order").replace("{order}", &refund.order_reference)),
                                 ]),
                                 Text(refund.customer_name.clone()),
@@ -532,6 +639,8 @@ fission_component! {
             ]),
         )
         .width_length(Length::percent(100.0)),
+          ),
+        ),
     )
 }
 ```
@@ -573,7 +682,13 @@ refund.description: "Verify the person holding this device before preparing the 
 refund.order: "Order {order}"
 refund.amount: "Refund request: {amount}"
 refund.reason: "Reason: {reason}"
-refund.empty: "Open a refund from the signed-in manager’s review queue to continue."
+refund.empty: "Enter the refund details to prepare a review. No refund is submitted by this screen."
+refund.form.order: "Order reference"
+refund.form.customer: "Customer name"
+refund.form.amount: "Refund amount (USD, for example 42.50)"
+refund.form.reason: "Reason for refund"
+refund.form.prepare: "Prepare review"
+refund.status.invalid_draft: "Complete every field and enter a positive USD amount with at most two decimal places. The existing review is unchanged."
 refund.action.checking: "Checking device…"
 refund.action.check_device: "Check this device"
 refund.action.authenticating: "Waiting for verification…"
@@ -583,12 +698,12 @@ refund.hint.no_credential: "After the device check, this action is enabled only 
 refund.security.note: "If local verification is unavailable, use the manager’s account sign-in. The server must still check the account, role, and refund before submitting it."
 refund.locale.english: "English"
 refund.locale.spanish: "Español"
-refund.prompt.reason: "Review refund {refund} for {customer} ({amount})."
+refund.prompt.reason: "Review the requested refund for order {order}, {customer} ({amount})."
 refund.prompt.reason_fallback: "Review this refund."
 refund.prompt.title: "Review refund"
 refund.prompt.subtitle: "{order} · {amount}"
 refund.prompt.subtitle_fallback: "Manager refund review"
-refund.prompt.fallback: "Use manager account"
+refund.prompt.fallback: "Use device passcode"
 refund.prompt.cancel: "Cancel"
 refund.status.checking_device: "Checking this device’s authentication options…"
 refund.status.device_available: "This device can verify its current user. You can continue with the local check."
@@ -621,7 +736,13 @@ refund.description: "Verifica a la persona que sostiene el dispositivo antes de 
 refund.order: "Pedido {order}"
 refund.amount: "Solicitud de reembolso: {amount}"
 refund.reason: "Motivo: {reason}"
-refund.empty: "Abre un reembolso de la cola del responsable con sesión iniciada para continuar."
+refund.empty: "Introduce los datos para preparar una revisión. Esta pantalla no envía ningún reembolso."
+refund.form.order: "Referencia del pedido"
+refund.form.customer: "Nombre del cliente"
+refund.form.amount: "Importe del reembolso (USD, por ejemplo 42.50)"
+refund.form.reason: "Motivo del reembolso"
+refund.form.prepare: "Preparar revisión"
+refund.status.invalid_draft: "Completa todos los campos e introduce un importe positivo en USD con un máximo de dos decimales. La revisión existente no cambia."
 refund.action.checking: "Comprobando dispositivo…"
 refund.action.check_device: "Comprobar este dispositivo"
 refund.action.authenticating: "Esperando verificación…"
@@ -631,12 +752,12 @@ refund.hint.no_credential: "Después de comprobar el dispositivo, esta acción s
 refund.security.note: "Si la verificación local no está disponible, usa el inicio de sesión del responsable. El servidor debe comprobar la cuenta, el rol y el reembolso antes de enviarlo."
 refund.locale.english: "Inglés"
 refund.locale.spanish: "Español"
-refund.prompt.reason: "Revisar el reembolso {refund} para {customer} ({amount})."
+refund.prompt.reason: "Revisar el reembolso solicitado para el pedido {order}, {customer} ({amount})."
 refund.prompt.reason_fallback: "Revisar este reembolso."
 refund.prompt.title: "Revisar reembolso"
 refund.prompt.subtitle: "{order} · {amount}"
 refund.prompt.subtitle_fallback: "Revisión de reembolso del responsable"
-refund.prompt.fallback: "Usar cuenta del responsable"
+refund.prompt.fallback: "Usar código del dispositivo"
 refund.prompt.cancel: "Cancelar"
 refund.status.checking_device: "Comprobando las opciones de autenticación de este dispositivo…"
 refund.status.device_available: "Este dispositivo puede verificar a su usuario actual. Puedes continuar con la comprobación local."
@@ -660,12 +781,61 @@ refund.method.device_credential: "credencial del dispositivo"
 refund.method.other: "autenticación local"
 ```
 </TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+
+use app::{RefundApprovalScreen, RefundApprovalState};
+use fission::prelude::*;
+
+fn sync_env(state: &RefundApprovalState, env: &mut Env) {
+    env.locale = state.locale.clone();
+}
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<RefundApprovalState, _>::new(RefundApprovalScreen)
+        .with_env(app::translations::create_env())
+        .with_sync_env(sync_env)
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    MobileApp::<RefundApprovalState, _>::new(RefundApprovalScreen)
+        .with_env(app::translations::create_env())
+        .with_sync_env(sync_env)
+        .run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = MobileApp::<RefundApprovalState, _>::new(RefundApprovalScreen)
+        .with_env(app::translations::create_env())
+        .with_sync_env(sync_env)
+        .run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<RefundApprovalState, _>::new(RefundApprovalScreen)
+        .with_env(app::translations::create_env())
+        .with_sync_env(sync_env)
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
 
-use app::{RefundApprovalScreen, RefundApprovalState, RefundDraft};
+use app::{RefundApprovalScreen, RefundApprovalState};
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
@@ -673,22 +843,8 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
 
-    let preview_state = RefundApprovalState {
-        refund: Some(RefundDraft {
-            refund_id: "RFD-8842".into(),
-            order_reference: "GM-2841".into(),
-            customer_name: "Mara Chen".into(),
-            amount_cents: 42_850,
-            reason: "Duplicate shipment".into(),
-        }),
-        ..Default::default()
-    };
-
     WebApp::<RefundApprovalState, _>::new(RefundApprovalScreen)
         .with_env(app::translations::create_env())
-        .with_state_init(move |state: &mut RefundApprovalState| {
-            *state = preview_state.clone();
-        })
         .with_sync_env(|state, env| {
             env.locale = state.locale.clone();
         })
@@ -706,7 +862,7 @@ Availability and authentication results arrive through `ReducerContext.input`: `
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-In the browser preview, select **Check this device**. The web host reports that it cannot open a standalone biometric prompt, so **Verify manager** stays unavailable and the screen directs the manager to account sign-in. Confirm that the review still shows **$428.50**. This is the browser’s actual recovery state; it does not claim that Face ID or Touch ID ran.
+Enter an order reference, customer, amount and reason, then select **Prepare review** and **Check this device**. The Web host reports that it cannot open a standalone biometric prompt, so **Verify manager** remains unavailable. Confirm your entered review stays unchanged. Invalid amounts must not replace a valid existing review. This is the host's actual recovery state, not a simulated Face ID result.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 

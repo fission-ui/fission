@@ -34,10 +34,12 @@ identity_name = "AcmeSoftware.AcmeNotes"
 version = "1.4.37.0"
 publisher = "CN=Acme Software Ltd, O=Acme Software Ltd, C=GB"
 certificate_thumbprint = "0123456789ABCDEF0123456789ABCDEF01234567"
-certificate_env = "WINDOWS_CERTIFICATE"
-certificate_base64_env = "WINDOWS_CERTIFICATE_BASE64"
-certificate_password_env = "WINDOWS_CERTIFICATE_PASSWORD"
-exe_installer_script = "platforms/windows/package-exe.ps1"
+# For file-based signing instead of the certificate store, configure:
+# certificate_env = "WINDOWS_CERTIFICATE"
+# certificate_base64_env = "WINDOWS_CERTIFICATE_BASE64"
+# certificate_password_env = "WINDOWS_CERTIFICATE_PASSWORD"
+# Add only when the project has a real setup-program builder:
+# exe_installer_script = "platforms/windows/package-exe.ps1"
 ```
 
 | Field | Why it exists |
@@ -51,7 +53,11 @@ exe_installer_script = "platforms/windows/package-exe.ps1"
 | `certificate_password_env` | Secret source for the certificate password. |
 | `exe_installer_script` | Optional project-defined setup script for `windows/exe`. |
 
-Do not commit certificate files or passwords. Use the Windows certificate store for local signing or environment/CI secrets for file-based signing.
+Choose one signing source for the workflow rather than leaving several
+apparently authoritative certificates configured. Replace the illustrative
+thumbprint with an installed certificate that matches the publisher. Do not
+commit certificate files or passwords; file-based credentials belong in
+private platform storage or CI secrets.
 
 ## Native runtime products
 

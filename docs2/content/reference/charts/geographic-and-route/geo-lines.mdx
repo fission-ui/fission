@@ -1,87 +1,21 @@
 ---
 title: Geo lines
 sidebar_label: Geo lines
-description: Fission Charts reference for Geo lines.
+description: Explain the coordinate boundary when combining areas and connections.
 ---
 
 # Geo lines
 
 ![Geo lines screenshot](/img/charts/geo-lines.png)
 
-Route lines drawn over a GeoJSON-backed map. Use it when geography and movement need to be read together. The screenshot is from Fission's chart gallery.
+Geographical context and movement can belong in the same report without being the same coordinate system. A regional polygon is fitted from all supplied boundaries, whilst route lines are fitted from their own endpoints. Their positions may disagree even when the original coordinates look compatible.
 
-## What the chart is for
+The [network region report](../geo-and-route/geo-network) composes the actual map and connection widgets in separate panels. Follow that example when users need both regional demand and origin-to-destination relationships. It uses concrete component descriptions with translated captions, not a blank chart presented as a working overlay.
 
-This chart is in the **Geographic and route** family. Use it when a visual makes the pattern easier to spot.
+For a route projection, use [migration routes](../geo-and-route/geo-migration) or [traffic rates](../geo-and-route/lines-traffic). They retain route IDs and keep exact values in the source model. The region side follows [choropleth joins](./map-choropleth), using supplied GeoJSON and stable region IDs.
 
-Use a table or simpler chart when readers need exact values.
+A correctly aligned combined overlay requires a shared projection that this API does not currently expose. Do not infer geographical location, route length or intersection from where a schematic line appears to cross a region. That is an implementation boundary, not something changing a chart title can fix.
 
-## Data model
-
-`GeoJSON regions plus route line segments.` Keep the source values in Rust types. Fission Charts uses typed series and options, not string-based configuration.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::Chart;
-
-let chart = Chart::new()
-    .title("Geo lines")
-    .width(720.0)
-    .height(480.0);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
-
-```rust
-use fission::prelude::*;
-use fission::charts::Chart;
-
-
-
-fission_component!
-{
-    pub GeoLinesChart<()> {
-    }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Geo lines")
-                    .width(720.0)
-                    .height(480.0)
-                    .into()
-    }
-}
-```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
-
-## Options, accessibility, and diagnostics
-
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
-
-Tags: `lines`, `geo`.
+Test the joins and report snapshots separately, then inspect the rendered report at the intended sizes. Provide a text/list representation of routes and regional values. The gallery image is a visual example, not proof of shared coordinates or an interactive navigation feature.
 
 [Geographic and route family overview](./overview)

@@ -1,87 +1,54 @@
 ---
 title: Word cloud
 sidebar_label: Word cloud
-description: Fission Charts reference for Word cloud.
+description: Show already-aggregated feedback terms with explicit display weights and exact counts retained.
 ---
 
 # Word cloud
 
 ![Word cloud screenshot](/img/charts/wordcloud.png)
 
-Words sized by weight inside the chart area. Use it for qualitative summaries where exact numeric comparison is less important than emphasis. The screenshot is from Fission's chart gallery.
+A word cloud can draw attention to frequently mentioned terms, but it does not explain sentiment or the reason a term appeared. The word slow may occur in praise of a deliberate workflow as well as a performance complaint.
 
-## What the chart is for
-
-This chart is in the **Data pipeline and interaction** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-`Label/value pairs where the label is the word and the value controls size.` Keep the source values in Rust types. Fission Charts uses typed series and options, not string-based configuration.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::Chart;
-
-let chart = Chart::new()
-    .title("Word cloud")
-    .width(720.0)
-    .height(480.0);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Aggregate and review terms before rendering. The chart is not a natural-language analysis pipeline.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::Chart;
+use fission::charts::{Chart, Series, WordcloudSeries};
 
+#[derive(Clone)]
+pub struct FeedbackTerm {
+    pub term: String,
+    pub mentions: u32,
+}
 
-
-fission_component!
-{
-    pub WordCloudChart<()> {
+fission_component! {
+    pub FeedbackTermsCloud<()> {
+        props {
+            title: String,
+            mentions_label: String,
+            terms: Vec<FeedbackTerm>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Word cloud")
-                    .width(720.0)
-                    .height(480.0)
-                    .into()
-    }
+    view(feedback, _state, _cx) {
+        let largest = feedback.terms.iter().map(|term| term.mentions)
+            .max().unwrap_or(0).max(1) as f32;
+        let weights = feedback.terms.iter().map(|term| (
+            term.term.as_str(), term.mentions as f32 / largest * 100.0,
+        )).collect();
+    } => Chart(
+        title: Some(feedback.title.clone()),
+        series: vec![Series::Wordcloud(
+            WordcloudSeries::new(&feedback.mentions_label).data(weights),
+        )],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+The parent supplies translated report labels and already-approved term content. The source terms are data, not translation keys. Keep language-specific aggregation separate instead of merging unrelated inflections or meanings solely to simplify display.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+The projection normalises display weights to 0–100 because the current layout derives font size from that range. Keep original mention counts authoritative and show them in a ranked list. The layout uses approximate text bounds, not a guarantee that every term fits within the plot.
 
-Tags: `wordcloud`, `text`.
+Test long terms, ties, an empty report and a bounded representative set. Use bars or the list when exact comparisons matter. The screenshot is a gallery fixture.
 
 [Data pipeline and interaction family overview](./overview)

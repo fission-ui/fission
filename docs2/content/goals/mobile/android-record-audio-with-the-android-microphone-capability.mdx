@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Record audio with the Android microphone capability
-description: "Record audio with the Android microphone capability using Fission."
-goal: Request Android microphone permission before a bounded capture, show the result or denial, and verify the native permission flow.
+description: "Record a deliberate two-second inspection note, consume its one-shot stream asynchronously and preserve the previous recording if replacement fails."
+goal: "Request and recheck microphone access, capture a short note and retain its actual bytes in session memory without claiming they were saved or uploaded."
 path: /blog/record-audio-with-the-android-microphone-capability/
 order: 51
 difficulty: Beginner
@@ -10,14 +10,19 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-record-audio-with-the-android-microphone-capability
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - "Check microphone access before enabling a deliberate recording action"
+  - "Decode permission and capture results through the capability input"
+  - "Read the one-shot stream in a job with an explicit memory bound"
+  - "Keep raw PCM, encoded audio, retained bytes and saved files distinct"
 ---
 
-## Create the project and add the target
+An inspection note can contain sound that is difficult to describe in text. That does not mean the app should start recording when the screen opens, or report a recording as attached merely because the host returned a stream handle.
 
-Create the project and add the target used by this guide. Fission generates the native host; the app and its behaviour stay in shared Rust code.
+This app starts with an equipment reference and written observation. The user checks access, requests permission if needed, and deliberately records a two-second note. A job consumes the one-shot audio stream with a 256 KiB limit. Only then does the new recording replace the previous one in session memory. There is no upload, persistent save or playback claim.
+
+## Create the Android project
+
+Complete [SDK/NDK setup](/blog/set-up-rust-android-gui-development-with-fission/) and prepare [an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [a phone](/blog/run-a-fission-app-on-a-physical-android-phone/).
 
 ```sh
 cargo install cargo-fission
@@ -25,492 +30,445 @@ fission init android-record-audio-with-the-android-microphone-capability
 cd android-record-audio-with-the-android-microphone-capability
 fission add-target android --project-dir .
 fission add-capability microphone --project-dir .
+cargo add serde_yaml
 ```
 
-## Files created by Fission
-
-This is the starter tree Fission generates. Keep shared app code in `src/`; the generated platform files handle native launch and packaging.
-
-```text
-android-record-audio-with-the-android-microphone-capability/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
-├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
-└── platforms/
-    └── android/              # generated Android host
-```
-
-Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
-
-<!-- fission:step id="start-screen" -->
-## Build the equipment recording screen
-
-Start with the technician's written equipment note. The screen identifies the asset and gives the technician a place to draft an observation before adding a voice note. The draft is component-local and stays in the preview; a production workflow would move it into the work order when it is saved.
-
-<Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
-```rust
-use fission::prelude::*;
-
-fission_component! {
-    pub WorkOrderScreen<()> {
-        state {
-            note_draft: String = String::new(),
-        }
-    }
-    view(screen, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some("work-order-screen".to_string()),
-        label: Some(cx.tr("work.title")),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(cx.tr("work.site"))
-                    .weight(tokens.typography.font_weight_bold),
-                Text(cx.tr("work.title"))
-                    .size(tokens.typography.heading2_size),
-                Text(cx.tr("work.asset"))
-                    .color(tokens.colors.text_secondary),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text(cx.tr("work.context")),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-                TextInput(
-                    label: Some(cx.tr("work.note.label").into()),
-                    placeholder: Some(cx.tr("work.note.placeholder").into()),
-                    helper_text: Some(cx.tr("work.note.help").into()),
-                    bind: screen.note_draft,
-                    multiline: true,
-                    semantics_identifier: "work-order.note-draft".to_string(),
-                ),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
-}
-```
-</TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-
-use std::collections::HashMap;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-fn preview_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    env.i18n.add_bundle(TranslationBundle {
-        locale: Locale::from("en-US"),
-        messages: HashMap::from([
-            ("work.site".into(), "Northbank Maintenance · shift B".into()),
-            ("work.title".into(), "Record a compressor inspection note".into()),
-            ("work.asset".into(), "CMP-7A-2219 · vibration check".into()),
-            ("work.pending".into(), "Inspection context not confirmed".into()),
-            ("work.complete".into(), "Inspection context confirmed".into()),
-            ("work.mark".into(), "Confirm inspection context".into()),
-            ("work.recorded".into(), "Context confirmed".into()),
-            ("work.waiting".into(), "Waiting for the Fission host…".into()),
-            ("work.error".into(), "The host could not complete this action".into()),
-            ("work.result".into(), "Host result".into()),
-            ("work.ready".into(), "Ready. This preview uses a deterministic in-memory provider.".into()),
-            ("work.note.label".into(), "Inspection note draft".into()),
-            ("work.note.placeholder".into(), "Describe what you found on site".into()),
-            ("work.note.help".into(), "Draft only; it stays in this screen and is not saved or attached.".into()),
-            ("work.context".into(), "A short voice note can describe the compressor's operating noise. Confirm the work order before requesting microphone access.".into()),
-            ("work.action".into(), "Record note prompt review".into())
-        ]),
-    });
-    env.i18n.add_bundle(TranslationBundle {
-        locale: Locale::from("es-ES"),
-        messages: HashMap::from([
-            ("work.site".into(), "Mantenimiento Northbank · turno B".into()),
-            ("work.title".into(), "Grabar una nota de inspección del compresor".into()),
-            ("work.asset".into(), "CMP-7A-2219 · revisión de vibración".into()),
-            ("work.pending".into(), "Contexto de inspección sin confirmar".into()),
-            ("work.complete".into(), "Contexto de inspección confirmado".into()),
-            ("work.mark".into(), "Confirmar el contexto de inspección".into()),
-            ("work.recorded".into(), "Contexto confirmado".into()),
-            ("work.waiting".into(), "Esperando al host de Fission…".into()),
-            ("work.error".into(), "El host no pudo completar esta acción".into()),
-            ("work.result".into(), "Resultado del host".into()),
-            ("work.ready".into(), "Listo. Esta vista previa usa un proveedor en memoria.".into()),
-            ("work.note.label".into(), "Borrador de nota de inspección".into()),
-            ("work.note.placeholder".into(), "Describe lo que observaste en el lugar".into()),
-            ("work.note.help".into(), "Solo borrador; permanece en esta pantalla y no se guarda ni se adjunta.".into()),
-            ("work.context".into(), "Una nota de voz breve puede describir el ruido del compresor. Confirma la orden antes de solicitar acceso al micrófono.".into()),
-            ("work.action".into(), "Registrar revisión del aviso".into())
-        ]),
-    });
-    env
-}
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::WorkOrderScreen)
-        .with_env(preview_env())
-        .with_title("Work-order preview")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-</Tabs>
-<!-- fission:preview -->
-
-<!-- fission:checkpoint -->
-This stage is an app screen with a real state transition, not a device mock. The next stage connects a separate user action to the typed Microphone capability and shows its success or error result.
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
+Keep the generated main entrypoint. The microphone, stream reader, state and screen have separate responsibilities, but native and Web run those same modules.
 
 <!-- fission:step id="main-flow" -->
-## Run the Microphone operation through Fission
+## Keep permission, capture and byte delivery distinct
 
-Keep host work out of component conversion. The button dispatches a typed action; the reducer requests permission and only queues the bounded capture after the host grants it. Completion reducers update the screen. The Web preview installs `MemoryMicrophoneHost`, whose deterministic permission and sample response exercise that same typed path without opening a browser microphone.
+The Android provider returns a permission snapshot immediately after requesting its OS prompt. Finish the prompt before checking again; a callback is not proof the user has already answered it. The recording button remains unavailable until access and an input device have been confirmed.
 
-The capture result contains a one-shot audio stream handle and metadata. This example reports duration and sample rate; it does not save or upload the bytes. Consume the stream in a job or service before treating the note as attached to the work order.
+Pending covers capture and byte consumption. Otherwise a second capture could overtake the first stream read and replace the wrong recording. Written notes remain editable, and a failed replacement leaves the previous bytes intact. The equipment reference stays read-only whilst audio is retained so it cannot silently relabel an existing recording; discard the recording before changing equipment.
 
 <Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+use crate::jobs::{ReadRecording, READ_RECORDING};
+
+#[derive(Debug, Default)]
+pub struct VoiceNoteState {
+    pub availability: Option<MicrophoneAvailability>,
+    pub pending: bool,
+    pub note: Option<(MicrophoneCapture, Vec<u8>)>,
+    pub incoming: Option<MicrophoneCapture>,
+    pub issue: Option<&'static str>,
+}
+impl GlobalState for VoiceNoteState {}
+impl VoiceNoteState {
+    pub fn can_record(&self) -> bool {
+        !self.pending && self.availability.as_ref().is_some_and(|value| {
+            value.permission == MicrophonePermission::Granted && !value.devices.is_empty()
+        })
+    }
+}
+
+pub fn check_microphone(state: &mut VoiceNoteState, ctx: &mut ReducerContext<VoiceNoteState>) {
+    if state.pending { return; }
+    state.pending = true;
+    state.issue = None;
+    let ok = ctx.effects.bind(MicrophoneChecked, reduce_with!(microphone_checked));
+    let err = ctx.effects.bind(MicrophoneCheckFailed, reduce_with!(microphone_check_failed));
+    ctx.effects.microphone().availability().on_ok(ok).on_err(err);
+}
+#[fission_reducer(MicrophoneChecked)]
+pub fn microphone_checked(state: &mut VoiceNoteState, ctx: &mut ReducerContext<VoiceNoteState>) {
+    state.pending = false;
+    match ctx.input.capability_ok(GET_MICROPHONE_AVAILABILITY) {
+        Some(value) => state.availability = Some(value),
+        None => state.issue = Some("voice.missing"),
+    }
+}
+#[fission_reducer(MicrophoneCheckFailed)]
+pub fn microphone_check_failed(state: &mut VoiceNoteState, ctx: &mut ReducerContext<VoiceNoteState>) {
+    state.pending = false;
+    state.availability = None;
+    state.issue = Some(match ctx.input.capability_error(GET_MICROPHONE_AVAILABILITY) {
+        Some(error) if error.code == "unsupported" => "voice.unsupported",
+        _ => "voice.failed",
+    });
+}
+
+#[fission_reducer(RequestMicrophoneAccess)]
+pub fn request_microphone_access(
+    state: &mut VoiceNoteState, reason: String, ctx: &mut ReducerContext<VoiceNoteState>,
+) {
+    if state.pending { return; }
+    state.pending = true;
+    state.issue = None;
+    let ok = ctx.effects.bind(MicrophoneAccessReceived, reduce_with!(microphone_access_received));
+    let err = ctx.effects.bind(MicrophoneAccessFailed, reduce_with!(microphone_access_failed));
+    ctx.effects.microphone().request_permission(MicrophonePermissionRequest {
+        reason: Some(reason),
+    }).on_ok(ok).on_err(err);
+}
+#[fission_reducer(MicrophoneAccessReceived)]
+pub fn microphone_access_received(state: &mut VoiceNoteState, ctx: &mut ReducerContext<VoiceNoteState>) {
+    state.pending = false;
+    state.availability = None;
+    state.issue = Some(if ctx.input.capability_ok(REQUEST_MICROPHONE_PERMISSION).is_some() {
+        "voice.recheck"
+    } else { "voice.missing" });
+}
+#[fission_reducer(MicrophoneAccessFailed)]
+pub fn microphone_access_failed(state: &mut VoiceNoteState, ctx: &mut ReducerContext<VoiceNoteState>) {
+    state.pending = false;
+    state.issue = Some(match ctx.input.capability_error(REQUEST_MICROPHONE_PERMISSION) {
+        Some(error) if error.code == "unsupported" => "voice.unsupported",
+        _ => "voice.failed",
+    });
+}
+
+pub fn record_voice_note(state: &mut VoiceNoteState, ctx: &mut ReducerContext<VoiceNoteState>) {
+    if !state.can_record() { return; }
+    state.pending = true;
+    state.issue = None;
+    let ok = ctx.effects.bind(VoiceCaptured, reduce_with!(voice_captured));
+    let err = ctx.effects.bind(VoiceCaptureFailed, reduce_with!(voice_capture_failed));
+    ctx.effects.microphone().capture_audio(MicrophoneCaptureRequest {
+        device_id: None, duration_ms: 2_000, sample_rate_hz: Some(16_000),
+        channels: Some(1), sample_format: AudioSampleFormat::I16,
+    }).on_ok(ok).on_err(err);
+}
+#[fission_reducer(VoiceCaptured)]
+pub fn voice_captured(state: &mut VoiceNoteState, ctx: &mut ReducerContext<VoiceNoteState>) {
+    let Some(capture) = ctx.input.capability_ok(CAPTURE_MICROPHONE_AUDIO) else {
+        state.pending = false;
+        state.issue = Some("voice.missing");
+        return;
+    };
+    let request = ReadRecording { stream: capture.stream };
+    state.incoming = Some(capture);
+    let ok = ctx.effects.bind(VoiceBytesRead, reduce_with!(voice_bytes_read));
+    let err = ctx.effects.bind(VoiceBytesFailed, reduce_with!(voice_bytes_failed));
+    ctx.effects.app(READ_RECORDING, request).on_ok(ok).on_err(err);
+}
+#[fission_reducer(VoiceCaptureFailed)]
+pub fn voice_capture_failed(state: &mut VoiceNoteState, ctx: &mut ReducerContext<VoiceNoteState>) {
+    state.pending = false;
+    state.issue = Some(match ctx.input.capability_error(CAPTURE_MICROPHONE_AUDIO) {
+        Some(error) if error.code == "permission_denied" => {
+            state.availability = None;
+            "voice.denied"
+        }
+        Some(error) if error.code == "unsupported" => "voice.unsupported",
+        _ => "voice.failed",
+    });
+}
+#[fission_reducer(VoiceBytesRead)]
+pub fn voice_bytes_read(state: &mut VoiceNoteState, ctx: &mut ReducerContext<VoiceNoteState>) {
+    state.pending = false;
+    match (state.incoming.take(), ctx.input.job_ok(READ_RECORDING)) {
+        (Some(metadata), Some(bytes)) => state.note = Some((metadata, bytes)),
+        _ => state.issue = Some("voice.missing"),
+    }
+}
+#[fission_reducer(VoiceBytesFailed)]
+pub fn voice_bytes_failed(state: &mut VoiceNoteState, ctx: &mut ReducerContext<VoiceNoteState>) {
+    state.pending = false;
+    state.incoming = None;
+    let _ = ctx.input.job_err(READ_RECORDING);
+    state.issue = Some("voice.read_failed");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn permission_and_a_device_are_required() {
+        let mut state = VoiceNoteState::default();
+        state.availability = Some(MicrophoneAvailability {
+            permission: MicrophonePermission::Granted, devices: vec![],
+        });
+        assert!(!state.can_record());
+        state.availability.as_mut().unwrap().devices.push(MicrophoneDevice {
+            id: "test-input".into(), label: None, is_default: true,
+        });
+        assert!(state.can_record());
+        state.pending = true;
+        assert!(!state.can_record());
+    }
+}
+```
+</TabItem>
+<TabItem label="src/jobs.rs">
+<!-- fission:file path="src/jobs.rs" -->
+```rust
+use fission::core::{DataStreamId, JobCtx, JobRef, JobSpec};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReadRecording { pub stream: DataStreamId }
+#[derive(Debug)]
+pub struct ReadRecordingJob;
+impl JobSpec for ReadRecordingJob {
+    type Request = ReadRecording;
+    type Ok = Vec<u8>;
+    type Err = String;
+    const NAME: &'static str = "voice-note.read-recording";
+}
+pub const READ_RECORDING: JobRef<ReadRecordingJob> = JobRef::new(ReadRecordingJob::NAME);
+
+pub async fn read_recording(request: ReadRecording, ctx: JobCtx) -> Result<Vec<u8>, String> {
+    let mut stream = ctx.open_data_stream(request.stream).map_err(|error| error.to_string())?;
+    let mut bytes = Vec::new();
+    while let Some(chunk) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
+        let chunk = chunk.map_err(|error| error.to_string())?;
+        if chunk.len() > (256_usize * 1024).saturating_sub(bytes.len()) {
+            return Err("Recording exceeds the 256 KiB session limit".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    if bytes.is_empty() { return Err("No audio bytes were returned".into()); }
+    Ok(bytes)
+}
+```
+</TabItem>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
-
-#[derive(Debug, Default)]
-pub struct WorkOrderState {
-    pub pending: bool,
-    pub result: Option<String>,
-    pub error: Option<String>,
-}
-
-impl GlobalState for WorkOrderState {}
-
-#[fission_reducer(RunCapability)]
-pub fn run_capability(state: &mut WorkOrderState, ctx: &mut ReducerContext<WorkOrderState>) {
-    state.pending = true;
-    state.result = None;
-    state.error = None;
-
-    let ok: ActionEnvelope = MicrophonePermissionReceived.into();
-    let err: ActionEnvelope = MicrophonePermissionFailed.into();
-
-    ctx.effects
-        .microphone()
-        .request_permission(MicrophonePermissionRequest {
-            reason: Some("Record a short voice note for work order WO-1048.".into()),
-        })
-        .on_ok(ok)
-        .on_err(err);
-}
-
-#[fission_reducer(MicrophonePermissionReceived)]
-pub fn microphone_permission_received(
-    state: &mut WorkOrderState,
-    ctx: &mut ReducerContext<WorkOrderState>,
-) {
-    match ctx.input.capability_ok(REQUEST_MICROPHONE_PERMISSION) {
-        Some(MicrophonePermission::Granted) => {
-            state.pending = true;
-            let ok: ActionEnvelope = CapabilitySucceeded.into();
-            let err: ActionEnvelope = CapabilityFailed.into();
-
-            ctx.effects
-                .microphone()
-                .capture_audio(MicrophoneCaptureRequest {
-                    device_id: None,
-                    duration_ms: 2_000,
-                    sample_rate_hz: Some(48_000),
-                    channels: Some(1),
-                    sample_format: AudioSampleFormat::F32,
-                })
-                .on_ok(ok)
-                .on_err(err);
-        }
-        Some(MicrophonePermission::Denied | MicrophonePermission::Restricted) => {
-            state.pending = false;
-            state.error = Some(
-                "Microphone access was not granted. Allow it in Android Settings to record a note."
-                    .into(),
-            );
-        }
-        Some(MicrophonePermission::Unknown) | None => {
-            state.pending = false;
-            state.error = Some("Android did not confirm microphone permission.".into());
-        }
-    }
-}
-
-#[fission_reducer(MicrophonePermissionFailed)]
-pub fn microphone_permission_failed(
-    state: &mut WorkOrderState,
-    ctx: &mut ReducerContext<WorkOrderState>,
-) {
-    state.pending = false;
-    state.result = None;
-    state.error = Some(ctx
-        .input
-        .capability_error(REQUEST_MICROPHONE_PERMISSION)
-        .map(|error| format!("{}: {}", error.code, error.message))
-        .or_else(|| {
-            ctx.input
-                .capability_error_message(REQUEST_MICROPHONE_PERMISSION)
-                .map(str::to_owned)
-        })
-        .unwrap_or_else(|| "Android returned no microphone permission result.".into()));
-}
-
-#[fission_reducer(CapabilitySucceeded)]
-pub fn capability_succeeded(
-    state: &mut WorkOrderState,
-    ctx: &mut ReducerContext<WorkOrderState>,
-) {
-    state.pending = false;
-    state.error = None;
-    state.result = ctx
-        .input
-        .capability_ok(CAPTURE_MICROPHONE_AUDIO)
-        .map(|value| format!("Recorded a {} ms voice note at {} Hz.", value.duration_ms, value.sample_rate_hz));
-    if state.result.is_none() {
-        state.error = Some("The host completed without the expected typed result.".into());
-    }
-}
-
-#[fission_reducer(CapabilityFailed)]
-pub fn capability_failed(
-    state: &mut WorkOrderState,
-    ctx: &mut ReducerContext<WorkOrderState>,
-) {
-    state.pending = false;
-    state.result = None;
-    state.error = Some(ctx
-        .input
-        .capability_error(CAPTURE_MICROPHONE_AUDIO)
-        .map(|error| format!("{}: {}", error.code, error.message))
-        .or_else(|| {
-            ctx.input
-                .capability_error_message(CAPTURE_MICROPHONE_AUDIO)
-                .map(str::to_owned)
-        })
-        .unwrap_or_else(|| "The host returned an error without details.".into()));
-}
-
-pub fn callback_registry() -> ActionRegistry<WorkOrderState> {
-    let mut registry = ActionRegistry::new();
-    registry.register(reduce_with!(microphone_permission_received));
-    registry.register(reduce_with!(microphone_permission_failed));
-    registry.register(reduce_with!(capability_succeeded));
-    registry.register(reduce_with!(capability_failed));
-    registry
-}
+use crate::state::*;
 
 fission_component! {
-    pub WorkOrderScreen<WorkOrderState> {
-        state {
-            note_draft: String = String::new(),
-        }
+    pub VoiceNoteScreen<VoiceNoteState> {
+        state { subject: String = String::new(), written_note: String = String::new() }
     }
     view(screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let action = with_reducer!(cx.build, RunCapability, run_capability);
-        let status = if state.pending {
-            cx.tr("work.waiting")
-        } else if let Some(error) = &state.error {
-            format!("{}: {error}", cx.tr("work.error"))
-        } else if let Some(result) = &state.result {
-            format!("{}: {result}", cx.tr("work.result"))
-        } else {
-            cx.tr("work.ready")
-        };
+        let request = with_reducer!(
+            cx.build, RequestMicrophoneAccess(cx.tr("voice.reason")), request_microphone_access
+        );
     } =>
-    SemanticsRegion(
-        identifier: Some("work-order-microphone".to_string()),
-        label: Some(cx.tr("work.title")),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(cx.tr("work.site"))
-                    .weight(tokens.typography.font_weight_bold),
-                Text(cx.tr("work.title"))
-                    .size(tokens.typography.heading2_size),
-                Text(cx.tr("work.asset"))
-                    .color(tokens.colors.text_secondary),
-                Text(cx.tr("work.context")),
-                TextInput(
-                    label: Some(cx.tr("work.note.label").into()),
-                    placeholder: Some(cx.tr("work.note.placeholder").into()),
-                    helper_text: Some(cx.tr("work.note.help").into()),
-                    bind: screen.note_draft,
-                    multiline: true,
-                    semantics_identifier: "work-order.note-draft".to_string(),
-                ),
-                Button(
-                    child: Text(cx.tr("work.action")),
-                    key: "run-capability",
-                    variant: ButtonVariant::Primary,
-                    disabled: state.pending,
-                    loading: state.pending,
-                    on_press: action,
-                ),
-                Container(Text(status))
-                    .padding_all(tokens.spacing.m)
-                    .bg(tokens.colors.background)
-                    .border(tokens.colors.border, 1.0)
-                    .border_radius(tokens.radii.medium),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
+    SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("voice.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("voice.scope")),
+            TextInput(
+                label: Some(cx.tr("voice.subject").into()), bind: screen.subject,
+                read_only: state.pending || state.note.is_some(), semantics_identifier: "voice.subject".to_owned(),
+            ),
+            TextInput(
+                label: Some(cx.tr("voice.written").into()), bind: screen.written_note,
+                multiline: true, semantics_identifier: "voice.written".to_owned(),
+            ),
+            Button(
+                child: Text(cx.tr("voice.check")), key: "voice.check",
+                disabled: state.pending, on_press: reduce { check_microphone(state, cx); },
+            ),
+            Button(
+                child: Text(cx.tr("voice.request")), key: "voice.request",
+                disabled: state.pending, on_press: request,
+            ),
+            if let Some(availability) = &state.availability {
+                Text(cx.tr(if availability.permission == MicrophonePermission::Granted {
+                    "voice.granted"
+                } else { "voice.not_granted" }))
+            },
+            Button(
+                child: Text(cx.tr("voice.record")), key: "voice.record",
+                disabled: !state.can_record() || screen.subject.trim().is_empty(),
+                on_press: reduce { record_voice_note(state, cx); },
+            ),
+            if state.pending {
+                Spinner(motion: Some(SpinnerMotion::Default), label: cx.tr("voice.pending"))
+            },
+            if let Some(issue) = state.issue { Text(cx.tr(issue)).color(tokens.colors.error) },
+            if let Some((metadata, bytes)) = &state.note {
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("voice.retained")),
+                    Text(format!("{} {}", cx.tr("voice.bytes"), bytes.len())),
+                    Text(format!("{} {}", cx.tr("voice.format"), metadata.content_type)),
+                    Button(
+                        child: Text(cx.tr("voice.discard")), key: "voice.discard",
+                        disabled: state.pending,
+                        on_press: reduce { state.note = None; },
+                    ),
+                ])
+            },
+        ])
+    ).padding_all(tokens.spacing.l)))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+voice.title: "Record a short inspection note"
+voice.scope: "Enter the equipment reference first. Audio stays in this session; nothing is uploaded. Ask anyone nearby before recording."
+voice.subject: "Equipment reference"
+voice.written: "Written observation"
+voice.check: "Check microphone and permission"
+voice.request: "Request microphone access"
+voice.reason: "Record a two-second inspection note."
+voice.record: "Record or replace 2-second note"
+voice.granted: "Microphone access is granted. Check that the device is available before recording."
+voice.not_granted: "Microphone access is not granted. The written observation remains available."
+voice.pending: "Waiting for permission, recording or reading audio…"
+voice.retained: "Audio bytes retained for this session; not saved or sent."
+voice.bytes: "Bytes:"
+voice.format: "Returned format:"
+voice.discard: "Discard recording"
+voice.missing: "The provider returned no usable result. The previous recording is unchanged."
+voice.recheck: "Finish the Android prompt, then check the microphone again."
+voice.denied: "Access was denied. The previous recording and written observation are unchanged."
+voice.unsupported: "This host does not support this microphone operation."
+voice.failed: "The microphone operation failed. Check access and try again."
+voice.read_failed: "The recording could not be read within the session limit. The previous recording is unchanged."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+voice.title: "Grabar una nota breve de inspección"
+voice.scope: "Introduce primero la referencia del equipo. El audio solo se conserva en esta sesión; no se carga. Pide permiso a las personas cercanas."
+voice.subject: "Referencia del equipo"
+voice.written: "Observación escrita"
+voice.check: "Comprobar micrófono y permiso"
+voice.request: "Solicitar acceso al micrófono"
+voice.reason: "Grabar una nota de inspección de dos segundos."
+voice.record: "Grabar o sustituir nota de 2 segundos"
+voice.granted: "El acceso está concedido. Comprueba que el dispositivo esté disponible antes de grabar."
+voice.not_granted: "No hay acceso al micrófono. Puedes escribir la observación."
+voice.pending: "Esperando permiso, grabación o lectura del audio…"
+voice.retained: "Audio conservado en esta sesión; no se ha guardado ni enviado."
+voice.bytes: "Bytes:"
+voice.format: "Formato devuelto:"
+voice.discard: "Descartar grabación"
+voice.missing: "El proveedor no devolvió un resultado útil. Se conserva la grabación anterior."
+voice.recheck: "Termina el diálogo de Android y comprueba de nuevo el micrófono."
+voice.denied: "Se denegó el acceso. Se conservan la grabación y la observación anteriores."
+voice.unsupported: "Este entorno no admite esta operación de micrófono."
+voice.failed: "La operación falló. Comprueba el acceso y vuelve a intentarlo."
+voice.read_failed: "No se pudo leer el audio dentro del límite de sesión. Se conserva la grabación anterior."
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+pub mod state;
+pub mod jobs;
+mod translations;
+
+use app::VoiceNoteScreen;
+use state::VoiceNoteState;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<VoiceNoteState, _>::new(VoiceNoteScreen::new())
+        .with_env(translations::create_env())
+        .with_async(|asyncs| {
+            asyncs.register_job(jobs::READ_RECORDING, |request, ctx| async move {
+                jobs::read_recording(request, ctx).await
+            });
+        })
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<VoiceNoteState, VoiceNoteScreen> {
+    let app = MobileApp::<VoiceNoteState, _>::new(VoiceNoteScreen::new())
+        .with_env(translations::create_env())
+        .with_async(|asyncs| {
+            asyncs.register_job(jobs::READ_RECORDING, |request, ctx| async move {
+                jobs::read_recording(request, ctx).await
+            });
+        });
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<VoiceNoteState, _>::new(VoiceNoteScreen::new())
+        .with_env(translations::create_env())
+        .with_async(|asyncs| {
+            asyncs.register_job(jobs::READ_RECORDING, |request, ctx| async move {
+                jobs::read_recording(request, ctx).await
+            });
+        })
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
-mod app;
-
-use std::collections::HashMap;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-fn preview_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    env.i18n.add_bundle(TranslationBundle {
-        locale: Locale::from("en-US"),
-        messages: HashMap::from([
-            ("work.site".into(), "Northbank Food Hub".into()),
-            ("work.title".into(), "WO-1048 · Cold-room compressor".into()),
-            ("work.asset".into(), "Asset CMP-7A-2219 · due today".into()),
-            ("work.pending".into(), "No voice note recorded".into()),
-            ("work.complete".into(), "The host returned an audio sample".into()),
-            ("work.mark".into(), "Request microphone access".into()),
-            ("work.recorded".into(), "Capture complete".into()),
-            ("work.waiting".into(), "Waiting for the Fission host…".into()),
-            ("work.error".into(), "The host could not complete this action".into()),
-            ("work.result".into(), "Host result".into()),
-            ("work.ready".into(), "Ready. This preview uses a deterministic in-memory provider.".into()),
-            ("work.note.label".into(), "Inspection note draft".into()),
-            ("work.note.placeholder".into(), "Describe what you found on site".into()),
-            ("work.note.help".into(), "Draft only; it stays in this screen and is not saved or attached.".into()),
-            ("work.context".into(), "Record a short spoken description of the compressor's operating noise. The capture returns a one-shot stream; pass it to a job or service to store or upload it.".into()),
-            ("work.action".into(), "Record a short voice note".into())
-        ]),
-    });
-    env.i18n.add_bundle(TranslationBundle {
-        locale: Locale::from("es-ES"),
-        messages: HashMap::from([
-            ("work.site".into(), "Centro de alimentos Northbank".into()),
-            ("work.title".into(), "OT-1048 · Compresor de cámara fría".into()),
-            ("work.asset".into(), "Activo CMP-7A-2219 · vence hoy".into()),
-            ("work.pending".into(), "Aún no se ha grabado ninguna nota de voz".into()),
-            ("work.complete".into(), "El host devolvió una muestra de audio".into()),
-            ("work.mark".into(), "Solicitar acceso al micrófono".into()),
-            ("work.recorded".into(), "Captura completada".into()),
-            ("work.waiting".into(), "Esperando al host de Fission…".into()),
-            ("work.error".into(), "El host no pudo completar esta acción".into()),
-            ("work.result".into(), "Resultado del host".into()),
-            ("work.ready".into(), "Listo. Esta vista previa usa un proveedor en memoria.".into()),
-            ("work.note.label".into(), "Borrador de nota de inspección".into()),
-            ("work.note.placeholder".into(), "Describe lo que observaste en el lugar".into()),
-            ("work.note.help".into(), "Solo borrador; permanece en esta pantalla y no se guarda ni se adjunta.".into()),
-            ("work.context".into(), "Graba una descripción breve del ruido del compresor. La captura devuelve un flujo de un solo uso; pásalo a un job o servicio para guardarlo o subirlo.".into()),
-            ("work.action".into(), "Grabar una nota de voz breve".into())
-        ]),
-    });
-    env
-}
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    let mut app = WebApp::<app::WorkOrderState, _>::new(app::WorkOrderScreen)
-        .with_env(preview_env())
-        .with_microphone_host(MemoryMicrophoneHost::default())
-        .with_title("Android Microphone capability preview");
-    app.absorb_registry(app::callback_registry());
-    app.mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
+include!("../src/lib.rs");
 ```
 </TabItem>
 </Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-The preview exercises permission and capture with an in-memory host. On Android, verify the native permission prompt, denial, and bounded capture on a supported emulator or physical device. The example displays capture metadata; pass the one-shot stream to a job or service before storing or uploading the recording.
+The count is the number of bytes actually read, not a fabricated audio length. Discard releases the app's retained buffer. The default browser host uses real microphone access where supported; no memory provider records on the user's behalf.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Verify the native request on Android
-
-The website preview cannot exercise the native provider. Build and launch this target on a supported emulator or device, then use the feature action from the component above. Check the result the host actually returns, including denial, cancellation or unsupported hardware where those outcomes apply.
-
-Repeat with the feature unavailable, denied or cancelled, as applicable. Confirm the screen preserves the user’s existing data and offers the right recovery step. Use a physical device when the behavior depends on real hardware or an operating-system prompt.
-
-### Run, test and build
+## Verify the recording boundary on Android
 
 ```sh
 cargo test
 fission doctor android --project-dir .
-fission run --target android --project-dir .
+adb devices -l
+fission run --target android --device <adb-serial> --project-dir .
 fission test --target android --project-dir .
 fission build --target android --project-dir . --release
 ```
 
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
+Test denial, a later grant, system microphone privacy controls and a recording on a physical phone. Check that the OS recording indicator agrees with the deliberate request and that a failed replacement preserves the previous recording. Do not log audio bytes or use a shared room recording as a test fixture without consent.
 
+The current Android provider captures PCM, not a WAV file. Its returned content type identifies the sample format; the byte stream has no WAV container header. Browser providers can return a different encoded format. Consequently, renaming every result to `.wav` would be wrong: an export or playback feature must use the actual returned format and metadata.
 
-### Emulator and connected-device commands
+The Android host clamps capture duration and configuration, and its duration field reflects the requested/clamped interval rather than an independently measured recording guarantee. It also currently implements cancellation as a no-op. This example therefore offers a short bounded capture, not a Stop button that promises immediate cancellation. Capture failure or delay is not a successful recording.
 
-Run these emulator checks from the generated project root:
+The unit test checks the app's availability gate. Host startup, microphone permission, actual recorded content and release packaging are different checks; none can be inferred from that test or from the preview.
 
-```sh
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
-```
-
-
-For a real capability check, use an Android phone that has the required hardware and permission. Connect it with USB or Wi-Fi debugging, confirm its serial, then run the app on that device:
-
-```sh
-adb devices -l
-fission run --target android --device <adb-serial> --project-dir .
-```
-
-An emulator can exercise the UI and memory-provider outcomes; it is not evidence that physical hardware or an OS permission flow works.
-
+<!-- fission:checkpoint -->
+A qualified phone run records the permission outcome, returned format and usable captured content without publishing private audio. Persisting, playing or transmitting that content requires its own explicit product action and data policy.
+<!-- /fission:checkpoint -->
 
 ### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
 
 - [Microphone capability guide](/docs/capabilities/microphone/)
 - [Microphone capability reference](/reference/capabilities/microphone/)
 - [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
 - [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
 <!-- /fission:step -->

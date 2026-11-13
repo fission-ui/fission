@@ -1,93 +1,90 @@
 ---
 title: Timeline releases
 sidebar_label: Timeline releases
-description: Fission Charts reference for Timeline releases.
+description: Select real report snapshots with Compose reducers while treating ChartTimeline as an indicator.
 ---
 
 # Timeline releases
 
 ![Timeline releases screenshot](/img/charts/component-timeline-release.png)
 
-Timeline component for release phases. Use it for phase or scenario playback. The screenshot is from Fission's chart gallery.
+A release comparison needs an actual selected dataset, not only a highlighted timeline label. Fission's current `ChartTimeline` paints that indicator; it does not switch series or implement automatic playback from `play_interval_ms`.
 
-## What the chart is for
-
-This chart is in the **Components and interaction** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `ChartTimeline plus series`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Use normal controls and retained component state to choose a snapshot. The same selected index supplies both the data and the timeline marker.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{Axis, BarSeries, Chart, ChartTimeline, Series};
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct ReportSnapshot {
+    pub step_label: String,
+    pub title: String,
+    pub categories: Vec<String>,
+    pub counts: Vec<u32>,
+}
 
-
-fission_component!
-{
-    pub TimelineReleasesChart<()> {
+fission_component! {
+    pub SnapshotBrowser<()> {
+        props {
+            heading: TextContent,
+            previous_label: TextContent,
+            next_label: TextContent,
+            empty_label: TextContent,
+            measure_label: String,
+            snapshots: Vec<ReportSnapshot>,
+        }
+        state { current: usize = 0 }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
-    }
+    view(browser, _state, _cx) {
+        let last = browser.snapshots.len().saturating_sub(1);
+        let index = browser.current.min(last);
+        let frame = browser.snapshots.get(index);
+        let steps: Vec<String> = browser.snapshots.iter()
+            .map(|snapshot| snapshot.step_label.clone()).collect();
+    } => Column(children: [
+        Text(browser.heading.clone()),
+        Row(children: [
+            Button(
+                child: Text(browser.previous_label.clone()),
+                disabled: index == 0,
+                on_press: reduce {
+                    let last = browser.snapshots.len().saturating_sub(1);
+                    browser.current = browser.current.min(last).saturating_sub(1);
+                },
+            ),
+            Button(
+                child: Text(browser.next_label.clone()),
+                disabled: frame.is_none() || index == last,
+                on_press: reduce {
+                    let last = browser.snapshots.len().saturating_sub(1);
+                    browser.current = browser.current.saturating_add(1).min(last);
+                },
+            ),
+        ]),
+        if let Some(snapshot) = frame {
+            Chart(
+                key: "snapshot-report",
+                title: Some(snapshot.title.clone()),
+                x_axis: Some(Axis::category(
+                    snapshot.categories.iter().map(String::as_str).collect(),
+                )),
+                y_axis: Some(Axis::value().min(0.0)),
+                timeline: Some(ChartTimeline::new(steps).current_index(index)),
+                series: vec![Series::Bar(
+                    BarSeries::new(&browser.measure_label)
+                        .data(snapshot.counts.iter().map(|count| *count as f32).collect()),
+                )],
+            )
+        } else {
+            Text(browser.empty_label.clone())
+        },
+    ])
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Put both definitions in `widgets/snapshot_browser.rs`. For release analysis, each snapshot might contain queue counts from the same stage of an equivalent load test. Translate all display labels in the parent and validate category/count alignment.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
-
-Tags: `timeline`, `release`.
+This local index is presentation memory, not the identity of a release. Use stable release IDs in the source model, and move selection to application state if other screens must share it. Test empty data, the first/last frame and a shrinking snapshot list. Use LiveTest to confirm the buttons change both values and indicator. The gallery screenshot does not demonstrate playback.
 
 [Components and interaction family overview](./overview)

@@ -15,30 +15,32 @@ message, not as the source of truth for your data.
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Draggable {
-    id: Some(WidgetId::explicit("release_checklist_drag")),
-    semantics_identifier: Some("cards.release_checklist.drag".into()),
-    payload: view.state().card_id.as_bytes().to_vec(),
-    child: Button {
-        child: Some(Text::new("Release checklist").into()),
-        on_press: Some(open_card_action),
-        ..Default::default()
+fission_component! {
+    pub DraggableCard<()> {
+        props {
+            card_id: String,
+            title: String,
+            open_card: ActionEnvelope,
+        }
     }
-    .into(),
-    preview: Some(Tag {
-        label: "Release checklist".into(),
-        on_close: None,
-    }
-    .into()),
-    preview_options: DragPreviewOptions {
-        snap_grid: Some(24.0),
-        ..Default::default()
-    },
-    on_drag_start: Some(start_drag_action),
-    on_drag_end: Some(end_drag_action),
+
+    view(card, _state, _cx) =>
+        Draggable(
+            id: WidgetId::explicit(&format!("board.card.{}", card.card_id)),
+            semantics_identifier: Some(format!("board.card.{}", card.card_id)),
+            payload: card.card_id.as_bytes().to_vec(),
+            child: Button(
+                child: Text(card.title.clone()),
+                on_press: card.open_card.clone(),
+            ),
+            preview: Tag(label: card.title.clone()),
+        )
 }
-.into();
 ```
+
+The parent binds `open_card` to the same durable card id. The title is application
+data, not reusable English copy. The preview is an independent retained tag,
+not the same `Widget` value mounted twice.
 
 The payload carries just enough information for the eventual drop target to know what moved. The actual board order, selection state, and persistence rules still belong in `GlobalState` and reducers.
 
@@ -67,10 +69,9 @@ If you only need reordering inside one list, use a small stable id in the payloa
 
 ## Production checklist
 
-- Bind `on_drag_start`, `on_drag_end` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test drag identity after a board reorder and filter change.
+- Keep payloads to stable ids and revalidate the current record at the target.
+- Keep ordinary button navigation and an alternative move command usable without dragging.
 
 ## Related
 

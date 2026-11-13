@@ -14,18 +14,38 @@ That order matters. If every bug is tested only through a running app, failures 
 Reducers are ordinary Rust functions over app state and typed actions. They are the cheapest place to prove behavior.
 
 ```rust
+use fission::prelude::*;
+use fission::core::{ActionInput, ActionRegistry, Effects, ReducerContext};
+
+#[derive(Debug, Default)]
+struct EditorState { saving: bool, error: Option<String> }
+impl GlobalState for EditorState {}
+
+#[fission_reducer(SaveFailed)]
+fn on_save_failed(state: &mut EditorState, message: String) {
+    state.saving = false;
+    state.error = Some(message);
+}
+
 #[test]
 fn save_failure_explains_the_error() {
-    let mut state = EditorState::default();
-
-    on_save_failed(&mut state, SaveError { message: "disk full".into() });
+    let mut state = EditorState { saving: true, ..Default::default() };
+    let mut registry = ActionRegistry::new();
+    let mut effects = Effects::new(1, &mut registry);
+    let input = ActionInput::None;
+    let mut ctx = ReducerContext { effects: &mut effects, input: &input };
+    on_save_failed(&mut state, SaveFailed("disk full".into()), &mut ctx);
 
     assert_eq!(state.error.as_deref(), Some("disk full"));
     assert!(!state.saving);
 }
 ```
 
-A reducer test should be small. Set up state, call the reducer, assert the new state. If this is hard to write, the reducer is probably doing too much or hiding work behind a host call that should be an effect, resource, job, service, or capability.
+A generated reducer handler receives state, its typed action, and context,
+even when the authored function did not need context. Test that actual
+entrypoint rather than calling a removed two-argument version. Pure business
+helpers can be tested directly without the context setup. Neither path
+should hide a blocking host operation.
 
 ## 2. Test selectors as named decisions
 
@@ -111,11 +131,8 @@ Read [Testing and diagnostics](/docs/guides/testing-and-diagnostics/) for curren
 
 ## Lifecycle fit and verification
 
-Start with the cheapest test that can expose the failure: exercise a reducer directly, test a selector's decision, then use LiveTest when you need to verify the rendered app and its interactions.
-
-| Stage question | Verification |
-| --- | --- |
-| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
-| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
-| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
-| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |
+A reproducible failing test belongs at the first boundary that exposes the
+problem. A reducer test that passes while the actual field loses its caret
+does not clear that input bug; a LiveTest interaction or host-specific text
+test still needs to reproduce it. Keep the small state test and add that
+boundary test, rather than treating either as proof of the whole app.

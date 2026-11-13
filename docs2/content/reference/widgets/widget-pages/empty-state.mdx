@@ -16,22 +16,28 @@ empty surface would leave the user guessing.
 ```rust
 use fission::prelude::*;
 
-let empty_projects: Widget = EmptyState {
-    icon: Some(Icon::svg(material::file::create_new_folder::round()).into()),
-    title: "No projects yet".into(),
-    description: Some("Create a project to organise your team's work.".into()),
-    action: Some(
-        Button {
+fission_component! {
+    pub EmptyProjects<AppState>
+    view(_empty, _state, cx) =>
+    EmptyState(
+        icon: Some(Icon::svg(material::file::create_new_folder::round())),
+        title: cx.tr("projects.empty.title"),
+        description: Some(cx.tr("projects.empty.description")),
+        action: Some(Button(
             variant: ButtonVariant::Primary,
-            child: Some(Text::new("Create project").into()),
-            on_press: Some(create_project),
-            ..Default::default()
-        }
-        .into(),
-    ),
+            child: Text(cx.tr("projects.create")),
+            key: "create-project",
+            on_press: reduce {
+                cx.effects.navigate("/projects/new");
+            },
+        )),
+    )
 }
-.into();
 ```
+
+The translations explain “No projects yet” and link the action to creating the
+first project. The reducer opens that flow; it does not insert a placeholder
+project merely to remove the empty state.
 
 Keep the action specific to the empty condition. A search with no matches might
 offer “Clear filters”; a first-use state might offer “Create project”. Omit the

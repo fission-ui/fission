@@ -1,95 +1,69 @@
 ---
 title: Small multiple bars B
 sidebar_label: Small multiple bars B
-description: Fission Charts reference for Small multiple bars B.
+description: Compose two independent branch-order panels using the same reporting periods and numeric scale.
 ---
 
 # Small multiple bars B
 
 ![Small multiple bars B screenshot](/img/charts/bar-small-multiples-b.png)
 
-A second compact bar chart with different distribution. Use it when multiple products use the same visual scale. The screenshot is from Fission's chart gallery.
+The useful part of a small-multiples layout is the comparison between panels. If the axes change from one panel to the next, the repeated visual form suggests a consistency that the data does not actually have.
 
-## What the chart is for
+Reuse the [panel from example A](./bar-small-multiples-a), while constructing a new instance for each branch. A vertical arrangement also keeps the panels readable when the available width is small.
 
-This chart is in the **Bar** family. Use it when a visual makes the pattern easier to spot.
+## Compose the comparison
 
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `BarSeries values on a category axis`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, BarSeries, Chart};
-
-let chart = Chart::new()
-    .title("Orders")
-    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-    .y_axis(Axis::value())
-    .series(vec![BarSeries::new("Orders")
-        .data(vec![120.0, 156.0, 184.0, 212.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+This example assumes `WeeklyBranchOrders` is in `widgets/weekly_branch_orders.rs`, as described on that page.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, BarSeries, Chart};
+use crate::widgets::weekly_branch_orders::WeeklyBranchOrders;
 
-
-
-fission_component!
-{
-    pub SmallMultipleBarsBChart<()> {
+fission_component! {
+    pub TwoBranchOrders<()> {
+        props {
+            first_id: WidgetId,
+            second_id: WidgetId,
+            first_title: String,
+            second_title: String,
+            measure_label: String,
+            periods: Vec<String>,
+            first_counts: Vec<u32>,
+            second_counts: Vec<u32>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Orders")
-                    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-                    .y_axis(Axis::value())
-                    .series(vec![BarSeries::new("Orders")
-                        .data(vec![120.0, 156.0, 184.0, 212.0])
-                        .into()])
-                    .into()
-    }
+    view(comparison, _state, _cx) {
+        let shared_max = comparison.first_counts.iter()
+            .chain(comparison.second_counts.iter())
+            .copied().max().unwrap_or(0).max(1) as f32;
+    } => Column(children: [
+        WeeklyBranchOrders {
+            chart_id: comparison.first_id,
+            title: comparison.first_title.clone(),
+            measure_label: comparison.measure_label.clone(),
+            periods: comparison.periods.clone(),
+            counts: comparison.first_counts.clone(),
+            shared_max: shared_max,
+        },
+        WeeklyBranchOrders {
+            chart_id: comparison.second_id,
+            title: comparison.second_title.clone(),
+            measure_label: comparison.measure_label.clone(),
+            periods: comparison.periods.clone(),
+            counts: comparison.second_counts.clone(),
+            shared_max: shared_max,
+        },
+    ])
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Use distinct, stable chart IDs for the branches. Cloning input strings and counts does not clone retained widgets; each component creates its own tree and retains its own chart interaction state.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## Validate the shared snapshot
 
-Tags: `bar`, `small-multiple`.
+Both count vectors must correspond to exactly the supplied periods. Build that alignment in the reporting layer, not by independently sorting labels and values in each panel. A missing branch report should produce an explicit incomplete state rather than an all-zero series.
+
+The shared maximum has a non-zero fallback for an all-zero report. Test that case, an empty report and one branch with a much larger workload. If you later arrange panels side by side responsively, construct independent trees in each responsive branch and verify both layouts. The gallery screenshot shows only its own sample panel.
 
 [Bar family overview](./overview)

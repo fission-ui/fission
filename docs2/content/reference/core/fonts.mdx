@@ -22,4 +22,12 @@ DesktopApp::<AppState, _>::new(App)
     .run()
 ```
 
-The shell registers `AppDesignSystem::font_faces()` before rendering so text can resolve the declared family without relying on installed system fonts.
+The desktop shell registers `AppDesignSystem::font_faces()` before rendering so text can resolve the declared family without relying on installed system fonts.
+
+Browser delivery is a separate decision. Web, Static site and SSR use
+`WebFontDelivery::None` by default: declaring packaged fonts does not by itself
+put their bytes into CSS. Choose `External` to emit font URLs and let the
+browser fetch them, or `Inline` to embed them explicitly. The corresponding
+`fission.toml` setting controls the same delivery policy; see
+[Package and use fonts](/docs/cookbook/package-and-use-fonts/) for configuration
+and cache behaviour.

@@ -17,12 +17,15 @@ That design is important for cross-platform work. `Link`, `NavigationCommand`, `
 ```rust
 use fission::prelude::*;
 
-let router: Widget = Router::<AppState>::new()
-    .with_path(view.state().current_path.clone())
-    .route_component("/projects", ProjectList)
-    .route_component("/settings", SettingsScreen)
-    .not_found(|| Text::new("Page not found"))
-    .into();
+fission_component! {
+    pub AppRoutes<AppState>
+    view(_routes, state, _cx) =>
+    Router::<AppState>::new()
+        .with_path(state.current_path.clone())
+        .route_component("/projects", ProjectList)
+        .route_component("/settings", SettingsScreen)
+        .route_component("/projects/:project_id", ProjectRoute)
+}
 ```
 
 `route_component` stores a concrete component and converts it only after its
@@ -34,22 +37,19 @@ Captured parameters are available to every registration form. A
 with `route_component` reads the same map from its matched build scope:
 
 ```rust
-fission_component!
-{
-    pub ProjectRoute<()> {
-    }
-    view(_component, _state, _cx) => rust {
+fission_component! {
+    pub ProjectRoute<AppState>
+    view(_route, _state, _cx) {
         let params = fission::build::read::<RouteParams>();
-                let project_id = params.get("project_id").cloned();
-
-                ProjectScreen { project_id }.into()
-    }
+        let project_id = params.get("project_id").cloned();
+    } =>
+    ProjectScreen(project_id)
 }
-
-Router::<AppState>::new()
-    .with_path(view.state().current_path.clone())
-    .route_component("/projects/:project_id", ProjectRoute)
 ```
+`ProjectScreen` declares a `project_id: Option<String>` prop and handles an
+absent or invalid identifier explicitly. The router extracts strings; it does
+not turn a path parameter into a validated database identifier.
+
 The provider exists only while the matched component is converted. Nested
 components therefore see the correct values, and unmatched routes cannot read
 stale parameters from another route.

@@ -48,7 +48,7 @@ A static site can also be packaged into an OCI/Docker image. Fission generates a
 [package.docker]
 adapter = "axum"
 port = 8080
-tags = ["ghcr.io/example/my-docs:1.0.0", "ghcr.io/example/my-docs:latest"]
+tags = ["ghcr.io/example/my-docs:1.0.0"]
 ```
 
 Then package the image:
@@ -69,7 +69,7 @@ Configure the registry tags under `distribution.docker_registry` when the publis
 
 ```toml
 [distribution.docker_registry.production]
-tags = ["ghcr.io/example/my-docs:1.0.0", "ghcr.io/example/my-docs:latest"]
+tags = ["ghcr.io/example/my-docs:1.0.0"]
 ```
 
 Authenticate with the Docker CLI, then publish:
@@ -89,4 +89,8 @@ Fission uses the Docker CLI for registry login, tagging, and pushing. That keeps
 
 Use a static hosting provider when you want a public documentation or marketing site with no server process to run. Use a Docker image when the deployment platform expects containers, when you need the same static site artifact to run in several environments, or when your organization standardizes on container deployment for review apps.
 
-Both flows begin with the same Fission site project. The difference is only the package format and publish provider.
+Both flows begin with the same rendered site. Static hosting publishes those
+files directly; image hosting adds a server process and its operational
+responsibilities. Keep an immutable version or digest for either release.
+A successful build does not prove that production emits the required MIME,
+cache, isolation, or security headers; test the deployed host as well.

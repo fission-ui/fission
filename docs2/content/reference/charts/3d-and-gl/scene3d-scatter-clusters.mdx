@@ -1,87 +1,44 @@
 ---
 title: 3D cluster scatter
 sidebar_label: 3D cluster scatter
-description: Fission Charts reference for 3D cluster scatter.
+description: Show an existing observation grouping without mistaking perspective for a clustering rule.
 ---
 
 # 3D cluster scatter
 
 ![3D cluster scatter screenshot](/img/charts/scene3d-scatter-clusters.png)
 
-This example uses Fission Charts' typed Rust API. Use it for spatial point clusters. The screenshot is from Fission's chart gallery.
+A cluster classification belongs to the data model, not the camera angle. Points which overlap from one viewpoint may be separated in space, and changing the scale of one measurement can alter their apparent distance.
 
-## What the chart is for
+This gallery entry uses the same sphere geometry as [3D scatter](./scatter3d-basic). The [cluster reference](./scatter3d-cluster) supplies a helper which highlights one already classified group without moving or removing the other observations.
 
-This chart is in the **3D and GL** family. Use it when a visual makes the pattern easier to spot.
+## Compose the classification projection
 
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Spheres positioned in 3D space`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `Scene3D` | `Scene3D` | Defines native 3D primitives, camera, light, and material data. |
-| `width / height` | `f32` | Optional fixed size; omit them when the scene should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::three_d::{Scene3D, Vec3};
-
-let scene = Scene3D::new()
-    .size(720.0, 420.0)
-    .camera(Vec3::new(3.5, 2.6, 5.0), Vec3::ZERO)
-    .ambient_light(0.45);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Place `SpatialSample` and `SpatialScatter` in `widgets/spatial_scatter.rs`. Generate their samples from validated observations and the selected cluster, with colours supplied by the design system.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use crate::widgets::spatial_scatter::{SpatialSample, SpatialScatter};
 
-
-
-fission_component!
-{
-    pub Fission3DClusterScatterChart<()> {
+fission_component! {
+    pub ObservationClusters<()> {
+        props {
+            title: TextContent,
+            classified_samples: Vec<SpatialSample>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("3D cluster scatter")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
+    view(clusters, _state, _cx) => SpatialScatter {
+        title: clusters.title.clone(),
+        samples: clusters.classified_samples.clone(),
     }
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Enable the `three-d` feature. This view does not calculate membership or encode it into sphere identity. Keep cluster IDs, names and member counts in the original records and provide them outside the image.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## Checks
+
+Test that a different selection changes emphasis without changing the classification or coordinates. Inspect overlap and hidden samples in a rendered target. Use a labelled observation list for selection unless the scene API explicitly supports picking; `ChartInteractionEvent` does not identify these spheres. The screenshot is a gallery fixture.
 
 Tags: `3d`, `scatter`.
 

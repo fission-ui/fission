@@ -32,7 +32,10 @@ Fission uses this entry function for `fission server check`, `fission server ser
 
 ## 2. Build the server app
 
-Build the server app in ordinary Rust. This shortened version follows `examples/pokemon-card-store/src/server.rs`.
+Build the server app in ordinary Rust. The following registration excerpt
+uses the app-owned page, job, and browser entrypoints from
+`examples/pokemon-card-store/src/server.rs`; it is not a second complete store
+implementation. The route's page tree itself should use Compose.
 
 ```rust
 use fission::server::{
@@ -67,7 +70,11 @@ pub fn pokemon_card_store_server() -> FissionServerApp {
 
 The route widget remains the page’s source of truth. Jobs prepare data before HTML is returned. Route mode says whether a page is public, revalidated, rendered per request, or private to a session. Workers and islands add browser-side behaviour without turning the whole site into one large browser app.
 
-Server routes use the widget router’s `:param` syntax. For `/cards/:slug`, the extracted value is available as `ServerRenderContext::route_params`. The initial state loader can use it to fetch the right product before building the widget tree:
+Server routes use the widget router’s `:param` syntax. For `/cards/:slug`, the
+extracted value is available as `ServerRenderContext::route_params`. The
+initial state loader selects the product identity before building the widget
+tree. Let a registered job fetch its data rather than blocking this loader on
+a remote request:
 
 ```rust
 .route_widget_with_state::<StoreState, _, _>(

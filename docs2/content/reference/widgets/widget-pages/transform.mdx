@@ -15,19 +15,25 @@ Most app authors should not reach for `Transform` first. If you want common pres
 
 ```rust
 use fission::prelude::*;
-let matrix = [
-    1.0, 0.0, 0.0, 12.0,
-    0.0, 1.0, 0.0,  0.0,
-    0.0, 0.0, 1.0,  0.0,
-    0.0, 0.0, 0.0,  1.0,
-];
+use fission::core::ui::Transform;
 
-let widget: Widget = Transform::new(
-    Text::new("Translated visually").into(),
-    matrix,
-)
-.into();
+fission_component! {
+    pub ViewportLayer<()> {
+        props {
+            matrix: [f32; 16],
+            content: Widget,
+        }
+    }
+
+    view(layer, _state, _cx) =>
+        Transform(layer.content.clone(), layer.matrix)
+}
 ```
+
+The parent owns the viewport mathematics and passes the resulting matrix.
+This component does not mix row-major/column-major assumptions into a random
+translation literal. Keep the matrix convention consistent with the library
+that produces it and test hit testing, clipping, and painted bounds together.
 
 ## Field table
 

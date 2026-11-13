@@ -19,31 +19,45 @@ short fixed list and typing arbitrary text should not be possible.
 use fission::prelude::*;
 use std::sync::Arc;
 
-let assignee_field: Widget = FormControl {
-    id: Some(WidgetId::explicit("task.assignee-field")),
-    label: Some("Assignee".into()),
-    child: Combobox {
-        id: WidgetId::explicit("task.assignee"),
-        value: view.state().assignee_query.clone(),
-        placeholder: Some("Find a teammate".into()),
-        items: view.state().filtered_assignees.clone(),
-        is_open: view.state().assignee_open,
-        width: Some(280.0),
-        max_popup_height: Some(240.0),
-        on_input: Some(update_assignee_query_action),
-        on_select: Some(Arc::new(move |name| ActionEnvelope {
-            id: select_assignee_id,
-            payload: serde_json::to_vec(&SelectAssignee(name)).unwrap(),
-        })),
-        on_toggle: Some(toggle_assignee_popup_action),
+fission_component! {
+    pub AssigneeField<()> {
+        props {
+            query: String,
+            suggestions: Vec<String>,
+            open: bool,
+            error: Option<String>,
+            edit_query: ActionEnvelope,
+            toggle_popup: ActionEnvelope,
+            select_person: Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>,
+        }
     }
-    .into(),
-    error: view.state().assignee_error.clone(),
-    helper: Some("Type a name to narrow the list.".into()),
-    required: true,
+
+    view(field, _state, cx) =>
+        FormControl(
+            id: WidgetId::explicit("task.assignee-field"),
+            label: Some(cx.tr("task.assignee")),
+            child: Combobox(
+                id: WidgetId::explicit("task.assignee"),
+                value: field.query.clone(),
+                placeholder: Some(TextContent::Literal(cx.tr("task.find_person"))),
+                items: field.suggestions.clone(),
+                is_open: field.open,
+                on_input: field.edit_query.clone(),
+                on_select: field.select_person.clone(),
+                on_toggle: field.toggle_popup.clone(),
+                semantics_identifier: Some("task.assignee.input".into()),
+            ),
+            error: field.error.clone(),
+            helper: Some(cx.tr("task.assignee_help")),
+            required: true,
+        )
 }
-.into();
 ```
+
+This is a controlled field: the parent supplies its registered edit/toggle
+actions and an owned selection-action factory. Each callback must refer to the
+same task model, not a build-scope context. The fixed identities are appropriate
+for one field; derive them from task identity when several editors coexist.
 
 The application filters `items` from `value`. `on_input` reads the live edit
 from `ctx.input.text_change()`, `on_select` receives the confirmed item label,
@@ -75,7 +89,10 @@ radius, spacing, and elevation. An exact first match between `value` and an item
 label is marked selected and receives a trailing check.
 
 Use the named anatomy when the editable field or options need more than the
-compact string-list API:
+compact string-list API. This configuration excerpt is inside the parent build
+scope: `view`, the bound actions, and application state come from that parent.
+The anatomy constructors take owned configuration and do not implement the
+same `Default` contract as the compact widget:
 
 ```rust
 use fission::prelude::*;
@@ -84,7 +101,7 @@ let current_assignee = view.state().assignee.as_deref();
 
 let input = ComboboxInput::custom(TextInput {
     value: view.state().assignee_query.clone(),
-    placeholder: Some("Find a teammate".into()),
+    placeholder: Some(TextContent::Literal(cx.tr("task.find_person"))),
     on_input: Some(update_assignee_query_action),
     semantics_identifier: Some("task.assignee.input".into()),
     ..Default::default()
@@ -94,18 +111,18 @@ let content = ComboboxContent::new(vec![
     ComboboxGroup::new(vec![
         ComboboxOption::option("Avery Stone", current_assignee == Some("Avery Stone"))
             .id(WidgetId::explicit("task.assignee.avery"))
-            .description("Design")
-            .metadata("Available")
+            .description(cx.tr("team.design"))
+            .metadata(cx.tr("person.available"))
             .on_select(select_avery_action)
             .into(),
         ComboboxOption::option("Morgan Lee", current_assignee == Some("Morgan Lee"))
             .id(WidgetId::explicit("task.assignee.morgan"))
-            .description("Engineering")
+            .description(cx.tr("team.engineering"))
             .disabled(view.state().morgan_unavailable)
             .on_select(select_morgan_action)
             .into(),
     ])
-    .label("People")
+    .label(cx.tr("task.people"))
     .into(),
 ])
 .max_height(240.0);
@@ -149,6 +166,7 @@ the input is enabled and the retained content contains at least one option.
 | `on_input` | `Option<ActionEnvelope>` | Action dispatched for text edits. | Read `TextChange` from the reducer input; the bound payload is preserved. |
 | `on_select` | `Option<Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>>` | Builds an action for an activated option. | Receives the option label. |
 | `on_toggle` | `Option<ActionEnvelope>` | Requests open or closed state. | Used by focus-to-open, outside click, `Escape`, and `Tab` dismissal. |
+| `semantics_identifier` | `Option<String>` | Stable name for the actual editor. | Prefer a durable field identifier for automation. |
 
 For `ComboboxLayout`, `id`, `input`, and `content` are required. `is_open` and
 `on_toggle` remain controlled through `.open(...)` and `.on_toggle(...)`;

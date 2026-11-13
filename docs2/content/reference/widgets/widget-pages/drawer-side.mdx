@@ -15,17 +15,24 @@ navigation; a right drawer often holds details, filters, or tools.
 
 ```rust
 use fission::prelude::*;
-use fission::WidgetId;
 
-let drawer = Drawer {
-    id: WidgetId::explicit("project_nav"),
-    side: DrawerSide::Left,
-    is_open: view.state().show_nav,
-    on_dismiss: Some(close_nav),
-    content: nav_content,
-    width: Some(320.0),
-};
+fission_component! {
+    pub NavigationDrawer<()> {
+        props { is_open: bool, content: Widget, close: ActionEnvelope }
+    }
+    view(drawer, _state, _cx) =>
+    Drawer(
+        side: DrawerSide::Left,
+        is_open: drawer.is_open,
+        on_dismiss: drawer.close.clone(),
+        content: drawer.content.clone(),
+    )
+}
 ```
+
+The parent owns visibility and supplies a bound close action. Changing the
+edge does not change that ownership or make the drawer route navigation by
+itself. Compose supplies the retained widget identity.
 
 ## Variant table
 

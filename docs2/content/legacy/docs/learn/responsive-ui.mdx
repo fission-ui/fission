@@ -21,28 +21,24 @@ const TABLET_BREAKPOINT: f32 = 1_120.0;
 
 
 
-fission_component!
-{
-    pub DashboardScreen<()> {
-    }
-    view(_component, _state, _cx) => rust {
-        SafeArea {
-                    id: Some(WidgetId::explicit("dashboard.safe_area")),
-                    child: Responsive::new(DashboardDesktop)
-                        .id(WidgetId::explicit("dashboard.responsive"))
-                        .case(ResponsiveCase::max_width(PHONE_BREAKPOINT, DashboardPhone))
-                        .case(ResponsiveCase::between(
-                            PHONE_BREAKPOINT,
-                            TABLET_BREAKPOINT,
-                            DashboardTablet,
-                        ))
-                        .into(),
-                }
-                .into()
-    }
+fission_component! {
+    pub DashboardScreen<DashboardState>
+    view(_screen, _state, _cx) =>
+    SafeArea(
+        child: Responsive::new_with_id(
+            WidgetId::explicit("dashboard.responsive"),
+            || DashboardDesktop,
+        )
+        .case_max_width_with(PHONE_BREAKPOINT, || DashboardPhone)
+        .case_between_with(PHONE_BREAKPOINT, TABLET_BREAKPOINT, || DashboardTablet),
+    )
 }
 ```
-The fallback is the desktop layout because it is the broadest version of the screen. Ordered cases replace it when the active query width matches the breakpoint.
+Here the three named layouts are app components sharing `DashboardState`.
+The desktop layout is the fallback. Ordered cases replace it when the query
+width matches. Identity-aware constructors give each independently built
+branch its own retained scope; do not clone one retained widget into several
+cases.
 
 ## Declarative and imperative responsive choices
 
@@ -53,17 +49,18 @@ The fallback is the desktop layout because it is the broadest version of the scr
 const REPORT_LIST_MIN_WIDTH: f32 = 280.0;
 const REPORT_LIST_MAX_WIDTH: f32 = 420.0;
 
-Container::new(ReportList)
+Container(ReportList())
     .width_length(Length::clamp(
         Length::points(REPORT_LIST_MIN_WIDTH),
         Length::percent(34.0),
         Length::points(REPORT_LIST_MAX_WIDTH),
     ))
     .flex_shrink(0.0)
-    .into()
 ```
 
-Use this when the sizing rule is independent of app state. The runtime can inspect and lower the rule consistently across native, web, static site, SSR, and terminal targets.
+This is a component-view excerpt. The runtime can inspect and lower the sizing
+rule without manual viewport arithmetic. Its minimum remains a constraint; a
+parent narrower than that minimum needs a compact composition.
 
 </TabItem>
 <TabItem value="imperative" label="Imperative">
@@ -71,15 +68,18 @@ Use this when the sizing rule is independent of app state. The runtime can inspe
 ```rust
 const INSPECTOR_BREAKPOINT: f32 = 1_120.0;
 
-let (_ctx, view) = fission::build::current::<ReportsState>();
-let viewport = view.viewport_size();
-let inspector_open = view.state().inspector_open;
-
-let content: Widget = if viewport.width >= INSPECTOR_BREAKPOINT && inspector_open {
-    ReportsWithInspector.into()
-} else {
-    ReportsSingleColumn.into()
-};
+fission_component! {
+    pub ReportsScreen<ReportsState>
+    view(_screen, state, cx) {
+        let viewport = cx.view.viewport_size();
+        let show_inspector = viewport.width >= INSPECTOR_BREAKPOINT && state.inspector_open;
+    } =>
+    if show_inspector {
+        ReportsWithInspector()
+    } else {
+        ReportsSingleColumn()
+    }
+}
 ```
 
 Use this when the breakpoint is not the only decision. This remains valid Fission code, but the branch is ordinary Rust and cannot be lowered as a declarative responsive case.
@@ -94,9 +94,9 @@ Use a container query when a reusable widget should adapt to its parent instead 
 ```rust
 const WIDE_CARD_BREAKPOINT: f32 = 520.0;
 
-Responsive::new(CompactCard)
+Responsive::new_with_id(WidgetId::explicit("report-card.layout"), || CompactCard)
     .container_query()
-    .case(ResponsiveCase::min_width(WIDE_CARD_BREAKPOINT, WideCard))
+    .case_min_width_with(WIDE_CARD_BREAKPOINT, || WideCard)
 ```
 
 This is useful for cards, inspectors, embedded panels, and generated app surfaces that may be mounted inside another host.

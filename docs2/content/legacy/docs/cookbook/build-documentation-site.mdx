@@ -15,7 +15,7 @@ same pieces are used by the Fission documentation site.
 ```sh
 fission init docs-site
 cd docs-site
-fission add-target site --project-dir .
+fission add-target static-site --project-dir .
 ```
 
 Set the site fields in [`fission.toml`](/reference/config/fission-toml/):
@@ -102,28 +102,22 @@ use anyhow::Result;
 use fission::prelude::*;
 use fission::site::{build_from_cli, FissionSite};
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct SiteState;
 impl GlobalState for SiteState {}
 
-fission_component!
-{
-    pub HomePage<()> {
-    }
-    view(component, _state, _cx) => rust {
-        Column {
-                    gap: Some(18.0),
-                    children: vec![
-                        Text::new("Documentation people can actually use")
-                            .size(48.0)
-                            .weight(FontWeight::Bold)
-                            .into(),
-                        Text::new("A custom Fission page rendered to static HTML.").into(),
-                    ],
-                    ..Default::default()
-                }
-                .into()
-    }
+fission_component! {
+    pub HomePage<()> {}
+    view(_page, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.l, children: [
+        Text(TextContent::Key("docs.home.title".into()),
+            font_size: tokens.typography.display_sm_size,
+            font_weight: tokens.typography.font_weight_bold),
+        Text(TextContent::Key("docs.home.introduction".into())),
+        Link::to(cx.tr("docs.home.start"), "/docs/intro/"),
+    ])
 }
 
 pub fn site_app() -> FissionSite {
@@ -139,6 +133,13 @@ fn main() -> Result<()> {
     build_from_cli(site_app())
 }
 ```
+
+Define the three `docs.home.*` messages in the site's translation bundles and
+pass the prepared environment to `FissionSite::with_env(...)`; use the shared
+setup from [Theming and i18n](/docs/guides/theming-and-i18n/). The homepage
+consumes that environment and links to a real content route, instead of being
+a heading with no next action. Add the listed quickstart page and image assets
+before checking: link validation should reject an unfinished navigation target.
 ## 4. Check and build
 
 ```sh

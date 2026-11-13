@@ -1,87 +1,52 @@
 ---
 title: 3D volume points
 sidebar_label: 3D volume points
-description: Fission Charts reference for 3D volume points.
+description: Show samples within a volume without claiming a general volume-rendering API.
 ---
 
 # 3D volume points
 
 ![3D volume points screenshot](/img/charts/scene3d-volume-points.png)
 
-This example uses Fission Charts' typed Rust API. Use it as the native point-based volume path. The screenshot is from Fission's chart gallery.
+Points can show where a volume was sampled, but the empty space between them remains unmeasured unless the data model says otherwise. Overlapping spheres can suggest a solid object without actually reconstructing one.
 
-## What the chart is for
+This gallery entry is a point-based approximation. It is not a voxel texture, a ray-cast volume renderer or a guarantee that internal structures remain visible through the outer samples.
 
-This chart is in the **3D and GL** family. Use it when a visual makes the pattern easier to spot.
+## Compose the sample projection
 
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Point field suggesting volume data`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `Scene3D` | `Scene3D` | Defines native 3D primitives, camera, light, and material data. |
-| `width / height` | `f32` | Optional fixed size; omit them when the scene should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::three_d::{Scene3D, Vec3};
-
-let scene = Scene3D::new()
-    .size(720.0, 420.0)
-    .camera(Vec3::new(3.5, 2.6, 5.0), Vec3::ZERO)
-    .ambient_light(0.45);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Use `PointCloudScene` from [Point cloud](./point-cloud), placed in `widgets/point_cloud.rs`. Retain original sample values and coordinates in the data layer; the view receives only a bounded display projection.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::point_cloud::PointCloudScene;
 
-
-
-fission_component!
-{
-    pub Fission3DVolumePointsChart<()> {
+fission_component! {
+    pub VolumeSamplePreview<()> {
+        props {
+            title: TextContent,
+            sample_positions: Vec<Point3D>,
+            sample_radius: f32,
+            sample_color: Color,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("3D volume points")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
+    view(volume, _state, _cx) => PointCloudScene {
+        title: volume.title.clone(),
+        positions: volume.sample_positions.clone(),
+        point_radius: volume.sample_radius,
+        point_color: volume.sample_color,
     }
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Enable the `three-d` feature. Validate finite positions and a finite positive radius. The parent supplies translated text and colour; the radius must not silently imply a physical sample volume which the acquisition process did not measure.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## Checks
+
+Test the coordinate projection and any filtering or threshold policy separately. Inspect hidden interior samples and representative display counts in a real rendering.
+
+Provide sampling bounds, source/display counts and important values outside the scene. The primitive API has no per-sample chart picking, volume-transfer function or inferred density field. The screenshot is the gallery fixture.
 
 Tags: `3d`, `volume`.
 

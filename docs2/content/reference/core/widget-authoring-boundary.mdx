@@ -11,7 +11,7 @@ Use this page to choose the right boundary for a new component. Keep product fac
 
 ## Define props and a state-aware view
 
-Props are values supplied by a parent. `view(component, state, cx)` receives the current props, the app's scoped state and a build context. Use the concrete app state type in the component declaration when the view reads it or binds an app action.
+Props are values supplied by a parent. The names in `view(component, state, cx)` identify the current component values, the app's scoped state and the context available at that point. They are not closure parameters. Use the concrete app state type in the component declaration when the view reads it or binds an app action.
 
 ```rust
 use fission::prelude::*;
@@ -20,27 +20,12 @@ use fission::prelude::*;
 pub struct ComposerState {
     pub title: String,
     pub body: String,
-    pub saving: bool,
 }
 
 impl GlobalState for ComposerState {}
 
-#[fission_action]
-pub struct SaveDraft;
-
-#[fission_reducer(SaveDraft)]
-fn save_draft(
-    state: &mut ComposerState,
-    _action: SaveDraft,
-    _ctx: &mut ReducerContext<ComposerState>,
-) {
-    if !state.saving && !state.title.trim().is_empty() && !state.body.trim().is_empty() {
-        state.saving = true;
-    }
-}
-
 fission_component! {
-    pub SaveDraftButton<ComposerState> {
+    pub ReviewDraftButton<ComposerState> {
         props {
             label: String,
         }
@@ -49,17 +34,25 @@ fission_component! {
     view(button, state, cx) =>
         Button(
             child: Text(button.label.clone()),
-            key: "save-draft",
-            disabled: state.saving || state.title.trim().is_empty() || state.body.trim().is_empty(),
-            on_press: cx.bind(SaveDraft, reduce!(save_draft)),
+            key: "review-draft",
+            disabled: state.title.trim().is_empty() || state.body.trim().is_empty(),
+            on_press: reduce {
+                if !state.title.trim().is_empty() && !state.body.trim().is_empty() {
+                    cx.effects.navigate("/draft/review");
+                }
+            },
         )
-        .semantics_identifier("composer.save-draft")
+        .semantics_identifier("composer.review-draft")
 }
 ```
 
-The component has one job: render a named button and bind its press to a typed action. It does not own the draft or decide how persistence works. Those facts belong to the application because other parts of the composer may need them too.
+The component has one job: let the user review a non-empty draft. The disabled
+state explains when that action is available, while the reducer checks the same
+condition when the event actually runs. The draft belongs to the application
+because the review screen needs the same data; pressing this button does not
+pretend to save it.
 
-The parent supplies the label with `SaveDraftButton(label: "Save draft".to_string())`. A prop is read again whenever the component is rebuilt, so the label can follow the parent's locale or product state.
+The parent supplies a translated label with `ReviewDraftButton(label: cx.tr("draft.review"))`. A prop is read again whenever the component is rebuilt, so the label follows the parent's locale or product state.
 
 ## Keep retained UI memory beside its owner
 
@@ -70,6 +63,7 @@ fission_component! {
     pub HelpDisclosure<()> {
         props {
             title: String,
+            explanation: String,
         }
         state {
             open: bool = false,
@@ -86,9 +80,7 @@ fission_component! {
                 },
             ),
             if disclosure.open {
-                Text("The explanation is visible.")
-            } else {
-                Spacer(height: 0.0)
+                Text(disclosure.explanation.clone())
             },
         ])
 }
@@ -108,7 +100,7 @@ An effect receives owned input values, runs asynchronously, and returns a typed 
 
 `fission_component!` does not introduce a second widget catalogue. Use normal Rust imports for built-in, application and third-party widgets. Compose them inside the view expression, and extract a named component when the fragment is meaningful or reused.
 
-Prefer specific components such as `ProductRow`, `SaveDraftButton`, or `HelpDisclosure` over screen helper functions that hide a large widget tree. Small helpers for formatting, parsing, or leaf conversion are fine when they do not conceal a reusable UI boundary.
+Prefer specific components such as `ProductRow`, `ReviewDraftButton`, or `HelpDisclosure` over screen helper functions that hide a large widget tree. Small helpers for formatting, parsing, or leaf conversion are fine when they do not conceal a reusable UI boundary.
 
 ## Accessibility and identity
 

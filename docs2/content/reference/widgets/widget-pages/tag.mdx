@@ -13,11 +13,8 @@ filters, selected categories, or recipients that people may want to remove.
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Tag {
-    label: "Unread only".into(),
-    on_close: Some(clear_unread_filter_action),
-}
-.into();
+// Inside a view: clear_unread_filter_action is bound to the real filter.
+Tag(label: cx.tr("mail.unread_only"), on_close: clear_unread_filter_action)
 ```
 
 When `on_close` is absent, the same widget becomes a simple non-removable label chip.
@@ -28,6 +25,8 @@ When `on_close` is absent, the same widget becomes a simple non-removable label 
 | --- | --- | --- | --- |
 | `label` | `String` | Text shown inside the chip. | Required. |
 | `on_close` | `Option<ActionEnvelope>` | Action fired by the small close button. | Defaults to `None`. When present, the widget renders a close affordance. |
+| `on_press` | `Option<ActionEnvelope>` | Optional activation action for a toggle tag. | Keep distinct from the remove action. |
+| `selected` | `bool` | Whether a toggle tag is on. | Controlled by app state. |
 
 ## Usage guidance
 
@@ -35,9 +34,9 @@ A removable tag should remove something real from app state, such as a filter or
 
 ## Production checklist
 
-- Bind `on_close` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+Test that removing the tag changes the underlying filter or recipient, not
+only its visible chip. For toggle tags, verify `selected` and the actual filter
+agree after repeated activation, and distinguish toggling from removal.
 
 ## Related
 

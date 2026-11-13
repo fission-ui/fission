@@ -14,15 +14,30 @@ requested by a reducer after `on_browse` fires.
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = FileUpload {
-label: "Browse".into(),
-selected_file: view.state().attachment_name.clone(),
-error_text: view.state().attachment_error.clone(),
-on_browse: Some(with_reducer!(ctx, PickAttachment, on_pick_attachment)),
-browse_semantics_identifier: Some("attachment.file-picker".into()),
+fission_component! {
+    pub AttachmentPicker<()> {
+        props {
+            filename: Option<String>,
+            error: Option<String>,
+            pick_file: ActionEnvelope,
+        }
+    }
+
+    view(picker, _state, cx) =>
+        FileUpload(
+            label: cx.tr("attachment.choose_file"),
+            selected_file: picker.filename.clone(),
+            error_text: picker.error.clone(),
+            on_browse: picker.pick_file.clone(),
+            browse_semantics_identifier: Some("attachment.file-picker".into()),
+        )
 }
-.into();
 ```
+
+The parent supplies its registered picker action and display state. A chosen
+filename is not the file's authority: retain the returned stream handle for
+subsequent reading or upload. Translate public error copy in the view, not by
+calling `cx.tr` from a reducer context.
 
 A common next step is for `on_pick_attachment` to ask the runtime for a file picker capability, then store the chosen file name and `DataStreamId` in state when the capability returns.
 
@@ -52,9 +67,9 @@ Show a meaningful filename or summary after selection so the user can confirm wh
 
 ## Production checklist
 
-- Bind `on_browse` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Exercise picker cancellation, unsupported capability, validation failure, and successful selection.
+- Confirm the selected stream remains available for the intended processing lifetime.
+- Check default English empty-selection copy for supported locales.
 
 ## Related
 

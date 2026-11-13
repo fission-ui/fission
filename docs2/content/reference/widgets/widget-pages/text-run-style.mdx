@@ -13,20 +13,15 @@ Most app authors do not need to construct it directly because builder methods li
 
 ```rust
 use fission::prelude::*;
+// In view setup: a run is typed content data, not an independent widget.
+let tokens = &cx.view.env().theme.tokens;
 let run = RichTextRun {
-    text: "Important".into(),
+    text: cx.tr("sync.failed"),
     style: TextRunStyle {
-        font_size: Some(16.0),
-        color: Some(view.env.theme.tokens.colors.primary),
-        underline: false,
-        font_family: None,
-        locale: None,
-        font_weight: Some(700),
-        font_style: TextFontStyle::Normal,
-        line_height: None,
-        letter_spacing: None,
-        text_scale: None,
-        background_color: None,
+        font_size: Some(tokens.typography.body_medium_size),
+        color: Some(tokens.colors.error),
+        font_weight: Some(tokens.typography.font_weight_bold),
+        ..Default::default()
     },
     semantics_label: None,
     semantics_identifier: None,
@@ -48,7 +43,9 @@ let run = RichTextRun {
 | `line_height` | `Option<f32>` | Explicit line height. | Defaults to `None`. |
 | `letter_spacing` | `Option<f32>` | Additional letter spacing. | Defaults to `None`. |
 | `text_scale` | `Option<f32>` | Scale multiplier for the run. | Defaults to `None`, which behaves like `1.0`. |
+| `text_scaler` | `Option<TextScaler>` | Explicit scaling policy for the run. | When absent, environment scaling applies unless legacy `text_scale` is set. |
 | `background_color` | `Option<IrColor>` | Background color behind the run. | Defaults to `None`. |
+| `typography` | `TextTypography` | Additional shaping and typography configuration. | Defaults to standard typography. |
 
 ## Specific advice
 

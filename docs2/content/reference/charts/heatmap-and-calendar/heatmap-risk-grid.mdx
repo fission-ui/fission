@@ -1,97 +1,40 @@
 ---
 title: Risk grid heatmap
 sidebar_label: Risk grid heatmap
-description: Fission Charts reference for Risk grid heatmap.
+description: Count risks by explicit likelihood and impact categories.
 ---
 
 # Risk grid heatmap
 
 ![Risk grid heatmap screenshot](/img/charts/heatmap-risk-grid.png)
 
-Risk values in a two-axis matrix. Use it for risk and priority matrices. The screenshot is from Fission's chart gallery.
+A risk matrix has two categorical axes: likelihood and impact. The colour can represent how many risks occupy a category pair, but it should not silently multiply arbitrary category codes into a new risk score.
 
-## What the chart is for
-
-This chart is in the **Heatmap and calendar** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Matrix value triples`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
+Use `MetricCell` and the Compose `MetricMatrix` from [availability matrices](./heatmap-availability), in `widgets/metric_matrix.rs`:
 
 ```rust
-use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+use std::collections::BTreeMap;
+use crate::widgets::metric_matrix::MetricCell;
 
-let chart = Chart::new()
-    .title("Load")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed"]))
-    .y_axis(Axis::category(vec!["AM", "PM"]))
-    .visual_map(VisualMap::new().min(0.0).max(10.0))
-    .series(vec![HeatmapSeries::new("Load")
-        .data(vec![(0, 0, 3.0), (1, 0, 8.0), (2, 1, 5.0)])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
-
-```rust
-use fission::prelude::*;
-use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
-
-
-
-fission_component!
-{
-    pub RiskGridHeatmapChart<()> {
+pub fn risk_category_counts(
+    categories: &[(usize, usize)],
+) -> Vec<MetricCell> {
+    let mut counts: BTreeMap<(usize, usize), u32> = BTreeMap::new();
+    for &(likelihood, impact) in categories {
+        *counts.entry((likelihood, impact)).or_insert(0) += 1;
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Load")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed"]))
-                    .y_axis(Axis::category(vec!["AM", "PM"]))
-                    .visual_map(VisualMap::new().min(0.0).max(10.0))
-                    .series(vec![HeatmapSeries::new("Load")
-                        .data(vec![(0, 0, 3.0), (1, 0, 8.0), (2, 1, 5.0)])
-                        .into()])
-                    .into()
-    }
+    counts.into_iter().map(|((column, row), count)| MetricCell {
+        column,
+        row,
+        value: count as f32,
+    }).collect()
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Validate each category against the corresponding translated axis labels and deduplicate risk IDs before counting. The input is one likelihood/impact pair per current risk, not an event log that counts every edit.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Use a count scale and a summary stating the classification policy. If confirmed empty categories should appear as zero, explicitly materialise those cells; omitted cells otherwise remain undrawn. Keep the underlying risk list with owners and evidence, because a dense cell does not identify the most consequential individual risk.
 
-Tags: `heatmap`, `risk`.
+Test category changes, no risks, invalid indices and reclassification. Colour is not the only priority signal and no formula here predicts losses. The gallery uses its own fixture.
 
 [Heatmap and calendar family overview](./overview)

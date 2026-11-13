@@ -16,15 +16,20 @@ space when an image is missing.
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Avatar {
-    name: Some("Maya Patel".into()),
-    src: view.state().profile_photo_url.clone(),
-    size: Some(48.0),
+fission_component! {
+    pub ProfileAvatar<AppState>
+    view(_avatar, state, _cx) =>
+    Avatar(
+        name: Some(state.profile.display_name.clone()),
+        src: state.profile.photo_url.clone(),
+    )
 }
-.into();
 ```
 
-If the image is unavailable, this renders `MP` inside a circular surface instead of leaving a blank space.
+Here `AppState` owns a profile with a display name and optional photo URL. When
+`src` is absent, a name such as “Maya Patel” renders `MP`. The initials branch
+is selected by an absent source; it is not an automatic failed-network-image
+replacement.
 
 ## Field table
 
@@ -36,7 +41,9 @@ If the image is unavailable, this renders `MP` inside a circular surface instead
 
 ## Accessibility and responsive notes
 
-`Avatar` is visually useful, but it does not carry a semantic label on its own. If the avatar is important to understanding the screen, pair it with nearby text or wrap the surrounding row in meaningful semantics.
+When `name` is non-empty, `Avatar` exposes that name with image semantics.
+Omit the name for a decorative avatar whose adjacent text already supplies
+identity. Initials alone still do not disambiguate people with similar names.
 
 Also think about size in context. A small 24px avatar works in tables or compact lists. A 48px or 56px avatar works better in message headers or profile summaries.
 
@@ -46,9 +53,11 @@ Do not rely on initials alone when the product must disambiguate many similar na
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Check an absent source, an empty name and non-Latin display names separately.
+- Verify whether adjacent identity text makes the image decorative or whether
+  the avatar's name should be announced.
+- Test an invalid photo URL; do not assume that branch automatically renders
+  the initials used when no source was supplied.
 
 ## Related
 

@@ -48,6 +48,10 @@ The measured macOS physical footprint changed materially:
 
 The large `Cargo.lock` now renders without overflowing the GPU buffer, at roughly 127 MB. Parley still shapes the whole document, which remains a cost for very large files. Vello no longer allocates buffers for content it will not encode.
 
+These are measurements from the 0.9.2 macOS workloads, not a universal memory
+budget. Keep viewport, document, renderer, and target fixed when comparing
+them with another build.
+
 ## Layout, input, and retained identity fixes
 
 The same QA pass fixed a set of input and layout bugs. The common issue was that the drawn control, its hit area, its semantics, or its retained identity could disagree about what and where the control was.

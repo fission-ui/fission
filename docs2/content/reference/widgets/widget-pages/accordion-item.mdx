@@ -15,14 +15,17 @@ Your app owns which sections are open and what happens when someone toggles one.
 use fission::prelude::*;
 
 let item = AccordionItem {
-    title: "Advanced filters".into(),
-    content: Text::new("Extra search controls go here").into(),
+    title: cx.tr("search.advanced_filters"),
+    content: AdvancedFilters.into(),
     is_expanded: view.state().advanced_filters_open,
     on_toggle: Some(toggle_advanced_filters_action),
 };
 ```
 
-This keeps the item definition easy to read. The actual reducer still decides whether the section opens and closes.
+This excerpt assumes an app `AdvancedFilters` component and a bound toggle
+action. `AccordionItem` is data passed to `Accordion`, not a widget with a
+`Default` implementation, so an ordinary Rust struct is the appropriate form.
+The toggle reducer still decides whether this section opens or closes.
 
 ## Field table
 
@@ -39,10 +42,11 @@ Keep `content` focused on one section's job. If the body becomes a whole screen 
 
 ## Production checklist
 
-- Bind `on_toggle` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Toggle from both pointer and keyboard input and check the reported expanded
+  state.
+- Give data-driven sections durable identities so a reordered section keeps
+  its own open state.
+- Verify focus when a section containing the focused control collapses.
 
 ## Related
 

@@ -46,6 +46,10 @@ On the same release harness, the final fork measured:
 
 The reduction is large enough to justify carrying the fork while Vello's upstream memory strategy continues to evolve.
 
+These figures describe that release's macOS/Metal harness and measured
+workloads. They are not a current cross-platform memory budget or a guarantee
+for a different app; retain the workload and renderer when making a comparison.
+
 ## Why not upstream this exact patch?
 
 We looked at the related upstream discussions and work:
@@ -94,7 +98,7 @@ fission = { version = "0.5.1", default-features = false, features = ["android"] 
 
 ## Verification
 
-Before publishing, we checked native, Wasm, and Android targets; ran renderer-diagnostics tests; validated Cacydil's Android dependency graph; and checked the new fork packages.
+Before publishing, we checked native, Wasm, and Android targets; ran renderer-diagnostics tests; validated a downstream application's Android dependency graph; and checked the new fork packages.
 
 The key dependency checks now resolve:
 

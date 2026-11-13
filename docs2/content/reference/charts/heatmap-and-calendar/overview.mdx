@@ -6,7 +6,7 @@ description: Fission Charts reference for the Heatmap and calendar family.
 
 # Heatmap and calendar
 
-This family has 12 chart variants. Pick one that matches your data. Each page has a screenshot, data shape, API notes, and code you can adapt.
+Heatmaps place a measure at the intersection of two categories. Calendar heatmaps place it on a date. Both use colour to expose patterns, but the placement answers a different question: a matrix compares combinations, whilst a calendar preserves the order and gaps between days.
 
 Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
 
@@ -31,7 +31,7 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 
 ## Choosing within this family
 
-First decide what the user needs to compare or understand. Pick the simplest chart that shows it; add interaction only when it helps, and use animation only when it explains a change.
+Start with the question the user is trying to answer. For load by shift and weekday, use a matrix. For days with failed builds, use a calendar. In either case, choose a numeric range deliberately; independently rescaling two charts can make different workloads look equivalent. Provide exact values in text or a table when those values drive a decision.
 
 ## Authoring from a Fission component
 
@@ -39,22 +39,33 @@ Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or re
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
 
-
-
-fission_component!
-{
+// The parent resolves display labels from its translation bundles.
+fission_component! {
     pub HeatmapAndCalendarChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            column_labels: Vec<String>,
+            row_labels: Vec<String>,
+            queued_jobs: Vec<(usize, usize, f32)>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Heatmap and calendar")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
+    view(chart, _state, _cx) =>
+        Chart(
+            title: Some(chart.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                chart.column_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::category(
+                chart.row_labels.iter().map(String::as_str).collect(),
+            )),
+            visual_map: Some(VisualMap::new().min(0.0).max(10.0)),
+            series: vec![HeatmapSeries::new(&chart.series_label)
+                .data(chart.queued_jobs.clone())
+                .into()],
+        )
 }
 ```
 Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.

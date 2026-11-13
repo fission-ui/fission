@@ -45,7 +45,7 @@ scheme = "FileProvider"
 bundle = "FileProvider.appex"
 kind = "app-extension"
 entitlements = "platforms/macos/native/FileProvider/FileProvider.entitlements"
-provisioning_profile = "profiles/macos/FileProvider.provisionprofile"
+provisioning_profile = "/path/to/private/FileProvider.provisionprofile"
 signing_identity = "Developer ID Application: Acme Software Ltd (ABCDE12345)"
 ```
 
@@ -63,7 +63,11 @@ Important details:
 
 ## project.yml example
 
-This is a realistic app-extension project. Adjust framework dependencies, bundle ids, deployment target, and sources to match the native API you are using.
+This is the project configuration for an app extension whose source and tests
+already exist. XcodeGen generates a project; it does not implement the
+FileProvider extension. Adjust framework dependencies, bundle ids, deployment
+target, and source paths to match the native API, and replace the profile path
+above with a private input outside the public checkout.
 
 ```yaml
 name: SecurityExtensions

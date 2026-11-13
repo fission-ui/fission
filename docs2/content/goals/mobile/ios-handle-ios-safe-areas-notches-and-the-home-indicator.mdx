@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Handle iOS safe areas, notches and the home indicator
-description: "Handle iOS safe areas, notches and the home indicator using Fission."
-goal: Compose content around device insets without hard-coded device-specific padding.
+description: "Build a delivery handover form around real host insets, keeping long input reachable inside a scrolling region."
+goal: "Place the handover content inside SafeArea without inventing padding for named iPhone models."
 path: /blog/handle-ios-safe-areas-notches-and-the-home-indicator/
 order: 78
 difficulty: Beginner
@@ -10,124 +10,173 @@ duration: 35 minutes
 run_command: "fission run --target ios --project-dir ."
 app: ios-handle-ios-safe-areas-notches-and-the-home-indicator
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the iOS workflow and follow physical-device checks when the task requires them
+  - Put the background outside the safe area and scrollable content inside it
+  - Prepare a snapshot from actual recipient and instruction input
+  - Check physical insets and keyboard behaviour as separate concerns
 ---
 
-## Create the project and add the target
+A screen can fit within its window and still place a button beneath the home indicator. The window's bounds describe the available surface; its safe-area insets describe the part of that surface the host asks ordinary content to avoid. These are different inputs, so a fixed bottom padding is not a substitute for the inset.
 
-Create a shared Rust app and add the iOS target. Fission generates the native host; keep the app behaviour in Rust.
+We will build a delivery handover form with a long note and a final review action. This gives us something useful to inspect: the heading must clear the status area, the note must remain editable and the last action must remain reachable as the available space changes.
+
+## Create the shared app
+
+Follow [iOS setup](/blog/set-up-rust-ios-development-with-fission/) if Xcode and the Rust targets are not installed.
 
 ```sh
 cargo install cargo-fission
 fission init ios-handle-ios-safe-areas-notches-and-the-home-indicator
 cd ios-handle-ios-safe-areas-notches-and-the-home-indicator
 fission add-target ios --project-dir .
+cargo add serde_yaml
 ```
 
-## Files created by Fission
-
-Fission creates this starter tree. Shared Rust code stays in `src/`; the generated host under `platforms/ios/` handles iOS launch and packaging.
-
-```text
-ios-handle-ios-safe-areas-notches-and-the-home-indicator/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
-├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
-└── platforms/
-    └── ios/                  # generated iOS host
-```
-
-Keep app behaviour in shared Rust. Add a feature module only when it creates a useful boundary, and keep iOS APIs behind the generated host.
+Keep the generated `src/main.rs`. Replace the shared library with the files below so that the native app runs the same form as the Web preview.
 
 <!-- fission:step id="start-screen" -->
-## Create the app screen
+## Put the safe boundary outside the scrollable content
+
+The nesting is deliberate. The background belongs to the outer container, whilst `SafeArea` insets the scrollable content. Ordinary spacing comes from theme tokens inside that boundary. It therefore remains useful spacing on every device rather than being an accidental correction for one iPhone.
+
+The form's draft is local UI memory. Preparing a handover copies a snapshot into application state; it does not claim to send a delivery request or persist it. Keeping those meanings separate makes the visible result match what the code actually does.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+pub mod screen;
+pub mod state;
+pub use screen::HandoverScreen;
+pub use state::HandoverState;
+```
+</TabItem>
+
+<TabItem label="src/app/state.rs">
+<!-- fission:file path="src/app/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Handover {
+    pub recipient: String,
+    pub instructions: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HandoverState {
+    pub prepared: Option<Handover>,
+    pub locale: Locale,
+}
+
+impl Default for HandoverState {
+    fn default() -> Self {
+        Self {
+            prepared: None,
+            locale: Locale::from("en-US"),
+        }
+    }
+}
+
+impl GlobalState for HandoverState {}
+```
+</TabItem>
+
+<TabItem label="src/app/screen.rs">
+<!-- fission:file path="src/app/screen.rs" -->
+```rust
+use super::state::{Handover, HandoverState};
 use fission::prelude::*;
 
 fission_component! {
-    pub CompressorVisitSafeScreen<()> {
+    pub HandoverScreen<HandoverState> {
         state {
-            inspection_started: bool = false,
+            recipient: String = String::new(),
+            instructions: String = String::new(),
         }
     }
-    view(screen, _state, cx) {
+    view(form, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let status = if screen.inspection_started {
-            cx.tr("safe_area.status.started")
-        } else {
-            cx.tr("safe_area.status.ready")
-        };
-    } =>
-    SafeArea(
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(cx.tr("safe_area.title"))
-                    .weight(tokens.typography.font_weight_bold),
-                Text(cx.tr("safe_area.subtitle"))
-                    .color(tokens.colors.text_secondary),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text(cx.tr("safe_area.work_order"))
-                            .weight(tokens.typography.font_weight_semibold),
-                        Text(cx.tr("safe_area.asset")),
-                        Text(cx.tr("safe_area.location"))
-                            .color(tokens.colors.text_secondary),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-                Text(status)
-                    .color(tokens.colors.text_secondary),
-                Button(
-                    child: Text(if screen.inspection_started {
-                        cx.tr("safe_area.action.started")
-                    } else {
-                        cx.tr("safe_area.action.start")
-                    }),
-                    key: "start-inspection",
-                    disabled: screen.inspection_started,
-                    on_press: reduce { screen.inspection_started = true; },
-                ),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+    } => Container(
+        SafeArea(
+            child: Scroll(
+                child: Container(Column(gap: tokens.spacing.m, children: [
+                    Text(cx.tr("handover.title")).size(tokens.typography.heading2_size),
+                    Text(cx.tr("handover.explanation")).color(tokens.colors.text_secondary),
+                    Row(gap: tokens.spacing.s, children: [
+                        Button(
+                            child: Text(cx.tr("language.english")), key: "english",
+                            on_press: reduce { state.locale = Locale::from("en-US"); },
+                        ),
+                        Button(
+                            child: Text(cx.tr("language.spanish")), key: "spanish",
+                            on_press: reduce { state.locale = Locale::from("es-ES"); },
+                        ),
+                    ]),
+                    FormControl(
+                        label: Some(cx.tr("handover.recipient")),
+                        required: true,
+                        child: TextInput(
+                            value: form.recipient.clone(),
+                            bind(on_input): to(form.recipient),
+                            keyboard_type: TextInputType::Name,
+                            semantics_identifier: Some("handover.recipient".into()),
+                        ),
+                    ),
+                    Text(cx.tr("handover.guidance")),
+                    TextInput(
+                        value: form.instructions.clone(),
+                        bind(on_input): to(form.instructions),
+                        label: Some(TextContent::Key("handover.instructions".into())),
+                        multiline: true,
+                        keyboard_type: TextInputType::Multiline,
+                        text_input_action: TextInputAction::Newline,
+                        semantics_identifier: Some("handover.instructions".into()),
+                    ),
+                    Text(cx.tr("handover.review_hint")).color(tokens.colors.text_secondary),
+                    Button(
+                        child: Text(cx.tr("handover.prepare")), key: "prepare-handover",
+                        disabled: form.recipient.trim().is_empty() || form.instructions.trim().is_empty(),
+                        on_press: reduce {
+                            state.prepared = Some(Handover {
+                                recipient: form.recipient.trim().to_owned(),
+                                instructions: form.instructions.trim().to_owned(),
+                            });
+                        },
+                    ),
+                    if let Some(handover) = &state.prepared {
+                        Column(gap: tokens.spacing.s, children: [
+                            Text(cx.tr("handover.prepared")).weight(tokens.typography.font_weight_semibold),
+                            Text(handover.recipient.clone()),
+                            Text(handover.instructions.clone()),
+                            Text(cx.tr("handover.session_only")).color(tokens.colors.text_secondary),
+                        ])
+                    },
+                ]))
+                .padding_all(tokens.spacing.l),
+            ),
+        ),
     )
+    .bg(tokens.colors.surface)
 }
 ```
 </TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
 
+<TabItem label="src/i18n.rs">
+<!-- fission:file path="src/i18n.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
 use std::collections::HashMap;
 
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-fn preview_env() -> Env {
+pub fn create_env() -> Env {
     let mut env = Env::default();
     env.locale = Locale::from("en-US");
     for (locale, source) in [
-        ("en-US", include_str!("i18n/en-US.yaml")),
-        ("es-ES", include_str!("i18n/es-ES.yaml")),
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
     ] {
         let messages: HashMap<String, String> =
-            serde_yaml::from_str(source).expect("valid embedded tutorial translations");
+            serde_yaml::from_str(source).expect("valid handover translations");
         env.i18n.add_bundle(TranslationBundle {
             locale: Locale::from(locale),
             messages,
@@ -136,222 +185,139 @@ fn preview_env() -> Env {
     env
 }
 
+pub fn sync_env(state: &crate::app::HandoverState, env: &mut Env) {
+    env.locale = state.locale.clone();
+}
+```
+</TabItem>
+
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod i18n;
+
+use app::{HandoverScreen, HandoverState};
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<HandoverState, _>::new(HandoverScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    MobileApp::<HandoverState, _>::new(HandoverScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = MobileApp::<HandoverState, _>::new(HandoverScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<HandoverState, _>::new(HandoverScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod i18n;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::CompressorVisitSafeScreen)
-        .with_env(preview_env())
-        .with_title("ios handle ios safe areas notches and the home indicator")
+    WebApp::<app::HandoverState, _>::new(app::HandoverScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
+
 <TabItem label="i18n/en-US.yaml">
-<!-- fission:file path="src/i18n/en-US.yaml" -->
+<!-- fission:file path="i18n/en-US.yaml" -->
 ```yaml
-safe_area.screen.label: "Northbank compressor inspection"
-safe_area.title: "Work order WO-1048"
-safe_area.subtitle: "The inspection details and main action stay inside the safe content area."
-safe_area.work_order: "Cold-room compressor"
-safe_area.asset: "Asset CMP-7A-2219 · inspect the temperature sensor"
-safe_area.location: "Northbank Food Hub · Service bay 2"
-safe_area.status.ready: "Ready for this visit"
-safe_area.status.started: "Inspection in progress"
-safe_area.action.start: "Start inspection"
-safe_area.action.started: "Inspection started"
+handover.title: "Prepare a delivery handover"
+handover.explanation: "Keep the recipient, delivery instructions and final action reachable on the device you are using."
+handover.recipient: "Who will receive the delivery?"
+handover.guidance: "Include the entrance, access arrangements and where the parcel can safely be left. Avoid including access codes in a shared note."
+handover.instructions: "Delivery instructions"
+handover.review_hint: "Review the instructions before preparing the handover. Long notes remain part of the scrollable page."
+handover.prepare: "Prepare handover"
+handover.prepared: "Prepared handover"
+handover.session_only: "Prepared for this session; nothing has been sent or saved to disk."
+language.english: "English"
+language.spanish: "Español"
 ```
 </TabItem>
+
 <TabItem label="i18n/es-ES.yaml">
-<!-- fission:file path="src/i18n/es-ES.yaml" -->
+<!-- fission:file path="i18n/es-ES.yaml" -->
 ```yaml
-safe_area.screen.label: "Inspección del compresor de Northbank"
-safe_area.title: "Orden de trabajo WO-1048"
-safe_area.subtitle: "Los detalles de la inspección y la acción principal quedan dentro del área segura."
-safe_area.work_order: "Compresor de cámara fría"
-safe_area.asset: "Activo CMP-7A-2219 · revisa el sensor de temperatura"
-safe_area.location: "Centro de alimentos Northbank · Área de servicio 2"
-safe_area.status.ready: "Visita lista para comenzar"
-safe_area.status.started: "Inspección en curso"
-safe_area.action.start: "Iniciar inspección"
-safe_area.action.started: "Inspección iniciada"
+handover.title: "Preparar una entrega"
+handover.explanation: "Mantén accesibles el destinatario, las instrucciones y la acción final en el dispositivo que estés usando."
+handover.recipient: "¿Quién recibirá la entrega?"
+handover.guidance: "Incluye la entrada, las condiciones de acceso y dónde se puede dejar el paquete de forma segura. Evita incluir códigos de acceso en una nota compartida."
+handover.instructions: "Instrucciones de entrega"
+handover.review_hint: "Revisa las instrucciones antes de preparar la entrega. Las notas largas siguen formando parte de la página desplazable."
+handover.prepare: "Preparar entrega"
+handover.prepared: "Entrega preparada"
+handover.session_only: "Preparada para esta sesión; no se ha enviado ni guardado nada en disco."
+language.english: "Inglés"
+language.spanish: "Español"
 ```
 </TabItem>
 </Tabs>
+
 <!-- fission:preview -->
+<!-- fission:checkpoint -->
+Enter a recipient and a multi-line note. Prepare the handover, then change the draft. The prepared snapshot should remain unchanged until you prepare it again. Switch language and reduce the preview width; the final action must remain reachable by scrolling.
+<!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Compose content around device insets without hard-coded device-specific padding
+## Understand what SafeArea can and cannot infer
 
-Use Fission's SafeArea layout behaviour to keep content clear of the status bar, notch, home indicator and system gestures. Do not bake one iPhone's inset into a fixed padding value; the same screen must adapt to iPad and rotated layouts. Keep scrollable content inside the safe region while allowing an intentional background to extend behind it. Test the smallest supported iPhone, a notched device, landscape and an iPad simulator; then check that the final action remains reachable when the keyboard is open.
+Fission's `SafeArea` reads `Env.window_insets` and lowers a padded layout box. It does not identify an iPhone model, guess the notch's height or add a second copy of the inset to every child. Wrapping this form once is sufficient; repeatedly wrapping descendants can apply the same host input more than once.
 
-The component below is a browser-safe version of this screen. It uses Fission's retained component state and widgets to make the task visible; it does not call a native provider or operating-system API.
+There are two consequences worth making explicit. Firstly, a browser preview whose host reports zero insets cannot demonstrate clearance around an iPhone's physical cutout. Secondly, the keyboard is not merely another name for a notch. `SafeArea` alone does not establish keyboard avoidance or that a focused field will be scrolled into view. The scrollable form provides a way to reach content, but the actual keyboard behavior still needs target testing.
 
-<!-- fission:file path="src/app.rs" -->
-```rust
-use fission::prelude::*;
-
-fission_component! {
-    pub CompressorVisitSafeScreen<()> {
-        state {
-            inspection_started: bool = false,
-        }
-    }
-    view(screen, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let status = if screen.inspection_started {
-            cx.tr("safe_area.status.started")
-        } else {
-            cx.tr("safe_area.status.ready")
-        };
-    } =>
-    SafeArea(
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(cx.tr("safe_area.title"))
-                    .weight(tokens.typography.font_weight_bold),
-                Text(cx.tr("safe_area.subtitle"))
-                    .color(tokens.colors.text_secondary),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text(cx.tr("safe_area.work_order"))
-                            .weight(tokens.typography.font_weight_semibold),
-                        Text(cx.tr("safe_area.asset")),
-                        Text(cx.tr("safe_area.location"))
-                            .color(tokens.colors.text_secondary),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-                Text(status)
-                    .color(tokens.colors.text_secondary),
-                Button(
-                    child: Text(if screen.inspection_started {
-                        cx.tr("safe_area.action.started")
-                    } else {
-                        cx.tr("safe_area.action.start")
-                    }),
-                    key: "start-inspection",
-                    disabled: screen.inspection_started,
-                    on_press: reduce { screen.inspection_started = true; },
-                ),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
-}
-```
+Do not add a hard-coded "keyboard height" when a check fails. Establish which window metrics the host reports and whether the control is obscured, unreachable or merely outside the current scroll position. Those failures have different causes. See [keyboard-aware forms](/blog/build-ios-forms-that-work-with-the-keyboard/) for focus and text-editing behavior.
 
 <!-- fission:preview -->
-
-
-<Tabs>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-
-use std::collections::HashMap;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-fn preview_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    for (locale, source) in [
-        ("en-US", include_str!("i18n/en-US.yaml")),
-        ("es-ES", include_str!("i18n/es-ES.yaml")),
-    ] {
-        let messages: HashMap<String, String> =
-            serde_yaml::from_str(source).expect("valid embedded tutorial translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(locale),
-            messages,
-        });
-    }
-    env
-}
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::CompressorVisitSafeScreen)
-        .with_env(preview_env())
-        .with_title("Northbank compressor inspection")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-<TabItem label="i18n/en-US.yaml">
-<!-- fission:file path="src/i18n/en-US.yaml" -->
-```yaml
-safe_area.screen.label: "Northbank compressor inspection"
-safe_area.title: "Work order WO-1048"
-safe_area.subtitle: "The inspection details and main action stay inside the safe content area."
-safe_area.work_order: "Cold-room compressor"
-safe_area.asset: "Asset CMP-7A-2219 · inspect the temperature sensor"
-safe_area.location: "Northbank Food Hub · Service bay 2"
-safe_area.status.ready: "Ready for this visit"
-safe_area.status.started: "Inspection in progress"
-safe_area.action.start: "Start inspection"
-safe_area.action.started: "Inspection started"
-```
-</TabItem>
-<TabItem label="i18n/es-ES.yaml">
-<!-- fission:file path="src/i18n/es-ES.yaml" -->
-```yaml
-safe_area.screen.label: "Inspección del compresor de Northbank"
-safe_area.title: "Orden de trabajo WO-1048"
-safe_area.subtitle: "Los detalles de la inspección y la acción principal quedan dentro del área segura."
-safe_area.work_order: "Compresor de cámara fría"
-safe_area.asset: "Activo CMP-7A-2219 · revisa el sensor de temperatura"
-safe_area.location: "Centro de alimentos Northbank · Área de servicio 2"
-safe_area.status.ready: "Visita lista para comenzar"
-safe_area.status.started: "Inspección en curso"
-safe_area.action.start: "Iniciar inspección"
-safe_area.action.started: "Inspección iniciada"
-```
-</TabItem>
-</Tabs>
-
 <!-- fission:checkpoint -->
-The compiled preview changes browser-local state only; it does not perform this task on the iOS Simulator or an iPhone, inspect your toolchain or access native hardware. Use the commands below to verify the generated project on the target.
+Use enough text to make the page scroll. Verify the first field, the final action and the prepared result rather than checking only the heading. Resizing the browser checks reflow and scroll reachability, not native inset delivery.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Check the layout and system settings on iOS
-
-Run the same screen at a narrow phone width and a wider window. Resize or rotate while it is open, then change the system text size and appearance where this tutorial covers them. Content should reflow without clipping essential controls or status messages.
-
-Use real platform insets for safe-area checks and let Fission’s responsive layout choose the arrangement. Avoid fixing a problem with device-specific padding that breaks the other sizes.
-
-### Run, test and build
-
-```sh
-cargo test
-fission doctor ios --project-dir .
-fission run --target ios --project-dir .
-fission test --target ios --project-dir .
-fission build --target ios --project-dir . --release
-```
-
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Xcode, simulator SDK or Rust targets, `fission run` launches an iOS Simulator, and `fission test` checks that the generated host can start. A release build checks the simulator package; it does not verify iPhone signing or physical-device behavior.
-
-
-### Simulator and device commands
-
-Fission’s run command discovers iOS simulators. Run these checks from the generated project root:
+## Check the device boundary rather than a screenshot of it
 
 ```sh
 fission doctor ios --project-dir .
@@ -360,13 +326,9 @@ fission run --target ios --project-dir .
 fission test --target ios --project-dir .
 ```
 
+Use [the simulator guide](/blog/choose-boot-and-launch-an-ios-simulator-with-fission/) to select a notched iPhone, then repeat on an iPad and in landscape. Check both languages with the keyboard open and closed. Scroll to the final action and make sure it can be pressed without a system gesture taking precedence.
 
-### Current references
+The generated launch test establishes that the host starts, not that these controls clear every inset. A physical-device pass remains useful because the status region, home indicator and system gestures are part of the behavior being checked. Record the device, orientation and text-size setting alongside the result.
 
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
-- [Responsive](/docs/guides/theming-and-i18n/)
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
+The example keeps handovers in memory. Reloading clears them; that is independent of safe-area layout and should not be mistaken for a persistence failure.
 <!-- /fission:step -->

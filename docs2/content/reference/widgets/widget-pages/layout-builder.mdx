@@ -14,32 +14,27 @@ It gives your closure the current `BoxConstraints` so the output can change with
 ```rust
 use fission::prelude::*;
 
-let responsive = LayoutBuilder::<MyState>::new(|_ctx, _view, constraints| {
-    if constraints.max_w > 720.0 {
-        Row {
-            gap: Some(24.0),
-            children: widgets![
-                Text::new("Sidebar"),
-                Text::new("Main content"),
-            ],
-            ..Default::default()
-        }
-        .into()
+// These are the application's named Compose components, not framework widgets.
+// Each conversion constructs its own independent tree.
+let workspace = LayoutBuilder::<WorkspaceState>::new(|_ctx, _view, constraints| {
+    if constraints.max_w >= WORKSPACE_SPLIT_MIN_WIDTH {
+        WideWorkspace.into()
     } else {
-        Column {
-            gap: Some(16.0),
-            children: widgets![
-                Text::new("Main content"),
-                Text::new("Sidebar"),
-            ],
-            ..Default::default()
-        }
-        .into()
+        CompactWorkspace.into()
     }
 })
-.id(WidgetId::explicit("responsive-shell"))
+.id(WidgetId::explicit("workspace.constraints"))
 .flex_grow(1.0);
+
+// Use workspace as an ordinary Rust expression in the parent Compose view.
 ```
+
+This is a parent-view configuration excerpt: `WorkspaceState`,
+`WideWorkspace`, `CompactWorkspace`, and the named minimum-width constant
+belong to that application. The branches are unit Compose components; use fully
+specified props when the corresponding components require inputs. Prefer
+`Responsive` for ordinary viewport/capability cases; use `LayoutBuilder` when
+this region must branch on the actual parent constraints.
 
 ## Field table
 

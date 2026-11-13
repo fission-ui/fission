@@ -1,95 +1,56 @@
 ---
 title: Ranked dataset bars
 sidebar_label: Ranked dataset bars
-description: Fission Charts reference for Ranked dataset bars.
+description: Sort one typed dataset before encoding backlog bars.
 ---
 
 # Ranked dataset bars
 
 ![Ranked dataset bars screenshot](/img/charts/dataset-ranked-bars.png)
 
-This example uses Fission Charts' typed Rust API. Use it when rank comes from data transformation. The screenshot is from Fission's chart gallery.
+Ranking is a transformation of the report, not a property that a bar chart discovers. A dispatch team, for example, needs locations ordered by outstanding orders. Sorting only the values would detach each total from its location.
 
-## What the chart is for
-
-This chart is in the **Dataset** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Rows sorted into category/value pairs`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, BarSeries, Chart};
-
-let chart = Chart::new()
-    .title("Orders")
-    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-    .y_axis(Axis::value())
-    .series(vec![BarSeries::new("Orders")
-        .data(vec![120.0, 156.0, 184.0, 212.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+The [ranked location example](../bar/bar-ranked) defines `LocationBacklog`. Put that type in `widgets/location_ranking.rs`, then use it here:
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, BarSeries, Chart};
+use fission::charts::{Axis, BarSeries, Chart, DataValue, Dataset, Encode, Series};
+use crate::widgets::location_ranking::LocationBacklog;
 
-
-
-fission_component!
-{
-    pub RankedDatasetBarsChart<()> {
+fission_component! {
+    pub EncodedLocationRanking<()> {
+        props {
+            title: String,
+            orders_label: String,
+            rows: Vec<LocationBacklog>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Orders")
-                    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-                    .y_axis(Axis::value())
-                    .series(vec![BarSeries::new("Orders")
-                        .data(vec![120.0, 156.0, 184.0, 212.0])
-                        .into()])
-                    .into()
-    }
+    view(report, _state, _cx) {
+        let mut ranked = report.rows.clone();
+        ranked.sort_by(|a, b| b.outstanding_orders.total_cmp(&a.outstanding_orders)
+            .then_with(|| a.id.cmp(&b.id)));
+        let dataset = Dataset::new()
+            .dimensions(vec!["location".into(), "outstanding".into()])
+            .source(ranked.iter().map(|row| vec![
+                DataValue::from(row.label.clone()),
+                DataValue::from(row.outstanding_orders),
+            ]).collect());
+    } => Chart(
+        title: Some(report.title.clone()),
+        dataset: Some(dataset),
+        x_axis: Some(Axis::value().min(0.0)),
+        y_axis: Some(Axis::category(
+            ranked.iter().map(|row| row.label.as_str()).collect()
+        )),
+        series: vec![Series::Bar(BarSeries::new(&report.orders_label)
+            .horizontal()
+            .encode(Encode::new().x("location").y("outstanding")))],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Validate that totals are finite and non-negative before they reach this component. The durable ID breaks ties consistently whilst the translated label remains what the user sees. Encoding still names the category column as `x` and the measure as `y`; horizontal orientation changes the displayed axes. Supply the sorted Y-axis labels explicitly because the current horizontal-axis resolver does not recover those labels from the dataset.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
-
-Tags: `dataset`, `rank`.
+Test that sorting preserves each ID/label/value association, especially ties and an empty report. If selecting a bar opens a location, resolve its index against this ranked snapshot, not the unsorted source. The gallery screenshot uses separate data.
 
 [Dataset family overview](./overview)

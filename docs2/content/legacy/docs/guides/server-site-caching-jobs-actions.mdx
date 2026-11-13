@@ -75,7 +75,7 @@ Enable Redis through the facade feature in the server app's `Cargo.toml`:
 
 ```toml
 [dependencies]
-fission = { version = "0.15.1", features = ["server", "server-redis"] }
+fission = { version = "0.16.0", features = ["server", "server-redis"] }
 ```
 
 ## Invalidate cached pages after writes
@@ -157,22 +157,33 @@ ServerJobRegistry::new().register_job(CATALOG_JOB, |_request, _ctx| {
 })
 ```
 
-A widget requests the job during rendering:
+A widget declares the job resource during build. It does not execute the job
+inside component conversion:
 
 ```rust
-let catalog = FutureBuilder::new(
-    ResourceKey::new("pokemon-card-store.catalog"),
-    CATALOG_JOB,
-    CatalogRequest { generation: 1 },
-    view.state().catalog.clone(),
-    CardGrid {
-        snapshot: view.state().catalog.clone(),
-    },
-)
-.on_ok(with_reducer!(ctx, CatalogLoaded, on_catalog_loaded))
-.on_err(with_reducer!(ctx, CatalogFailed, on_catalog_failed))
-.into();
+// Inside the catalog component's view setup block.
+let loaded = cx.bind(CatalogLoaded, reduce!(on_catalog_loaded));
+let failed = cx.bind(CatalogFailed, reduce!(on_catalog_failed));
+cx.with_resources(|resources| {
+    resources.job(
+        JobResource::new(
+            ResourceKey::new("store.catalog"),
+            CATALOG_JOB,
+            CatalogRequest { generation: 1 },
+        )
+        .on_ok(loaded)
+        .on_err(failed),
+    );
+});
 ```
+
+`CATALOG_JOB`, its request and completion reducers are app-owned. The
+reducers replace the catalog snapshot from `cx.input.job_ok(CATALOG_JOB)` or
+`job_err(CATALOG_JOB)`; the view renders pending, data, empty, and error states
+from that snapshot. See the [catalog recipe](/docs/cookbook/build-pokemon-card-store/)
+for the typed job and Compose boundary. `FutureBuilder` can express the same
+resource, but its final constructor argument must be an async-widget builder
+callback, not an already-built widget.
 
 During rendering, Fission drains blocking jobs, dispatches the configured success or error reducer, and renders again until the page settles or reaches `render_pass_limit`. A missing job fails the render instead of producing an empty page.
 
@@ -188,16 +199,35 @@ The flow is:
 4. run the reducer on the server;
 5. return either a post/redirect/get response for normal forms or an HTML response for explicit JSON/fetch enhancement.
 
-A typical reducer remains ordinary Fission code:
+A cart mutation also needs outside work. Keep the reducer synchronous and
+send owned request data to the app's typed cart job:
 
 ```rust
 #[fission_reducer(AddToCart)]
-pub fn on_add_to_cart(state: &mut StoreState, slug: String) {
-    if data::card_by_slug(&slug).is_some() {
-        state.cart_items = cart_service().add_item(&state.session_id, &slug).items;
-    }
+pub fn on_add_to_cart(
+    state: &mut StoreState,
+    slug: String,
+    ctx: &mut ReducerContext<StoreState>,
+) {
+    if state.updating_cart { return; }
+    let updated = ctx.effects.bind(CartUpdated, reduce!(cart_updated));
+    let failed = ctx.effects.bind(CartFailed, reduce!(cart_failed));
+    state.updating_cart = true;
+    state.cart_error = None;
+    ctx.effects.job(ADD_CART_ITEM, AddCartItemRequest {
+        session_id: state.session_id.clone(),
+        slug,
+    }).on_ok(updated).on_err(failed);
 }
 ```
+
+This is an orchestration excerpt, not a complete cart. The application defines
+`ADD_CART_ITEM`, its request, both completion reducers, and the state fields
+shown here. The job authenticates the session, authorises the mutation, checks
+current product/stock rules, and returns the authoritative cart. Both
+completions clear `updating_cart`; only success replaces the cart. Do not hide
+a blocking database or network call inside `cart_service().add_item(...)`
+in a reducer and call that an effect.
 
 Don’t expose arbitrary Rust functions as HTTP actions. Keep actions narrow and typed: the action describes what happened, and the reducer updates state or requests follow-up work through a job or service.
 

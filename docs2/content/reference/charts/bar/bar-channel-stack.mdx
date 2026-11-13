@@ -1,94 +1,71 @@
 ---
 title: Channel stack
 sidebar_label: Channel stack
-description: Fission Charts reference for Channel stack.
+description: Show total volume and the contribution of each acquisition channel.
 ---
 
 # Channel stack
 
 ![Channel stack screenshot](/img/charts/bar-channel-stack.png)
 
-This example uses Fission Charts' typed Rust API. Use it when total and contribution both matter. The screenshot is from Fission's chart gallery.
+A total can hide a change in where work comes from. Two months with the same number of orders may have quite different contributions from direct and partner channels. Stacking those contributions makes the total and its composition visible together.
 
-## What the chart is for
+That only works when the channels partition the same measure. If an order is counted in both channels, the top of the stack overstates total orders.
 
-This chart is in the **Bar** family. Use it when a visual makes the pattern easier to spot.
+## Compose example
 
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Multiple series stacked per category`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, BarSeries, Chart};
-
-let chart = Chart::new()
-    .title("Orders")
-    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-    .y_axis(Axis::value())
-    .series(vec![BarSeries::new("Orders")
-        .data(vec![120.0, 156.0, 184.0, 212.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Keep both channel counts with their period so that sorting or filtering cannot separate values from their labels. The application should supply validated, non-negative display values for the same reporting window.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, BarSeries, Chart};
+use fission::charts::{Axis, BarSeries, Chart, Legend, Series};
 
+#[derive(Clone)]
+pub struct ChannelPeriod {
+    pub period: String,
+    pub direct: f32,
+    pub partner: f32,
+}
 
-
-fission_component!
-{
-    pub ChannelStackChart<()> {
+fission_component! {
+    pub OrderChannelsChart<()> {
+        props {
+            title: String,
+            direct_label: String,
+            partner_label: String,
+            rows: Vec<ChannelPeriod>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Orders")
-                    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-                    .y_axis(Axis::value())
-                    .series(vec![BarSeries::new("Orders")
-                        .data(vec![120.0, 156.0, 184.0, 212.0])
-                        .into()])
-                    .into()
-    }
+    view(channels, _state, _cx) {
+        let labels = channels.rows.iter().map(|row| row.period.as_str()).collect();
+        let direct = channels.rows.iter().map(|row| row.direct).collect();
+        let partner = channels.rows.iter().map(|row| row.partner).collect();
+    } => Chart(
+        title: Some(channels.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Bar(BarSeries::new(&channels.direct_label)
+                .stack("order-channels").data(direct)),
+            Series::Bar(BarSeries::new(&channels.partner_label)
+                .stack("order-channels").data(partner)),
+        ],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Enable the `charts` feature. The matching `stack(&str)` values make the two `BarSeries` add within each category. The key is internal; user-visible series names and period labels come from the parent and can be translated.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## What this comparison does not show well
+
+The bottom segment has a shared baseline, whilst the partner segment starts at a different height in each period. If the task is to compare partner volume precisely, use grouped bars or a separate series view. Do not make the reader infer a small segment's change from a large total.
+
+Provide the source counts and totals in an accessible table. Series colours help separate segments, but the legend and text must preserve their identity without colour.
+
+## Checks
+
+Test that each stack total agrees with the independently calculated order total, and that channel assignment does not double-count orders. Inspect the rendered chart with long period labels and the expected number of channels. The gallery screenshot uses fixture data, not the component's props.
 
 Tags: `bar`, `stack`.
 

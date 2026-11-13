@@ -17,22 +17,28 @@ timing state.
 ## Example
 
 ```rust
-use fission::WidgetId;
 use fission::prelude::*;
+use fission::widgets::Tooltip;
 
-let help = Tooltip {
-    id: WidgetId::explicit("save_tooltip"),
-    child: Button {
-        child: Some(Text::new("Save").into()),
-        on_press: Some(save_changes),
-        ..Default::default()
+fission_component! {
+    pub SaveDraftButton<()> {
+        props { save: ActionEnvelope }
     }
-    .into(),
-    text: "Save your draft without publishing".into(),
-    is_visible: false,
+
+    view(draft, _state, cx) =>
+        Tooltip(
+            id: WidgetId::explicit("document.save-hint"),
+            child: Button(
+                child: Text(cx.tr("document.save")),
+                on_press: draft.save.clone(),
+            ),
+            text: cx.tr("document.save_without_publish"),
+        )
 }
-.into();
 ```
+
+The explicit import selects the UI tooltip. Apps with the `charts` feature also
+have a chart-tooltip configuration type; the two types serve different purposes.
 
 ## Field table
 
@@ -41,6 +47,7 @@ let help = Tooltip {
 | `id` | `WidgetId` | Stable identity for the trigger anchor and portal entry. | Required. The widget derives its hover anchor from this id. |
 | `child` | `Widget` | Trigger content rendered inline. | Required. This is the thing the tooltip is attached to. |
 | `text` | `String` | Tooltip message text. | Required. Keep it short. The current implementation caps width at `220.0` logical pixels. |
+| `motion` | `Option<TooltipMotion>` | Entry/exit presentation. | `None` follows standard widget motion. |
 | `is_visible` | `bool` | Force the tooltip visible even without hover. | Defaults to `false`. Useful for demos, audits, or non-hover-driven reveal logic. |
 
 ## Overlay behavior
@@ -55,11 +62,9 @@ Also be realistic about targets. Hover is a desktop and pointer-heavy web concep
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Verify the trigger remains understandable without the hint.
+- Test pointer placement, explicit visibility, and reduced-motion behaviour.
+- Keep essential instructions visible on touch-first layouts.
 
 ## Related
 

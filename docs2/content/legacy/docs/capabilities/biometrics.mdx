@@ -16,10 +16,10 @@ Use passkeys for account sign-in. Use biometrics when the question is local: sho
 Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
 
 ```rust
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct BiometricsState {
-    // Add these fields to your existing app state.
     export_unlocked: bool,
+    verifying: bool,
     biometric_error: Option<String>,
 }
 
@@ -54,69 +54,91 @@ The host responds after the starting reducer returns. Handle the verification re
 
 ```rust
 #[fission_reducer(UserVerified)]
-fn on_user_verified(state: &mut BiometricsState, result: BiometricAuthenticateResult) {
-    state.export_unlocked = result.verified;
-    state.biometric_error = None;
+fn on_user_verified(state: &mut BiometricsState, ctx: &mut ReducerContext<BiometricsState>) {
+    state.verifying = false;
+    match ctx.input.capability_ok(AUTHENTICATE_BIOMETRIC) {
+        Some(result) => {
+            state.export_unlocked = result.verified;
+            state.biometric_error = None;
+        }
+        None => {
+            state.export_unlocked = false;
+            state.biometric_error = Some("The host returned no verification result".into());
+        }
+    }
 }
 
 #[fission_reducer(UserVerificationFailed)]
-fn on_user_verification_failed(state: &mut BiometricsState, error: BiometricError) {
+fn on_user_verification_failed(state: &mut BiometricsState, ctx: &mut ReducerContext<BiometricsState>) {
+    state.verifying = false;
     state.export_unlocked = false;
-    state.biometric_error = Some(error.message);
+    state.biometric_error = Some(
+        ctx.input.capability_error(AUTHENTICATE_BIOMETRIC)
+            .map(|error| error.message)
+            .unwrap_or_else(|| "The host could not verify the device user".into()),
+    );
 }
 ```
 
-Keep both paths explicit. A denied permission, unavailable device, unsupported host, or cancelled prompt is not an exceptional mystery; it is normal product behavior the UI should explain.
+The callbacks are unit actions. Their payload does not contain the host result: the completion reducer reads that result from `ctx.input`. Both a missing result and an error leave the export locked. Cancellation and failed verification must not reuse an earlier successful unlock.
 
 ## 4. Request the capability from a reducer
 
 Request verification from the reducer handling the user's action. Fission queues the host request and dispatches a completion action when it finishes.
 
 ```rust
-ctx.effects
-    .biometrics()
-    .authenticate(BiometricAuthenticateRequest {
-        reason: "Confirm before exporting secrets".into(),
-        title: Some("Confirm export".into()),
-        allow_device_credential: true,
-        required_strength: BiometricStrength::Strong,
-        ..Default::default()
-    })
-    .on_ok(ctx.effects.bind(
-        UserVerified(BiometricAuthenticateResult::default()),
-        reduce_with!(on_user_verified),
-    ))
-    .on_err(ctx.effects.bind(
-        UserVerificationFailed(BiometricError::default()),
-        reduce_with!(on_user_verification_failed),
-    ));
+#[fission_reducer(ConfirmExport)]
+fn on_confirm_export(
+    state: &mut BiometricsState,
+    request: BiometricAuthenticateRequest,
+    ctx: &mut ReducerContext<BiometricsState>,
+) {
+    if state.verifying {
+        return;
+    }
+    state.verifying = true;
+    state.export_unlocked = false;
+    state.biometric_error = None;
+    let verified = ctx.effects.bind(UserVerified, reduce_with!(on_user_verified));
+    let failed = ctx.effects.bind(UserVerificationFailed, reduce_with!(on_user_verification_failed));
+    ctx.effects.biometrics().authenticate(request)
+        .on_ok(verified)
+        .on_err(failed);
+}
 ```
 
-The call records a typed host request; it does not call the OS API directly. Handle unsupported hosts and failures in the UI, including in previews and tests.
+Bind the completion actions before creating the effect builder: both operations need mutable access to `ctx.effects`. The request is an owned snapshot, while the completion reducers receive the current state when verification finishes.
 
 ## 5. Trigger the reducer from the UI
 
 Wire the user-facing control with the normal Fission action pattern. This example uses a small widget so the binding has one clear home.
 
 ```rust
-
-
-fission_component!
-{
-    pub ConfirmExportButton<BiometricsState> {
+fission_component! {
+    pub ConfirmExportButton<BiometricsState> {}
+    view(_button, state, cx) {
+        let request = BiometricAuthenticateRequest {
+            reason: cx.tr("export.verify_reason"),
+            title: Some(cx.tr("export.verify_title")),
+            allow_device_credential: true,
+            required_strength: BiometricStrength::Strong,
+            ..Default::default()
+        };
+        let run = cx.bind(ConfirmExport(request), reduce!(on_confirm_export));
     }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<BiometricsState>();
-                let run = with_reducer!(ctx, ConfirmExport, on_confirm_export);
-
-                Button::new("Confirm export")
-                    .disabled(false)
-                    .on_press(run)
-                    .into()
-    }
+    => Column(children: [
+        Button(
+            child: Text(cx.tr("export.verify")),
+            disabled: state.verifying,
+            on_press: run,
+        ),
+        if state.verifying { Spinner(motion: SpinnerMotion::Default, label: cx.tr("export.verifying")) },
+        if state.export_unlocked { Text(cx.tr("export.verified")) },
+        if let Some(error) = &state.biometric_error { Alert(title: error.clone(), kind: AlertKind::Error) },
+    ])
 }
 ```
-Rename the widget and action for your product. The widget dispatches an action, the reducer requests verification, and a completion reducer updates state.
+Add the `export.*` translation keys to the app's bundles. This widget verifies the local user; it does not export anything. The export action must check the current unlock policy again, clear it after use, and perform any server-side authorization independently.
 
 ## 6. Provide and test the host behavior
 

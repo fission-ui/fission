@@ -1,508 +1,239 @@
 ---
 title: Fission for Compose developers
-description: Translate Jetpack Compose composables, remember state, ViewModel flows, LaunchedEffect, MaterialTheme, Navigation, and tests into Fission state, reducers, jobs, routers, theme tokens, and LiveTest.
+description: Map Jetpack Compose state, composables, effects, themes, navigation and testing to Fission's Compose authoring API.
 ---
-
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
 
 # Fission for Compose developers
 
-Compose and Fission both describe UI from state and make composition central. Your instincts around unidirectional data flow and small reusable UI pieces transfer well.
+The two uses of “Compose” name different APIs. Jetpack Compose describes Android
+interfaces with Kotlin composables. Fission Compose is Rust authoring syntax
+which generates Fission components, retained state and reducer bindings. A
+similar-looking widget tree does not imply the same execution model.
 
-The main shift is that Fission reducers are the default mutation boundary. Instead of updating remembered or ViewModel-owned state from composables, widgets dispatch typed actions and reducers update app state.
-
-Each migration guide builds the same checklist, so you can compare frameworks against the same features: draft input, actions, async loading, design tokens, routing, and tests.
+The useful comparison is ownership: who holds a value, where it changes, and
+what happens when a request finishes. The excerpts below show those boundaries.
+For a complete task app rather than another partial implementation, follow
+[Build a single-page Web app in Rust](/blog/build-a-single-page-web-app-in-rust/).
 
 ## The state ownership rule
 
-Before translating syntax, decide where state belongs:
+A remembered filter belongs to one list. Task records belong to the application
+when detail screens, persistence or progress summaries need them too.
 
-- Use `#[with_local_state]` and `#[local_state]` for retained UI memory owned by one widget identity.
-- Use `GlobalState` for product truth: todos, routing, persistence, sync state, user preferences, and shared filters.
-- Use reducers for named user intent and state transitions.
-- Use jobs, services, resources, capabilities, or runtime effects for outside work.
-- Add semantic identifiers to interactive widgets and meaningful regions so tests and accessibility tools can target product meaning instead of coordinates.
+- `props { ... }` declares inputs supplied by the parent.
+- `state { ... }` declares retained interface memory for one component identity.
+- `GlobalState` holds shared product data.
+- `reduce` changes state synchronously; an `effect` requests asynchronous work.
+- Theme and locale live in `Env` rather than in each task record.
+
+The lower-level `#[with_local_state]` and `#[local_state]` attributes still
+exist. Compose generates their wiring from its `state` section.
 
 ## 1. Static UI
 
-<Tabs>
-<TabItem value="source" label="Compose">
+A Kotlin composable can receive a title directly:
 
-```kotlin title="TodoScreen.kt"
+```kotlin
 @Composable
-fun TodoScreen() {
-    val todos = listOf(
-        Todo(1, "Write release notes", false),
-        Todo(2, "Test Android package", true),
-    )
-
-    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Ship checklist", style = MaterialTheme.typography.headlineMedium)
-        todos.forEach { todo ->
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(if (todo.done) "Done" else "Open")
-                Text(todo.title)
-            }
-        }
-    }
+fun ChecklistTitle(title: String) {
+    Text(title, style = MaterialTheme.typography.headlineMedium)
 }
 ```
 
-</TabItem>
-<TabItem value="fission" label="Fission">
+The Fission counterpart declares a typed prop and reads the active typography:
 
-```rust title="src/widgets/todo_app.rs"
+```rust
 use fission::prelude::*;
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Todo {
-    pub id: u64,
-    pub title: String,
-    pub done: bool,
-}
-
-
 
 fission_component! {
-    pub TodoApp<()> {
+    pub ChecklistTitle<()> {
+        props { title: String }
     }
-    view(_app, _state, _cx) => rust {
-        let todos = vec![
-                    Todo { id: 1, title: "Write release notes".into(), done: false },
-                    Todo { id: 2, title: "Test Android package".into(), done: true },
-                ];
-
-                let rows = todos.into_iter().map(|todo| {
-                    let status = if todo.done { "Done" } else { "Open" };
-                    Row {
-                        gap: Some(12.0),
-                        children: widgets![Text::new(status), Text::new(todo.title)],
-                        ..Default::default()
-                    }
-                    .into()
-                });
-
-                Container::new(Column {
-                    gap: Some(12.0),
-                    children: std::iter::once(Text::new("Ship checklist").size(28.0).weight(800).into())
-                        .chain(rows)
-                        .collect(),
-                    ..Default::default()
-                })
-                .padding_all(24.0)
-                .into()
-    }
+    view(heading, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Text(heading.title.clone())
+        .size(tokens.typography.heading1_size)
 }
 ```
-</TabItem>
-</Tabs>
 
-The Fission side is a concrete widget value. Conversion reads inputs and returns a widget tree; it is not the place to start outside work or hide product state.
+A parent passes a translated title. The component does not create fixture
+records or start a request while describing that text.
 
 ## 2. Product state and interaction
 
-<Tabs>
-<TabItem value="source" label="Compose">
+`remember` is useful for a local interaction value. In Fission the equivalent
+lifetime is a component `state` field, but changes still use reducer dispatch:
 
-```kotlin title="TodoScreen.kt"
-@Composable
-fun TodoScreen(viewModel: TodoViewModel = viewModel()) {
-    val state by viewModel.state.collectAsState()
-
-    TodoContent(
-        state = state,
-        onDraftChanged = viewModel::setDraft,
-        onAdd = viewModel::addDraftTodo,
-        onToggle = viewModel::toggleTodo,
+```rust
+fission_component! {
+    pub TaskFilter<()> {
+        state { query: String = String::new() }
+    }
+    view(filter, _state, cx) =>
+    TextInput(
+        label: Some(cx.tr("tasks.filter").into()),
+        bind: filter.query,
+        semantics_identifier: Some("tasks.filter".into()),
     )
 }
 ```
 
-</TabItem>
-<TabItem value="fission" label="Fission">
+That demonstrates editing ownership only. A real list reads `query` to derive
+its visible rows; it does not overwrite the authoritative task collection with
+the filtered subset. If another screen must share the filter, move it to app
+state rather than keep two copies.
 
-```rust title="src/state.rs"
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TodoState {
-    pub draft: String,
-    pub todos: Vec<Todo>,
-    pub next_id: u64,
-    pub current_path: String,
-}
+For shared task data, a row receives an ID and a view snapshot, then resolves
+the current record when the event runs:
 
-impl Default for TodoState {
-    fn default() -> Self {
-        Self {
-            draft: String::new(),
-            todos: Vec::new(),
-            next_id: 1,
-            current_path: "/".into(),
+```rust
+fission_component! {
+    pub TaskRow<TaskState> {
+        props {
+            id: u64,
+            title: String,
+            done: bool,
         }
     }
-}
-
-impl GlobalState for TodoState {}
-
-#[fission_reducer(SetDraft)]
-fn set_draft(state: &mut TodoState, ctx: &mut ReducerContext<TodoState>) {
-    let Some(change) = ctx.input.text_change() else {
-        return;
-    };
-    state.draft = change.new_text.clone();
-}
-
-#[fission_reducer(AddDraftTodo)]
-fn add_draft_todo(state: &mut TodoState) {
-    let title = state.draft.trim();
-    if title.is_empty() {
-        return;
-    }
-
-    state.todos.push(Todo {
-        id: state.next_id,
-        title: title.to_string(),
-        done: false,
-    });
-    state.next_id += 1;
-    state.draft.clear();
-}
-
-#[fission_reducer(ToggleTodo)]
-fn toggle_todo(state: &mut TodoState, id: u64) {
-    if let Some(todo) = state.todos.iter_mut().find(|todo| todo.id == id) {
-        todo.done = !todo.done;
-    }
+    view(row, state, _cx) =>
+    Checkbox(
+        label: Some(row.title.clone()),
+        checked: row.done,
+        key: "toggle-task",
+        on_toggle: reduce {
+            if let Some(task) = state.tasks.iter_mut().find(|task| task.id == row.id) {
+                task.done = !task.done;
+            }
+        },
+    )
 }
 ```
 
-```rust title="src/widgets/todo_screen.rs"
-
-
-fission_component! {
-    pub TodoScreen<TodoState> {
-    }
-    view(_screen, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<TodoState>();
-                let update_draft = with_reducer!(ctx, SetDraft, set_draft);
-                let add_todo = with_reducer!(ctx, AddDraftTodo, add_draft_todo);
-
-                let rows = view.state().todos.iter().map(|todo| {
-                    let toggle = with_reducer!(ctx, ToggleTodo(todo.id), toggle_todo);
-                    Row {
-                        gap: Some(12.0),
-                        children: widgets![
-                            Checkbox {
-                                checked: todo.done,
-                                on_toggle: Some(toggle),
-                                ..Default::default()
-                            }
-                            .semantics_identifier(format!("todo.toggle.{}", todo.id)),
-                            Text::new(todo.title.clone()),
-                        ],
-                        ..Default::default()
-                    }
-                    .semantics_identifier(format!("todo.row.{}", todo.id))
-                    .into()
-                });
-
-                Column {
-                    gap: Some(16.0),
-                    children: widgets![
-                        Text::new("Ship checklist").size(28.0).weight(800),
-                        Row {
-                            gap: Some(12.0),
-                            children: widgets![
-                                TextInput {
-                                    id: Some(WidgetId::explicit("todo-title")),
-                                    value: view.state().draft.clone(),
-                                    label: Some("New task".into()),
-                                    placeholder: Some("Add a task".into()),
-                                    on_input: Some(update_draft),
-                                    ..Default::default()
-                                }
-                                .semantics_identifier("todo.title"),
-                                Button {
-                                    child: Some(Text::new("Add task").into()),
-                                    on_press: Some(add_todo),
-                                    ..Default::default()
-                                }
-                                .semantics_identifier("todo.add"),
-                            ],
-                            ..Default::default()
-                        },
-                        Column { gap: Some(10.0), children: rows.collect(), ..Default::default() },
-                    ],
-                    ..Default::default()
-                }
-                .into()
-    }
-}
-```
-</TabItem>
-</Tabs>
-
-Fission makes the state transition explicit. The button does not mutate a captured local variable; it dispatches a named action and the reducer updates product state.
+Here `TaskState` implements `GlobalState` and owns `tasks`; each record has
+`id`, `title` and `done` fields. Repeated callers use `TaskRow(..., key: task.id)`.
+The reducer does not keep a borrowed iterator value after the view has finished.
 
 ## 3. Outside work
 
-<Tabs>
-<TabItem value="source" label="Compose">
+A `LaunchedEffect` body is not a reason to perform I/O while converting a
+Fission component. Conversion can run again for unrelated state changes.
+Hydrate app-owned data once through a startup action and a job or resource.
+Use component `effect` syntax for user-requested work with that component's
+lifetime:
 
-```kotlin title="TodoScreen.kt"
-LaunchedEffect(Unit) {
-    viewModel.loadTodos()
-}
-
-class TodoViewModel : ViewModel() {
-    fun loadTodos() = viewModelScope.launch {
-        _state.update { it.copy(loading = true) }
-        _state.update { it.copy(todos = repository.loadTodos(), loading = false) }
-    }
-}
+```rust
+Button(
+    child: Text(cx.tr("tasks.reload")),
+    key: "reload-tasks",
+    disabled: state.loading,
+    on_press: effect fetch_tasks(panel.endpoint.clone()) {
+        on_start {
+            state.loading = true;
+            state.error = None;
+        }
+        on_ok(tasks) {
+            state.tasks = tasks;
+            state.loading = false;
+        }
+        on_err(error) {
+            state.error = Some(error);
+            state.loading = false;
+        }
+    },
+)
 ```
 
-</TabItem>
-<TabItem value="fission" label="Fission">
+This is an excerpt from a component with an `endpoint: String` prop.
+`fetch_tasks` is an async `#[fission_effect]` function taking an owned URL and
+returning `Result<Vec<Task>, String>`. The app owns `loading`, `error` and `tasks`.
+Render a `Spinner` while loading and an `Alert` on error; do not hide either
+outcome in an unobserved future.
 
-```rust title="src/api.rs"
-use fission::core::{JobRef, JobSpec};
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct LoadTodosRequest;
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ApiError {
-    pub message: String,
-}
-
-pub struct LoadTodosJob;
-
-impl JobSpec for LoadTodosJob {
-    type Request = LoadTodosRequest;
-    type Ok = Vec<Todo>;
-    type Err = ApiError;
-
-    const NAME: &'static str = "todo.load";
-}
-
-pub const LOAD_TODOS_JOB: JobRef<LoadTodosJob> = JobRef::new(LoadTodosJob::NAME);
-```
-
-```rust title="src/state.rs"
-#[fission_reducer(LoadTodos)]
-fn load_todos(state: &mut TodoState, ctx: &mut ReducerContext<TodoState>) {
-    state.loading = true;
-    ctx.effects
-        .app(LOAD_TODOS_JOB, LoadTodosRequest)
-        .on_ok(ctx.effects.bind(TodosLoaded, reduce_with!(todos_loaded)))
-        .on_err(ctx.effects.bind(TodosFailed, reduce_with!(todos_failed)));
-}
-```
-
-</TabItem>
-</Tabs>
-
-Do not perform outside work during component conversion. Reducers request work; jobs, services, resources, or capabilities perform it; results return as actions.
+Reload replaces the list. Disable edits during that operation or use an
+operation/generation check before applying a response which could overwrite a
+newer edit. A request which must finish after this panel unmounts belongs in an
+app-owned job or resource. See [Compose effects](/compose/) and
+[Resources and async](/docs/guides/resources-and-async/).
 
 ## 4. Styling and theme
 
-<Tabs>
-<TabItem value="source" label="Compose">
+`MaterialTheme` and Fission's generated design system both centralise visual
+decisions. Fission exposes its active values through
+`cx.view.env().theme.tokens`. Use them for spacing, typography, surfaces and
+radii rather than copying Kotlin `dp` literals into every Rust component.
 
-```kotlin title="TodoScreen.kt"
-Surface(
-    shape = RoundedCornerShape(16.dp),
-    color = MaterialTheme.colorScheme.surface,
-    tonalElevation = 1.dp,
-) {
-    Row(Modifier.padding(16.dp)) {
-        Checkbox(checked = todo.done, onCheckedChange = { onToggle(todo.id) })
-        Text(todo.title, style = MaterialTheme.typography.bodyMedium)
-    }
-}
+```rust
+Container(ChecklistTitle(cx.tr("tasks.title")))
+    .bg(tokens.colors.surface)
+    .padding_all(tokens.spacing.m)
+    .border_radius(tokens.radii.medium)
 ```
 
-</TabItem>
-<TabItem value="fission" label="Fission">
-
-```rust title="src/widgets/todo_row.rs"
-
-
-fission_component! {
-    pub TodoRow<TodoState> {
-        props {
-            todo: Todo,
-        }
-    }
-    view(row, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<TodoState>();
-                let tokens = &view.env().theme.tokens;
-                let toggle = with_reducer!(ctx, ToggleTodo(row.todo.id), toggle_todo);
-
-                Container::new(Row {
-                    gap: Some(tokens.spacing.s),
-                    children: widgets![
-                        Checkbox {
-                            checked: row.todo.done,
-                            on_toggle: Some(toggle),
-                            ..Default::default()
-                        }
-                        .semantics_identifier(format!("todo.toggle.{}", row.todo.id)),
-                        Text::new(row.todo.title)
-                            .size(tokens.typography.font_size_base)
-                            .color(tokens.colors.text_primary),
-                    ],
-                    ..Default::default()
-                })
-                .bg(tokens.colors.surface)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.large)
-                .padding([tokens.spacing.m, tokens.spacing.m, tokens.spacing.s, tokens.spacing.s])
-                .into()
-    }
-}
-```
-</TabItem>
-</Tabs>
-
-In Fission, the active theme is runtime environment. Read token values from `view.env().theme.tokens` and apply them through widget fields. That keeps the UI target-lowerable across native, web, mobile, terminal, static, and SSR shells.
+This view excerpt assumes `tokens` was read in the setup block. The design
+system belongs to app startup; a reusable widget consumes it, rather than
+parsing DSP files or choosing a separate theme.
 
 ## 5. Routing
 
-<Tabs>
-<TabItem value="source" label="Compose">
+`NavHost` chooses a destination. Fission's native `Router` matches app-owned
+route state and lazily builds its matching component:
 
-```kotlin title="TodoScreen.kt"
-NavHost(navController, startDestination = "todos") {
-    composable("todos") { TodoScreen() }
-    composable("todos/{id}") { entry ->
-        TodoDetail(entry.arguments?.getString("id")?.toLong() ?: 0)
-    }
-}
-```
-
-</TabItem>
-<TabItem value="fission" label="Fission">
-
-```rust title="src/routes.rs"
-use fission::widgets::{Route, Router};
-use std::sync::Arc;
-
-#[fission_reducer(NavigateTo)]
-fn navigate_to(state: &mut TodoState, path: String) {
-    state.current_path = path;
-}
-
-
-
+```rust
 fission_component! {
-    pub TodoRoutes<TodoState> {
-    }
-    view(_routes, _state, _cx) => rust {
-        let (_, view) = fission::build::current::<TodoState>();
-
-                Router::<TodoState> {
-                    current_path: view.state().current_path.clone(),
-                    routes: vec![
-                        Route {
-                            path: "/".into(),
-                            builder: Arc::new(|_, _, _| TodoScreen.into()),
-                        },
-                        Route {
-                            path: "/todos/:id".into(),
-                            builder: Arc::new(|_, _, params| TodoDetail {
-                                id: params["id"].parse().unwrap_or(0),
-                            }
-                            .into()),
-                        },
-                    ],
-                    not_found: Some(Arc::new(|_, _, _| Text::new("Not found").into())),
-                }
-                .into()
-    }
+    pub ChecklistRoutes<TaskState>
+    view(_routes, state, _cx) =>
+    Router::<TaskState>::new()
+        .with_path(state.current_path.clone())
+        .route_component("/", TaskScreen)
+        .route_component("/tasks/:id", TaskDetailRoute)
 }
 ```
-</TabItem>
-</Tabs>
 
-Use Fission's native `Router` and `RouterParams`. Shell URLs, deep links, static routes, server routes, and terminal route-like state should normalize into the same app-owned route state instead of each target inventing a different navigation model.
+The shell's route handler keeps `current_path` synchronized with navigation.
+`TaskDetailRoute` reads `RouteParams` and validates the raw string ID. A missing
+or malformed ID is not task zero. Use
+[ProtectedRoute](/reference/widgets/protected-route/) when a component must not
+be constructed until an access prerequisite is resolved; backend authorization
+remains a separate requirement.
 
 ## 6. Testing
 
-<Tabs>
-<TabItem value="source" label="Compose">
+Keep the semantic-testing instinct from Compose, but distinguish what each test
+establishes. A pure transition test checks a state rule. A headless
+`TestHarness` checks widgets and semantics. `LiveTestClient` and manual `/cmd`
+requests drive input, focus and screenshots in the actual shell.
 
-```kotlin title="TodoScreen.kt"
-composeTestRule.setContent { TodoScreen() }
-
-composeTestRule.onNodeWithText("New task").performTextInput("Publish release")
-composeTestRule.onNodeWithText("Add task").performClick()
-composeTestRule.onNodeWithText("Publish release").assertIsDisplayed()
-```
-
-</TabItem>
-<TabItem value="fission" label="Fission">
-
-```rust title="tests/live.rs"
-use fission_test_driver::{LiveTestClient, SelectorQuery};
-
-#[test]
-#[ignore]
-fn user_can_add_a_todo_in_a_real_shell() {
-    let control_port = reserve_control_port();
-    let mut child = launch_todo_app(control_port);
-    let client = LiveTestClient::connect(control_port);
-
-    client.wait_for_ready(15_000).expect("app ready");
-    client
-        .fill_text_semantic_identifier("todo.title", "Publish release")
-        .expect("fill draft");
-    client
-        .tap_semantic_identifier("todo.add")
-        .expect("add todo");
-    client
-        .wait_for_visible(SelectorQuery::label("Publish release"), 5_000)
-        .expect("todo visible");
-    client
-        .screenshot(".artifacts/screenshots/todos/added.png")
-        .expect("screenshot");
-
-    client.quit().expect("quit app");
-    let _ = child.wait();
-}
-```
-
-</TabItem>
-</Tabs>
-
-Keep fast reducer tests for business rules. Use headless `fission-test` for widget/layout/semantics assertions. Use `LiveTestClient` and `/cmd` for real shell input, focus, screenshots, selectors, and target behavior.
+Use stable semantic identifiers for controls such as `tasks.filter` so a
+translation does not break the test selector. Test on an Android emulator and
+a physical phone where hardware or permission behaviour matters; a browser
+preview does not qualify those paths.
 
 ## Vocabulary map
 
 | Compose concept | Closest Fission concept | Important difference |
 | --- | --- | --- |
-| `@Composable` | `fission_component!` declaration and `view(...)` | Fission's component view is not a suspending/composable function. |
-| `remember` | `#[local_state]` | Retained by widget identity and updated through local reducers. |
-| `ViewModel` state | `GlobalState` | Product state is the framework-level app model. |
-| `LaunchedEffect` | Jobs/resources/effects | Outside work is requested outside conversion. |
-| `MaterialTheme` | Generated design-system tokens in `Env` | Theme is target-lowerable runtime data. |
-| `NavHost` | Fission `Router` | Route state is app-owned. |
+| `@Composable` | `fission_component!` and `view(...)` | The view is not a suspending Kotlin composable or a Rust closure. |
+| `remember` | `state { ... }` | Retained by widget identity, changed through reducers. |
+| `ViewModel` state | `GlobalState` | Shared ownership is explicit; persistence remains separate. |
+| `LaunchedEffect` | Effects, jobs and resources | I/O is not started during conversion. |
+| `MaterialTheme` | Generated tokens in `Env` | The same declared values lower for each supported target. |
+| `NavHost` | Native `Router` | The shell adapts platform history and deep links. |
 
 ## Common instincts to adjust
 
-Do not make composable-local state the home for product truth. Keep important state in `GlobalState`.
+Do not translate all ViewModel state into component-local fields merely because
+the UI syntax is concise. Likewise, do not promote every disclosure flag to
+global state. Choose the owner from the value's lifetime and readers.
 
-Do not use side-effect blocks as the default loading mechanism. Reducers request work and receive typed results.
-
-Keep Compose's semantic testing instinct, but prefer stable semantic identifiers over visible text when tests should survive i18n and layout changes.
+A named `view(component, state, cx)` header defines Compose scopes. It is not a
+closure which can capture those handles into an async operation. Pass owned
+snapshots to the operation and use current state in its completion reducers.
 
 ## What to read next
 
-Read [Testing Fission apps](/docs/learn/testing/) for unit, headless integration, LiveTest, and `/cmd` workflows.
-
-Read [State, handles, and providers](/docs/guides/state-handles-and-providers/) for the durable-state, local-state, provider, and environment decision model.
-
-Read [Resources and async](/docs/guides/resources-and-async/) for jobs, services, resources, capabilities, and reducer effects.
+- [The complete task app](/blog/build-a-single-page-web-app-in-rust/)
+- [Compose API](/compose/)
+- [State, handles and providers](/docs/guides/state-handles-and-providers/)
+- [Resources and async](/docs/guides/resources-and-async/)
+- [Testing Fission apps](/docs/learn/testing/)

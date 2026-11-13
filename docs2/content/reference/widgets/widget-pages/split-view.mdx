@@ -17,16 +17,32 @@ switch to a single column, make that responsive choice before building the
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = SplitView {
-    id: fission::WidgetId::explicit("mail_shell"),
-    direction: SplitDirection::Horizontal,
-    first: Text::new("Folders").into(),
-    second: Text::new("Message list").into(),
-    split_ratio: 0.28,
-    on_resize: Some(resize_panes_action),
+fission_component! {
+    pub MailPanes<()> {
+        props {
+            folders: Widget,
+            messages: Widget,
+            ratio: f32,
+            resize: ActionEnvelope,
+        }
+    }
+
+    view(panes, _state, _cx) =>
+        SplitView(
+            id: WidgetId::explicit("mail.panes"),
+            direction: SplitDirection::Horizontal,
+            first: panes.folders.clone(),
+            second: panes.messages.clone(),
+            split_ratio: panes.ratio,
+            on_resize: panes.resize.clone(),
+        )
 }
-.into();
 ```
+
+The parent supplies actual folder/message trees and a resize action bound to
+its shared pane preference. The reducer needs the split region's measured
+width or height when converting pointer deltas into a ratio; a viewport width
+is wrong when this region occupies only part of the screen.
 
 ## Field table
 
@@ -59,10 +75,9 @@ If the app needs real responsive adaptation between one-pane and two-pane layout
 
 ## Production checklist
 
-- Bind `on_resize` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Measure the actual split region when converting pointer deltas to ratios.
+- Test minimum pane sizes, continuous drag across rebuilds, and resizing while selected.
+- Choose a separately constructed one-pane layout below a readable breakpoint.
 
 ## Related
 

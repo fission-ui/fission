@@ -15,22 +15,22 @@ Use `SafeArea` near the root of full-screen screens or overlays that should resp
 
 ```rust
 use fission::prelude::*;
-let widget: Widget = SafeArea {
-    child:
-        Column {
-            gap: Some(12.0),
-            children: vec![
-                Text::new("Messages").into(),
-                Text::new("Compose").into(),
-            ],
-            ..Default::default()
-        }
-        .into(),
-    ,
-    ..Default::default()
+
+fission_component! {
+    pub MobileWorkspace<()> {
+        props { screen: Widget }
+    }
+
+    view(workspace, _state, _cx) =>
+        SafeArea(
+            child: workspace.screen.clone(),
+        )
 }
-.into();
 ```
+
+The parent supplies the actual shared screen. Apply this at the shell or page
+boundary once; nesting several safe-area wrappers can apply the same host
+inset more than once. Theme spacing remains the screen's separate concern.
 
 ## Field table
 
@@ -53,11 +53,9 @@ A common pattern is `SafeArea` at the screen root, followed by [`Scroll`](/refer
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test actual host insets in both orientations and with system UI visible.
+- Check there is one intended inset boundary rather than nested duplicate padding.
+- Keep ordinary theme margins independent of platform-safe areas.
 
 ## Related
 

@@ -13,6 +13,12 @@ categories:
 
 Fission 0.5.0 makes widget motion easier to configure without hiding how it works. It follows the Widget Motion API RFC: motion is explicit, belongs to the widget that uses it, composes with other motion, and remains available to tests and inspection tools.
 
+This is the 0.5.0 release contract, including its opt-in defaults. Later
+releases changed some built-in defaults. Use the current
+[motion guide](/docs/guides/media-animation-portals-and-3d/) and
+[Compose](/compose/) for a new app; do not infer today's policy from these
+historical struct examples.
+
 Built-in widgets no longer need a growing global namespace of animation helpers. A widget that supports built-in motion exposes a small motion enum of its own. Those values lower into the same `Motion`, `Presence`, `RippleLayer`, `MotionTrack`, and `MotionExpr` runtime model available to advanced authors.
 
 ```rust

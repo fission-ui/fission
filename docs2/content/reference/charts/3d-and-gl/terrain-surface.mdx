@@ -1,90 +1,52 @@
 ---
 title: Terrain surface
 sidebar_label: Terrain surface
-description: Fission Charts reference for Terrain surface.
+description: Render an elevation grid with explicit units, local coordinates and a documented vertical scale.
 ---
 
 # Terrain surface
 
 ![Terrain surface screenshot](/img/charts/terrain-surface.png)
 
-A raised mesh surface for terrain-like continuous data. Use it for terrain, elevation, and other continuous spatial fields. The screenshot is from Fission's chart gallery.
+Terrain height has a physical meaning. A raised part of the picture should correspond to elevation, not merely to a convenient value range. Keep the survey's coordinate reference, horizontal spacing and vertical unit explicit before projecting it into a mesh.
 
-## What the chart is for
+A local scene origin can make large survey coordinates easier to handle, but retain that origin in the source projection. Otherwise a point selected elsewhere in the application cannot be related back to its original location.
 
-This chart belongs to the **3D and GL** family. Use it when a 3D view makes the spatial data easier to understand.
+## Build and render the mesh
 
-Avoid it when a two-dimensional chart answers the question more directly; 3D should clarify spatial data, not decorate ordinary comparisons.
-
-## Data model
-
-`Grid-generated mesh vertices and triangle indices.` This example uses `Scene3D` and `Primitive3D`. The shell renders it in the normal Fission widget tree, not as a browser canvas island.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `scene` | `Scene3D` | Owns the retained native 3D chart viewport. |
-| `primitive` | `Primitive3D` | Uses spheres, cuboids, or meshes for chart geometry. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::three_d::{Point3D, Primitive3D, Scene3D};
-use fission::core::op::Color;
-
-let scene = Scene3D::new()
-    .add_primitive(Primitive3D::Sphere {
-        center: Point3D::new(0.0, 0.0, 0.0),
-        radius: 0.4,
-        color: Color { r: 20, g: 184, b: 166, a: 255 },
-    });
-```
-
-## Interaction and animation
-
-These 3D charts use Fission's normal widget lifecycle. Handle interaction with typed events and reducers, not one-off callback registries.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Use `regular_surface` from [3D surface](./surface3d-basic) for a complete regular elevation grid. The helper returns validated vertices and triangle indices; `SurveySurface` from [Mesh surface](./mesh-surface) renders them.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::survey_surface::SurveySurface;
 
-
-
-fission_component!
-{
-    pub TerrainSurfaceChart<()> {
+fission_component! {
+    pub ElevationPreview<()> {
+        props {
+            title: TextContent,
+            elevation_vertices: Vec<Point3D>,
+            triangles: Vec<u32>,
+            surface_color: Color,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Terrain surface")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
+    view(terrain, _state, _cx) => SurveySurface {
+        title: terrain.title.clone(),
+        vertices: terrain.elevation_vertices.clone(),
+        indices: terrain.triangles.clone(),
+        surface_color: terrain.surface_color,
     }
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Place the shared component in `widgets/survey_surface.rs` and enable the `three-d` feature. The parent supplies translated text and a design-system colour after loading and validating the survey through the application's normal effect/reducer flow.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## Preserve the survey's limits
+
+A missing elevation is not sea level. Keep holes or the chosen interpolation policy explicit instead of filling unavailable cells with zero. If the vertical scale is exaggerated to reveal shallow differences, say so beside the scene.
+
+Test a known slope, a flat grid and rejected invalid measurements. Inspect triangle winding, ridges and the largest intended viewport in a real rendering. Keep exact elevations and a useful accessible description outside the image. The screenshot is a gallery fixture, not survey evidence.
 
 Tags: `3d`, `terrain`.
 

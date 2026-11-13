@@ -17,31 +17,33 @@ rows use the same retained menu recipe as other command and list-box surfaces.
 ```rust
 use fission::prelude::*;
 
+// In view setup, bind the app's density reducer instead of serialising an
+// ActionEnvelope by hand. Both actions also close the controlled dropdown.
+let compact = cx.bind(SetDensity(Density::Compact), reduce!(set_density));
+let comfortable = cx.bind(SetDensity(Density::Comfortable), reduce!(set_density));
 let items = vec![
     SelectItem {
-        label: "Compact".into(),
+        label: cx.tr("density.compact"),
         icon: None,
-        on_select: ActionEnvelope {
-            id: set_density_id,
-            payload: serde_json::to_vec(&SetDensity(Density::Compact)).unwrap(),
-        },
+        on_select: compact,
         semantics_identifier: Some("density.compact".into()),
-        form_value: None,
+        form_value: Some("compact".into()),
     },
     SelectItem {
-        label: "Comfortable".into(),
+        label: cx.tr("density.comfortable"),
         icon: None,
-        on_select: ActionEnvelope {
-            id: set_density_id,
-            payload: serde_json::to_vec(&SetDensity(Density::Comfortable)).unwrap(),
-        },
+        on_select: comfortable,
         semantics_identifier: Some("density.comfortable".into()),
-        form_value: None,
+        form_value: Some("comfortable".into()),
     },
 ];
 ```
 
 Each item contains the final action for that option, so `Select` does not have to guess how your state model works.
+
+`Density`, `SetDensity`, and `set_density` are app-owned here. The reducer
+stores the selected enum and clears the app's open flag. This is configuration
+inside a component, not a complete settings app or a second dispatch protocol.
 
 ## Field table
 
@@ -72,15 +74,15 @@ its current index.
 Make the `on_select` action do both pieces of work the user expects: set the new value and close the select by updating `is_open` in state. The widget itself will not close unless your state says so.
 
 `SelectItem` has no disabled or description fields. When those states are part
-of the product model, use the lower-level `MenuContent::list_box` and
-`MenuActionItem` anatomy in a deliberately owned composite rather than making
+of the product model, use `SelectLayout`, `SelectContent`, and `SelectOption`
+for the richer built-in anatomy rather than making
 an option look unavailable while leaving it actionable.
 
 ## Production checklist
 
-- Bind `on_select` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+Test selection after translating or reordering the options. Verify the chosen
+machine value, the active label, and closure of the popup; a changed highlight
+alone does not prove the reducer selected the right enum.
 
 ## Related
 

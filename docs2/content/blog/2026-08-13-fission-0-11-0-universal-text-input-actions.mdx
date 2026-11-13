@@ -27,6 +27,12 @@ app bound, then the edited text. That falls apart for a dynamic form where the
 reducer needs both the field ID and the new value. With `on_input`, the action
 keeps its meaning and the edit arrives as separate runtime input.
 
+The migration snippets below describe 0.11.0. For a new app, the current
+[Compose binding syntax](/compose/) generates simple field-update reducers;
+the [input guide](/docs/guides/input-events-text-and-env/) shows the current
+dynamic-field pattern without treating a borrowed view snapshot as retained
+state.
+
 ## Migrate `on_change` to `on_input`
 
 Bind an action that contains only stable application context:

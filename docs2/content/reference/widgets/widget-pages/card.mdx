@@ -17,47 +17,69 @@ card: when every element becomes a separate surface, hierarchy disappears.
 ```rust
 use fission::prelude::*;
 
-let summary: Widget = Card {
-    child: VStack {
-        spacing: Some(8.0),
-        children: vec![
-            Text::new("Billing").into(),
-            Text::new("Next invoice: 15 May").into(),
-        ],
+fission_component! {
+    pub BillingSummary<()> {
+        props { next_invoice: String }
     }
-    .into(),
-    pattern: CardPattern::Plain,
-    interactive: false,
-    selected: false,
+    view(summary, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Card(
+        child: Column(
+            gap: tokens.spacing.s,
+            children: [
+                Text(cx.tr("billing.title")),
+                Text(summary.next_invoice.clone()),
+            ],
+        ),
+        pattern: CardPattern::Plain,
+    )
 }
-.into();
 ```
 
-`Card` applies the resolved surface padding around its single child.
+The parent supplies a localized invoice summary; the card owns only its
+presentation. `Card` applies the resolved surface padding around its single
+child, so a second padded container is unnecessary.
 
 ## Sectioned card anatomy
 
 ```rust
 use fission::prelude::*;
 
-let settings: Widget = CardLayout::new()
-    .header(
-        CardHeader::new(CardTitle::new("Notifications"))
-            .description(CardDescription::new(
-                "Choose how the team can reach you.",
-            ))
-            .action(notification_menu),
+fission_component! {
+    pub NotificationSettingsCard<()> {
+        props {
+            form: Widget,
+            menu: Widget,
+            actions: Widget,
+        }
+    }
+    view(card, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let header = CardHeader::new(CardTitle::new(cx.tr("notifications.title")))
+            .description(CardDescription::new(cx.tr("notifications.description")))
+            .action(card.menu.clone());
+        let content = CardContent::new(card.form.clone());
+        let footer = CardFooter::new(vec![card.actions.clone()]);
+    } =>
+    CardLayout(
+        header: Some(header),
+        content: Some(content),
+        footer: Some(footer),
+        separated: true,
+        size: ComponentSize::Md,
+        pattern: CardPattern::Raised,
+        separator_inset: tokens.spacing.m,
     )
-    .content(CardContent::new(notification_form))
-    .footer(CardFooter::new(vec![cancel_button, save_button]))
-    .separated(true)
-    .size(ComponentSize::Md)
-    .pattern(CardPattern::Raised)
-    .interactive(false)
-    .selected(false)
-    .separator_inset(16.0)
-    .into();
+}
 ```
+
+The parent supplies the form and controls, including their state bindings and
+actions. Define the two `notifications.*` labels in the app's translation
+bundles. The card supplies the section layout, not another settings-state owner.
+`CardHeader`, `CardContent`, and `CardFooter` are typed region values with private
+layout fields, so construct those with their public Rust constructors in setup.
+`CardLayout` is the widget; its public fields use ordinary Compose syntax.
 
 | Type | Responsibility |
 | --- | --- |

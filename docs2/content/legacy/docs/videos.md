@@ -6,7 +6,10 @@ description: A two-year publishing calendar for practical Fission videos, exampl
 
 # Fission video calendar
 
-This calendar is the public plan for Fission video content. The goal is simple: ship at least one useful video every week, and make each video leave behind a real Fission example that viewers can run, inspect, and adapt.
+This is the proposed sequence for Fission videos, not a list of recordings
+already available. Each episode should leave behind a runnable example and
+explain one useful outcome. A date does not make a planned episode shipped;
+the status and published link must record that separately.
 
 The videos are free on YouTube. The value for Fission comes from consistent proof: every week should make another part of the framework easier to trust. A viewer should be able to watch the video, open the matching example, and understand how to build that piece of an app themselves.
 
@@ -166,11 +169,14 @@ The calendar should remain flexible, but the standard should not. Every shipped 
 
 ## Lifecycle fit and verification
 
-Choose one useful viewer outcome for each episode, then make the app, guide, screenshot and tests prove that outcome. The video should show the result early and leave viewers with a working path they can follow.
+Before recording, run the exact commands the viewer will copy and exercise the
+finished app on the target the episode names. A desktop screenshot cannot
+stand in for Android installation or a real permission prompt. Keep sample data
+inside the capture/test setup and distinguish it from app state populated by
+the viewer.
 
-| Stage question | Verification |
-| --- | --- |
-| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
-| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
-| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
-| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |
+Use Compose for current application code, with shared state, named widgets,
+i18n, and design tokens. If an episode needs a lower-level escape hatch,
+explain the actual API boundary instead of teaching the exception as the
+normal way to build every screen. Record known limitations beside the episode
+rather than letting a polished video imply that an unsupported path works.

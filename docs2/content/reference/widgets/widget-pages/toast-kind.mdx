@@ -13,14 +13,17 @@ success, warning, or error.
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Toast {
-    id: WidgetId::explicit("sync_done_toast"),
+// In view, after a confirmed sync result; the parent owns dismissal state.
+Toast(
     kind: ToastKind::Success,
-    message: "Synced 12 files".into(),
-    on_close: Some(dismiss_toast_action),
-}
-.into();
+    message: cx.tr("sync.completed"),
+    on_close: dismiss_toast_action,
+)
 ```
+
+Do not show a success toast when work has merely been queued. The close
+action removes this toast from app state; its configured duration dispatches
+that same action rather than deleting your state on the widget's behalf.
 
 ## Choice table
 

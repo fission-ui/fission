@@ -7,21 +7,19 @@ description: Query, scan, connect, and disconnect Wi-Fi networks where the host 
 
 Wi-Fi APIs are more restricted than many developers expect. Scanning can reveal location, connecting can change global device state, and some platforms deliberately avoid app-level Wi-Fi management.
 
-This example scans for networks matching a known SSID prefix. Wi-Fi access varies by platform, so check host availability first and keep a manual setup path.
-
-Do not assume every platform can scan or connect to networks. Always check availability first and provide a manual setup path for restricted platforms.
+This example discovers a device's setup network by its `Device-` SSID prefix. It does not connect to the network or change system settings. Keep a manual setup path because a host can reject scanning even when the device itself has Wi-Fi.
 
 ## 1. Start with the state the screen needs
 
 Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
 
 ```rust
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct WifiState {
-    // Add these fields to your existing app state.
     networks: Vec<WifiNetwork>,
     wifi_error: Option<String>,
     scanning_wifi: bool,
+    scan_finished: bool,
 }
 
 impl GlobalState for WifiState {}
@@ -55,42 +53,56 @@ The scan completes after its starting reducer returns. Handle results and errors
 
 ```rust
 #[fission_reducer(WifiNetworksFound)]
-fn on_wifi_networks_found(state: &mut WifiState, result: WifiScanResult) {
+fn on_wifi_networks_found(state: &mut WifiState, ctx: &mut ReducerContext<WifiState>) {
     state.scanning_wifi = false;
-    state.networks = result.networks;
-    state.wifi_error = None;
+    state.scan_finished = true;
+    match ctx.input.capability_ok(SCAN_WIFI_NETWORKS) {
+        Some(result) => {
+            state.networks = result.networks;
+            state.wifi_error = None;
+        }
+        None => state.wifi_error = Some("The host returned no scan result".into()),
+    }
 }
 
 #[fission_reducer(WifiScanFailed)]
-fn on_wifi_scan_failed(state: &mut WifiState, error: WifiError) {
+fn on_wifi_scan_failed(state: &mut WifiState, ctx: &mut ReducerContext<WifiState>) {
     state.scanning_wifi = false;
-    state.wifi_error = Some(error.message);
+    state.scan_finished = true;
+    state.wifi_error = Some(
+        ctx.input.capability_error(SCAN_WIFI_NETWORKS)
+            .map(|error| error.message)
+            .unwrap_or_else(|| "The host could not scan Wi-Fi networks".into()),
+    );
 }
 ```
 
-Permission denial, unavailable services, and unsupported operations are expected outcomes. Show a manual setup path when scanning is unavailable.
+An empty successful scan means no matching networks were found. It is not the same as a denied request. Read the result from `ctx.input`, so the UI reports the host's actual outcome rather than the default value of a callback action.
 
 ## 4. Request the capability from a reducer
 
 Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
 
 ```rust
-state.scanning_wifi = true;
-ctx.effects
+#[fission_reducer(ScanWifiNetworks)]
+fn on_scan_wifi_networks(state: &mut WifiState, ctx: &mut ReducerContext<WifiState>) {
+    if state.scanning_wifi { return; }
+    state.scanning_wifi = true;
+    state.scan_finished = false;
+    state.networks.clear();
+    state.wifi_error = None;
+    let found = ctx.effects.bind(WifiNetworksFound, reduce_with!(on_wifi_networks_found));
+    let failed = ctx.effects.bind(WifiScanFailed, reduce_with!(on_wifi_scan_failed));
+    ctx.effects
     .wifi()
     .scan_networks(WifiScanRequest {
         ssid_prefix: Some("Device-".into()),
         include_hidden: false,
         timeout_ms: Some(8_000),
     })
-    .on_ok(ctx.effects.bind(
-        WifiNetworksFound(WifiScanResult::default()),
-        reduce_with!(on_wifi_networks_found),
-    ))
-    .on_err(ctx.effects.bind(
-        WifiScanFailed(WifiError::default()),
-        reduce_with!(on_wifi_scan_failed),
-    ));
+    .on_ok(found)
+    .on_err(failed);
+}
 ```
 
 The call records a typed request; the host enforces platform and operating-system restrictions.
@@ -100,24 +112,24 @@ The call records a typed request; the host enforces platform and operating-syste
 Bind the button to the reducer that starts the scan:
 
 ```rust
-
-
-fission_component!
-{
-    pub ScanWifiNetworksButton<WifiState> {
+fission_component! {
+    pub ScanWifiNetworksButton<WifiState> {}
+    view(_button, state, cx) {
+        let run = cx.bind(ScanWifiNetworks, reduce!(on_scan_wifi_networks));
+        let names = state.networks.iter().map(|network| network.ssid.as_str())
+            .collect::<Vec<_>>().join("\n");
     }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<WifiState>();
-                let run = with_reducer!(ctx, ScanWifiNetworks, on_scan_wifi_networks);
-
-                Button::new("Scan networks")
-                    .disabled(view.state().scanning_wifi)
-                    .on_press(run)
-                    .into()
-    }
+    => Column(children: [
+        Button(child: Text(cx.tr("wifi.find_setup_network")), disabled: state.scanning_wifi, on_press: run),
+        if state.scanning_wifi { Spinner(motion: SpinnerMotion::Default, label: cx.tr("wifi.scanning")) },
+        if !state.networks.is_empty() { Code(text: names) }
+        else if state.scan_finished && state.wifi_error.is_none() { Text(cx.tr("wifi.no_setup_network")) },
+        if let Some(error) = &state.wifi_error { Alert(title: error.clone(), kind: AlertKind::Error) },
+        Text(cx.tr("wifi.manual_setup_instructions")),
+    ])
 }
 ```
-The button dispatches an action, the reducer requests a scan, and a completion reducer updates the screen.
+Add the `wifi.*` messages to the app's translation bundles, including instructions for using system network settings. These results are informational, not connection buttons. Check `wifi().availability()` before advertising automatic provisioning in a larger setup flow, and preserve the manual instructions if scanning is denied or unsupported.
 
 ## 6. Provide and test the host behavior
 

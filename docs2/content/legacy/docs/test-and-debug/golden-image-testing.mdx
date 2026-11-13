@@ -37,9 +37,14 @@ repository. Review diffs manually when a design change is intentional.
 
 | Scenario | Why it matters |
 | --- | --- |
-| Phone and desktop shell | Proves responsive layout branches. |
-| Light and dark theme | Proves token usage. |
-| Long translated strings | Proves text wrapping and i18n. |
-| Modal/menu/popover | Proves portal geometry. |
-| Charts and media surfaces | Proves renderer-specific output. |
-| Release screenshots | Proves store assets before publishing. |
+| Phone and desktop shell | Catches differences in the selected responsive layouts. |
+| Light and dark theme | Reveals unreadable contrast and colours that did not follow the theme. |
+| Long translated strings | Exposes wrapping, clipping, and missing translation fallbacks. |
+| Modal/menu/popover | Makes misplaced or clipped overlay surfaces visible. |
+| Charts and media surfaces | Catches changes in the rendered output. |
+| Release screenshots | Lets you inspect the exact store images before publishing. |
+
+Keep the viewport, locale, theme, font inputs, and data scenario stable for each
+golden. A screenshot records one rendered state; it cannot establish that every
+state is reachable or that the underlying code uses tokens correctly. Pair the
+image with the semantic or interaction assertion for the behavior being tested.

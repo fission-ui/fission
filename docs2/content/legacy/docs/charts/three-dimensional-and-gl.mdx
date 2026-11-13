@@ -7,71 +7,105 @@ description: Use Fission's native 3D scene path for globe, surface, point cloud,
 
 # 3D and GL charts
 
-Some data is genuinely spatial. A route crosses geography. A point cloud has depth. A terrain model needs height. A globe needs a curved world. A dense operations view may need the graphics processor to carry more points than a simple two-dimensional chart should draw by hand.
+A surveyed surface or point cloud has real spatial coordinates. A bar chart
+does not acquire another meaningful dimension merely because its bars are
+drawn in perspective. Start with that distinction before choosing a 3D view.
 
-Fission Charts handles those cases through Fission's native `Scene3D` path. A 3D chart is still part of the Fission app model: state lives in your app, reducers handle intent, widgets describe the screen, and the shell presents the rendered result. The difference is the final visual model. Instead of lowering only to two-dimensional chart marks, these charts lower to typed 3D scene primitives that the renderer can draw efficiently.
+The historical gallery uses `fission::three_d::{Scene3D, Primitive3D, Point3D}`
+through the `three-d` feature. Its primitive API is separate from the newer
+`fission::scene3d` retained scene model. Do not mix constructors, camera fields,
+or interaction contracts from the two.
 
 ## When 3D is the right choice
 
-Use a 3D or GL-backed chart when depth, geography, camera position, or large point volume is part of the data the user needs to understand.
-
-| Use 3D when... | Prefer 2D when... |
+| Use 3D when | Prefer 2D when |
 | --- | --- |
-| The third dimension is real data, such as height, depth, or z-position. | The third dimension is decorative and makes comparison harder. |
-| A globe or terrain model gives useful geographic context. | A flat map or table answers the question more directly. |
-| The chart needs camera movement, point clouds, mesh fields, or dense GPU-backed marks. | The user mainly needs exact category comparison or short trend reading. |
-| Spatial relationships matter more than precise labels on every item. | Accessibility, print output, or exact numeric reading is the main requirement. |
+| Position, height, or depth is measured data. | Depth is only decoration. |
+| Surface connectivity has a domain meaning. | Exact category comparison is the main task. |
+| A spatial view reveals a relationship otherwise obscured. | A map, table, or ordinary chart answers faster. |
 
-The rule is simple: 3D should explain the data, not decorate it.
+Perspective and occlusion can hide values. Keep coordinate units and scaling
+explicit, and provide a source-value table or useful accessible summary.
 
 ## What the current catalog covers
 
-The catalog includes real gallery screenshots for 3D bar, 3D scatter, 3D line, point cloud, globe, 3D graph, terrain, mesh, volume-style point field, and 3D surface examples. These are not separate web-only demos. They are Fission chart examples lowered into native `Scene3D` primitives and rendered through the Fission shell.
+The [3D reference family](/reference/charts/3d-and-gl/overview/) covers mesh,
+surface, sphere, cube, point-field, route, and related geometry projections.
+Those examples construct actual primitive geometry; they are not additional
+`Series` variants with the ordinary chart's axes, tooltips, or animations.
 
-Common families include:
-
-| Family | Good fit |
-| --- | --- |
-| 3D bars | Metrics across two categorical axes where height carries the value. |
-| 3D scatter and point clouds | Clusters, outliers, spatial measurements, and dense telemetry. |
-| 3D lines | Trajectories, paths, and time-varying movement through space. |
-| Globes and routes | Geographic coverage, flows, and world-scale movement. |
-| Terrain and surfaces | Height fields, response surfaces, risk maps, and mesh-like data. |
-| 3D graphs | Network structure where spatial layout helps reveal clusters or topology. |
+A gallery screenshot is fixture output. It does not prove that arbitrary
+volume data, millions of points, or a particular GPU workload will perform
+well on the device you plan to ship.
 
 ## How the runtime treats these charts
 
-A 3D chart still starts as typed Rust data. The chart model resolves series, axes, color scales, camera settings, animation requests, and interaction settings. Then the renderer lowers that model to Fission render and 3D primitives.
+The legacy scene accepts optional width/height and a list of cube, sphere, or
+mesh primitives. It has no `Default` implementation and no chart-style
+`title`, `axes`, `camera`, or `ambient_light` fields.
 
-That means the rest of the app does not need a second event system. If the chart emits a hit-test event, that event becomes a typed action path your reducer can handle. If the chart is controlled by state, a reducer changes the state and the next build renders the new chart model. If the chart is themed, it reads from the same active theme as the rest of the app.
+A Compose component can own the presentation boundary while ordinary Rust
+constructs its geometry:
+
+```rust
+use fission::prelude::*;
+use fission::op::Color;
+use fission::three_d::{Point3D, Primitive3D, Scene3D};
+
+fission_component! {
+    pub SurveyPatch<()> {
+        props {
+            title: String,
+            vertices: Vec<Point3D>,
+            triangles: Vec<u32>,
+            surface_color: Color,
+        }
+    }
+    view(patch, _state, cx) {
+        let scene = Scene3D::new().height(320.0)
+            .add_primitive(Primitive3D::Mesh {
+                vertices: patch.vertices.clone(),
+                indices: patch.triangles.clone(),
+                color: patch.surface_color,
+            });
+    } =>
+    Column(gap: cx.view.env().theme.tokens.spacing.m, children: [
+        Text(patch.title.clone()),
+        scene,
+    ])
+}
+```
+
+The parent supplies translated copy, design-system colour, and validated
+geometry. The viewport height is an example presentation constraint; promote
+it to the app's design language when shared. Validate finite positions,
+triangle triplets, index bounds, and winding before creating the component.
+The [surface example](/reference/charts/3d-and-gl/surface3d-basic/)
+shows a bounded mesh projection.
 
 ## Interaction and animation guidance
 
-3D interaction should be purposeful. Camera orbit, pan, zoom, selection, hover labels, and route effects are useful when they reveal information that is hard to see in a static view. They become distracting when every chart starts moving without helping the user answer a question.
+The primitive mesh does not automatically emit ordinary chart point-selection
+or brush events. A sphere is not an accessible product control merely because
+it is visible. Provide semantic controls for meaningful actions and verify
+the exact scene API used by an interactive viewport.
 
-For production screens, choose one primary interaction at a time. A globe may need rotation and hover labels. A point cloud may need box selection. A route view may need animated movement along paths. A surface chart may need camera presets. Keep those choices tied to the product task instead of enabling every interaction because the renderer can support it.
-
-Animation should usually run from an initial state to the final state and then stop. Reserve repeated animation for cases where motion is itself part of the meaning, such as active route flow or live signal movement.
+For a new scene app requiring camera, picking, materials, or a simulation,
+read [2D and 3D scenes and games](/docs/guides/scenes-and-games/) and use the
+newer scene API deliberately. Its alpha boundaries are different from this
+legacy geometry path.
 
 ## Testing strategy
 
-Test 3D charts in layers:
-
-1. Unit-test data mapping and domain calculation.
-2. Test that the chart lowers into the expected typed 3D primitives.
-3. Test interaction hit paths where selection or hover is product-important.
-4. Capture chart-only screenshots when renderer behavior changes.
-5. Validate the target shell because graphics capabilities can differ across target hosts.
-
-That split keeps data bugs, lowering bugs, renderer bugs, and host bugs separate enough to diagnose.
+Test the data projection first: known coordinates, valid triangles, missing
+measurements, and intentional scaling. Then inspect real rendering for
+occlusion, winding, and readability. Measure memory and frame time on the
+actual host before making a large-data or GPU-performance claim.
 
 ## Lifecycle fit and verification
 
-Start with the 3D decision table above. If depth or camera movement does not help someone understand the data, use the simpler 2D chart; if it does, check the example on the target and renderer you plan to ship.
-
-| Stage question | Verification |
-| --- | --- |
-| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
-| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
-| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
-| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |
+A useful qualification case keeps the source measurements fixed while varying
+the viewport and rendering target. The surface should still represent the
+same units and connectivity. If it becomes unreadable or hides important
+values, retain a simpler 2D or tabular view rather than calling rendered
+geometry sufficient evidence.

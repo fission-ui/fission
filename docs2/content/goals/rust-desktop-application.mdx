@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Build a desktop work-order app in Rust
-description: Build a Rust desktop work-order app with a repair queue, safety checklist, status flow, and shift notes using Fission.
-goal: Help warehouse staff move equipment repairs from diagnosis through safe customer handoff
+description: Build a Rust desktop repair workbench with user-created orders, a searchable queue, checked handoff rules and order-specific note drafts.
+goal: Follow a repair from the reported problem to handoff without losing its checks or shift notes
 path: /blog/build-a-desktop-application-in-rust/
 order: 12
 difficulty: Beginner
@@ -10,23 +10,19 @@ duration: 60 minutes
 run_command: "fission run --project-dir ."
 app: rust-desktop-application
 outcomes:
-  - Organize equipment repairs in a searchable work-order queue
-  - Record inspection steps and prevent premature handoff
-  - Add shift notes to the right job and run the app as a desktop window
+  - Create and find a work order
+  - Keep queue and detail views on the same record
+  - Reject handoff while checks remain incomplete
+  - Keep note drafts attached to their repair
 ---
 
-Repair work gets hard to follow when the queue, checklist and shift notes each tell a different story. The app needs to show which machine needs attention, where it is, what has already been checked and what still needs to happen before it goes back into service.
+A repair changes hands between technicians. One person records the fault, another replaces the part and someone on the next shift checks the result. If the queue, checklist and notes each describe a different copy of the job, the next action is unclear and an unfinished repair can appear ready.
 
-We will build **Harbour Desk**, a desktop work-order app for a warehouse maintenance team. It has four jobs, a searchable queue, locations and due windows, safety and repair checks, status changes, and notes attached to the selected order. The buttons change the work order in app state; none of them pretend to save or use hardware. The browser preview keeps its sample data in memory for the current session. The native desktop window runs the same Rust app, where a production version can connect a real store or service.
+We'll build Harbour Desk around one work-order record. Shared state holds the records, selection and drafts that must survive selection changes. The creation form owns its unfinished fields locally. Components describe the visible regions, while ordinary Rust state methods define which changes are allowed.
 
-The app is split into named `fission_component!` components. `ServiceDeskState` owns the work orders because the queue, summary cards and detail panel all need the same records. A small selection change stays beside its button in an inline `reduce` block; the inspection and status rules remain named reducers because they validate and update related work-order data. That keeps simple UI transitions concise without hiding the domain rules.
+The normal desktop app starts empty and lets you create orders. The embedded Web preview uses four fictional records so each workflow can be tried immediately. Both are in-memory: restarting clears the data, and no button pretends to have written a database or contacted a maintenance service.
 
-## Create the desktop project
-
-`fission init` creates the desktop project and its entrypoint. We will add the work-order model, shared state and focused component modules under `src/`. You can run the empty scaffold first; after adding the app, `fission run` opens Harbour Desk as a desktop window.
-
-<Tabs>
-<TabItem label="Create the project">
+## Create the project
 
 ```sh
 cargo install cargo-fission
@@ -36,55 +32,45 @@ cargo add serde --features derive
 cargo add serde_yaml
 ```
 
-</TabItem>
-<TabItem label="Where the app code lives">
+Keep the generated native launcher. The library below configures the shared app; the documentation's separate preview launcher adds fixtures only for the embedded example.
 
 ```text
-harbour-service-desk/
-├── fission.toml
-├── src/
-│   ├── main.rs                 # generated desktop entrypoint
-│   ├── lib.rs                  # run_desktop and module declarations
-│   ├── app.rs                  # WorkOrderDesk screen composition
-│   ├── models.rs               # work orders, checks and notes
-│   ├── state.rs                # shared state and reducers
-│   ├── translations.rs          # embedded English and Spanish messages
-│   └── components/
-│       ├── metric_card.rs
-│       ├── service_desk_sidebar.rs
-│       ├── work_order_search.rs
-│       ├── work_order_queue_card.rs
-│       ├── work_order_detail_panel.rs
-│       ├── inspection_step_row.rs
-│       └── shift_note_row.rs
-├── i18n/
-│   ├── en-US.yaml
-│   └── es-ES.yaml
-└── platforms/
-    └── linux/                  # generated desktop host files
+src/
+├── main.rs
+├── lib.rs
+├── app.rs
+├── models.rs
+├── state.rs
+├── translations.rs
+└── components/
+    ├── mod.rs
+    ├── new_work_order.rs
+    ├── metric_card.rs
+    ├── service_desk_sidebar.rs
+    ├── work_order_queue_card.rs
+    ├── work_order_detail_panel.rs
+    ├── inspection_step_row.rs
+    ├── shift_note_row.rs
+    └── work_order_search.rs
+i18n/
+preview/
 ```
 
-</TabItem>
-</Tabs>
-
-The generated `src/main.rs` calls `run_desktop` from the library. Keep the module declarations and shared app setup in the library instead of moving everything into `main.rs`. The desktop shell and this guide's browser preview can then run the same app component.
-
 <!-- fission:step id="service-desk-layout" -->
-## Shape the work orders and the first screen
+## Put the queue and detail panel over one record
 
-Start with a work order: give it a stable ID, a reference such as `WO-2483`, a location, a requester, a due window, a priority, a status, an inspection checklist and any notes from the previous shift. The queue and detail panel should read the same record. If each keeps its own copy, they can disagree.
+A work order needs a stable ID, reported problem, location, requester and due window. The queue summarises it; the detail panel expands it. Both read the same record rather than keeping editable copies that could disagree.
 
-The first checkpoint is read-only, with the first work order selected. The queue shows what needs attention; the detail panel shows the selected job's location, due window, checklist and notes. We will use theme tokens for spacing, surfaces, borders and type. The queue and detail panel sit side by side on a desktop and stack when the preview narrows.
+The first checkpoint is read-only apart from creating an order. The normal app starts empty, so the creation form is part of the workflow, not an exercise left to the reader. It requires five bounded text fields and allocates an ID only after validation. “Requested by” is a reported name, not proof of the operator's identity. “Due today” is an explicit choice; this example does not infer dates from a free-form due window.
 
-These snippets make up one project. Add the work-order records and default state first, then the reusable cards and sidebar, and finally compose them in `WorkOrderDesk`. Each component has one job: `WorkOrderQueueCard` summarizes a repair, `WorkOrderDetailPanel` shows the selected repair, and `ServiceDeskSidebar` identifies the workspace.
+A newly created order starts open with two incomplete checks. Those checks are a small teaching workflow, not an equipment-specific safety procedure. A real maintenance system would select a checklist appropriate to the equipment and record the evidence it requires.
 
-The queue and detail components receive a work order as a typed prop. Keep the record serializable across that component boundary, and use owned strings so it can be deserialized as well as displayed.
+The documentation preview adds four fictional repairs from `preview/fixtures.rs`. That fixture is never called by `src/lib.rs`. Each normal entrypoint installs the same translations and screen, so copying the project gives you a usable empty app rather than a preview that cannot be reproduced.
 
+The component boundaries follow the visible regions: a queue card, detail panel, summary metric, workspace sidebar and creation form. Read styling from the active theme and messages from the checked-in English and Spanish bundles. The layout stacks its two panels below the expanded breakpoint; it does not reuse one retained widget in multiple responsive branches.
 
 <Tabs>
-
-<TabItem label="Records and initial state">
-
+<TabItem label="src/models.rs">
 <!-- fission:file path="src/models.rs" -->
 ```rust
 use serde::{Deserialize, Serialize};
@@ -177,35 +163,108 @@ pub struct WorkOrder {
     pub steps: Vec<InspectionStep>,
     pub shift_notes: Vec<ShiftNote>,
 }
-
 ```
-
+</TabItem>
+<TabItem label="src/state.rs">
 <!-- fission:file path="src/state.rs" -->
 ```rust
+use crate::models::{InspectionCategory, InspectionStep, WorkOrder, WorkOrderPriority, WorkOrderStatus};
 use fission::prelude::*;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ServiceDeskState {
-    pub work_orders: Vec<crate::models::WorkOrder>,
-    pub selected_work_order: Option<u32>,
+pub enum DeskFeedback {
+    Info(&'static str),
+    Error(&'static str),
 }
-
-impl Default for ServiceDeskState {
-    fn default() -> Self {
-        Self {
-            work_orders: Vec::new(),
-            selected_work_order: None,
-        }
+impl DeskFeedback {
+    pub fn key(&self) -> &'static str {
+        match self { Self::Info(key) | Self::Error(key) => key }
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorkOrderDraft {
+    pub title: String,
+    pub description: String,
+    pub location: String,
+    pub requested_by: String,
+    pub due_window: String,
+    pub due_today: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ServiceDeskState {
+    pub work_orders: Vec<WorkOrder>,
+    pub selected_work_order: Option<u32>,
+    pub feedback: Option<DeskFeedback>,
+}
 impl GlobalState for ServiceDeskState {}
+
+impl ServiceDeskState {
+    pub fn feedback_key(&self) -> Option<&'static str> {
+        self.feedback.as_ref().map(DeskFeedback::key)
+    }
+    pub fn feedback_is_error(&self) -> bool {
+        matches!(self.feedback, Some(DeskFeedback::Error(_)))
+    }
+    pub fn create_order(&mut self, draft: WorkOrderDraft) -> bool {
+        if [&draft.title, &draft.description, &draft.location, &draft.requested_by, &draft.due_window]
+            .iter().any(|value| value.trim().is_empty() || value.chars().count() > 240)
+            || self.work_orders.len() >= 100
+        {
+            self.feedback = Some(DeskFeedback::Error("service_desk.create.invalid"));
+            return false;
+        }
+        let Some(id) = self.work_orders.iter().map(|order| order.id).max().unwrap_or(0).checked_add(1) else {
+            self.feedback = Some(DeskFeedback::Error("service_desk.create.limit"));
+            return false;
+        };
+        self.work_orders.push(WorkOrder {
+            id, reference: format!("WO-{id:04}"),
+            title: draft.title.trim().into(), description: draft.description.trim().into(),
+            location: draft.location.trim().into(), requested_by: draft.requested_by.trim().into(),
+            due_window: draft.due_window.trim().into(), due_today: draft.due_today,
+            priority: WorkOrderPriority::Normal, status: WorkOrderStatus::Open,
+            steps: vec![
+                InspectionStep { id: "inspection".into(), title_key: "service_desk.step.record_inspection".into(), category: InspectionCategory::Inspection, complete: false },
+                InspectionStep { id: "verification".into(), title_key: "service_desk.step.record_verification".into(), category: InspectionCategory::Verification, complete: false },
+            ],
+            shift_notes: Vec::new(),
+        });
+        self.selected_work_order = Some(id);
+        self.feedback = Some(DeskFeedback::Info("service_desk.create.created"));
+        true
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn draft() -> WorkOrderDraft {
+        WorkOrderDraft { title: "Inspect scanner dock".into(), description: "Power disconnects when moved".into(), location: "Receiving".into(), requested_by: "Rosa".into(), due_window: "Before Friday handoff".into(), due_today: false }
+    }
+    #[test]
+    fn creation_uses_distinct_ids_and_starts_with_unfinished_checks() {
+        let mut state = ServiceDeskState::default();
+        assert!(state.create_order(draft()));
+        assert!(state.create_order(draft()));
+        assert_ne!(state.work_orders[0].id, state.work_orders[1].id);
+        assert_eq!(state.selected_work_order, Some(state.work_orders[1].id));
+        assert!(state.work_orders.iter().all(|order| order.status == WorkOrderStatus::Open && order.steps.iter().all(|step| !step.complete)));
+    }
+    #[test]
+    fn a_blank_field_and_exhausted_id_do_not_create_an_order() {
+        let mut state = ServiceDeskState::default();
+        assert!(!state.create_order(WorkOrderDraft::default()));
+        assert!(state.work_orders.is_empty());
+        assert!(state.create_order(draft()));
+        state.work_orders[0].id = u32::MAX;
+        assert!(!state.create_order(draft()));
+        assert_eq!(state.work_orders.len(), 1);
+    }
+}
 ```
-
 </TabItem>
-
-<TabItem label="Summary card and module exports">
-
+<TabItem label="src/components/mod.rs">
 <!-- fission:file path="src/components/mod.rs" -->
 ```rust
 mod service_desk_sidebar;
@@ -217,8 +276,11 @@ pub use service_desk_sidebar::ServiceDeskSidebar;
 pub use metric_card::MetricCard;
 pub use work_order_detail_panel::WorkOrderDetailPanel;
 pub use work_order_queue_card::WorkOrderQueueCard;
+mod new_work_order;
+pub use new_work_order::NewWorkOrder;
 ```
-
+</TabItem>
+<TabItem label="src/components/metric_card.rs">
 <!-- fission:file path="src/components/metric_card.rs" -->
 ```rust
 use crate::state::ServiceDeskState;
@@ -253,11 +315,8 @@ fission_component! {
     )
 }
 ```
-
 </TabItem>
-
-<TabItem label="Queue item">
-
+<TabItem label="src/components/work_order_queue_card.rs">
 <!-- fission:file path="src/components/work_order_queue_card.rs" -->
 ```rust
 use crate::models::WorkOrder;
@@ -299,11 +358,8 @@ fission_component! {
     )
 }
 ```
-
 </TabItem>
-
-<TabItem label="Selected work order">
-
+<TabItem label="src/components/work_order_detail_panel.rs">
 <!-- fission:file path="src/components/work_order_detail_panel.rs" -->
 ```rust
 use crate::models::WorkOrder;
@@ -397,11 +453,8 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
-
 </TabItem>
-
-<TabItem label="Sidebar, screen and browser harness">
-
+<TabItem label="src/components/service_desk_sidebar.rs">
 <!-- fission:file path="src/components/service_desk_sidebar.rs" -->
 ```rust
 use crate::state::ServiceDeskState;
@@ -482,7 +535,8 @@ fission_component! {
     )
 }
 ```
-
+</TabItem>
+<TabItem label="src/translations.rs">
 <!-- fission:file path="src/translations.rs" -->
 ```rust
 use std::collections::HashMap;
@@ -507,7 +561,8 @@ pub fn create_env() -> Env {
     env
 }
 ```
-
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
 <!-- fission:file path="i18n/en-US.yaml" -->
 ```yaml
 service_desk.app.semantic_label: "Harbour Supply service work orders"
@@ -551,7 +606,7 @@ service_desk.shift_notes.empty: "No shift notes yet. Add the detail the next tec
 service_desk.shift_notes.label: "Add a shift note"
 service_desk.shift_notes.placeholder: "What should the next technician know?"
 service_desk.shift_notes.add: "Add note to work order"
-service_desk.shift_notes.draft: "Draft · not yet attributed"
+service_desk.shift_notes.draft: "Unattributed note · session only"
 service_desk.action.selected: "Selected"
 service_desk.action.open_details: "Open details"
 service_desk.action.start_work: "Start work order"
@@ -573,7 +628,7 @@ service_desk.feedback.pickup_recorded: "Customer pickup recorded."
 service_desk.feedback.order_closed: "This work order is already closed."
 service_desk.feedback.order_missing: "That work order is no longer in the queue."
 service_desk.feedback.select_order: "Select a work order before adding a shift note."
-service_desk.feedback.note_empty: "Write a shift note before adding it to this work order."
+service_desk.feedback.note_empty: "Write a note of 1–1,000 characters before adding it to this work order."
 service_desk.feedback.note_added: "Shift note added to the selected work order."
 service_desk.search.label: "Search work orders"
 service_desk.search.placeholder: "Reference, equipment, location or requester"
@@ -603,8 +658,24 @@ service_desk.step.test_label: "Print and inspect a test label"
 service_desk.step.floor_track: "Check the floor track for debris"
 service_desk.step.lower_seal: "Inspect the lower seal"
 service_desk.step.cycle_door: "Cycle the door and record the result"
+service_desk.create.open: "New work order"
+service_desk.create.hide: "Hide form (keep draft)"
+service_desk.create.title: "Equipment or task"
+service_desk.create.location: "Equipment location"
+service_desk.create.requester: "Requested by (reported name)"
+service_desk.create.due: "Due window"
+service_desk.create.description: "Reported problem"
+service_desk.create.due_today: "Due today"
+service_desk.create.action: "Create work order"
+service_desk.create.detail: "This workbench holds up to 100 orders in memory. Hiding this form keeps its draft; restarting the app does not."
+service_desk.create.invalid: "Complete every field with 1–240 characters. This workbench holds up to 100 orders."
+service_desk.create.limit: "This workbench reached its record or identifier limit. Nothing was added."
+service_desk.create.created: "Work order created in this session."
+service_desk.step.record_inspection: "Record inspection outcome"
+service_desk.step.record_verification: "Verify repair before handoff"
 ```
-
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
 <!-- fission:file path="i18n/es-ES.yaml" -->
 ```yaml
 service_desk.app.semantic_label: "Órdenes de trabajo de mantenimiento de Harbour Supply"
@@ -648,7 +719,7 @@ service_desk.shift_notes.empty: "Todavía no hay notas. Añade la información q
 service_desk.shift_notes.label: "Añadir una nota del turno"
 service_desk.shift_notes.placeholder: "¿Qué debería saber la siguiente persona?"
 service_desk.shift_notes.add: "Añadir nota a la orden"
-service_desk.shift_notes.draft: "Borrador · sin atribución todavía"
+service_desk.shift_notes.draft: "Nota sin atribución · solo esta sesión"
 service_desk.action.selected: "Seleccionada"
 service_desk.action.open_details: "Ver detalles"
 service_desk.action.start_work: "Iniciar orden de trabajo"
@@ -670,7 +741,7 @@ service_desk.feedback.pickup_recorded: "Entrega al cliente registrada."
 service_desk.feedback.order_closed: "Esta orden de trabajo ya está cerrada."
 service_desk.feedback.order_missing: "Esa orden ya no está en la cola."
 service_desk.feedback.select_order: "Selecciona una orden antes de añadir una nota del turno."
-service_desk.feedback.note_empty: "Escribe una nota antes de añadirla a esta orden."
+service_desk.feedback.note_empty: "Escribe una nota de 1–1.000 caracteres antes de añadirla a esta orden."
 service_desk.feedback.note_added: "Nota añadida a la orden seleccionada."
 service_desk.search.label: "Buscar órdenes de trabajo"
 service_desk.search.placeholder: "Referencia, equipo, ubicación o solicitante"
@@ -700,11 +771,27 @@ service_desk.step.test_label: "Imprime y revisa una etiqueta de prueba"
 service_desk.step.floor_track: "Comprueba si hay residuos en el carril del suelo"
 service_desk.step.lower_seal: "Inspecciona el sello inferior"
 service_desk.step.cycle_door: "Acciona la puerta y registra el resultado"
+service_desk.create.open: "Nueva orden de trabajo"
+service_desk.create.hide: "Ocultar formulario (conservar borrador)"
+service_desk.create.title: "Equipo o tarea"
+service_desk.create.location: "Ubicación del equipo"
+service_desk.create.requester: "Solicitante (nombre comunicado)"
+service_desk.create.due: "Plazo previsto"
+service_desk.create.description: "Problema comunicado"
+service_desk.create.due_today: "Vence hoy"
+service_desk.create.action: "Crear orden de trabajo"
+service_desk.create.detail: "Este ejemplo conserva hasta 100 órdenes en memoria. Ocultar el formulario conserva el borrador; reiniciar la aplicación no."
+service_desk.create.invalid: "Completa cada campo con 1–240 caracteres. El límite es de 100 órdenes."
+service_desk.create.limit: "Se alcanzó el límite de registros o identificadores. No se añadió nada."
+service_desk.create.created: "Orden creada en esta sesión."
+service_desk.step.record_inspection: "Registrar el resultado de la inspección"
+service_desk.step.record_verification: "Verificar la reparación antes de entregar"
 ```
-
+</TabItem>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
-use crate::components::{MetricCard, ServiceDeskSidebar, WorkOrderDetailPanel, WorkOrderQueueCard};
+use crate::components::{NewWorkOrder, MetricCard, ServiceDeskSidebar, WorkOrderDetailPanel, WorkOrderQueueCard};
 use crate::models::WorkOrderStatus;
 use crate::state::ServiceDeskState;
 use fission::prelude::*;
@@ -735,7 +822,7 @@ fission_component! {
         let selected_order = state.work_orders
             .iter()
             .find(|order| Some(order.id) == state.selected_work_order)
-            .or_else(|| state.work_orders.first());
+            ;
 
     } =>
     Container(
@@ -770,6 +857,7 @@ fission_component! {
                         .bg(tokens.colors.surface),
                         Container(
                             Column(gap: tokens.spacing.l, children: [
+                                NewWorkOrder(),
                                 Row(
                                     gap: tokens.spacing.m,
                                     wrap: ir_op::FlexWrap::Wrap,
@@ -847,7 +935,7 @@ fission_component! {
                                         .flex_grow(1.0)
                                         .width_length(panel_width.clone()),
                                         Container(if let Some(order) = selected_order {
-                                            WorkOrderDetailPanel(order.clone())
+                                            WorkOrderDetailPanel(order.clone(), key: order.id)
                                         } else {
                                             EmptyState(
                                                 title: cx.tr("service_desk.empty.title"),
@@ -872,7 +960,8 @@ fission_component! {
     .bg(tokens.colors.background)
 }
 ```
-
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -901,7 +990,99 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+<TabItem label="src/components/new_work_order.rs">
+<!-- fission:file path="src/components/new_work_order.rs" -->
+```rust
+use crate::state::{ServiceDeskState, WorkOrderDraft};
+use fission::prelude::*;
 
+fission_component! {
+    pub NewWorkOrder<ServiceDeskState> {
+        state {
+            open: bool = false,
+            title: String = String::new(),
+            description: String = String::new(),
+            location: String = String::new(),
+            requested_by: String = String::new(),
+            due_window: String = String::new(),
+            due_today: bool = false,
+        }
+    }
+    view(form, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.s, children: [
+        Button(child: Text(cx.tr(if form.open { "service_desk.create.hide" } else { "service_desk.create.open" })),
+            key: "show-new-order", on_press: reduce { form.open = !form.open; }),
+        if form.open {
+            Column(gap: tokens.spacing.s, children: [
+                Text(cx.tr("service_desk.create.detail")).color(tokens.colors.text_secondary),
+                Grid(
+                    columns: vec![GridTrack::auto_fit(GridTrack::minmax(GridTrack::Points(180.0), GridTrack::Fr(1.0)))],
+                    rows: vec![GridTrack::Auto], column_gap: tokens.spacing.m, row_gap: tokens.spacing.s,
+                    children: [
+                        TextInput(label: Some(cx.tr("service_desk.create.title").into()), required: true, max_length: Some(240),
+                            bind: form.title, semantics_identifier: "work-order.new.title".to_owned()),
+                        TextInput(label: Some(cx.tr("service_desk.create.location").into()), required: true, max_length: Some(240),
+                            bind: form.location, semantics_identifier: "work-order.new.location".to_owned()),
+                        TextInput(label: Some(cx.tr("service_desk.create.requester").into()), required: true, max_length: Some(240),
+                            bind: form.requested_by, semantics_identifier: "work-order.new.requester".to_owned()),
+                        TextInput(label: Some(cx.tr("service_desk.create.due").into()), required: true, max_length: Some(240),
+                            bind: form.due_window, semantics_identifier: "work-order.new.due".to_owned()),
+                    ]),
+                TextInput(label: Some(cx.tr("service_desk.create.description").into()), required: true, max_length: Some(240),
+                    multiline: true, min_lines: Some(2), max_lines: Some(4),
+                    bind: form.description, semantics_identifier: "work-order.new.description".to_owned()),
+                Checkbox(label: Some(cx.tr("service_desk.create.due_today")), checked: form.due_today,
+                    key: "new-order-due-today", on_toggle: reduce { form.due_today = !form.due_today; }),
+                Button(child: Text(cx.tr("service_desk.create.action")), key: "create-order",
+                    on_press: reduce {
+                        if state.create_order(WorkOrderDraft {
+                            title: form.title.clone(), description: form.description.clone(),
+                            location: form.location.clone(), requested_by: form.requested_by.clone(),
+                            due_window: form.due_window.clone(), due_today: form.due_today,
+                        }) {
+                            form.title.clear(); form.description.clear(); form.location.clear();
+                            form.requested_by.clear(); form.due_window.clear();
+                            form.due_today = false; form.open = false;
+                        }
+                    }),
+            ])
+        },
+        if let Some(key) = state.feedback_key() {
+            Text(cx.tr(key)).color(if state.feedback_is_error() { tokens.colors.error } else { tokens.colors.text_secondary })
+        },
+    ])
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod components;
+mod models;
+mod state;
+mod translations;
+use fission::prelude::*;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::ServiceDeskState, _>::new(app::WorkOrderDesk::new())
+        .with_env(translations::create_env()).run()
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::ServiceDeskState, _>::new(app::WorkOrderDesk::new())
+        .with_env(translations::create_env()).with_title("Harbour Desk")
+        .mount("#fission-web-mount").run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
 </TabItem>
 <TabItem label="preview/fixtures.rs">
 <!-- fission:file path="preview/fixtures.rs" -->
@@ -997,123 +1178,209 @@ pub fn sample_work_orders() -> Vec<WorkOrder> {
 }
 ```
 </TabItem>
-
 </Tabs>
-
-The detail panel shows the due window and location beside the checklist. Its progress value is calculated from those same steps, so the summary cannot drift from what the technician sees. `MetricCard` and the queue card receive data through props; neither keeps a second copy of the work order.
-
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Look through Harbour Desk’s four jobs. Find the conveyor motor order and confirm its location, due window, repair steps, and current progress are visible together.
+Inspect WO-2483 in the preview and compare its queue summary with the detail panel. Then run the normal app, open “New work order”, try an incomplete submission and correct it. A successful creation should select the new order, with both checks incomplete.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="work-order-flow" -->
-## Select jobs and enforce the repair workflow
+## Keep handoff behind the workflow rules
 
-Now add the actions staff use during a shift. **Open details** selects a work order by its stable ID. The queue and detail panel both read the selection from `ServiceDeskState`, so one change updates the whole screen. We do not store the selected row inside each card; every part of the screen needs to agree on the same selection.
+Selecting a card stores its ID. A missing selection shows an empty detail state; it does not silently open the first order and make an unrelated repair look selected.
 
-The checklist can change, but it still belongs to the work order. **Mark ready for pickup** stays available while a repair is in progress. If someone selects it before the checks are done, the reducer says what remains and leaves the order in progress. Once the checks are complete, the same action moves it to **Ready for pickup**.
+A checklist change and a status change are different transitions. The row calls `state.toggle_step(...)` inside `reduce`; the detail panel calls `state.advance_order(...)` in the same way. The ordinary Rust methods own the rules. There is no separate action declaration or reducer registration to maintain for these component-specific handlers.
 
-The reducer receives the current state and action, finds the work order, then applies one transition. The UI calls it through `with_reducer!`; it does not change a record while the component is being converted into a view. The same rule applies whether the action comes from a mouse, a keyboard shortcut or another screen.
+Starting work moves an open order into progress. Finishing it requires a non-empty, completed checklist. Clearing a check after an order was marked ready moves it back into progress, so an earlier decision cannot bypass a later correction. A closed order rejects further checklist or status changes. The state tests exercise those cases without relying on a disabled button.
 
+The UI's progress bar is derived from the actual inspection steps. Unlike a guessed percentage, it describes something the user can inspect: completed steps divided by total steps. It is not evidence that a machine is safe; the operator remains responsible for performing and recording the work.
 
 <Tabs>
-
-<TabItem label="Selection and workflow reducers">
-
+<TabItem label="src/state.rs">
 <!-- fission:file path="src/state.rs" -->
 ```rust
-use crate::models::{InspectionStep, WorkOrderStatus};
+use crate::models::{InspectionCategory, InspectionStep, WorkOrder, WorkOrderPriority, WorkOrderStatus};
 use fission::prelude::*;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ServiceDeskState {
-    pub work_orders: Vec<crate::models::WorkOrder>,
-    pub selected_work_order: Option<u32>,
-    pub feedback: String,
-    pub feedback_is_error: bool,
+pub enum DeskFeedback {
+    Info(&'static str),
+    Error(&'static str),
 }
-
-impl Default for ServiceDeskState {
-    fn default() -> Self {
-        Self {
-            work_orders: Vec::new(),
-            selected_work_order: None,
-            feedback: String::new(),
-            feedback_is_error: false,
-        }
+impl DeskFeedback {
+    pub fn key(&self) -> &'static str {
+        match self { Self::Info(key) | Self::Error(key) => key }
     }
 }
 
-impl GlobalState for ServiceDeskState {}
-
-#[fission_reducer(ToggleInspectionStep)]
-pub fn on_toggle_inspection_step(
-    state: &mut ServiceDeskState,
-    order_id: u32,
-    step_id: String,
-) {
-    let updated = state
-        .work_orders
-        .iter_mut()
-        .find(|order| order.id == order_id)
-        .and_then(|order| {
-            order.steps.iter_mut().find(|step| step.id == step_id.as_str()).map(|step| {
-                step.complete = !step.complete;
-            })
-        })
-        .is_some();
-    state.feedback = if updated {
-        "service_desk.feedback.step_updated".to_string()
-    } else {
-        "service_desk.feedback.step_missing".to_string()
-    };
-    state.feedback_is_error = !updated;
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorkOrderDraft {
+    pub title: String,
+    pub description: String,
+    pub location: String,
+    pub requested_by: String,
+    pub due_window: String,
+    pub due_today: bool,
 }
 
-#[fission_reducer(AdvanceWorkOrder)]
-pub fn on_advance_work_order(state: &mut ServiceDeskState, order_id: u32) {
-    let Some(order) = state.work_orders.iter_mut().find(|order| order.id == order_id) else {
-        state.feedback = "service_desk.feedback.order_missing".to_string();
-        state.feedback_is_error = true;
-        return;
-    };
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ServiceDeskState {
+    pub work_orders: Vec<WorkOrder>,
+    pub selected_work_order: Option<u32>,
+    pub feedback: Option<DeskFeedback>,
+}
+impl GlobalState for ServiceDeskState {}
 
-    let (feedback, is_error) = match order.status {
-        WorkOrderStatus::Open => {
-            order.status = WorkOrderStatus::InProgress;
-            ("service_desk.feedback.started", false)
+impl ServiceDeskState {
+    pub fn feedback_key(&self) -> Option<&'static str> {
+        self.feedback.as_ref().map(DeskFeedback::key)
+    }
+    pub fn feedback_is_error(&self) -> bool {
+        matches!(self.feedback, Some(DeskFeedback::Error(_)))
+    }
+    pub fn create_order(&mut self, draft: WorkOrderDraft) -> bool {
+        if [&draft.title, &draft.description, &draft.location, &draft.requested_by, &draft.due_window]
+            .iter().any(|value| value.trim().is_empty() || value.chars().count() > 240)
+            || self.work_orders.len() >= 100
+        {
+            self.feedback = Some(DeskFeedback::Error("service_desk.create.invalid"));
+            return false;
         }
-        WorkOrderStatus::WaitingForParts => {
-            order.status = WorkOrderStatus::InProgress;
-            ("service_desk.feedback.parts_received", false)
-        }
-        WorkOrderStatus::InProgress if order.steps.iter().all(|step| step.complete) => {
-            order.status = WorkOrderStatus::ReadyForPickup;
-            ("service_desk.feedback.ready", false)
-        }
-        WorkOrderStatus::InProgress => ("service_desk.feedback.checklist_incomplete", true),
-        WorkOrderStatus::ReadyForPickup => {
-            order.status = WorkOrderStatus::Closed;
-            ("service_desk.feedback.pickup_recorded", false)
-        }
-        WorkOrderStatus::Closed => ("service_desk.feedback.order_closed", true),
-    };
-    state.feedback = feedback.to_string();
-    state.feedback_is_error = is_error;
+        let Some(id) = self.work_orders.iter().map(|order| order.id).max().unwrap_or(0).checked_add(1) else {
+            self.feedback = Some(DeskFeedback::Error("service_desk.create.limit"));
+            return false;
+        };
+        self.work_orders.push(WorkOrder {
+            id, reference: format!("WO-{id:04}"),
+            title: draft.title.trim().into(), description: draft.description.trim().into(),
+            location: draft.location.trim().into(), requested_by: draft.requested_by.trim().into(),
+            due_window: draft.due_window.trim().into(), due_today: draft.due_today,
+            priority: WorkOrderPriority::Normal, status: WorkOrderStatus::Open,
+            steps: vec![
+                InspectionStep { id: "inspection".into(), title_key: "service_desk.step.record_inspection".into(), category: InspectionCategory::Inspection, complete: false },
+                InspectionStep { id: "verification".into(), title_key: "service_desk.step.record_verification".into(), category: InspectionCategory::Verification, complete: false },
+            ],
+            shift_notes: Vec::new(),
+        });
+        self.selected_work_order = Some(id);
+        self.feedback = Some(DeskFeedback::Info("service_desk.create.created"));
+        true
+    }
+}
+impl ServiceDeskState {
+    pub fn toggle_step(&mut self, order_id: u32, step_id: &str) {
+        let result = self.work_orders.iter_mut().find(|order| order.id == order_id)
+            .ok_or("service_desk.feedback.order_missing")
+            .and_then(|order| {
+                if order.status == WorkOrderStatus::Closed {
+                    return Err("service_desk.feedback.order_closed");
+                }
+                let step = order.steps.iter_mut().find(|step| step.id == step_id)
+                    .ok_or("service_desk.feedback.step_missing")?;
+                step.complete = !step.complete;
+                // Removing a completed check invalidates an earlier ready decision.
+                if !step.complete && order.status == WorkOrderStatus::ReadyForPickup {
+                    order.status = WorkOrderStatus::InProgress;
+                }
+                Ok("service_desk.feedback.step_updated")
+            });
+        self.feedback = Some(match result { Ok(key) => DeskFeedback::Info(key), Err(key) => DeskFeedback::Error(key) });
+    }
+
+    pub fn advance_order(&mut self, order_id: u32) {
+        let Some(order) = self.work_orders.iter_mut().find(|order| order.id == order_id) else {
+            self.feedback = Some(DeskFeedback::Error("service_desk.feedback.order_missing"));
+            return;
+        };
+        let checks_complete = !order.steps.is_empty() && order.steps.iter().all(|step| step.complete);
+        let result = match order.status {
+            WorkOrderStatus::Open => { order.status = WorkOrderStatus::InProgress; Ok("service_desk.feedback.started") }
+            WorkOrderStatus::WaitingForParts => { order.status = WorkOrderStatus::InProgress; Ok("service_desk.feedback.parts_received") }
+            WorkOrderStatus::InProgress if checks_complete => { order.status = WorkOrderStatus::ReadyForPickup; Ok("service_desk.feedback.ready") }
+            WorkOrderStatus::InProgress => Err("service_desk.feedback.checklist_incomplete"),
+            WorkOrderStatus::ReadyForPickup if checks_complete => { order.status = WorkOrderStatus::Closed; Ok("service_desk.feedback.pickup_recorded") }
+            WorkOrderStatus::ReadyForPickup => {
+                order.status = WorkOrderStatus::InProgress;
+                Err("service_desk.feedback.checklist_incomplete")
+            }
+            WorkOrderStatus::Closed => Err("service_desk.feedback.order_closed"),
+        };
+        self.feedback = Some(match result { Ok(key) => DeskFeedback::Info(key), Err(key) => DeskFeedback::Error(key) });
+    }
 }
 
 pub fn completed_steps(steps: &[InspectionStep]) -> usize {
     steps.iter().filter(|step| step.complete).count()
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn draft() -> WorkOrderDraft {
+        WorkOrderDraft { title: "Inspect scanner dock".into(), description: "Power disconnects when moved".into(), location: "Receiving".into(), requested_by: "Rosa".into(), due_window: "Before Friday handoff".into(), due_today: false }
+    }
+    #[test]
+    fn creation_uses_distinct_ids_and_starts_with_unfinished_checks() {
+        let mut state = ServiceDeskState::default();
+        assert!(state.create_order(draft()));
+        assert!(state.create_order(draft()));
+        assert_ne!(state.work_orders[0].id, state.work_orders[1].id);
+        assert_eq!(state.selected_work_order, Some(state.work_orders[1].id));
+        assert!(state.work_orders.iter().all(|order| order.status == WorkOrderStatus::Open && order.steps.iter().all(|step| !step.complete)));
+    }
+    #[test]
+    fn a_blank_field_and_exhausted_id_do_not_create_an_order() {
+        let mut state = ServiceDeskState::default();
+        assert!(!state.create_order(WorkOrderDraft::default()));
+        assert!(state.work_orders.is_empty());
+        assert!(state.create_order(draft()));
+        state.work_orders[0].id = u32::MAX;
+        assert!(!state.create_order(draft()));
+        assert_eq!(state.work_orders.len(), 1);
+    }
+    #[test]
+    fn handoff_requires_checks_and_closed_checks_cannot_change() {
+        let mut state = ServiceDeskState::default();
+        state.create_order(draft());
+        let id = state.work_orders[0].id;
+        state.advance_order(id);
+        state.advance_order(id);
+        assert_eq!(state.work_orders[0].status, WorkOrderStatus::InProgress);
+        assert!(state.feedback_is_error());
+        state.toggle_step(id, "inspection");
+        state.toggle_step(id, "verification");
+        state.advance_order(id);
+        assert_eq!(state.work_orders[0].status, WorkOrderStatus::ReadyForPickup);
+        state.toggle_step(id, "verification");
+        assert_eq!(state.work_orders[0].status, WorkOrderStatus::InProgress);
+        state.advance_order(id);
+        assert_eq!(state.work_orders[0].status, WorkOrderStatus::InProgress);
+        state.toggle_step(id, "verification");
+        state.advance_order(id);
+        state.advance_order(id);
+        let closed = state.work_orders[0].clone();
+        state.toggle_step(id, "inspection");
+        state.advance_order(id);
+        assert_eq!(state.work_orders[0], closed);
+    }
+    #[test]
+    fn absent_records_and_empty_checklists_cannot_pass_handoff() {
+        let mut state = ServiceDeskState::default();
+        state.create_order(draft());
+        let original = state.work_orders[0].clone();
+        state.toggle_step(99, "inspection");
+        state.advance_order(99);
+        assert_eq!(state.work_orders[0], original);
+        state.work_orders[0].status = WorkOrderStatus::InProgress;
+        state.work_orders[0].steps.clear();
+        state.advance_order(1);
+        assert_ne!(state.work_orders[0].status, WorkOrderStatus::ReadyForPickup);
+    }
+}
 ```
-
 </TabItem>
-
-<TabItem label="Checklist row and exports">
-
+<TabItem label="src/components/mod.rs">
 <!-- fission:file path="src/components/mod.rs" -->
 ```rust
 mod service_desk_sidebar;
@@ -1127,12 +1394,15 @@ pub use inspection_step_row::InspectionStepRow;
 pub use metric_card::MetricCard;
 pub use work_order_detail_panel::WorkOrderDetailPanel;
 pub use work_order_queue_card::WorkOrderQueueCard;
+mod new_work_order;
+pub use new_work_order::NewWorkOrder;
 ```
-
+</TabItem>
+<TabItem label="src/components/inspection_step_row.rs">
 <!-- fission:file path="src/components/inspection_step_row.rs" -->
 ```rust
 use crate::models::InspectionStep;
-use crate::state::{on_toggle_inspection_step, ServiceDeskState, ToggleInspectionStep};
+use crate::state::ServiceDeskState;
 use fission::prelude::*;
 
 fission_component! {
@@ -1143,27 +1413,20 @@ fission_component! {
             step: InspectionStep,
         }
     }
-    view(row, _state, cx) {
-        let toggle = with_reducer!(
-            cx.build,
-            ToggleInspectionStep(row.order_id, row.step_id.clone()),
-            on_toggle_inspection_step,
-        );
-    } =>
-    Checkbox {
+    view(row, state, cx) {} =>
+    Checkbox(
         checked: row.step.complete,
         label: Some(format!("{} · {}", cx.tr(&row.step.title_key), cx.tr(row.step.category.translation_key()))),
-        on_toggle: Some(toggle),
+        disabled: state.work_orders.iter().find(|order| order.id == row.order_id)
+            .is_none_or(|order| order.status == crate::models::WorkOrderStatus::Closed),
+        key: "toggle-inspection",
+        on_toggle: reduce { state.toggle_step(row.order_id, &row.step_id); },
         semantics_identifier: Some(format!("work-order.{}.inspection.{}", row.order_id, row.step_id)),
-        ..Default::default()
-    }
+    )
 }
 ```
-
 </TabItem>
-
-<TabItem label="Selectable queue card">
-
+<TabItem label="src/components/work_order_queue_card.rs">
 <!-- fission:file path="src/components/work_order_queue_card.rs" -->
 ```rust
 use crate::models::WorkOrder;
@@ -1209,8 +1472,7 @@ fission_component! {
                         variant: if card.selected { ButtonVariant::Primary } else { ButtonVariant::Outline },
                         on_press: reduce {
                             state.selected_work_order = Some(card.order.id);
-                            state.feedback.clear();
-                            state.feedback_is_error = false;
+                            state.feedback = None;
                         },
                     )
                     .semantics_identifier(format!("service-desk.select-order.{}", card.order.id)),
@@ -1224,18 +1486,13 @@ fission_component! {
     )
 }
 ```
-
 </TabItem>
-
-<TabItem label="Checklist and status actions">
-
+<TabItem label="src/components/work_order_detail_panel.rs">
 <!-- fission:file path="src/components/work_order_detail_panel.rs" -->
 ```rust
 use crate::components::InspectionStepRow;
 use crate::models::{WorkOrder, WorkOrderStatus};
-use crate::state::{
-    completed_steps, on_advance_work_order, AdvanceWorkOrder, ServiceDeskState,
-};
+use crate::state::{completed_steps, ServiceDeskState};
 use fission::prelude::*;
 
 fission_component! {
@@ -1319,15 +1576,15 @@ fission_component! {
                     ])
                 },
             ]),
-            if !state.feedback.is_empty() {
+            if !state.feedback.is_none() {
                 SemanticsRegion(
-                    identifier: Some(if state.feedback_is_error {
+                    identifier: Some(if state.feedback_is_error() {
                         "service-desk.feedback-error".to_string()
                     } else {
                         "service-desk.feedback".to_string()
                     }),
-                    label: Some(cx.tr(state.feedback.as_str())),
-                    child: Text(cx.tr(state.feedback.as_str())).color(if state.feedback_is_error {
+                    label: Some(cx.tr(state.feedback_key().unwrap_or(""))),
+                    child: Text(cx.tr(state.feedback_key().unwrap_or(""))).color(if state.feedback_is_error() {
                         tokens.colors.error
                     } else {
                         tokens.colors.text_secondary
@@ -1341,12 +1598,8 @@ fission_component! {
             if can_advance {
                 Button(
                     child: Text(next_action),
-                    key: format!("advance-work-order-{}", panel.order.id),
-                    on_press: with_reducer!(
-                        cx.build,
-                        AdvanceWorkOrder(panel.order.id),
-                        on_advance_work_order,
-                    ),
+                    key: "advance-work-order",
+                    on_press: reduce { state.advance_order(panel.order.id); },
                 )
                 .semantics_identifier(format!("service-desk.advance-order.{}", panel.order.id))
             } else if panel.order.status == WorkOrderStatus::Closed {
@@ -1360,193 +1613,268 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
-
 </TabItem>
-
 </Tabs>
-
-Open **WO-2483** in the preview and press **Mark ready for pickup** while two checks remain. The order should stay in progress and tell you what is unfinished. Complete the return-roller replacement and five-minute safety test, then try again. The order should move to **Ready for pickup**. Select another job to check that its own checklist and status appear and that actions apply to the selected record.
-
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Select WO-2483, request pickup before its last two checks are complete, then finish both checks and mark the order ready for pickup.
+On WO-2483, attempt to mark the repair ready before completing the remaining checks. Finish them and mark it ready, then clear one: the status must return to in progress. Complete it again, record pickup and confirm a closed order cannot have its checks changed.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="shift-notes" -->
-## Add shift notes without losing the selected job
+## Keep each draft attached to its work order
 
-The next technician needs to know what part was fitted, what still needs another look, or why a job is waiting. Keep each note on its work order rather than adding a message that floats at the top of the page.
+A shift note may be started before another repair needs attention. Keeping one draft string on the detail panel risks losing it when the panel is removed. Keeping one global string risks attaching it to the next selected order. Instead, the app stores drafts by work-order ID.
 
-The draft is keyed by work-order ID in `ServiceDeskState`. A technician can start a note, open another job and return without losing the first draft. `TextInput` sends edits to a reducer. **Add note** trims and validates the text before adding it to the selected work order. An empty note shows a useful message; a saved note appears in that order's history and clears only that order's draft.
+The input handler reads the current text event and updates only that order's draft. Adding a note trims and validates it, allocates a bounded local identifier and clears only the submitted draft. Rejected input stays available to correct. The test changes between two work orders and checks that neither draft is moved or cleared by the other's submission.
 
-The browser example keeps notes in app memory, so closing the preview resets the sample data. For durable storage or a service, keep the reducer boundary and request the work through an asynchronous effect or job. Then the UI can show loading or an error without blocking the desktop event loop. This tutorial keeps the workflow in memory so the state changes are easy to see and test.
+The note is appended to this session's history, not sent to a service. Without an authenticated operator and a trustworthy timestamp, it remains explicitly unattributed. Do not fill those fields with a fictional user or the preview's sample time.
 
+Search checks the reference, equipment description, location and requester. It keeps the selected order if that order still matches; otherwise it selects the first match or no order. A newly created order clears the old search so it cannot disappear behind a filter immediately. Searching with no matches produces an explanation, not an unrelated fallback detail panel.
 
 <Tabs>
-
-<TabItem label="Shared state, note and search reducers">
-
+<TabItem label="src/state.rs">
 <!-- fission:file path="src/state.rs" -->
 ```rust
-use crate::models::{InspectionStep, WorkOrderStatus};
+use crate::models::{InspectionCategory, InspectionStep, WorkOrder, WorkOrderPriority, WorkOrderStatus};
 use fission::prelude::*;
-use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum DeskFeedback {
+    Info(&'static str),
+    Error(&'static str),
+}
+impl DeskFeedback {
+    pub fn key(&self) -> &'static str {
+        match self { Self::Info(key) | Self::Error(key) => key }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorkOrderDraft {
+    pub title: String,
+    pub description: String,
+    pub location: String,
+    pub requested_by: String,
+    pub due_window: String,
+    pub due_today: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ServiceDeskState {
-    pub work_orders: Vec<crate::models::WorkOrder>,
+    pub work_orders: Vec<WorkOrder>,
     pub selected_work_order: Option<u32>,
-    pub note_drafts: HashMap<u32, String>,
+    pub feedback: Option<DeskFeedback>,
+    pub note_drafts: std::collections::HashMap<u32, String>,
     pub next_note_id: u64,
-    pub feedback: String,
-    pub feedback_is_error: bool,
     pub search_query: String,
 }
-
-impl Default for ServiceDeskState {
-    fn default() -> Self {
-        Self {
-            work_orders: Vec::new(),
-            selected_work_order: None,
-            note_drafts: HashMap::new(),
-            next_note_id: 1,
-            feedback: String::new(),
-            feedback_is_error: false,
-            search_query: String::new(),
-        }
-    }
-}
-
 impl GlobalState for ServiceDeskState {}
 
-#[fission_reducer(ToggleInspectionStep)]
-pub fn on_toggle_inspection_step(
-    state: &mut ServiceDeskState,
-    order_id: u32,
-    step_id: String,
-) {
-    let updated = state
-        .work_orders
-        .iter_mut()
-        .find(|order| order.id == order_id)
-        .and_then(|order| {
-            order.steps.iter_mut().find(|step| step.id == step_id.as_str()).map(|step| {
+impl ServiceDeskState {
+    pub fn feedback_key(&self) -> Option<&'static str> {
+        self.feedback.as_ref().map(DeskFeedback::key)
+    }
+    pub fn feedback_is_error(&self) -> bool {
+        matches!(self.feedback, Some(DeskFeedback::Error(_)))
+    }
+    pub fn create_order(&mut self, draft: WorkOrderDraft) -> bool {
+        if [&draft.title, &draft.description, &draft.location, &draft.requested_by, &draft.due_window]
+            .iter().any(|value| value.trim().is_empty() || value.chars().count() > 240)
+            || self.work_orders.len() >= 100
+        {
+            self.feedback = Some(DeskFeedback::Error("service_desk.create.invalid"));
+            return false;
+        }
+        let Some(id) = self.work_orders.iter().map(|order| order.id).max().unwrap_or(0).checked_add(1) else {
+            self.feedback = Some(DeskFeedback::Error("service_desk.create.limit"));
+            return false;
+        };
+        self.work_orders.push(WorkOrder {
+            id, reference: format!("WO-{id:04}"),
+            title: draft.title.trim().into(), description: draft.description.trim().into(),
+            location: draft.location.trim().into(), requested_by: draft.requested_by.trim().into(),
+            due_window: draft.due_window.trim().into(), due_today: draft.due_today,
+            priority: WorkOrderPriority::Normal, status: WorkOrderStatus::Open,
+            steps: vec![
+                InspectionStep { id: "inspection".into(), title_key: "service_desk.step.record_inspection".into(), category: InspectionCategory::Inspection, complete: false },
+                InspectionStep { id: "verification".into(), title_key: "service_desk.step.record_verification".into(), category: InspectionCategory::Verification, complete: false },
+            ],
+            shift_notes: Vec::new(),
+        });
+        self.selected_work_order = Some(id);
+        self.search_query.clear();
+        self.feedback = Some(DeskFeedback::Info("service_desk.create.created"));
+        true
+    }
+}
+impl ServiceDeskState {
+    pub fn toggle_step(&mut self, order_id: u32, step_id: &str) {
+        let result = self.work_orders.iter_mut().find(|order| order.id == order_id)
+            .ok_or("service_desk.feedback.order_missing")
+            .and_then(|order| {
+                if order.status == WorkOrderStatus::Closed {
+                    return Err("service_desk.feedback.order_closed");
+                }
+                let step = order.steps.iter_mut().find(|step| step.id == step_id)
+                    .ok_or("service_desk.feedback.step_missing")?;
                 step.complete = !step.complete;
-            })
-        })
-        .is_some();
-    state.feedback = if updated {
-        "service_desk.feedback.step_updated".to_string()
-    } else {
-        "service_desk.feedback.step_missing".to_string()
-    };
-    state.feedback_is_error = !updated;
-}
-
-#[fission_reducer(AdvanceWorkOrder)]
-pub fn on_advance_work_order(state: &mut ServiceDeskState, order_id: u32) {
-    let Some(order) = state.work_orders.iter_mut().find(|order| order.id == order_id) else {
-        state.feedback = "service_desk.feedback.order_missing".to_string();
-        state.feedback_is_error = true;
-        return;
-    };
-
-    let (feedback, is_error) = match order.status {
-        WorkOrderStatus::Open => {
-            order.status = WorkOrderStatus::InProgress;
-            ("service_desk.feedback.started", false)
-        }
-        WorkOrderStatus::WaitingForParts => {
-            order.status = WorkOrderStatus::InProgress;
-            ("service_desk.feedback.parts_received", false)
-        }
-        WorkOrderStatus::InProgress if order.steps.iter().all(|step| step.complete) => {
-            order.status = WorkOrderStatus::ReadyForPickup;
-            ("service_desk.feedback.ready", false)
-        }
-        WorkOrderStatus::InProgress => ("service_desk.feedback.checklist_incomplete", true),
-        WorkOrderStatus::ReadyForPickup => {
-            order.status = WorkOrderStatus::Closed;
-            ("service_desk.feedback.pickup_recorded", false)
-        }
-        WorkOrderStatus::Closed => ("service_desk.feedback.order_closed", true),
-    };
-    state.feedback = feedback.to_string();
-    state.feedback_is_error = is_error;
-}
-
-#[fission_reducer(UpdateShiftNoteDraft)]
-pub fn on_update_shift_note_draft(
-    state: &mut ServiceDeskState,
-    order_id: u32,
-    ctx: &mut ReducerContext<ServiceDeskState>,
-) {
-    let Some(change) = ctx.input.text_change() else {
-        return;
-    };
-    if change.new_text.is_empty() {
-        state.note_drafts.remove(&order_id);
-    } else {
-        state.note_drafts.insert(order_id, change.new_text.clone());
+                // Removing a completed check invalidates an earlier ready decision.
+                if !step.complete && order.status == WorkOrderStatus::ReadyForPickup {
+                    order.status = WorkOrderStatus::InProgress;
+                }
+                Ok("service_desk.feedback.step_updated")
+            });
+        self.feedback = Some(match result { Ok(key) => DeskFeedback::Info(key), Err(key) => DeskFeedback::Error(key) });
     }
-    state.feedback.clear();
-    state.feedback_is_error = false;
-}
 
-#[fission_reducer(AddShiftNote)]
-pub fn on_add_shift_note(state: &mut ServiceDeskState, order_id: u32) {
-    let message = state.note_drafts.get(&order_id).cloned().unwrap_or_default();
-    if message.trim().is_empty() {
-        state.feedback = "service_desk.feedback.note_empty".to_string();
-        state.feedback_is_error = true;
-        return;
+    pub fn advance_order(&mut self, order_id: u32) {
+        let Some(order) = self.work_orders.iter_mut().find(|order| order.id == order_id) else {
+            self.feedback = Some(DeskFeedback::Error("service_desk.feedback.order_missing"));
+            return;
+        };
+        let checks_complete = !order.steps.is_empty() && order.steps.iter().all(|step| step.complete);
+        let result = match order.status {
+            WorkOrderStatus::Open => { order.status = WorkOrderStatus::InProgress; Ok("service_desk.feedback.started") }
+            WorkOrderStatus::WaitingForParts => { order.status = WorkOrderStatus::InProgress; Ok("service_desk.feedback.parts_received") }
+            WorkOrderStatus::InProgress if checks_complete => { order.status = WorkOrderStatus::ReadyForPickup; Ok("service_desk.feedback.ready") }
+            WorkOrderStatus::InProgress => Err("service_desk.feedback.checklist_incomplete"),
+            WorkOrderStatus::ReadyForPickup if checks_complete => { order.status = WorkOrderStatus::Closed; Ok("service_desk.feedback.pickup_recorded") }
+            WorkOrderStatus::ReadyForPickup => {
+                order.status = WorkOrderStatus::InProgress;
+                Err("service_desk.feedback.checklist_incomplete")
+            }
+            WorkOrderStatus::Closed => Err("service_desk.feedback.order_closed"),
+        };
+        self.feedback = Some(match result { Ok(key) => DeskFeedback::Info(key), Err(key) => DeskFeedback::Error(key) });
     }
-    let Some(order_index) = state.work_orders.iter().position(|order| order.id == order_id) else {
-        state.feedback = "service_desk.feedback.order_missing".to_string();
-        state.feedback_is_error = true;
-        return;
-    };
-    let note_id = format!("shift-note-{}", state.next_note_id);
-    state.next_note_id += 1;
-    state.work_orders[order_index]
-        .shift_notes
-        .push(crate::models::ShiftNote::draft(note_id, message.trim().to_string()));
-    state.note_drafts.remove(&order_id);
-    state.feedback = "service_desk.feedback.note_added".to_string();
-    state.feedback_is_error = false;
 }
 
 pub fn completed_steps(steps: &[InspectionStep]) -> usize {
     steps.iter().filter(|step| step.complete).count()
 }
-
-#[fission_reducer(UpdateWorkOrderSearch)]
-pub fn on_update_work_order_search(
-    state: &mut ServiceDeskState,
-    ctx: &mut ReducerContext<ServiceDeskState>,
-) {
-    if let Some(change) = ctx.input.text_change() {
-        let query = change.new_text.clone();
-        if let Some(order) = state
-            .work_orders
-            .iter()
-            .find(|order| order.matches_search(&query))
-        {
-            state.selected_work_order = Some(order.id);
+impl ServiceDeskState {
+    pub fn update_note_draft(&mut self, order_id: u32, text: String) {
+        if !self.work_orders.iter().any(|order| order.id == order_id) || text.chars().count() > 1000 {
+            return;
         }
-        state.search_query = query;
-        state.feedback.clear();
-        state.feedback_is_error = false;
+        if text.is_empty() { self.note_drafts.remove(&order_id); }
+        else { self.note_drafts.insert(order_id, text); }
+        self.feedback = None;
+    }
+    pub fn add_note(&mut self, order_id: u32) {
+        let message = self.note_drafts.get(&order_id).map(String::as_str).unwrap_or("").trim().to_owned();
+        if message.is_empty() || message.chars().count() > 1000 {
+            self.feedback = Some(DeskFeedback::Error("service_desk.feedback.note_empty"));
+            return;
+        }
+        let Some(order) = self.work_orders.iter_mut().find(|order| order.id == order_id) else {
+            self.feedback = Some(DeskFeedback::Error("service_desk.feedback.order_missing"));
+            return;
+        };
+        let Some(next_id) = self.next_note_id.checked_add(1).filter(|_| order.shift_notes.len() < 200) else {
+            self.feedback = Some(DeskFeedback::Error("service_desk.create.limit"));
+            return;
+        };
+        order.shift_notes.push(crate::models::ShiftNote::draft(format!("local-note-{}", self.next_note_id), message));
+        self.next_note_id = next_id;
+        self.note_drafts.remove(&order_id);
+        self.feedback = Some(DeskFeedback::Info("service_desk.feedback.note_added"));
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn draft() -> WorkOrderDraft {
+        WorkOrderDraft { title: "Inspect scanner dock".into(), description: "Power disconnects when moved".into(), location: "Receiving".into(), requested_by: "Rosa".into(), due_window: "Before Friday handoff".into(), due_today: false }
+    }
+    #[test]
+    fn creation_uses_distinct_ids_and_starts_with_unfinished_checks() {
+        let mut state = ServiceDeskState::default();
+        assert!(state.create_order(draft()));
+        assert!(state.create_order(draft()));
+        assert_ne!(state.work_orders[0].id, state.work_orders[1].id);
+        assert_eq!(state.selected_work_order, Some(state.work_orders[1].id));
+        assert!(state.work_orders.iter().all(|order| order.status == WorkOrderStatus::Open && order.steps.iter().all(|step| !step.complete)));
+    }
+    #[test]
+    fn a_blank_field_and_exhausted_id_do_not_create_an_order() {
+        let mut state = ServiceDeskState::default();
+        assert!(!state.create_order(WorkOrderDraft::default()));
+        assert!(state.work_orders.is_empty());
+        assert!(state.create_order(draft()));
+        state.work_orders[0].id = u32::MAX;
+        assert!(!state.create_order(draft()));
+        assert_eq!(state.work_orders.len(), 1);
+    }
+    #[test]
+    fn handoff_requires_checks_and_closed_checks_cannot_change() {
+        let mut state = ServiceDeskState::default();
+        state.create_order(draft());
+        let id = state.work_orders[0].id;
+        state.advance_order(id);
+        state.advance_order(id);
+        assert_eq!(state.work_orders[0].status, WorkOrderStatus::InProgress);
+        assert!(state.feedback_is_error());
+        state.toggle_step(id, "inspection");
+        state.toggle_step(id, "verification");
+        state.advance_order(id);
+        assert_eq!(state.work_orders[0].status, WorkOrderStatus::ReadyForPickup);
+        state.toggle_step(id, "verification");
+        assert_eq!(state.work_orders[0].status, WorkOrderStatus::InProgress);
+        state.advance_order(id);
+        assert_eq!(state.work_orders[0].status, WorkOrderStatus::InProgress);
+        state.toggle_step(id, "verification");
+        state.advance_order(id);
+        state.advance_order(id);
+        let closed = state.work_orders[0].clone();
+        state.toggle_step(id, "inspection");
+        state.advance_order(id);
+        assert_eq!(state.work_orders[0], closed);
+    }
+    #[test]
+    fn absent_records_and_empty_checklists_cannot_pass_handoff() {
+        let mut state = ServiceDeskState::default();
+        state.create_order(draft());
+        let original = state.work_orders[0].clone();
+        state.toggle_step(99, "inspection");
+        state.advance_order(99);
+        assert_eq!(state.work_orders[0], original);
+        state.work_orders[0].status = WorkOrderStatus::InProgress;
+        state.work_orders[0].steps.clear();
+        state.advance_order(1);
+        assert_ne!(state.work_orders[0].status, WorkOrderStatus::ReadyForPickup);
+    }
+    #[test]
+    fn submitting_one_note_does_not_clear_another_orders_draft() {
+        let mut state = ServiceDeskState::default();
+        state.create_order(draft()); state.create_order(draft());
+        state.update_note_draft(1, " First repair note ".into());
+        state.update_note_draft(2, "Second draft".into());
+        state.add_note(1);
+        assert_eq!(state.work_orders[0].shift_notes[0].message, "First repair note");
+        assert!(!state.note_drafts.contains_key(&1));
+        assert_eq!(state.note_drafts.get(&2).unwrap(), "Second draft");
+        assert!(state.work_orders[1].shift_notes.is_empty());
+    }
+    #[test]
+    fn rejected_notes_preserve_the_draft_and_do_not_invent_attribution() {
+        let mut state = ServiceDeskState::default();
+        state.create_order(draft());
+        state.update_note_draft(1, " ".into());
+        state.add_note(1);
+        assert_eq!(state.note_drafts.get(&1).unwrap(), " ");
+        assert!(state.work_orders[0].shift_notes.is_empty());
+        state.update_note_draft(1, "Verified the replacement lead".into());
+        state.add_note(1);
+        let note = &state.work_orders[0].shift_notes[0];
+        assert!(note.author.is_none() && note.time.is_none());
     }
 }
 ```
-
 </TabItem>
-
-<TabItem label="Note row and detail editor">
-
+<TabItem label="src/components/shift_note_row.rs">
 <!-- fission:file path="src/components/shift_note_row.rs" -->
 ```rust
 use crate::models::ShiftNote;
@@ -1558,7 +1886,7 @@ fission_component! {
     view(row, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let attribution = match (&row.note.author, &row.note.time) {
-            (Some(author), Some(time)) => format!("{} at {}", author, time),
+            (Some(author), Some(time)) => format!("{} · {}", author, time),
             _ => cx.tr("service_desk.shift_notes.draft"),
         };
         let author_initials = row.note.author.as_ref().map(|author| {
@@ -1580,15 +1908,13 @@ fission_component! {
     )
 }
 ```
-
+</TabItem>
+<TabItem label="src/components/work_order_detail_panel.rs">
 <!-- fission:file path="src/components/work_order_detail_panel.rs" -->
 ```rust
 use crate::components::{InspectionStepRow, ShiftNoteRow};
 use crate::models::{WorkOrder, WorkOrderStatus};
-use crate::state::{
-    completed_steps, on_add_shift_note, on_advance_work_order, on_update_shift_note_draft,
-    AddShiftNote, AdvanceWorkOrder, ServiceDeskState, UpdateShiftNoteDraft,
-};
+use crate::state::{completed_steps, ServiceDeskState};
 use fission::prelude::*;
 
 fission_component! {
@@ -1607,11 +1933,6 @@ fission_component! {
         };
         let can_advance = panel.order.status != WorkOrderStatus::Closed;
         let note_draft = state.note_drafts.get(&panel.order.id).cloned().unwrap_or_default();
-        let note_input = with_reducer!(
-            cx.build,
-            UpdateShiftNoteDraft(panel.order.id),
-            on_update_shift_note_draft,
-        );
     } =>
     Container(
         Column(gap: tokens.spacing.l, children: [
@@ -1695,26 +2016,31 @@ fission_component! {
                     min_lines: Some(3),
                     max_lines: Some(5),
                     max_length: Some(1000),
-                    on_input: note_input,
+                    key: "edit-shift-note",
+                    on_input: reduce {
+                        if let Some(change) = cx.input.text_change() {
+                            state.update_note_draft(panel.order.id, change.new_text.clone());
+                        }
+                    },
                     semantics_identifier: format!("work-order.{}.note-draft", panel.order.id),
                 ),
                 Button(
                     child: Text(cx.tr("service_desk.shift_notes.add")),
-                    key: format!("add-shift-note-{}", panel.order.id),
+                    key: "add-shift-note",
                     variant: ButtonVariant::Outline,
-                    on_press: with_reducer!(cx.build, AddShiftNote(panel.order.id), on_add_shift_note),
+                    on_press: reduce { state.add_note(panel.order.id); },
                 )
                 .semantics_identifier(format!("service-desk.add-shift-note.{}", panel.order.id)),
             ]),
-            if !state.feedback.is_empty() {
+            if !state.feedback.is_none() {
                 SemanticsRegion(
-                    identifier: Some(if state.feedback_is_error {
+                    identifier: Some(if state.feedback_is_error() {
                         "service-desk.feedback-error".to_string()
                     } else {
                         "service-desk.feedback".to_string()
                     }),
-                    label: Some(cx.tr(state.feedback.as_str())),
-                    child: Text(cx.tr(state.feedback.as_str())).color(if state.feedback_is_error {
+                    label: Some(cx.tr(state.feedback_key().unwrap_or(""))),
+                    child: Text(cx.tr(state.feedback_key().unwrap_or(""))).color(if state.feedback_is_error() {
                         tokens.colors.error
                     } else {
                         tokens.colors.text_secondary
@@ -1728,12 +2054,8 @@ fission_component! {
             if can_advance {
                 Button(
                     child: Text(next_action),
-                    key: format!("advance-work-order-{}", panel.order.id),
-                    on_press: with_reducer!(
-                        cx.build,
-                        AdvanceWorkOrder(panel.order.id),
-                        on_advance_work_order,
-                    ),
+                    key: "advance-work-order",
+                    on_press: reduce { state.advance_order(panel.order.id); },
                 )
                 .semantics_identifier(format!("service-desk.advance-order.{}", panel.order.id))
             } else if panel.order.status == WorkOrderStatus::Closed {
@@ -1747,14 +2069,8 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
-
 </TabItem>
-
-</Tabs>
-<Tabs>
-
-<TabItem label="Search matching work orders">
-
+<TabItem label="src/models.rs">
 <!-- fission:file path="src/models.rs" -->
 ```rust
 use serde::{Deserialize, Serialize};
@@ -1779,15 +2095,6 @@ impl WorkOrderStatus {
         }
     }
 
-    pub fn search_term(self) -> &'static str {
-        match self {
-            Self::Open => "open",
-            Self::InProgress => "in progress",
-            Self::WaitingForParts => "waiting for parts",
-            Self::ReadyForPickup => "ready for pickup",
-            Self::Closed => "closed",
-        }
-    }
 
 }
 
@@ -1824,12 +2131,6 @@ impl WorkOrderPriority {
         }
     }
 
-    fn search_term(self) -> &'static str {
-        match self {
-            Self::High => "high",
-            Self::Normal => "normal",
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1887,16 +2188,14 @@ impl WorkOrder {
             self.description.as_str(),
             self.location.as_str(),
             self.requested_by.as_str(),
-            self.priority.search_term(),
-            self.status.search_term(),
         ]
         .iter()
         .any(|field| field.to_lowercase().contains(&query))
     }
 }
-
 ```
-
+</TabItem>
+<TabItem label="src/components/mod.rs">
 <!-- fission:file path="src/components/mod.rs" -->
 ```rust
 mod work_order_search;
@@ -1914,36 +2213,47 @@ pub use metric_card::MetricCard;
 pub use shift_note_row::ShiftNoteRow;
 pub use work_order_detail_panel::WorkOrderDetailPanel;
 pub use work_order_queue_card::WorkOrderQueueCard;
+mod new_work_order;
+pub use new_work_order::NewWorkOrder;
 ```
-
+</TabItem>
+<TabItem label="src/components/work_order_search.rs">
 <!-- fission:file path="src/components/work_order_search.rs" -->
 ```rust
 use crate::state::ServiceDeskState;
 use fission::prelude::*;
 
 fission_component! {
-    pub WorkOrderSearch<ServiceDeskState> {
-        props {
-            query: String,
-            on_input: ActionEnvelope,
-        }
-    }
-    view(search, _state, cx) {} =>
+    pub WorkOrderSearch<ServiceDeskState> {}
+    view(_search, state, cx) {} =>
     TextInput(
-        value: search.query,
+        value: state.search_query.clone(),
         label: Some(cx.tr("service_desk.search.label").into()),
         placeholder: Some(cx.tr("service_desk.search.placeholder").into()),
-        on_input: search.on_input,
-        semantics_identifier: "service-desk.search-work-orders".to_string(),
+        key: "search-work-orders",
+        on_input: reduce {
+            if let Some(change) = cx.input.text_change() {
+                state.search_query = change.new_text.clone();
+                if !state.work_orders.iter().any(|order|
+                    Some(order.id) == state.selected_work_order && order.matches_search(&state.search_query))
+                {
+                    state.selected_work_order = state.work_orders.iter()
+                        .find(|order| order.matches_search(&state.search_query)).map(|order| order.id);
+                }
+                state.feedback = None;
+            }
+        },
+        semantics_identifier: "service-desk.search-work-orders".to_owned(),
     )
 }
 ```
-
+</TabItem>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
-use crate::components::{MetricCard, ServiceDeskSidebar, WorkOrderDetailPanel, WorkOrderQueueCard, WorkOrderSearch};
+use crate::components::{NewWorkOrder, MetricCard, ServiceDeskSidebar, WorkOrderDetailPanel, WorkOrderQueueCard, WorkOrderSearch};
 use crate::models::WorkOrderStatus;
-use crate::state::{on_update_work_order_search, ServiceDeskState, UpdateWorkOrderSearch};
+use crate::state::ServiceDeskState;
 use fission::prelude::*;
 
 fission_component! {
@@ -1977,8 +2287,7 @@ fission_component! {
         let selected_order = state.work_orders
             .iter()
             .find(|order| Some(order.id) == state.selected_work_order)
-            .or_else(|| state.work_orders.first());
-        let search_input = with_reducer!(cx.build, UpdateWorkOrderSearch, on_update_work_order_search);
+            ;
         let visible_order_count = state.work_orders.iter().filter(|order| order.matches_search(&state.search_query)).count();
         let queue_count_label = if state.search_query.trim().is_empty() {
             format!("{} {}", state.work_orders.len(), cx.tr("service_desk.work_orders"))
@@ -2009,7 +2318,7 @@ fission_component! {
                                     Text(format!("{} / {}", cx.tr("service_desk.navigation.operations"), cx.tr("service_desk.title")))
                                         .color(tokens.colors.text_secondary),
                                     Spacer(flex_grow: 1.0),
-                                    Container(WorkOrderSearch(state.search_query.clone(), search_input))
+                                    Container(WorkOrderSearch())
                                         .width_length(search_width)
                                 ],
                             ),
@@ -2018,6 +2327,7 @@ fission_component! {
                         .bg(tokens.colors.surface),
                         Container(
                             Column(gap: tokens.spacing.l, children: [
+                                NewWorkOrder(),
                                 Row(
                                     gap: tokens.spacing.m,
                                     wrap: ir_op::FlexWrap::Wrap,
@@ -2079,11 +2389,7 @@ fission_component! {
                                                     .color(tokens.colors.text_secondary),
                                                 Column(gap: tokens.spacing.s, children: [
                                                     if state.work_orders.is_empty() {
-                                                        Widget::from(EmptyState {
-                                                            title: cx.tr("service_desk.empty.title"),
-                                                            description: Some(cx.tr("service_desk.empty.description")),
-                                                            ..Default::default()
-                                                        })
+                                                        EmptyState(title: cx.tr("service_desk.empty.title"), description: Some(cx.tr("service_desk.empty.description")))
                                                     } else {
                                                         for order in state.work_orders.iter().filter(|order| order.matches_search(&state.search_query)).cloned() {
                                                             WorkOrderQueueCard(
@@ -2111,20 +2417,12 @@ fission_component! {
                                         .flex_grow(1.0)
                                         .width_length(panel_width.clone()),
                                         Container(if state.work_orders.is_empty() {
-                                            Widget::from(EmptyState {
-                                                title: cx.tr("service_desk.empty.title"),
-                                                description: Some(cx.tr("service_desk.empty.description")),
-                                                ..Default::default()
-                                            })
+                                            EmptyState(title: cx.tr("service_desk.empty.title"), description: Some(cx.tr("service_desk.empty.description")))
                                         } else if visible_order_count > 0 {
                                             if let Some(order) = selected_order {
-                                                WorkOrderDetailPanel(order.clone())
+                                                WorkOrderDetailPanel(order.clone(), key: order.id)
                                             } else {
-                                                Widget::from(EmptyState {
-                                                    title: cx.tr("service_desk.search.detail_empty"),
-                                                    description: Some(cx.tr("service_desk.search.detail_empty_detail")),
-                                                    ..Default::default()
-                                                })
+                                                EmptyState(title: cx.tr("service_desk.search.detail_empty"), description: Some(cx.tr("service_desk.search.detail_empty_detail")))
                                             }
                                         } else {
                                             Container(Column(gap: tokens.spacing.s, children: [
@@ -2155,70 +2453,30 @@ fission_component! {
     .bg(tokens.colors.background)
 }
 ```
-
 </TabItem>
-
 </Tabs>
-
-Search is the last piece of the workspace. It checks the reference, equipment description, location, requester, priority and status, so staff can start with whatever information they have. As the query changes, the first matching job is selected. If there is no match, the queue says so and the detail panel offers a way to clear the search.
-
-The draft stays keyed by work-order ID, so a search or selection change cannot attach it to the wrong repair. The browser preview and desktop window use the same reducers.
-
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Search for `scanner dock` and record the parts update. Return to WO-2483, add a shift note for the next technician, complete its remaining inspections, and mark it ready for pickup. Try adding a blank note and a search with no matches; both states should explain how to recover.
+Start a note on one order, open another and start a second note. Return and submit the first: the second draft must remain. Try a blank note and a search with no matches. Repeat at a narrow viewport and check the Spanish labels.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-The final screen and search component are above. Add the module declarations and desktop launch function to the generated library, then run the app. A fresh `fission init` project already has a `main.rs` that calls this function.
-
-<Tabs>
-<TabItem label="src/lib.rs">
-
-```rust
-pub mod app;
-pub mod components;
-pub mod models;
-pub mod state;
-pub mod translations;
-
-use app::WorkOrderDesk;
-use fission::prelude::*;
-use state::ServiceDeskState;
-
-pub fn run_desktop() -> anyhow::Result<()> {
-    DesktopApp::<ServiceDeskState, _>::new(WorkOrderDesk::new())
-        .with_env(translations::create_env())
-        .run()
-}
-```
-
-</TabItem>
-<TabItem label="Run and check the desktop app">
+## Run the native app
 
 ```sh
-cargo fmt --all -- --check
-cargo test
+cargo test --lib
+fission doctor --project-dir .
 fission run --project-dir .
 ```
 
-</TabItem>
-<TabItem label="Build a Linux desktop package">
+The tests check creation, identifiers, missing records, handoff rules, corrections to a ready checklist and order-specific notes. They do not prove the rendered layout. Exercise creation, selection, rejected transitions and long notes in the native window, and resize it while the detail panel is open.
 
-```sh
-fission build --target linux --project-dir .
-fission test --target linux --project-dir .
-```
-
-</TabItem>
-</Tabs>
-
-Search for the scanner dock and record the parts update. Then return to the conveyor motor, add a shift note, finish its inspections and mark it ready for pickup. The sample records stay in memory so you can inspect each transition. A production app can connect the same reducer actions to storage or a service.
+To keep records after restart, request repository writes through asynchronous effects. Retain a note draft while its write is pending and report durable success only after the repository accepts it. Authentication, authorisation and equipment-specific safety evidence also belong to that complete workflow; the example does not manufacture them.
 
 ## Where to go next
 
-- [Desktop target reference](/reference/platform/targets/) explains how shared app code runs inside the desktop host.
-- [Platform capabilities](/reference/core/platform-capabilities/) explains how to request host work without starting it during component conversion.
-- [Filesystem capability](/reference/capabilities/file-system/) covers native file access and target-specific behaviour for local documents.
-- [Testing and diagnostics](/reference/core/testing-and-diagnostics/) shows how to check real user flows on a target.
+- [Desktop targets](/reference/platform/targets/) covers the native shells.
+- [Platform capabilities](/reference/core/platform-capabilities/) covers host work.
+- [Filesystem capability](/reference/capabilities/file-system/) explains native file access.
+- [Testing and diagnostics](/reference/core/testing-and-diagnostics/) covers user-flow checks.

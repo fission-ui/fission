@@ -5,10 +5,13 @@ description: Reference for the Fission test-control /cmd protocol, selector quer
 
 # LiveTest command API
 
-Fission live tests drive a running app through an HTTP test-control server. The server is enabled by launching a supported shell with `FISSION_TEST_CONTROL_PORT=<port>`.
+LiveTest separates the app from the process driving it. A native test-control
+server accepts commands, applies them to the running app and returns semantic
+state or screenshots. Enable it on a supported native shell with
+`FISSION_TEST_CONTROL_PORT=<port>`; for example, from the Fission checkout:
 
 ```bash
-FISSION_TEST_CONTROL_PORT=9876 cargo run --example counter
+FISSION_TEST_CONTROL_PORT=9876 cargo run -p counter
 ```
 
 The protocol has two endpoints:
@@ -25,6 +28,33 @@ Every `/cmd` payload is tagged by the exact `cmd` variant name:
 ```
 
 `LiveTestClient` in `fission-test-driver` wraps this protocol for Rust tests. Direct `/cmd` calls are still useful for manual QA, screenshot capture, CI diagnostics, and non-Rust clients.
+
+For that counter, inspect the tree before choosing an action, then wait for the
+result rather than sleeping for an arbitrary interval:
+
+```bash
+curl --fail --silent --show-error http://127.0.0.1:9876/health
+curl --fail --silent --show-error http://127.0.0.1:9876/cmd \
+  -H 'Content-Type: application/json' -d '{"cmd":"GetTree"}'
+curl --fail --silent --show-error http://127.0.0.1:9876/cmd \
+  -H 'Content-Type: application/json' \
+  -d '{"cmd":"TapSelector","query":{"selector":{"kind":"semantic_identifier","identifier":"counter.increment"}}}'
+curl --fail --silent --show-error http://127.0.0.1:9876/cmd \
+  -H 'Content-Type: application/json' \
+  -d '{"cmd":"WaitForText","text":"1","timeout_ms":5000}'
+```
+
+Keep test control out of production launches. When the shell is configured with
+`.with_test_control_token(...)`, every request, including `/health`, must carry
+`Authorization: Bearer <token>`. Rust tests can use
+`LiveTestClient::connect_authenticated(port, token)`. Obtain the token from
+private test configuration rather than embedding it in source or logs.
+
+Browser tests use `LiveTestClient::launch_browser(...)` to own a Chromium page;
+they do not start this native TCP server inside the browser. A normal DOM site
+needs no Fission bridge. A canvas-rendered Web app must be compiled with
+`FISSION_WEB_TEST_CONTROL=1` and selected with `.fission_canvas()` on its browser
+test options.
 
 ## Selector queries
 
@@ -452,8 +482,10 @@ against a Web build compiled with `FISSION_WEB_TEST_CONTROL=1` (for example,
 the existing Web server or your test host. Raw Web bridge dispatch has
 no Chromium control: it returns `Error` with `unsupported_host` and that exact
 driver path without changing runtime dimensions. Static DOM uses
-`BrowserTestOptions::new(url)` and requires no bridge. Other DOM semantic
-commands remain unsupported. Capture with `client.capture_screenshot_png()`;
+`BrowserTestOptions::new(url)` and requires no bridge. The generic DOM transport
+also supports semantic selectors, text input, activation and waits through its
+browser driver; it does not expose a canvas app's internal retained tree.
+Capture with `client.capture_screenshot_png()`;
 PNG dimensions use the configured device scale, so a 360×844 CSS viewport at
 scale 3 produces 1080×2532 pixels. Content still needs visual review.
 
@@ -471,7 +503,10 @@ For stable end-to-end tests:
 2. `WaitForVisible` on a stable semantic identifier.
 3. Selector action such as `FillText`, `TapSelector`, or `ActivateSelector`.
 4. `WaitForValue`, `WaitForText`, `WaitForGone`, or `GetTree` assertion.
-5. `CaptureScreenshot` only when visual evidence is required.
-6. `Quit` during teardown.
+5. `WaitForIdle` before visual assertions; decide explicitly whether repeating
+   motion should be ignored.
+6. `CaptureScreenshot` when visual evidence is required, then inspect the image.
+7. `Quit` during teardown of a native app owned by the test; drop the owned
+   browser client for browser teardown.
 
 Avoid fixed `Wait` sleeps unless you are debugging timing itself.

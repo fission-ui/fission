@@ -15,27 +15,32 @@ value, and the next build passes it back to the widget.
 ```rust
 use fission::prelude::*;
 
-#[fission_reducer(SetEmail)]
-fn set_email(state: &mut SettingsState, ctx: &mut ReducerContext<SettingsState>) {
-    let Some(change) = ctx.input.text_change() else {
-        return;
-    };
-    state.email = change.new_text.clone();
-}
+#[derive(Debug, Default)]
+pub struct SettingsState { email: String }
+impl GlobalState for SettingsState {}
 
-let widget: Widget = TextInput {
-    value: view.state().email.clone(),
-    label: Some("Email address".into()),
-    placeholder: Some("name@example.com".into()),
-    on_input: Some(ctx.bind(SetEmail, reduce_with!(set_email))),
-    on_submit: Some(save_email_action),
-    width: Some(320.0),
-    ..Default::default()
+fission_component! {
+    pub EmailField<SettingsState> {
+        props { save_email: ActionEnvelope }
+    }
+
+    view(field, state, cx) =>
+        TextInput(
+            id: WidgetId::explicit("account.email"),
+            semantics_identifier: Some("account.email".into()),
+            label: Some(TextContent::Literal(cx.tr("account.email"))),
+            placeholder: Some("name@example.com".into()),
+            keyboard_type: TextInputType::EmailAddress,
+            bind: state.email,
+            on_submit: field.save_email.clone(),
+        )
 }
-.into();
 ```
 
-The runtime preserves `SetEmail` and exposes the live edit through
+The short binding generates the email-update path. The parent supplies an action
+already bound to its save reducer; that reducer reads the current email, validates
+it, and queues any remote save rather than blocking the field. At the lower-level
+API, the runtime preserves the bound action and exposes the live edit through
 `ctx.input.text_change()`. The returned `UpdateTextInput` contains `new_text`,
 `node_id`, `new_caret`, and `new_anchor`. An action can therefore remain a unit
 action or carry stable application context such as a field or row identity.
@@ -231,16 +236,17 @@ fn update_field(
 }
 ```
 
-The widget binds `UpdateField(field.clone())` to `on_input`. Static site and
-plain SSR output do not run reducers; use a browser island when the field must
-remain interactive in generated HTML.
+The widget binds `UpdateField(field.clone())` to `on_input`. Plain HTML fields
+remain natively editable without an island. Per-keystroke Fission reducers need
+the SSR interaction path or an island; ordinary signed server-form submission
+can run its registered server reducer without a full Web app.
 
 ## Target behavior
 
 | Behavior | macOS / Windows / Linux | Android / iOS | Web | Static site / SSR | Terminal |
 | --- | --- | --- | --- | --- | --- |
 | Controlled value and selection | Fission editing session | Fission editing session | Fission session mirrored into a hidden native text control | Native HTML control | Terminal editor state |
-| IME/composition | Host IME events | Software-keyboard IME events | Composition events plus complete `input` reconciliation | Browser-native when hydrated | Not advertised |
+| IME/composition | Host IME events | Software-keyboard IME events | Composition events plus complete `input` reconciliation | Browser-native; no hydration required | Not advertised |
 | Autocorrect and autofill | Host support where available | Platform keyboard/service | Browser textarea adapter | Native HTML attributes | Not advertised |
 | Keyboard intent and return action | Host-supported configuration | Platform-supported configuration | `inputmode` and `enterkeyhint` | Native HTML attributes | Explicitly unsupported where unavailable |
 | Validation semantics | AccessKit required/invalid/description and live error announcements | AccessKit and semantic field contract | Focused native-control ARIA contract | `required`, length, `pattern`, and ARIA association | Textual application presentation |
@@ -270,6 +276,12 @@ width comes from the parent unless `width` is set. Prefer parent constraints and
 test long labels, validation messages, increased text scale, and multiline
 content at narrow widths. Prefix and suffix widgets consume room inside the
 field and should stay compact enough to leave the editable value usable.
+
+A visible `error_text` marks and paints a failure but does not, on its own,
+fill native `validation_message`. Use `FormControl(error: ...)` to attach the
+error to the real field, or supply the same derived message explicitly as
+`validation_message`. Verify the actual invalid/description relationship rather
+than assuming red text is enough.
 
 ## Specific advice
 

@@ -16,10 +16,12 @@ Use `Align` when centering is the main job. Do not use it for multi-child layout
 
 ```rust
 use fission::prelude::*;
-let widget: Widget = Align::new(
-    Text::new("Nothing here yet").into(),
-)
-.into();
+
+fission_component! {
+    pub LoadingPanel<()>
+    view(_panel, _state, cx) =>
+    Align(Spinner(motion: SpinnerMotion::Default, label: cx.tr("loading.content")))
+}
 ```
 
 The child keeps its own natural size. `Align` changes where that child sits inside the parent, not what the child renders.
@@ -39,15 +41,17 @@ If you want the same centering behavior through a higher-level convenience widge
 
 ## Specific advice
 
-`Align` is a good choice when you want intent to be obvious in code. A centered child inside an `Align` is easier to read than manually building containers and spacers to fake centering.
+An extra row of spacers makes centering depend on their flex constraints.
+`Align` expresses that relationship directly: it positions one naturally sized
+child within the space the parent actually offers.
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Verify both a bounded panel and an unbounded scroll axis; they do not offer
+  the same space to centre within.
+- Check increased text scale and a child wider than the available parent.
+- Keep the child's semantics and input behaviour; centering should not add
+  another focus stop.
 
 ## Related
 

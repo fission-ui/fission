@@ -1,94 +1,75 @@
 ---
 title: Capacity bars
 sidebar_label: Capacity bars
-description: Fission Charts reference for Capacity bars.
+description: Compare usage against a known shared limit with visible background tracks.
 ---
 
 # Capacity bars
 
 ![Capacity bars screenshot](/img/charts/bar-capacity.png)
 
-Bars drawn inside visible capacity tracks. Use it for quota and inventory screens. The screenshot is from Fission's chart gallery.
+A usage value and a limit answer different questions. A bar shows what is used; its background track shows how much is available. This works well for storage quotas or inventory locations with the same capacity because the end of each track then has a consistent meaning.
 
-## What the chart is for
+Do not use the current maximum reading as the capacity. That makes the busiest location appear full regardless of its real limit.
 
-This chart is in the **Bar** family. Use it when a visual makes the pattern easier to spot.
+## One scale, one limit
 
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `BarSeries plus maximum axis and background`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, BarSeries, Chart};
-
-let chart = Chart::new()
-    .title("Orders")
-    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-    .y_axis(Axis::value())
-    .series(vec![BarSeries::new("Orders")
-        .data(vec![120.0, 156.0, 184.0, 212.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+The example assumes each location has the same positive capacity and that the supplied usage values are finite and within it. Validate that contract before constructing the chart. If limits differ, normalise the data into a clearly labelled percentage or show the separate limits; identical tracks must not imply identical capacities when that is untrue.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, BarSeries, Chart};
+use fission::core::op::Color;
+use fission::charts::{Axis, BarSeries, Chart, Series};
 
+#[derive(Clone)]
+pub struct LocationUsage {
+    pub location: String,
+    pub used: f32,
+}
 
-
-fission_component!
-{
-    pub CapacityBarsChart<()> {
+fission_component! {
+    pub StorageCapacityChart<()> {
+        props {
+            title: String,
+            used_label: String,
+            unit_label: String,
+            capacity: f32,
+            track_color: Color,
+            rows: Vec<LocationUsage>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Orders")
-                    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-                    .y_axis(Axis::value())
-                    .series(vec![BarSeries::new("Orders")
-                        .data(vec![120.0, 156.0, 184.0, 212.0])
-                        .into()])
-                    .into()
-    }
+    view(storage, _state, _cx) {
+        let labels = storage.rows.iter().map(|row| row.location.as_str()).collect();
+        let used = storage.rows.iter().map(|row| row.used).collect();
+    } => Chart(
+        title: Some(storage.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value()
+            .min(0.0)
+            .max(storage.capacity)
+            .name(storage.unit_label.clone())),
+        series: vec![
+            Series::Bar(BarSeries::new(&storage.used_label)
+                .background(storage.track_color)
+                .data(used)),
+        ],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Enable Fission's `charts` feature. `BarSeries::background(Color)` draws the track across the plot's numeric range; `Axis::max(f32)` makes the top of that range the shared capacity. The track colour is supplied by the parent from its design system, not fixed inside this reusable component.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## Handle exceptional readings explicitly
+
+A reading above capacity may indicate over-allocation or bad source data. Do not clamp it down to the limit and present the result as healthy usage. This bounded-track presentation is intended for valid in-range values; show the exceptional condition in the surrounding UI or choose a comparison which can display it honestly.
+
+The same applies to missing readings. No reading means unavailable, not empty. Load data through effects and reducers, then render this chart only when the required measurements and limit are available.
+
+## Accessibility and checks
+
+Include the usage, capacity and unit in accessible text or a table. The length of a track is not an adequate replacement for those values.
+
+Test zero usage, exact capacity, missing data and a rejected above-capacity reading. Inspect the chart with long location names and at narrow widths. The screenshot is the gallery fixture rather than output from this component's props.
 
 Tags: `bar`, `capacity`.
 

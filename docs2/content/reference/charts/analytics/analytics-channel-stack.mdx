@@ -1,95 +1,66 @@
 ---
 title: Channel stack
 sidebar_label: Channel stack
-description: Fission Charts reference for Channel stack.
+description: Compare mutually exclusive acquisition channels within each reporting period using stacked bars.
 ---
 
 # Channel stack
 
 ![Channel stack screenshot](/img/charts/analytics-channel-stack.png)
 
-This example uses Fission Charts' typed Rust API. Use it for acquisition mix. The screenshot is from Fission's chart gallery.
+The total number of new accounts tells us whether acquisition is changing. A channel stack adds a second question: which sources account for that change?
 
-## What the chart is for
+The stack only makes sense if its parts can be added. Assign each account to one channel under an explicit attribution rule; putting the same account in both paid and referral acquisition inflates the total.
 
-This chart is in the **Analytics** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Channel values stacked by category`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+## Compose example
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{Axis, BarSeries, Chart, Legend, Series};
 
+#[derive(Clone)]
+pub struct ChannelPeriod {
+    pub label: String,
+    pub paid_accounts: u32,
+    pub referral_accounts: u32,
+}
 
-
-fission_component!
-{
-    pub ChannelStackChart<()> {
+fission_component! {
+    pub AcquisitionChannels<()> {
+        props {
+            title: String,
+            paid_label: String,
+            referral_label: String,
+            periods: Vec<ChannelPeriod>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
-    }
+    view(channels, _state, _cx) {
+        let labels = channels.periods.iter().map(|row| row.label.as_str()).collect();
+        let paid = channels.periods.iter().map(|row| row.paid_accounts as f32).collect();
+        let referrals = channels.periods.iter()
+            .map(|row| row.referral_accounts as f32)
+            .collect();
+    } => Chart(
+        title: Some(channels.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Bar(BarSeries::new(&channels.paid_label)
+                .data(paid).stack("acquisition")),
+            Series::Bar(BarSeries::new(&channels.referral_label)
+                .data(referrals).stack("acquisition")),
+        ],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Both series use the same internal stack name. That identifier groups geometry; it is not a user-facing label and does not need translation. The parent supplies translated display labels and validated, ordered periods.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## What to compare
 
-Tags: `analytics`, `stack`.
+This is an absolute-count chart, not a percentage breakdown. A channel can grow whilst its share falls because the other channel grew faster. If share is the question, calculate percentages deliberately and retain the underlying counts.
+
+Check that channel totals reconcile with acquisition totals. Keep channel order and colours consistent between reporting windows, and provide values outside the coloured segments. The gallery image is illustrative rather than the output of this particular dataset.
 
 [Analytics family overview](./overview)

@@ -10,17 +10,26 @@ A multi-platform Fission app should not become nine separate applications. Keep 
 ```rust
 pub fn run_desktop() -> anyhow::Result<()> {
     DesktopApp::<AppState, _>::new(AppRoot)
+        .with_env(create_env()?)
         .with_design_system::<AppDesignSystem>(DesignMode::Light)
         .run()
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
-    WebApp::<AppState, _>::new(AppRoot).mount("#app").run()
+pub fn run_web() -> anyhow::Result<()> {
+    WebApp::<AppState, _>::new(AppRoot)
+        .with_env(create_env()?)
+        .with_design_system::<AppDesignSystem>(DesignMode::Light)
+        .mount("#app")
+        .run()
 }
 ```
 
-The root component handles responsive structure with `Responsive` and `Length`. The shell entry point handles host setup.
+The app supplies `AppRoot`, `AppState`, its generated design system and the
+shared `create_env` translation setup. The root component chooses responsive
+structure with `Responsive` and `Length`; the shell entrypoint configures the
+host. A generated Wasm entrypoint can translate the shared helper's error into
+`JsValue` where that boundary requires it.
 
 ## Target-aware adaptation
 

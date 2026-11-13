@@ -17,7 +17,7 @@ outcomes:
 
 When a support supervisor opens the workbench, they need to know who is waiting, what happened, who owns the issue, and what they can safely do next. A table of labels is not enough. We’ll build a small workspace with the queue and selected conversation side by side, then make the boundary between a UI preview and server-authorized resolution explicit.
 
-The browser preview seeds sample records and a supervisor permission result outside the dashboard component. That lets you try the screen without an account or server; it is not authentication or an authorization check. In the app, tickets and the selected ticket belong in shared state because both panes use them. A real service loads the records and makes the permission decision on the server.
+The browser preview seeds sample records and an agent name for the assignment filter outside the dashboard component. That lets you try the screen without an account or server; it is not authentication or an authorization check. In the app, tickets and the selected ticket belong in shared state because both panes use them. A real service loads the records and makes the permission decision on the server.
 
 ## Create the Web project
 
@@ -41,17 +41,19 @@ harbour-support/
 ├── src/
 │   ├── main.rs
 │   ├── lib.rs
-│   ├── app.rs             # SupportOperationsDashboard and ticket records
-│   ├── state.rs           # shared ticket data in the finished app
-│   └── services/
-│       └── tickets.rs     # server calls in the finished app
+│   ├── app.rs             # screen composition and local filters
+│   ├── state.rs           # shared records and selection
+│   ├── translations.rs
+│   └── widgets/
+│       ├── queue_row.rs
+│       └── conversation.rs # ticket-keyed draft, added later
 └── platforms/
     └── web/
 ```
 </TabItem>
 </Tabs>
 
-Keep the initial screen in `src/app.rs` while the task is small. Once the service and actions arrive, move them into focused modules instead of letting the screen become the place for everything.
+The screen coordinates the queue and conversation. Keep records in `src/state.rs` and reusable rows and conversations in `src/widgets/`; the entrypoint only installs the environment and launches the app.
 
 <!-- fission:step id="queue" -->
 ## Start with the support queue
@@ -65,18 +67,89 @@ The queue is a named component with a clear job. The preview supplies sample rec
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+use crate::state::*;
+use crate::widgets::SupportQueueRow;
+
+fission_component! {
+    pub SupportOperationsDashboard<SupportState> {}
+    view(_page, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let tickets = &state.tickets;
+        let open_count = tickets.iter().filter(|ticket| ticket.status == TicketStatus::Open).count();
+        let urgent_count = tickets.iter().filter(|ticket| ticket.priority == TicketPriority::Urgent).count();
+        let waiting_count = tickets.iter().filter(|ticket| ticket.status == TicketStatus::Waiting).count();
+    } =>
+    Container(Scroll(child: Container(
+        Column(gap: tokens.spacing.l, children: [
+            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("support.brand"))
+                        .weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("support.region"))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Text(if state.current_agent.is_empty() { cx.tr("support.service.unconnected") } else { state.current_agent.clone() }),
+            ]),
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                    GridTrack::Points(180.0),
+                    GridTrack::Fr(1.0),
+                ))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.m,
+                row_gap: tokens.spacing.s,
+                children: [
+                    Column(children: [
+                        Text(format!("{} {}", open_count, cx.tr("support.metric.tickets")))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("support.status.open")).color(tokens.colors.text_secondary),
+                    ]),
+                    Column(children: [
+                        Text(format!("{} {}", urgent_count, cx.tr("support.metric.tickets")))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("support.metric.urgent"))
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                    Column(children: [
+                        Text(format!("{} {}", waiting_count, cx.tr("support.metric.tickets")))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("support.metric.waiting"))
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                ],
+            ),
+            Column(gap: tokens.spacing.s, children: [
+                Text(cx.tr("support.queue.title"))
+                    .weight(tokens.typography.font_weight_semibold),
+                for ticket in tickets.iter() {
+                    SupportQueueRow(ticket.clone(), key: ticket.id)
+                },
+            ]),
+        ]),
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.background)
+    .width_length(Length::percent(100.0))
+    .max_width(1440.0)))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SupportState {
     pub tickets: Vec<SupportTicket>,
     pub selected_ticket: Option<u32>,
-    pub can_resolve: bool,
     pub current_agent: String,
 }
 
 impl Default for SupportState {
     fn default() -> Self {
-        Self { tickets: Vec::new(), selected_ticket: None, can_resolve: false, current_agent: String::new() }
+        Self { tickets: Vec::new(), selected_ticket: None, current_agent: String::new() }
     }
 }
 
@@ -126,9 +199,23 @@ pub struct SupportTicket {
     pub assignee: String,
     pub age: String,
 }
+```
+</TabItem>
+<TabItem label="src/widgets/mod.rs">
+<!-- fission:file path="src/widgets/mod.rs" -->
+```rust
+mod queue_row;
+pub use queue_row::SupportQueueRow;
+```
+</TabItem>
+<TabItem label="src/widgets/queue_row.rs">
+<!-- fission:file path="src/widgets/queue_row.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::SupportTicket;
 
 fission_component! {
-    pub SupportQueueRow<()> { ticket: SupportTicket }
+    pub SupportQueueRow<()> { props { ticket: SupportTicket } }
     view(row, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let priority_label = cx.tr(row.ticket.priority.translation_key());
@@ -158,72 +245,66 @@ fission_component! {
     .border_radius(tokens.radii.medium)
 }
 
-fission_component! {
-    pub SupportOperationsDashboard<SupportState> {}
-    view(_page, state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let tickets = &state.tickets;
-        let open_count = tickets.iter().filter(|ticket| ticket.status == TicketStatus::Open).count();
-        let urgent_count = tickets.iter().filter(|ticket| ticket.priority == TicketPriority::Urgent).count();
-        let waiting_count = tickets.iter().filter(|ticket| ticket.status == TicketStatus::Waiting).count();
-    } =>
-    Container(
-        Column(gap: tokens.spacing.l, children: [
-            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Text(cx.tr("support.brand"))
-                        .weight(tokens.typography.font_weight_bold),
-                    Text(cx.tr("support.region"))
-                        .color(tokens.colors.text_secondary),
-                ]),
-                Text(format!("{} · {}", state.current_agent, cx.tr("support.role.supervisor"))),
-            ]),
-            Grid(
-                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-                    GridTrack::Points(180.0),
-                    GridTrack::Fr(1.0),
-                ))],
-                rows: vec![GridTrack::Auto],
-                column_gap: tokens.spacing.m,
-                row_gap: tokens.spacing.s,
-                children: [
-                    Column(children: [
-                        Text(format!("{} {}", open_count, cx.tr("support.metric.tickets")))
-                            .weight(tokens.typography.font_weight_semibold),
-                        Text(cx.tr("support.status.open")).color(tokens.colors.text_secondary),
-                    ]),
-                    Column(children: [
-                        Text(format!("{} {}", urgent_count, cx.tr("support.metric.tickets")))
-                            .weight(tokens.typography.font_weight_semibold),
-                        Text(cx.tr("support.metric.urgent"))
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                    Column(children: [
-                        Text(format!("{} {}", waiting_count, cx.tr("support.metric.tickets")))
-                            .weight(tokens.typography.font_weight_semibold),
-                        Text(cx.tr("support.metric.waiting"))
-                            .color(tokens.colors.text_secondary),
-                    ]),
-                ],
-            ),
-            Column(gap: tokens.spacing.s, children: [
-                Text(cx.tr("support.queue.title"))
-                    .weight(tokens.typography.font_weight_semibold),
-                for ticket in tickets.iter() {
-                    SupportQueueRow(ticket.clone(), key: ticket.id)
-                },
-            ]),
-        ]),
-    )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.background)
+
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod state;
+mod widgets;
+mod app;
+mod translations;
+
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::SupportState, _>::new(app::SupportOperationsDashboard)
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<state::SupportState, app::SupportOperationsDashboard> {
+    let app = MobileApp::<state::SupportState, _>::new(app::SupportOperationsDashboard)
+        .with_env(translations::create_env())
+        .with_title("Harbour Support");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::SupportState, _>::new(app::SupportOperationsDashboard)
+        .with_env(translations::create_env())
+        .with_title("Harbour Support")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+<TabItem label="Preview startup notes">
+The preview below seeds example tickets. The normal application starts empty until its data source is connected.
 </TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod state;
+mod widgets;
 #[path = "../preview/fixtures.rs"]
 mod fixtures;
 mod translations;
@@ -235,7 +316,7 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
 
-    WebApp::<app::SupportState, _>::new(app::SupportOperationsDashboard::new())
+    WebApp::<state::SupportState, _>::new(app::SupportOperationsDashboard::new())
         .with_state_init(|state| {
             state.tickets = fixtures::sample_tickets();
             state.selected_ticket = state.tickets.first().map(|ticket| ticket.id);
@@ -252,7 +333,7 @@ pub fn run() -> Result<(), JsValue> {
 <TabItem label="preview/fixtures.rs">
 <!-- fission:file path="preview/fixtures.rs" -->
 ```rust
-use crate::app::{SupportTicket, TicketPriority, TicketStatus};
+use crate::state::{SupportTicket, TicketPriority, TicketStatus};
 
 pub fn sample_tickets() -> Vec<SupportTicket> {
     vec![
@@ -326,6 +407,8 @@ support.note.placeholder: "Describe what you checked and what changed"
 support.action.resolve: "Resolve ticket"
 support.resolve.server_required: "Connect an authorized server action before enabling ticket resolution."
 support.action.ticket: "Open ticket"
+support.service.unconnected: "Ticket service not connected"
+support.ticket.missing: "This ticket is no longer available."
 ```
 <!-- fission:file path="i18n/es-ES.yaml" -->
 ```yaml
@@ -362,6 +445,8 @@ support.note.placeholder: "Describe qué comprobaste y qué cambió"
 support.action.resolve: "Resolver ticket"
 support.resolve.server_required: "Conecta una acción de servidor autorizada antes de habilitar la resolución del ticket."
 support.action.ticket: "Abrir ticket"
+support.service.unconnected: "Servicio de tickets no conectado"
+support.ticket.missing: "Este ticket ya no está disponible."
 ```
 </TabItem>
 </Tabs>
@@ -384,27 +469,140 @@ Search text and the active filter only affect this screen, so retain them locall
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+use crate::state::*;
+use crate::widgets::{SupportQueueRow, TicketConversation};
+
+fission_component! {
+    pub SupportOperationsDashboard<SupportState> {
+        state {
+            query: String = String::new(),
+            active_filter: TicketFilter = TicketFilter::Open,
+        }
+    }
+    view(page, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let tickets = &state.tickets;
+        let query = page.query.trim().to_lowercase();
+        let visible_tickets: Vec<SupportTicket> = tickets.iter()
+            .filter(|ticket| {
+                let matches_query = query.is_empty()
+                    || ticket.customer.to_lowercase().contains(&query)
+                    || ticket.subject.to_lowercase().contains(&query)
+                    || ticket.reference.to_lowercase().contains(&query);
+                let matches_filter = match page.active_filter {
+                    TicketFilter::Urgent => ticket.priority == TicketPriority::Urgent,
+                    TicketFilter::AssignedToMe => ticket.assignee == state.current_agent,
+                    TicketFilter::Open => ticket.status == TicketStatus::Open,
+                };
+                matches_query && matches_filter
+            })
+            .cloned()
+            .collect();
+        let selected = tickets.iter()
+            .find(|ticket| Some(ticket.id) == state.selected_ticket);
+        let open_count = tickets.iter().filter(|ticket| ticket.status == TicketStatus::Open).count();
+        let urgent_count = tickets.iter().filter(|ticket| ticket.priority == TicketPriority::Urgent).count();
+    } =>
+    Container(Scroll(child: Container(
+        Column(gap: tokens.spacing.l, children: [
+            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("support.brand")).weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("support.region"))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Text(if state.current_agent.is_empty() { cx.tr("support.service.unconnected") } else { state.current_agent.clone() }),
+            ]),
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                    GridTrack::Points(180.0), GridTrack::Fr(1.0),
+                ))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.m,
+                row_gap: tokens.spacing.s,
+                children: [
+                    Column(children: [
+                        Text(format!("{} {}", open_count, cx.tr("support.status.open"))),
+                        Text(cx.tr("support.queue.heading")).color(tokens.colors.text_secondary),
+                    ]),
+                    Column(children: [
+                        Text(format!("{} {}", urgent_count, cx.tr("support.priority.urgent"))),
+                        Text(cx.tr("support.metric.urgent")).color(tokens.colors.text_secondary),
+                    ]),
+                ],
+            ),
+            TextInput(
+                label: Some(cx.tr("support.search.label").into()),
+                placeholder: Some(cx.tr("support.search.placeholder").into()),
+                bind: page.query,
+                semantics_identifier: "support.search".to_string(),
+            ),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(child: Text(cx.tr("support.filter.all_open")), key: "filter-open",
+                    on_press: reduce { page.active_filter = TicketFilter::Open; })
+                    .semantics_identifier("support.filter.open".to_string()),
+                Button(child: Text(cx.tr("support.filter.urgent")), key: "filter-urgent",
+                    on_press: reduce { page.active_filter = TicketFilter::Urgent; })
+                    .semantics_identifier("support.filter.urgent".to_string()),
+                Button(child: Text(cx.tr("support.filter.assigned")), key: "filter-mine", disabled: state.current_agent.is_empty(),
+                    on_press: reduce { page.active_filter = TicketFilter::AssignedToMe; })
+                    .semantics_identifier("support.filter.assigned".to_string()),
+            ]),
+            Text(format!("{} {}", visible_tickets.len(), cx.tr("support.search.matches")))
+                .color(tokens.colors.text_secondary),
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                    GridTrack::Points(270.0), GridTrack::Fr(1.0),
+                ))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.l,
+                row_gap: tokens.spacing.m,
+                children: [
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("support.queue.heading")).weight(tokens.typography.font_weight_semibold),
+                        for ticket in visible_tickets.iter() {
+                            SupportQueueRow(ticket.id, key: ticket.id)
+                        },
+                    ]),
+                    if let Some(selected) = selected {
+                        TicketConversation(selected.id, key: selected.id)
+                    } else {
+                        EmptyState(
+                            title: cx.tr("support.empty.title"),
+                            description: Some(cx.tr("support.empty.description")),
+                        )
+                    },
+                ],
+            ),
+        ]),
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.background)
+    .width_length(Length::percent(100.0))
+    .max_width(1440.0)))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SupportState {
     pub tickets: Vec<SupportTicket>,
     pub selected_ticket: Option<u32>,
-    pub can_resolve: bool,
     pub current_agent: String,
 }
 
 impl Default for SupportState {
     fn default() -> Self {
-        Self { tickets: Vec::new(), selected_ticket: None, can_resolve: false, current_agent: String::new() }
+        Self { tickets: Vec::new(), selected_ticket: None, current_agent: String::new() }
     }
 }
 
 impl GlobalState for SupportState {}
-
-#[fission_reducer(SelectSupportTicket)]
-pub fn select_support_ticket(state: &mut SupportState, ticket_id: u32) {
-    state.selected_ticket = Some(ticket_id);
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SupportTicket {
@@ -460,164 +658,109 @@ pub enum TicketFilter {
     Urgent,
     AssignedToMe,
 }
+```
+</TabItem>
+<TabItem label="src/widgets/mod.rs">
+<!-- fission:file path="src/widgets/mod.rs" -->
+```rust
+mod queue_row;
+mod conversation;
+pub use queue_row::SupportQueueRow;
+pub use conversation::TicketConversation;
+```
+</TabItem>
+<TabItem label="src/widgets/queue_row.rs">
+<!-- fission:file path="src/widgets/queue_row.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::SupportState;
 
 fission_component! {
-    pub SupportOperationsDashboard<SupportState> {
-        state {
-            query: String = String::new(),
-            active_filter: TicketFilter = TicketFilter::Open,
-        }
-    }
-    view(page, state, cx) {
+    pub SupportQueueRow<SupportState> { props { ticket_id: u32 } }
+    view(row, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let tickets = &state.tickets;
-        let query = page.query.trim().to_lowercase();
-        let visible_tickets: Vec<SupportTicket> = tickets.iter()
-            .filter(|ticket| {
-                let matches_query = query.is_empty()
-                    || ticket.customer.to_lowercase().contains(&query)
-                    || ticket.subject.to_lowercase().contains(&query)
-                    || ticket.reference.to_lowercase().contains(&query);
-                let matches_filter = match page.active_filter {
-                    TicketFilter::Urgent => ticket.priority == TicketPriority::Urgent,
-                    TicketFilter::AssignedToMe => ticket.assignee == state.current_agent,
-                    TicketFilter::Open => ticket.status == TicketStatus::Open,
-                };
-                matches_query && matches_filter
-            })
-            .cloned()
-            .collect();
-        let selected = tickets.iter()
-            .find(|ticket| Some(ticket.id) == state.selected_ticket)
-            .or_else(|| tickets.first());
-        let open_count = tickets.iter().filter(|ticket| ticket.status == TicketStatus::Open).count();
-        let urgent_count = tickets.iter().filter(|ticket| ticket.priority == TicketPriority::Urgent).count();
+        let ticket = state.tickets.iter().find(|ticket| ticket.id == row.ticket_id);
     } =>
-    Container(
-        Column(gap: tokens.spacing.l, children: [
-            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Text(cx.tr("support.brand")).weight(tokens.typography.font_weight_bold),
-                    Text(cx.tr("support.region"))
-                        .color(tokens.colors.text_secondary),
-                ]),
-                Text(format!("{} · {}", state.current_agent, cx.tr("support.role.supervisor"))),
-            ]),
-            Grid(
-                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-                    GridTrack::Points(180.0), GridTrack::Fr(1.0),
-                ))],
-                rows: vec![GridTrack::Auto],
-                column_gap: tokens.spacing.m,
-                row_gap: tokens.spacing.s,
-                children: [
-                    Column(children: [
-                        Text(format!("{} {}", open_count, cx.tr("support.status.open"))),
-                        Text(cx.tr("support.queue.heading")).color(tokens.colors.text_secondary),
-                    ]),
-                    Column(children: [
-                        Text(format!("{} {}", urgent_count, cx.tr("support.priority.urgent"))),
-                        Text(cx.tr("support.metric.urgent")).color(tokens.colors.text_secondary),
-                    ]),
-                ],
-            ),
-            TextInput(
-                label: Some(cx.tr("support.search.label").into()),
-                placeholder: Some(cx.tr("support.search.placeholder").into()),
-                bind: page.query,
-                semantics_identifier: "support.search".to_string(),
-            ),
-            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                Button(child: Text(cx.tr("support.filter.all_open")), key: "filter-open",
-                    on_press: reduce { page.active_filter = TicketFilter::Open; })
-                    .semantics_identifier("support.filter.open".to_string()),
-                Button(child: Text(cx.tr("support.filter.urgent")), key: "filter-urgent",
-                    on_press: reduce { page.active_filter = TicketFilter::Urgent; })
-                    .semantics_identifier("support.filter.urgent".to_string()),
-                Button(child: Text(cx.tr("support.filter.assigned")), key: "filter-mine",
-                    on_press: reduce { page.active_filter = TicketFilter::AssignedToMe; })
-                    .semantics_identifier("support.filter.assigned".to_string()),
-            ]),
-            Text(format!("{} {}", visible_tickets.len(), cx.tr("support.search.matches")))
-                .color(tokens.colors.text_secondary),
-            Grid(
-                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-                    GridTrack::Points(270.0), GridTrack::Fr(1.0),
-                ))],
-                rows: vec![GridTrack::Auto],
-                column_gap: tokens.spacing.l,
-                row_gap: tokens.spacing.m,
-                children: [
-                    Column(gap: tokens.spacing.s, children: [
-                        Text(cx.tr("support.queue.heading")).weight(tokens.typography.font_weight_semibold),
-                        for ticket in visible_tickets.iter() {
-                            Button(
-                                child: Container(Column(gap: tokens.spacing.xs, children: [
-                                    Text(ticket.subject.clone())
-                                        .weight(tokens.typography.font_weight_semibold),
-                                    Text(format!("{} · {}", ticket.reference, ticket.customer)),
-                                    Text(format!("{} · {} · {}",
-                                        cx.tr(ticket.priority.translation_key()),
-                                        cx.tr(ticket.status.translation_key()),
-                                        ticket.assignee))
-                                        .color(tokens.colors.text_secondary),
-                                ]))
-                                .padding_all(tokens.spacing.m)
-                                .bg(tokens.colors.surface)
-                                .border(tokens.colors.border, 1.0)
-                                .border_radius(tokens.radii.medium),
-                                key: format!("ticket-{}", ticket.id),
-                                handler: "select-ticket",
-                                on_press: with_reducer!(
-                                    cx.build,
-                                    SelectSupportTicket(ticket.id),
-                                    select_support_ticket,
-                                ),
-                            )
-                            .semantics_identifier(format!("support.ticket.{}", ticket.id))
-                        },
-                    ]),
-                    if let Some(selected) = selected {
-                        Container(Column(gap: tokens.spacing.s, children: [
-                        Text(format!("{} · {}", selected.reference,
-                            cx.tr(selected.status.translation_key())))
-                            .color(tokens.colors.text_secondary),
-                        Text(selected.subject.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(format!("{} · {} · {}", selected.customer, selected.category,
-                            cx.tr(selected.priority.translation_key()))),
-                        Text(selected.summary.clone()),
-                        Text(cx.tr("support.conversation.heading")),
-                        Text(cx.tr("support.conversation.customer")),
-                        Text(format!("“{}”", selected.customer_message)),
-                        Text(cx.tr("support.conversation.agent")),
-                        Text(format!("“{}”", selected.agent_message)),
-                        Text(format!("{} {}", cx.tr("support.assigned_to"), selected.assignee))
-                            .color(tokens.colors.text_secondary),
-                    ]))
-                    .padding_all(tokens.spacing.l)
-                    .bg(tokens.colors.surface)
-                    .border(tokens.colors.border, 1.0)
-                    .border_radius(tokens.radii.medium)
-                    } else {
-                        EmptyState(
-                            title: cx.tr("support.empty.title"),
-                            description: Some(cx.tr("support.empty.description")),
-                        )
-                    },
-                ],
-            ),
-        ]),
-    )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.background)
+    if let Some(ticket) = ticket {
+        Button(
+            child: Container(Column(gap: tokens.spacing.xs, children: [
+                Text(ticket.subject.clone()).weight(tokens.typography.font_weight_semibold),
+                Text(format!("{} · {}", ticket.reference, ticket.customer)),
+                Text(format!("{} · {} · {}",
+                    cx.tr(ticket.priority.translation_key()),
+                    cx.tr(ticket.status.translation_key()),
+                    ticket.assignee)).color(tokens.colors.text_secondary),
+            ])).padding_all(tokens.spacing.m)
+               .bg(tokens.colors.surface)
+               .border(tokens.colors.border, 1.0)
+               .border_radius(tokens.radii.medium),
+            key: "select-ticket",
+            on_press: reduce {
+                if state.tickets.iter().any(|ticket| ticket.id == row.ticket_id) {
+                    state.selected_ticket = Some(row.ticket_id);
+                }
+            },
+        ).semantics_identifier(format!("support.ticket.{}", ticket.id))
+    } else {
+        Text(cx.tr("support.ticket.missing"))
+    }
 }
 ```
+</TabItem>
+<TabItem label="src/widgets/conversation.rs">
+<!-- fission:file path="src/widgets/conversation.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::SupportState;
+
+fission_component! {
+    pub TicketConversation<SupportState> {
+        props { ticket_id: u32 }
+    }
+    view(conversation, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let selected = state.tickets.iter().find(|ticket| ticket.id == conversation.ticket_id);
+    } =>
+    if let Some(selected) = selected {
+        Container(Column(gap: tokens.spacing.s, children: [
+            Text(format!("{} · {}", selected.reference,
+                cx.tr(selected.status.translation_key())))
+                .color(tokens.colors.text_secondary),
+            Text(selected.subject.clone())
+                .weight(tokens.typography.font_weight_bold),
+            Text(format!("{} · {} · {}", selected.customer, selected.category,
+                cx.tr(selected.priority.translation_key()))),
+            Text(selected.summary.clone()),
+            Text(cx.tr("support.conversation.heading")),
+            Text(cx.tr("support.conversation.customer")),
+            Text(format!("“{}”", selected.customer_message)),
+            Text(cx.tr("support.conversation.agent")),
+            Text(format!("“{}”", selected.agent_message)),
+            Text(format!("{} {}", cx.tr("support.assigned_to"), selected.assignee))
+                .color(tokens.colors.text_secondary),
+        ]))
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.medium)
+    } else {
+        EmptyState(
+            title: cx.tr("support.empty.title"),
+            description: Some(cx.tr("support.empty.description")),
+        )
+    }
+}
+```
+</TabItem>
+<TabItem label="Preview startup notes">
+The preview below seeds example tickets. The normal application starts empty until its data source is connected.
 </TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod state;
+mod widgets;
 #[path = "../preview/fixtures.rs"]
 mod fixtures;
 mod translations;
@@ -629,7 +772,7 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
 
-    WebApp::<app::SupportState, _>::new(app::SupportOperationsDashboard::new())
+    WebApp::<state::SupportState, _>::new(app::SupportOperationsDashboard::new())
         .with_state_init(|state| {
             state.tickets = fixtures::sample_tickets();
             state.selected_ticket = state.tickets.first().map(|ticket| ticket.id);
@@ -646,7 +789,7 @@ pub fn run() -> Result<(), JsValue> {
 <TabItem label="preview/fixtures.rs">
 <!-- fission:file path="preview/fixtures.rs" -->
 ```rust
-use crate::app::{SupportTicket, TicketPriority, TicketStatus};
+use crate::state::{SupportTicket, TicketPriority, TicketStatus};
 
 pub fn sample_tickets() -> Vec<SupportTicket> {
     vec![
@@ -707,17 +850,135 @@ Search for “Maya” and select ticket HS-4301. Then choose Urgent and Assigned
 <!-- fission:step id="resolve-with-context" -->
 Finding the ticket is only part of the job. A real resolution must leave an internal note and be authorized by the server; this tutorial does not include a ticket service, so the preview will not pretend to perform that operation.
 
-The note is an unfinished screen draft. The preview shows the supervisor role and note field, but its resolution button stays disabled until an authorized server action is connected.
+The note is an unfinished ticket draft. Its resolution button stays disabled because this tutorial has no authorised server action to call.
 
 ## Resolve the issue with a documented action
 
-A disabled button needs an explanation. The preview receives a sample supervisor role from its startup setup; the component cannot grant itself that permission. The note field is only a draft. The resolve action remains disabled because this example does not implement a server authorization check or audit write.
+A disabled button needs an explanation. The ticket service is not connected, so the screen must say so rather than present a sample role as an access decision. The note field is only a draft. The resolve action remains disabled because this example does not implement a server authorization check or audit write.
 
-The note is local component state because it is an unfinished screen draft. The preview’s permission value is set outside the component and is display data, not authorization. A real server must authorize the user and persist the note and status change before the UI can enable resolution. Disabling the browser button improves the interaction, but it does not provide security.
+The unfinished note belongs to a ticket-keyed conversation component, not the whole dashboard. Otherwise selecting a second ticket would display the first customer's draft in the wrong conversation. If drafts must survive leaving the screen, move them into shared state indexed by ticket ID. A real server must authorise the user and accept the note and status change before the UI reports a resolution. Disabling the browser button improves the interaction, but it does not provide security.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::*;
+use crate::widgets::{SupportQueueRow, TicketConversation};
+
+fission_component! {
+    pub SupportOperationsDashboard<SupportState> {
+        state {
+            query: String = String::new(),
+            active_filter: TicketFilter = TicketFilter::Open,
+        }
+    }
+    view(page, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let tickets = &state.tickets;
+        let query = page.query.trim().to_lowercase();
+        let visible_tickets: Vec<SupportTicket> = tickets.iter()
+            .filter(|ticket| {
+                let matches_query = query.is_empty()
+                    || ticket.customer.to_lowercase().contains(&query)
+                    || ticket.subject.to_lowercase().contains(&query)
+                    || ticket.reference.to_lowercase().contains(&query);
+                let matches_filter = match page.active_filter {
+                    TicketFilter::Urgent => ticket.priority == TicketPriority::Urgent,
+                    TicketFilter::AssignedToMe => ticket.assignee == state.current_agent,
+                    TicketFilter::Open => ticket.status == TicketStatus::Open,
+                };
+                matches_query && matches_filter
+            })
+            .cloned()
+            .collect();
+        let selected = tickets.iter()
+            .find(|ticket| Some(ticket.id) == state.selected_ticket);
+        let open_count = tickets.iter().filter(|ticket| ticket.status == TicketStatus::Open).count();
+        let urgent_count = tickets.iter().filter(|ticket| ticket.priority == TicketPriority::Urgent).count();
+    } =>
+    Container(Scroll(child: Container(
+        Column(gap: tokens.spacing.l, children: [
+            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("support.brand")).weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("support.region"))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Text(cx.tr("support.service.unconnected")),
+            ]),
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                    GridTrack::Points(180.0), GridTrack::Fr(1.0),
+                ))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.m,
+                row_gap: tokens.spacing.s,
+                children: [
+                    Column(children: [
+                        Text(format!("{} {}", open_count, cx.tr("support.status.open"))),
+                        Text(cx.tr("support.queue.heading")).color(tokens.colors.text_secondary),
+                    ]),
+                    Column(children: [
+                        Text(format!("{} {}", urgent_count, cx.tr("support.priority.urgent"))),
+                        Text(cx.tr("support.metric.urgent")).color(tokens.colors.text_secondary),
+                    ]),
+                ],
+            ),
+            TextInput(
+                label: Some(cx.tr("support.search.label").into()),
+                placeholder: Some(cx.tr("support.search.placeholder").into()),
+                bind: page.query,
+                semantics_identifier: "support.search".to_string(),
+            ),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(child: Text(cx.tr("support.filter.all_open")), key: "filter-open",
+                    on_press: reduce { page.active_filter = TicketFilter::Open; })
+                    .semantics_identifier("support.filter.open".to_string()),
+                Button(child: Text(cx.tr("support.filter.urgent")), key: "filter-urgent",
+                    on_press: reduce { page.active_filter = TicketFilter::Urgent; })
+                    .semantics_identifier("support.filter.urgent".to_string()),
+                Button(child: Text(cx.tr("support.filter.assigned")), key: "filter-mine", disabled: state.current_agent.is_empty(),
+                    on_press: reduce { page.active_filter = TicketFilter::AssignedToMe; })
+                    .semantics_identifier("support.filter.assigned".to_string()),
+            ]),
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                    GridTrack::Points(270.0), GridTrack::Fr(1.0),
+                ))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.l,
+                row_gap: tokens.spacing.m,
+                children: [
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(format!("{} {}", visible_tickets.len(), cx.tr("support.search.matches")))
+                            .weight(tokens.typography.font_weight_semibold),
+                        for ticket in visible_tickets.iter() {
+                            SupportQueueRow(ticket.id, key: ticket.id)
+                        },
+                    ]),
+                    if let Some(selected) = selected {
+                        TicketConversation(selected.id, key: selected.id)
+                    } else {
+                        EmptyState(
+                            title: cx.tr("support.empty.title"),
+                            description: Some(cx.tr("support.empty.description")),
+                        )
+                    },
+                ],
+            ),
+        ]),
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.background)
+    .width_length(Length::percent(100.0))
+    .max_width(1440.0)))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
 ```rust
 use fission::prelude::*;
 
@@ -725,22 +986,16 @@ use fission::prelude::*;
 pub struct SupportState {
     pub tickets: Vec<SupportTicket>,
     pub selected_ticket: Option<u32>,
-    pub can_resolve: bool,
     pub current_agent: String,
 }
 
 impl Default for SupportState {
     fn default() -> Self {
-        Self { tickets: Vec::new(), selected_ticket: None, can_resolve: false, current_agent: String::new() }
+        Self { tickets: Vec::new(), selected_ticket: None, current_agent: String::new() }
     }
 }
 
 impl GlobalState for SupportState {}
-
-#[fission_reducer(SelectSupportTicket)]
-pub fn select_support_ticket(state: &mut SupportState, ticket_id: u32) {
-    state.selected_ticket = Some(ticket_id);
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SupportTicket {
@@ -796,182 +1051,124 @@ pub enum TicketFilter {
     Urgent,
     AssignedToMe,
 }
+```
+</TabItem>
+<TabItem label="src/widgets/mod.rs">
+<!-- fission:file path="src/widgets/mod.rs" -->
+```rust
+mod queue_row;
+mod conversation;
+pub use queue_row::SupportQueueRow;
+pub use conversation::TicketConversation;
+```
+</TabItem>
+<TabItem label="src/widgets/queue_row.rs">
+<!-- fission:file path="src/widgets/queue_row.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::SupportState;
 
 fission_component! {
-    pub SupportOperationsDashboard<SupportState> {
-        state {
-            query: String = String::new(),
-            active_filter: TicketFilter = TicketFilter::Open,
-            note: String = String::new(),
-        }
-    }
-    view(page, state, cx) {
+    pub SupportQueueRow<SupportState> { props { ticket_id: u32 } }
+    view(row, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let tickets = &state.tickets;
-        let query = page.query.trim().to_lowercase();
-        let visible_tickets: Vec<SupportTicket> = tickets.iter()
-            .filter(|ticket| {
-                let matches_query = query.is_empty()
-                    || ticket.customer.to_lowercase().contains(&query)
-                    || ticket.subject.to_lowercase().contains(&query)
-                    || ticket.reference.to_lowercase().contains(&query);
-                let matches_filter = match page.active_filter {
-                    TicketFilter::Urgent => ticket.priority == TicketPriority::Urgent,
-                    TicketFilter::AssignedToMe => ticket.assignee == state.current_agent,
-                    TicketFilter::Open => ticket.status == TicketStatus::Open,
-                };
-                matches_query && matches_filter
-            })
-            .cloned()
-            .collect();
-        let selected = tickets.iter()
-            .find(|ticket| Some(ticket.id) == state.selected_ticket)
-            .or_else(|| tickets.first());
-        let open_count = tickets.iter().filter(|ticket| ticket.status == TicketStatus::Open).count();
-        let urgent_count = tickets.iter().filter(|ticket| ticket.priority == TicketPriority::Urgent).count();
+        let ticket = state.tickets.iter().find(|ticket| ticket.id == row.ticket_id);
     } =>
-    Container(
-        Column(gap: tokens.spacing.l, children: [
-            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Text(cx.tr("support.brand")).weight(tokens.typography.font_weight_bold),
-                    Text(cx.tr("support.region"))
-                        .color(tokens.colors.text_secondary),
-                ]),
-                Text(if state.can_resolve {
-                    cx.tr("support.permission.supervisor_preview")
-                } else {
-                    cx.tr("support.permission.read_only")
-                }),
-            ]),
-            Grid(
-                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-                    GridTrack::Points(180.0), GridTrack::Fr(1.0),
-                ))],
-                rows: vec![GridTrack::Auto],
-                column_gap: tokens.spacing.m,
-                row_gap: tokens.spacing.s,
-                children: [
-                    Column(children: [
-                        Text(format!("{} {}", open_count, cx.tr("support.status.open"))),
-                        Text(cx.tr("support.queue.heading")).color(tokens.colors.text_secondary),
-                    ]),
-                    Column(children: [
-                        Text(format!("{} {}", urgent_count, cx.tr("support.priority.urgent"))),
-                        Text(cx.tr("support.metric.urgent")).color(tokens.colors.text_secondary),
-                    ]),
-                ],
-            ),
-            TextInput(
-                label: Some(cx.tr("support.search.label").into()),
-                placeholder: Some(cx.tr("support.search.placeholder").into()),
-                bind: page.query,
-                semantics_identifier: "support.search".to_string(),
-            ),
-            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                Button(child: Text(cx.tr("support.filter.all_open")), key: "filter-open",
-                    on_press: reduce { page.active_filter = TicketFilter::Open; })
-                    .semantics_identifier("support.filter.open".to_string()),
-                Button(child: Text(cx.tr("support.filter.urgent")), key: "filter-urgent",
-                    on_press: reduce { page.active_filter = TicketFilter::Urgent; })
-                    .semantics_identifier("support.filter.urgent".to_string()),
-                Button(child: Text(cx.tr("support.filter.assigned")), key: "filter-mine",
-                    on_press: reduce { page.active_filter = TicketFilter::AssignedToMe; })
-                    .semantics_identifier("support.filter.assigned".to_string()),
-            ]),
-            Grid(
-                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-                    GridTrack::Points(270.0), GridTrack::Fr(1.0),
-                ))],
-                rows: vec![GridTrack::Auto],
-                column_gap: tokens.spacing.l,
-                row_gap: tokens.spacing.m,
-                children: [
-                    Column(gap: tokens.spacing.s, children: [
-                        Text(format!("{} {}", visible_tickets.len(), cx.tr("support.search.matches")))
-                            .weight(tokens.typography.font_weight_semibold),
-                        for ticket in visible_tickets.iter() {
-                            Button(
-                                child: Container(Column(gap: tokens.spacing.xs, children: [
-                                    Text(ticket.subject.clone())
-                                        .weight(tokens.typography.font_weight_semibold),
-                                    Text(format!("{} · {}", ticket.reference, ticket.customer)),
-                                    Text(format!("{} · {} · {}",
-                                        cx.tr(ticket.priority.translation_key()),
-                                        cx.tr(ticket.status.translation_key()),
-                                        ticket.assignee))
-                                        .color(tokens.colors.text_secondary),
-                                ]))
-                                .padding_all(tokens.spacing.m)
-                                .bg(tokens.colors.surface)
-                                .border(tokens.colors.border, 1.0)
-                                .border_radius(tokens.radii.medium),
-                                key: format!("ticket-{}", ticket.id),
-                                handler: "select-ticket",
-                                on_press: with_reducer!(
-                                    cx.build,
-                                    SelectSupportTicket(ticket.id),
-                                    select_support_ticket,
-                                ),
-                            )
-                            .semantics_identifier(format!("support.ticket.{}", ticket.id))
-                        },
-                    ]),
-                    if let Some(selected) = selected {
-                        Container(Column(gap: tokens.spacing.s, children: [
-                        Text(format!("{} · {}", selected.reference,
-                            cx.tr(selected.status.translation_key())))
-                            .color(tokens.colors.text_secondary),
-                        Text(selected.subject.clone())
-                            .weight(tokens.typography.font_weight_bold),
-                        Text(format!("{} · {} · {}", selected.customer, selected.category,
-                            cx.tr(selected.priority.translation_key()))),
-                        Text(selected.summary.clone()),
-                        Text(cx.tr("support.conversation.heading")).weight(tokens.typography.font_weight_semibold),
-                        Text(format!("{} · {}", selected.customer, cx.tr("support.conversation.customer"))),
-                        Text(format!("“{}”", selected.customer_message)),
-                        Text(format!("{} · {}", selected.assignee, cx.tr("support.conversation.agent"))),
-                        Text(format!("“{}”", selected.agent_message)),
-                        Text(cx.tr("support.note.heading"))
-                            .weight(tokens.typography.font_weight_semibold),
-                        TextInput(
-                            label: Some(cx.tr("support.note.label").into()),
-                            placeholder: Some(cx.tr("support.note.placeholder").into()),
-                            bind: page.note,
-                            semantics_identifier: "support.resolution-note".to_string(),
-                        ),
-                        Text(cx.tr("support.resolve.server_required"))
-                            .color(tokens.colors.text_secondary),
-                        Button(
-                            child: Text(cx.tr("support.action.resolve")),
-                            key: "resolve-ticket",
-                            disabled: true,
-                        )
-                        .semantics_identifier("support.resolve-ticket".to_string()),
-                    ]))
-                    .padding_all(tokens.spacing.l)
-                    .bg(tokens.colors.surface)
-                    .border(tokens.colors.border, 1.0)
-                    .border_radius(tokens.radii.medium)
-                    } else {
-                        EmptyState(
-                            title: cx.tr("support.empty.title"),
-                            description: Some(cx.tr("support.empty.description")),
-                        )
-                    },
-                ],
-            ),
-        ]),
-    )
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.background)
+    if let Some(ticket) = ticket {
+        Button(
+            child: Container(Column(gap: tokens.spacing.xs, children: [
+                Text(ticket.subject.clone()).weight(tokens.typography.font_weight_semibold),
+                Text(format!("{} · {}", ticket.reference, ticket.customer)),
+                Text(format!("{} · {} · {}",
+                    cx.tr(ticket.priority.translation_key()),
+                    cx.tr(ticket.status.translation_key()),
+                    ticket.assignee)).color(tokens.colors.text_secondary),
+            ])).padding_all(tokens.spacing.m)
+               .bg(tokens.colors.surface)
+               .border(tokens.colors.border, 1.0)
+               .border_radius(tokens.radii.medium),
+            key: "select-ticket",
+            on_press: reduce {
+                if state.tickets.iter().any(|ticket| ticket.id == row.ticket_id) {
+                    state.selected_ticket = Some(row.ticket_id);
+                }
+            },
+        ).semantics_identifier(format!("support.ticket.{}", ticket.id))
+    } else {
+        Text(cx.tr("support.ticket.missing"))
+    }
 }
 ```
+</TabItem>
+<TabItem label="src/widgets/conversation.rs">
+<!-- fission:file path="src/widgets/conversation.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::SupportState;
+
+fission_component! {
+    pub TicketConversation<SupportState> {
+        props { ticket_id: u32 }
+        state { note: String = String::new() }
+    }
+    view(conversation, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let selected = state.tickets.iter().find(|ticket| ticket.id == conversation.ticket_id);
+    } =>
+    if let Some(selected) = selected {
+        Container(Column(gap: tokens.spacing.s, children: [
+            Text(format!("{} · {}", selected.reference,
+                cx.tr(selected.status.translation_key())))
+                .color(tokens.colors.text_secondary),
+            Text(selected.subject.clone())
+                .weight(tokens.typography.font_weight_bold),
+            Text(format!("{} · {} · {}", selected.customer, selected.category,
+                cx.tr(selected.priority.translation_key()))),
+            Text(selected.summary.clone()),
+            Text(cx.tr("support.conversation.heading")).weight(tokens.typography.font_weight_semibold),
+            Text(format!("{} · {}", selected.customer, cx.tr("support.conversation.customer"))),
+            Text(format!("“{}”", selected.customer_message)),
+            Text(format!("{} · {}", selected.assignee, cx.tr("support.conversation.agent"))),
+            Text(format!("“{}”", selected.agent_message)),
+            Text(cx.tr("support.note.heading"))
+                .weight(tokens.typography.font_weight_semibold),
+            TextInput(
+                label: Some(cx.tr("support.note.label").into()),
+                placeholder: Some(cx.tr("support.note.placeholder").into()),
+                bind: conversation.note,
+                semantics_identifier: "support.resolution-note".to_string(),
+            ),
+            Text(cx.tr("support.resolve.server_required"))
+                .color(tokens.colors.text_secondary),
+            Button(
+                child: Text(cx.tr("support.action.resolve")),
+                key: "resolve-ticket",
+                disabled: true,
+            )
+            .semantics_identifier("support.resolve-ticket".to_string()),
+        ]))
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.medium)
+    } else {
+        EmptyState(
+            title: cx.tr("support.empty.title"),
+            description: Some(cx.tr("support.empty.description")),
+        )
+    }
+}
+```
+</TabItem>
+<TabItem label="Preview startup notes">
+The preview below seeds example tickets. The normal application starts empty until its data source is connected.
 </TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod state;
+mod widgets;
 #[path = "../preview/fixtures.rs"]
 mod fixtures;
 mod translations;
@@ -983,12 +1180,11 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
 
-    WebApp::<app::SupportState, _>::new(app::SupportOperationsDashboard::new())
+    WebApp::<state::SupportState, _>::new(app::SupportOperationsDashboard::new())
         .with_title("Harbour Support ticket queue")
         .with_state_init(|state| {
             state.tickets = fixtures::sample_tickets();
             state.selected_ticket = state.tickets.first().map(|ticket| ticket.id);
-            state.can_resolve = true;
             state.current_agent = "Alex Chen".into();
         })
         .with_env(translations::create_env())
@@ -1001,7 +1197,7 @@ pub fn run() -> Result<(), JsValue> {
 <TabItem label="preview/fixtures.rs">
 <!-- fission:file path="preview/fixtures.rs" -->
 ```rust
-use crate::app::{SupportTicket, TicketPriority, TicketStatus};
+use crate::state::{SupportTicket, TicketPriority, TicketStatus};
 
 pub fn sample_tickets() -> Vec<SupportTicket> {
     vec![
@@ -1056,9 +1252,9 @@ pub fn sample_tickets() -> Vec<SupportTicket> {
 
 ## Connect the screen to real application data
 
-The preview uses a fixed set of tickets so you can try the workbench immediately. In your app, move `SupportTicket` and data loading into model and service modules, and put records shared by routes in `GlobalState`. Search text, the selected row, and an unfinished note still belong to this screen.
+The preview uses a fixed set of tickets so you can try the workbench immediately. In your app, move `SupportTicket` and data loading into model and service modules, and put records shared by routes in `GlobalState`. Search text belongs to this screen; selection stays in shared state, and each unfinished note belongs to its ticket-keyed conversation.
 
-To make this a production workflow, connect the UI to a ticket service: an action should queue an async effect, the service should check the signed-in user’s permission, and a reducer should record the returned status and activity event. Show a loading state while the request runs. If the service rejects it, keep the note and selected ticket and explain what the operator can do next. The preview’s seeded permission only controls what the browser displays; never use it as the permission check.
+To make this a production workflow, connect the UI to a ticket service: an action should queue an async effect, the service should check the signed-in user’s permission, and a reducer should record the returned status and activity event. Show a loading state while the request runs. If the service rejects it, keep the note and selected ticket and explain what the operator can do next. The preview's agent name is fixture data for filtering, not a session or permission check.
 
 ## Run the application
 
@@ -1068,7 +1264,7 @@ The command starts the generated Web target from the project root:
 fission run --target web --project-dir .
 ```
 
-To continue, read [State system](/reference/core/state-system/) and [Responsive](/reference/widgets/responsive/), then compare the accessible behavior of the [Button widget](/reference/widgets/pressable/).
+To continue, read [State system](/reference/core/state-system/) and [Responsive](/reference/widgets/responsive/), then compare the accessible behavior of the [Button widget](/reference/widgets/button/).
 
 <!-- fission:checkpoint -->
 Select the urgent billing ticket, search for Maya, and switch between the queue filters. Draft an internal note and confirm that the resolve action stays disabled. A real service must authorize and record that action; this preview only demonstrates the workbench layout and state.

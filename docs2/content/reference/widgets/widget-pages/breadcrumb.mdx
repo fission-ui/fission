@@ -15,24 +15,38 @@ It is a location trail, not a replacement for your app's main navigation.
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Breadcrumb {
-    items: vec![
-        BreadcrumbItem {
-            label: "Workspace".into(),
-            on_click: Some(open_workspace_action),
-        },
-        BreadcrumbItem {
-            label: "Docs".into(),
-            on_click: Some(open_docs_folder_action),
-        },
-        BreadcrumbItem {
-            label: "Architecture.md".into(),
-            on_click: None,
-        },
-    ],
+fission_component! {
+    pub DocumentLocation<()> {
+        props {
+            filename: String,
+            open_workspace: ActionEnvelope,
+            open_documents: ActionEnvelope,
+        }
+    }
+
+    view(location, _state, cx) =>
+        Breadcrumb(
+            items: vec![
+                BreadcrumbItem {
+                    label: cx.tr("navigation.workspace"),
+                    on_click: Some(location.open_workspace.clone()),
+                },
+                BreadcrumbItem {
+                    label: cx.tr("navigation.documents"),
+                    on_click: Some(location.open_documents.clone()),
+                },
+                BreadcrumbItem {
+                    label: location.filename.clone(),
+                    on_click: None,
+                },
+            ],
+        )
 }
-.into();
 ```
+
+The parent binds navigation to the actual workspace and folder. The current
+filename is data, not a translation key. `BreadcrumbItem` is an ordinary Rust
+configuration value; Compose constructs the visible `Breadcrumb`.
 
 In this pattern the last item marks the current location, while earlier items let the user move upward.
 
@@ -54,10 +68,9 @@ Breadcrumbs should move upward in a hierarchy, not trigger unrelated actions. If
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Verify every ancestor action navigates to its actual hierarchy level.
+- Test a long filename and deep path at the narrowest supported width.
+- Keep the final item non-actionable and expose it as the current location.
 
 ## Related
 

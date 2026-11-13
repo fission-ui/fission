@@ -17,17 +17,26 @@ when you need to build a custom overlay.
 ```rust
 use fission::prelude::*;
 
-let global_debug_overlay = if view.state().show_debug_banner {
-    Portal {
-        child: Container::new(Text::new("Diagnostics connected").into())
-            .padding_all(12.0)
-            .into(),
+fission_component! {
+    pub DiagnosticBanner<()> {
+        props { connected: bool }
     }
-    .into()
-} else {
-    Spacer::default().into()
-};
+
+    view(banner, _state, cx) =>
+        if banner.connected {
+            Portal {
+                child: Text::new(cx.tr("diagnostics.connected")).into(),
+            }
+        } else {
+            Spacer()
+        }
+}
 ```
+
+`Portal` has no `Default` or `new` constructor in this API. Its fully specified
+Rust literal is therefore intentional and works as a normal expression inside
+Compose without a `rust { ... }` wrapper. Registration changes paint location,
+not the banner's source of truth.
 
 Your app state still decides whether the portal exists. The widget only changes where the child is composed.
 
@@ -51,10 +60,9 @@ Also remember that a portal changes rendering location, not state ownership. Kee
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test layering against existing modal/flyout/toast regions.
+- Ensure a decorative banner does not become an accidental focus or pointer blocker.
+- Use named overlay widgets when dismissal or modal semantics are required.
 
 ## Related
 

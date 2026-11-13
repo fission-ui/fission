@@ -5,27 +5,27 @@ description: Write widgets that emit their own IR structure using fission_core::
 
 # Advanced widget authoring
 
-Most widgets are ordinary Rust types that convert into a `Widget`:
+Start with Compose and the existing widget catalogue. A price label does not
+need a custom lowerer, or even separate text widgets for the currency and amount:
 
 ```rust
-fission_component!
-{
+use fission::prelude::*;
+
+fission_component! {
     pub PriceTag<()> {
+        props { formatted_price: String }
     }
-    view(tag, _state, _cx) => rust {
-        Row {
-                    gap: Some(4.0),
-                    children: widgets![
-                        Text::new(tag.currency).size(12.0),
-                        Text::new(tag.amount).size(20.0),
-                    ],
-                    ..Default::default()
-                }
-                .into()
-    }
+    view(tag, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Text(tag.formatted_price.clone(), font_size: tokens.typography.heading2_size)
 }
 ```
-Start with that API. Reach for `fission_core::authoring` only when built-in widget structs cannot express the structure your widget needs. This guide covers that less common case: emitting the intermediate representation (IR) directly.
+The parent formats the complete price for its locale and currency. Splitting
+it into a fixed currency-first row would impose the wrong order for some locales.
+Reach for `fission_core::authoring` only when built-in widgets cannot express the
+structure needed. This guide covers that less common case: emitting the
+intermediate representation (IR) directly.
 
 ## When you actually need it
 
@@ -35,7 +35,10 @@ Use `fission_core::authoring` only when all of these are true:
 - You are not trying to invent a new layout algorithm or a new paint primitive. Neither is possible, by design. See [The closed vocabulary](#the-closed-vocabulary).
 - You have checked that the `LayoutOp` you want already exists.
 
-In practice, this is for an existing layout operation with no widget wrapper, such as flyout anchoring or an aspect-ratio box, or for a widget that must control its identity to retain state.
+First inspect the public catalogue: `flyout` and `AspectRatio` already exist,
+and Compose keys or explicit widget ids handle normal retained identity. A
+custom lowerer is for an uncovered structural need, not a shorter spelling of
+an existing widget.
 
 If you are reaching for this module because a layout mode is missing, stop and open an issue instead. A layout mode added to `LayoutOp` works on every target; a workaround in one widget does not.
 
@@ -52,41 +55,41 @@ Two things follow, and both are deliberate:
 
 ## Writing a lowered widget
 
-Implement `LowerWidget`, then wrap it with `custom_widget`.
+Implement `LowerWidget`, then wrap it with `custom_widget`. The aspect-frame
+below is deliberately a small teaching example of that boundary. Use the
+built-in `AspectRatio` in an app; do not add a duplicate implementation merely
+to obtain the same box.
 
 ```rust
 use fission_core::authoring::{custom_widget, lower_widget, IrBuilder, LowerWidget, LoweringContext};
 use fission_core::ui::Widget;
 use fission_ir::{LayoutOp, Op, WidgetId};
+use fission::prelude::fission_component;
 
 /// Constrains one child to a width-to-height ratio.
-fission_component!
-{
-    pub AspectRatio<()> {
+fission_component! {
+    pub ExampleAspectFrame<()> {
         props {
             ratio: f32,
             child: Widget,
         }
     }
-    view(component, _state, _cx) => rust {
-        custom_widget(
-                    "AspectRatio",
-                    AspectRatioLowerer {
-                        ratio: component.ratio,
-                        child: component.child,
-                    },
-                )
-    }
+    view(frame, _state, _cx) =>
+    custom_widget("ExampleAspectFrame", AspectFrameLowerer {
+        ratio: frame.ratio,
+        child: frame.child.clone(),
+    })
 }
 
 #[derive(Debug)]
-struct AspectRatioLowerer {
+struct AspectFrameLowerer {
     ratio: f32,
     child: Widget,
 }
 
-impl LowerWidget for AspectRatioLowerer {
+impl LowerWidget for AspectFrameLowerer {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
+        assert!(self.ratio.is_finite() && self.ratio > 0.0, "aspect ratio must be finite and positive");
         let child_id = lower_widget(&self.child, cx);
         let id = cx.next_node_id();
 
@@ -109,12 +112,16 @@ impl LowerWidget for AspectRatioLowerer {
         builder.build(cx)
     }
 
-    fn stable_key(&self) -> u64 {
-        self.ratio.to_bits() as u64
+    fn children(&self) -> Vec<&Widget> {
+        vec![&self.child]
     }
 }
 ```
-The shape is always the same:
+The lowerer exposes its child to retained tree walks as well as lowering it.
+Without `children()`, a popup or other relationship inside this custom wrapper
+can disappear from those walks even though it still paints.
+
+The lowering sequence is:
 
 1. Lower every child with `lower_widget`, collecting the returned ids.
 2. Take a node id from `cx.next_node_id()`.
@@ -137,7 +144,11 @@ Nodes are only ever added through `IrBuilder`. The context does not hand out mut
 
 ### `stable_key`
 
-`stable_key` feeds structural diffing. Return a content-derived hash so the runtime can tell when the subtree changed. The default value, `0`, is correct, but it makes the runtime treat the subtree as changed on every rebuild.
+`stable_key` feeds structural diffing. The default `0` is conservative: the
+runtime treats this custom subtree as changed on a rebuild. This example keeps
+that default because hashing only the ratio would omit changes in its child.
+Provide a content-derived key only when it accounts for every input that can
+change the emitted subtree; an incomplete optimisation is a stale-render bug.
 
 ### `widget_id`
 
@@ -145,9 +156,14 @@ Override `widget_id` when the widget owns retained state that must survive rebui
 
 ## Semantics are not optional
 
-A widget that emits its own structure must also provide its accessibility semantics. Emit an `Op::Semantics` node with the right `Role` and state, or wrap the content in `SemanticsRegion` before lowering it.
+A custom interactive control must provide its role, name, state, and supported
+actions. Prefer composing an existing semantic control before implementing
+that contract yourself. If it really needs a lowerer, emit the appropriate
+`Op::Semantics` node or wrap its content in `SemanticsRegion`.
 
-Without semantics, screen readers cannot use the widget and semantic tests cannot find it.
+A pure layout wrapper such as this example should preserve its children's
+semantics, not manufacture another focusable control around them. Check both
+the emitted IR and retained child traversal.
 
 ## Testing a lowered widget
 
@@ -156,7 +172,7 @@ Assert against the IR the widget emits, not just its pixels. Every target consum
 Build the widget inside `build::enter` so component local state resolves, then lower it:
 
 ```rust
-use fission_core::authoring::{lower_widget_to_ir, BuildCtx};
+use fission_core::authoring::{lower_widget_to_ir_in, BuildCtx};
 use fission_core::ui::Text;
 use fission_core::{build, Env, GlobalState, RuntimeState, View, Widget};
 use fission_ir::{CoreIR, LayoutOp, Op};
@@ -171,13 +187,13 @@ fn lower(env: &Env, build_widget: impl FnOnce() -> Widget) -> CoreIR {
     let view = View::new(&state, &runtime, env, None);
     let mut ctx = BuildCtx::<TestState>::new();
     let widget = build::enter(&mut ctx, &view, build_widget);
-    lower_widget_to_ir(&widget)
+    lower_widget_to_ir_in(env, &widget)
 }
 
 #[test]
 fn aspect_ratio_constrains_its_child() {
     let ir = lower(&Env::default(), || {
-        AspectRatio { ratio: 16.0 / 9.0, child: Text::new("hi").into() }.into()
+        ExampleAspectFrame::new(16.0 / 9.0, Text::new("Preview").into()).into()
     });
 
     let ratio = ir.nodes.values().find_map(|node| match &node.op {

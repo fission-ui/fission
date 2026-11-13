@@ -5,13 +5,14 @@ description: Learn how jobs, services, commands, resources, capabilities, and re
 
 # Resources and async
 
-A production app always needs outside work. It saves files. It talks to the network. It starts background processes. It asks the host to open native pickers or URLs. It wakes up on timers. The question is not whether those things happen. The question is where they happen, and whether the architecture still stays predictable when they do.
+Saving a file, opening a host picker, and keeping a workspace connection alive
+all involve outside work, but they do not have the same owner or lifetime.
+Treating them as interchangeable async callbacks hides when they should start,
+which state they may update, and when they must stop.
 
-Fission's answer is strict by design.
-
-Reducers update state. They do not directly perform outside work.
-
-Outside work is requested explicitly through runtime effects or declared as a runtime-managed resource. That is what keeps the reducer model replayable, testable, and understandable.
+Fission keeps those decisions explicit: reducers update state and queue work;
+resources declare work whose lifetime follows the widget tree. Completion
+returns through another reducer rather than mutating the app from a worker.
 
 If you are trying to upload files specifically, read [How do I do file uploads in Fission?](/docs/guides/file-uploads/) after this overview. If you want the architectural reason reducers stay synchronous, read [Why reducers are synchronous](/docs/guides/why-reducers-are-synchronous/).
 
@@ -51,6 +52,8 @@ fn on_save_requested(
 
     state.saving = true;
     state.error_message = None;
+    let saved = ctx.effects.bind(SaveSucceeded, reduce!(on_save_succeeded));
+    let failed = ctx.effects.bind(SaveFailed, reduce!(on_save_failed));
 
     ctx.effects
         .app(
@@ -60,18 +63,23 @@ fn on_save_requested(
                 contents: state.buffer.clone(),
             },
         )
-        .on_ok(ctx.effects.bind(
-            SaveSucceeded,
-            reduce_with!(on_save_succeeded),
-        ))
-        .on_err(ctx.effects.bind(
-            SaveFailed,
-            reduce_with!(on_save_failed),
-        ));
+        .on_ok(saved)
+        .on_err(failed);
 }
 ```
 
-The job definition itself lives elsewhere, usually in a shared async registration setup. The important part here is the flow shape.
+The editor-specific job types and completion reducers live in its shared
+effects module; this is an orchestration excerpt, not an entire editor app.
+Bind callbacks before obtaining a builder that already borrows `ctx.effects`.
+Both completion reducers clear `saving`, and failures render an error rather
+than leaving a permanently busy button.
+
+For a component-only operation, Compose's `on_press: effect operation(...) {
+on_start { ... } on_ok(value) { ... } on_err(error) { ... } }` generates that
+same queue/completion flow. It does not give an async function live access to
+the component or app state. Pass owned inputs and handle returned results in
+the lifecycle blocks; see the [Runtime model](/docs/learn/runtime-model/) for
+that compact form.
 
 Use a job when the work is finite and request-shaped.
 
@@ -95,6 +103,8 @@ fn on_pick_file(
     _action: PickFileRequested,
     ctx: &mut ReducerContext<EditorState>,
 ) {
+    let picked = ctx.effects.bind(FilePicked, reduce!(on_file_picked));
+    let failed = ctx.effects.bind(FilePickFailed, reduce!(on_file_pick_failed));
     ctx.effects
         .capability(
             PICK_OPEN_FILES,
@@ -105,18 +115,17 @@ fn on_pick_file(
                 preferred_chunk_bytes: None,
             },
         )
-        .on_ok(ctx.effects.bind(
-            FilePicked,
-            reduce_with!(on_file_picked),
-        ))
-        .on_err(ctx.effects.bind(
-            FilePickFailed,
-            reduce_with!(on_file_pick_failed),
-        ));
+        .on_ok(picked)
+        .on_err(failed);
 }
 ```
 
-`PICK_OPEN_FILES` returns `PickedFile` values with metadata plus a `DataStreamId`. It does not put the selected file contents in the reducer payload. If you need to parse, preview, upload, or transform the file, pass the stream handle to a job or service and consume it there with `JobCtx::open_data_stream(...)` or `ServiceCtx::open_data_stream(...)`.
+`PICK_OPEN_FILES` returns `PickOpenFilesResult { files }`; each `PickedFile`
+contains metadata and a `DataStreamId`. An empty `files` list is cancellation,
+not a provider error. File contents do not enter the reducer payload. Pass the
+handle to async work and consume it through `JobCtx::open_data_stream(...)` or
+`ServiceCtx::open_data_stream(...)`. The complete bounded import flow is in
+[Run typed host work](/docs/cookbook/run-typed-host-work/).
 
 The default desktop shell provider streams selected files from disk in chunks. Web, mobile, server, static-site, and terminal targets can supply their own provider when file picking makes sense for that host.
 
@@ -139,24 +148,18 @@ This is why services are separated from reducers. A reducer can say "start the l
 An event-driven service start looks like this:
 
 ```rust
-let slot = ServiceSlot::singleton(LANGUAGE_SERVICE);
+let slot = ServiceSlot::keyed(LANGUAGE_SERVICE, state.workspace_root.clone());
+let started = ctx.effects.bind(LanguageServiceStarted, reduce!(on_language_started));
+let event = ctx.effects.bind(LanguageServiceEvent, reduce!(on_language_event));
+let failed = ctx.effects.bind(LanguageServiceStartFailed, reduce!(on_language_start_failed));
 
 ctx.effects
     .start_service(slot, LanguageConfig {
         root_path: state.workspace_root.clone(),
     })
-    .on_started(ctx.effects.bind(
-        LanguageServiceStarted,
-        reduce_with!(on_language_started),
-    ))
-    .on_event(ctx.effects.bind(
-        LanguageServiceEvent,
-        reduce_with!(on_language_event),
-    ))
-    .on_start_failed(ctx.effects.bind(
-        LanguageServiceStartFailed,
-        reduce_with!(on_language_start_failed),
-    ));
+    .on_started(started)
+    .on_event(event)
+    .on_start_failed(failed);
 ```
 
 Use a service when the work has identity over time.
@@ -174,7 +177,9 @@ If the service is the conversation, a command is one message inside that convers
 For example, once a language service is already running, a reducer may want to ask it for completion items or tell it that the current document changed. That is command-shaped work.
 
 ```rust
-let slot = ServiceSlot::singleton(LANGUAGE_SERVICE);
+let slot = ServiceSlot::keyed(LANGUAGE_SERVICE, state.workspace_root.clone());
+let loaded = ctx.effects.bind(CompletionsLoaded, reduce!(on_completions_loaded));
+let failed = ctx.effects.bind(CompletionRequestFailed, reduce!(on_completion_request_failed));
 
 ctx.effects
     .command(
@@ -184,14 +189,8 @@ ctx.effects
             cursor: state.cursor_position,
         },
     )
-    .on_ok(ctx.effects.bind(
-        CompletionsLoaded,
-        reduce_with!(on_completions_loaded),
-    ))
-    .on_err(ctx.effects.bind(
-        CompletionRequestFailed,
-        reduce_with!(on_completion_request_failed),
-    ));
+    .on_ok(loaded)
+    .on_err(failed);
 ```
 
 Use a command when the service already exists and you want a response to one request inside that long-lived session.
@@ -206,7 +205,10 @@ So far, the examples have all been reducer-driven. A user action happened, so th
 
 Resources solve a different problem.
 
-A resource is work that should stay mounted while a widget subtree exists. It is declared during component conversion through `BuildCtxHandle` resource methods, and the runtime reconciles it over time by key and dependency payload.
+A resource is work that should stay mounted while its declaration exists. In
+a Compose setup block, use `cx.with_resources(|resources| ...)`; the build
+handle does not have a public `resources` field. The runtime reconciles the
+declarations after the build by key, dependency payload, and policy.
 
 That distinction matters. Some work is not best described as "the user clicked a button." A polling timer may need to exist while a panel is visible. A background job may need to restart when a dependency changes. A long-lived service may need to stay alive for as long as a screen is mounted.
 
@@ -227,23 +229,23 @@ Use it when the user interface should declare "while this screen is present and 
 That looks like this in practice:
 
 ```rust
-if view.state().tree_scan_pending() {
-    ctx.resources.job(
+if state.tree_scan_pending() {
+    cx.with_resources(|resources| resources.job(
         JobResource::new(
             ResourceKey::new("editor-tree-scan"),
             TREE_SCAN_JOB,
             TreeScanRequest {
-                root_path: view.state().root_path.clone(),
-                generation: view.state().tree_scan_generation,
+                root_path: state.root_path.clone(),
+                generation: state.tree_scan_generation,
             },
         )
         .deps((
-            view.state().root_path.clone(),
-            view.state().tree_scan_generation,
+            state.root_path.clone(),
+            state.tree_scan_generation,
         ))
         .on_ok(tree_scan_loaded)
         .on_err(tree_scan_failed),
-    );
+    ));
 }
 ```
 
@@ -274,22 +276,29 @@ This is the right tool for work such as polling a terminal session while the ter
 The terminal example uses exactly this pattern.
 
 ```rust
-let poll_terminal = ctx.bind(
+let poll_terminal = cx.bind(
     PollTerminal,
     reduce_with!(poll_terminal),
 );
 
-ctx.resources.timer(
+cx.with_resources(|resources| resources.timer(
     TimerResource::new(
         ResourceKey::new("terminal-session-poll"),
         Duration::from_millis(16),
         PollTerminalTick,
     )
     .on_tick(poll_terminal),
-);
+));
 ```
 
 Use a timer resource when the app should wake up periodically because the current user interface needs it.
+
+The terminal snippet belongs in a Compose setup block. `PollTerminalTick` is
+an app-defined serializable payload; each tick carries that same payload, not
+an automatically increasing timestamp. Its reducer should drain already
+available output, not run a blocking command every 16 ms. Prefer service events
+when the host can notify the app directly, and choose a slower cadence when
+the display does not need frame-rate polling.
 
 Do not use a timer resource as a substitute for real event-driven modeling when no periodic work is actually needed. Also avoid keeping timers mounted for screens that are not visible anymore.
 
@@ -338,6 +347,12 @@ For services, reducers can read `ctx.input.service_event(...)`, `ctx.input.servi
 For timers, reducers can read `ctx.input.timer_tick::<T>()`.
 
 This keeps all returned data explicit. If a job failed, the reducer can record the error message in app state. If a timer tick arrived, the reducer can update only the state that genuinely depends on that tick.
+
+Explicit results still require an ordering policy. Include document, workspace,
+or operation identity when an old completion can arrive after navigation or a
+newer edit, and check it before applying the result. Starting a service is also
+not the same as establishing its network connection: report Connected only
+from the service's actual connected event.
 
 ## Choosing the right tool
 

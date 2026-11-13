@@ -1,14 +1,14 @@
 ---
 title: Bar
 sidebar_label: Overview
-description: Fission Charts reference for the Bar family.
+description: Choose grouped, stacked, ranked, bounded and cumulative bars from the comparison the report needs.
 ---
 
 # Bar
 
-This family has 38 chart variants. Pick one that matches your data. Each page has a screenshot, data shape, API notes, and code you can adapt.
+These thirty-eight gallery variants use a small set of mechanisms: independent bars, shared stacks, signed changes, bounded tracks and explicit cumulative offsets. The useful distinction is what the reader needs to compare, not how many variations can be styled.
 
-Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
+Build the reporting snapshot in ordinary Rust, then project it into a named Compose component. Keep labels with their values and preserve durable data IDs when sorting or selecting rows. Fetching and persistence remain in effects and reducers, outside component conversion.
 
 ![Benchmark comparison screenshot](/img/charts/bar-benchmark-comparison.png)
 
@@ -24,12 +24,12 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 | [Compact category bars](./bar-compact) | Vec&lt;f32&gt; aligned to categories. | Use it for short lists and cards. |
 | [Customer segment bars](./bar-customer-segments) | Segment values grouped by period. | Use it to compare segments without splitting the page. |
 | [Diverging bar](./bar-diverging) | Positive and negative BarSeries values. | Use it for sentiment, deltas, and balance views. |
-| [Funnel unit pictorial bars](./bar-funnel-units) | Values represented by repeated symbols. | Use it when unit counts should feel more tactile than rectangles. |
+| [Funnel unit pictorial bars](./bar-funnel-units) | Values represented by repeated symbols. | Use cautiously: the current symbol count is not one symbol per unit. |
 | [Grouped quarterly bars](./bar-grouped-quarter) | Multiple BarSeries on the same categories. | Use it for side-by-side period comparisons. |
 | [KPI background bars](./bar-kpi-background) | BarSeries with background styling. | Use it for KPI completion panels. |
 | [Negative delta bars](./bar-negative-delta) | BarSeries values crossing zero. | Use it for variance and profit/loss dashboards. |
 | [Performance bands](./bar-performance-bands) | Values shown against a visual capacity track. | Use it for scorecards where progress is the dominant signal. |
-| [Pictorial units](./bar-pictorial-units) | PictorialBarSeries values. | Use it for branded but still quantitative category displays. |
+| [Pictorial units](./bar-pictorial-units) | PictorialBarSeries values. | Explain the renderer's symbol-count convention and show exact values. |
 | [Priority queue bars](./bar-priority-queue) | Rounded bars for a compact queue view. | Use it when bars sit inside a polished app surface. |
 | [Product stack bars](./bar-product-stack) | Product values stacked into category totals. | Use it for portfolio composition. |
 | [Profit and loss bars](./bar-profit-loss) | Positive and negative values on one value axis. | Use it when gains and losses must share one baseline. |
@@ -37,7 +37,7 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 | [Ranked bar](./bar-ranked) | BarSeries with horizontal orientation. | Use it for rankings with long labels. |
 | [Region comparison bars](./bar-region-comparison) | Multiple BarSeries. | Use it for region-by-period comparisons. |
 | [Region ranking](./bar-region-rank) | Category/value pairs sorted for comparison. | Use it when exact rank is the product question. |
-| [Retail waterfall](./bar-retail-waterfall) | Sequential sales and cost changes. | Use it for retail contribution analysis. |
+| [Retail waterfall](./bar-retail-waterfall) | Gross sales, deductions and net sales. | Reconcile a retail sales bridge with cumulative offsets. |
 | [Return deltas](./bar-return-deltas) | Category deltas with negative values. | Use it for change analysis around zero. |
 | [Rounded bar](./bar-rounded) | BarSeries with border radius. | Use it when the chart sits in a polished product dashboard. |
 | [Sales target track](./bar-sales-target-track) | Values against a fixed target background. | Use it when completion against capacity is more important than raw count. |
@@ -50,47 +50,31 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 | [Team load bars](./bar-team-load) | Team categories ranked by workload. | Use it when managers need quick capacity comparison. |
 | [Ticket age distribution](./bar-ticket-age) | Buckets with counts per age range. | Use it when the reader needs the shape of a queue. |
 | [Track progress bars](./bar-track-progress) | BarSeries with background color. | Use it for completion and capacity comparisons. |
-| [Utilization capacity](./bar-utilization-capacity) | Usage bars with capacity tracks. | Use it for infrastructure and quota dashboards. |
+| [Utilization capacity](./bar-utilization-capacity) | Usage and capacity side by side. | Compare unequal limits or show over-allocation without clipping. |
 | [Waterfall bar](./bar-waterfall) | Delta values over ordered categories. | Use it for profit bridges and cumulative change explanations. |
 | [Weekday shape bars](./bar-weekday-shape) | Seven ordered weekday values. | Use it when the weekly rhythm is easier as bars than a line. |
 | [Wide-label horizontal bars](./bar-wide-labels) | BarSeries with category y-axis. | Use it when labels would collide on the x-axis. |
 
-## Choosing within this family
+## Choose the comparison
 
-First decide what the user needs to compare or understand. Pick the simplest chart that shows it; add interaction only when it helps, and use animation only when it explains a change.
+Use grouped bars when individual values need a shared baseline. Use a stack when its parts are exclusive contributions to one total. A signed delta compares against zero; a waterfall instead explains a running balance and needs an offset for every intermediate change.
 
-## Authoring from a Fission component
+A background fills the numeric plot range. Therefore, a capacity track only has a truthful endpoint when the axis maximum is an intentional limit, not the current largest reading. Where limits differ or usage exceeds them, show the amounts separately or declare the normalisation explicitly.
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+## The public fields used by these examples
 
-```rust
-use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
-
-
-
-fission_component!
-{
-    pub BarChart<()> {
-    }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Bar")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
-}
-```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
-
-## Options, accessibility, and diagnostics
-
-| Area | What to decide | How to check it |
+| Chart input | Rust field type | Meaning |
 | --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+| `title` | `Option<String>` | A translated description of the report. |
+| `x_axis`, `y_axis` | `Option<Axis>` | Category and numeric scales; swap their roles for horizontal bars. |
+| `series` | `Vec<Series>` | One or more explicit `Series::Bar(...)` values. |
+| `legend` | `Option<Legend>` | Identifies multiple displayed measures. |
+| `width`, `height` | `Option<f32>` | Optional fixed dimensions, rather than mandatory chart sizing. |
+
+Enable Fission's `charts` feature. The individual pages show actual `Chart(...)` composition and ordinary Rust `BarSeries` values, without a separate builder-based UI or a required `rust { ... }` escape block.
+
+## Verify meaning as well as rendering
+
+Test reconciliation, category/value alignment, tie-breaking and missing data before inspecting the visual result. A zero may have a small visible extent in the current renderer, so exact values and explicit empty states still matter.
+
+Use translated labels, design-system presentation inputs and stable chart identities for repeated interactive panels. Keep the values available in text or tables and inspect long labels at mobile and desktop sizes with LiveTest. Gallery screenshots are fixtures, not proof that an application's projection or interactions are correct.

@@ -1,450 +1,341 @@
 ---
 title: State, handles, and providers
-description: Learn where state belongs in a Fission app, how build handles work, and how parents pass typed context to descendants.
+description: Choose the right owner and lifetime for app state, retained widget state, build handles and typed parent context.
 ---
 
 # State, handles, and providers
 
-A Fission widget tree is rebuilt from the current inputs whenever the runtime needs a new description of the interface. That does not mean your app loses its state. It means state must live in the right place, and widgets must read it through the build-scope APIs Fission provides.
+A view can be rebuilt without losing the values it displays. The values do
+not live in the temporary description of that view: the runtime keeps app
+state and retained widget memory separately.
 
-Fission has three state-like tools, and each one has a different owner and lifetime:
+That distinction explains several APIs which can otherwise look like different
+ways of storing the same thing:
 
-| Tool | Use it for | Lifetime |
+| Tool | Owner and purpose | Lifetime |
 | --- | --- | --- |
-| `GlobalState` | Durable product data shared by the app | Lives in the runtime until the app exits or replaces it |
-| local widget state | Temporary UI state owned by one stable widget identity | Lives while that widget identity remains present |
-| provider values | Typed context a parent exposes to descendants | Lives only while that subtree is being converted |
+| `GlobalState` | Shared product facts | The running app, until replaced or exited |
+| Component `state` | One widget's retained interface memory | While that widget identity remains present |
+| Provider value | Read-only context supplied by an ancestor | While descendants are being converted |
+| Build/view handle | Access to the active build scope | That build pass only |
 
-It also explains `BuildCtxHandle` and `ViewHandle`, because those handles are the safe way a component reads state, reads environment, and wires actions during component conversion.
+None of these automatically persists data across process restarts. Use Store,
+SQL or a server operation when that is required.
 
 ## Start with the right state bucket
 
-Before writing code, decide what kind of value you are storing.
+A task record belongs in app state when a list, detail screen and progress
+summary all use it. A disclosure's open flag belongs to that widget unless
+another part of the product needs to observe it. A parent-imposed edit mode
+can be provider context while descendants build.
 
-If the value is part of the product, put it in `GlobalState`. A shopping cart, current document, signed-in user, active route, selected project, saved filter, and sync status are all product facts. If the app loses one of those values, the product behaves differently.
-
-If the value is only local interface memory, use local widget state. Examples include whether one disclosure row is open, the draft text in an isolated popover, a selected tab inside one component, or the current counter value in a teaching example. Local widget state is retained, but it is still tied to a widget identity. When that identity disappears from the tree, the runtime can prune the local state.
-
-If the value is contextual information that a parent wants descendants to read while building, use a provider. Examples include a form section id, local density setting, feature flag snapshot, validation mode, or a small view-model value shared by several child widgets. Providers are not persistent storage. They are typed values installed on the current build stack.
-
-If the value is presentation context provided by the host or synchronized from product state, it often belongs in `Env`. Theme, locale, viewport size, window title, platform information, and shell-provided presentation data should be read through `ViewHandle::env()` or helper methods such as `view.theme()`.
+Theme, locale, viewport and host presentation context belong in `Env`. If the
+user chooses a locale or theme, keep that choice in app state and mirror it
+through the shell's `with_sync_env` hook. Do not use a provider or environment
+value as a second mutable copy of product data.
 
 ## `GlobalState` is the app's durable truth
 
-`GlobalState` is the root application state managed by the runtime. Widgets read it; reducers update it.
-
-A small task app might start like this:
+The runtime owns one root app model. “Durable” here means independent of a
+disposable widget instance, not automatically stored on disk:
 
 ```rust
 use fission::prelude::*;
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, FissionGlobalState)]
+#[derive(Debug, Clone, Default)]
 pub struct TaskState {
-    pub draft: String,
     pub items: Vec<TaskItem>,
-    pub saving: bool,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, FissionStateView)]
+impl GlobalState for TaskState {}
+
+#[derive(Debug, Clone)]
 pub struct TaskItem {
+    pub id: u64,
     pub title: String,
     pub done: bool,
 }
 ```
 
-`FissionGlobalState` implements `GlobalState` and generates a typed read-only view API. `FissionStateView` does the same for nested structs. You can still write `impl GlobalState for TaskState {}` by hand, but generated views make larger state trees easier to read without using strings or reflection.
-
-Read `GlobalState` during component conversion:
+A view reads that model directly:
 
 ```rust
-
-
-fission_component!
-{
-    pub TaskCount<TaskState> {
-    }
-    view(_component, _state, _cx) => rust {
-        let (_, view) = fission::build::current::<TaskState>();
-                let remaining = view
-                    .state()
-                    .items
-                    .iter()
-                    .filter(|item| !item.done)
-                    .count();
-
-                Text::new(format!("{remaining} tasks left")).into()
-    }
-}
-```
-Update `GlobalState` in reducers, not in widgets:
-
-```rust
-#[fission_reducer(SetDraft)]
-fn on_set_draft(state: &mut TaskState, draft: String) {
-    state.draft = draft;
-}
-
-#[fission_reducer(AddTask)]
-fn on_add_task(state: &mut TaskState) {
-    let title = state.draft.trim();
-    if title.is_empty() {
-        return;
-    }
-
-    state.items.push(TaskItem {
-        title: title.to_string(),
-        done: false,
-    });
-    state.draft.clear();
+fission_component! {
+    pub RemainingTaskCount<TaskState>
+    view(_count, state, _cx) {
+        let remaining = state.items.iter().filter(|item| !item.done).count();
+    } =>
+    Badge(text: remaining.to_string())
 }
 ```
 
-That separation is the normal Fission flow: widgets describe the current interface, actions describe intent, reducers update state, and the runtime asks widgets to convert again from the new inputs.
+Place the badge beside a translated task summary so its number has context.
+For larger typed state trees, `FissionGlobalState` generates the root trait and
+read-only view API; `FissionStateView` generates views for nested structures.
+See the [state reference](/reference/core/state-system/) for those contracts.
+
+Small component transitions use inline `reduce` blocks. A domain transition
+used by several widgets can remain a named `#[fission_reducer]` function.
+An ordinary field setter can normally use a binding instead of another action
+struct and reducer function.
 
 ## `BuildCtxHandle` wires behavior
 
-`BuildCtxHandle` is the write-side build helper. You get it from `fission::build::current::<State>()` and use it to record runtime wiring.
-
-The most common operation is binding an action to a reducer:
+Compose exposes build wiring through `cx.build`. Bind an existing shared
+transition when it really has a reusable app meaning:
 
 ```rust
-
-
-fission_component!
-{
-    pub AddButton<TaskState> {
-    }
-    view(_component, _state, _cx) => rust {
-        let (ctx, _) = fission::build::current::<TaskState>();
-                let add = with_reducer!(ctx, AddTask, on_add_task);
-
-                Button {
-                    on_press: Some(add),
-                    child: Some(Text::new("Add task").into()),
-                    ..Default::default()
-                }
-                .into()
-    }
+fission_component! {
+    pub AddTaskButton<TaskState>
+    view(_button, _state, cx) {
+        let add = cx.bind(AddTask, reduce!(on_add_task));
+    } =>
+    Button(child: Text(cx.tr("tasks.add")), on_press: add)
 }
 ```
-The handle does not mutate `TaskState` directly. It registers the action path the runtime should use later, when the user presses the button. The actual state change still happens in `on_add_task`.
 
-`BuildCtxHandle` is also used for local reducers, animations, portals, media registrations, resource registration, and other build-time runtime wiring. The rule stays the same: use it to tell the runtime how this widget should be connected; do not use it as storage or as a place to perform outside work.
+This excerpt assumes an existing registered-shape `AddTask` reducer and the app's
+draft model. It demonstrates interoperability, not a requirement to define a
+separate action for every button. An inline `reduce` would generate the binding
+for a component-only transition.
+
+The handle records registrations the runtime needs later: actions, local
+reducers, resources, portals, media and animations. It does not provide a
+second way to mutate `TaskState` during the build.
 
 ## `ViewHandle` reads state, environment, layout, and runtime values
 
-`ViewHandle` is the read-side build helper. It is the way component conversion reads the current inputs.
+Compose exposes the view handle through `cx.view`:
 
 ```rust
-
-
-fission_component!
-{
-    pub AppChrome<TaskState> {
-    }
-    view(_component, _state, _cx) => rust {
-        let (_, view) = fission::build::current::<TaskState>();
-                let theme = view.theme();
-                let width = view.viewport_size().width;
-                let title = if width < 600.0 { "Tasks" } else { "My tasks" };
-
-                Text::new(title)
-                    .color(theme.tokens.colors.text_primary)
-                    .size(24.0)
-                    .into()
-    }
+fission_component! {
+    pub TaskHeader<TaskState>
+    view(_header, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Text(cx.tr("tasks.title")).size(tokens.typography.heading1_size)
 }
 ```
-Use `view.state()` for direct reads, `view.global()` for generated typed state views, `view.select(...)` for one-off derived values, and `view.select_with::<SelectorType>()` for reusable selectors.
 
-Use `view.env()` or helpers such as `view.theme()`, `view.i18n()`, and `view.viewport_size()` for host and presentation context. Use layout reads such as `view.get_rect(id)` only when a widget genuinely depends on previous layout information.
+Use the named state scope for direct reads. Use `cx.view.global()` for a
+generated typed view, `select` for a one-off read-only derivation, and
+`select_with` for a reusable selector.
+
+`cx.view.viewport_size()` reads the viewport. `get_rect(id)` reads previous
+layout geometry, which is useful for a feature that genuinely needs it. Do not
+cache every viewport or breakpoint value in app state merely because the view
+can read it.
 
 ## Handles are not raw references
 
-`BuildCtxHandle` and `ViewHandle` are copyable handles, not long-lived Rust references. That design is intentional.
+The handles are copyable keys into the active build scope, not permission to
+access live app data indefinitely. The shell or test harness creates the
+scope; after it ends, authoring code must not use those handles.
 
-A component conversion runs inside a build scope created by the shell or test harness. During that scope, the handles can resolve the current `BuildCtx`, `View`, runtime state, environment, provider stack, and local state store. After the build scope exits, those inputs are no longer valid for authoring code.
+Lower-level component code can obtain them with
+`fission::build::current::<TaskState>()`. Compose components already have the
+named scopes, so calling it again is usually unnecessary.
 
-That means this is correct:
-
-```rust
-fission_component!
-{
-    pub TaskHeader<TaskState> {
-    }
-    view(_component, _state, _cx) => rust {
-        let (_, view) = fission::build::current::<TaskState>();
-                Text::new(format!("{} tasks", view.state().items.len())).into()
-    }
-}
-```
-This is wrong:
-
-```rust
-// Do not store this for later use in a reducer, async task, service, or static.
-let (_ctx, view) = fission::build::current::<TaskState>();
-```
-
-If a handle is used outside an active build pass, Fission reports a clear panic such as "requested outside an active build pass". That failure is deliberate. It prevents a stale build handle from becoming a hidden global pointer to old runtime data.
-
-Use reducers, jobs, services, capabilities, and resources for work that happens later. Use handles only while converting a component into `Widget`.
+Do not store a handle in a service, async task, static or component prop for
+later access. It will fail outside an active build pass. Pass selected owned
+values into effects; completion reducers receive fresh current-state access.
 
 ## Local widget state is retained by widget identity
 
-Local widget state is for state that belongs to one widget identity rather than to the whole app. The public API is the `#[with_local_state]` macro plus `#[local_state(default = ...)]` fields.
+A disclosure keeps its own open state while its identity remains present:
 
 ```rust
-#[with_local_state]
-
-
-#[fission_reducer(ToggleOpen)]
-fn on_toggle_open(open: &mut bool) {
-    *open = !*open;
-}
-
-fission_component!
-{
+fission_component! {
     pub DisclosureSection<()> {
         props {
             title: String,
-            open: bool,
+            details: String,
         }
+        state { open: bool = false }
     }
-    view(section, _state, _cx) => rust {
-        let (ctx, _) = fission::build::current::<()>();
-                let open = section.open();
-                let toggle = ctx.bind_local(ToggleOpen, open.clone(), reduce!(on_toggle_open));
-
-                Column {
-                    gap: Some(8.0),
-                    children: widgets![
-                        Button {
-                            on_press: Some(toggle),
-                            child: Some(Text::new(section.title).into()),
-                            ..Default::default()
-                        },
-                        if open.get() {
-                            Text::new("The details are visible.").into()
-                        } else {
-                            Text::new("The details are hidden.").into()
-                        },
-                    ],
-                    ..Default::default()
-                }
-                .into()
-    }
+    view(section, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(
+        gap: tokens.spacing.s,
+        children: [
+            Button(
+                child: Text(section.title.clone()),
+                key: "toggle-section",
+                on_press: reduce { section.open = !section.open; },
+            ),
+            if section.open {
+                Text(section.details.clone())
+            },
+        ],
+    )
 }
 ```
-The annotated field is not a normal stored struct field after macro expansion. It becomes an accessor method that returns a `StateField<T>` handle. Calling `section.open()` resolves the retained value for the current widget identity. Calling `open.get()` reads the current value. Calling `ctx.bind_local(...)` wires a reducer that updates that specific retained field.
 
-Local state persists across rebuilds while the same widget identity remains active. If the widget is removed from the tree, the runtime prunes the retained value after the build. If the widget later appears again as a new identity, it starts from the default.
+The parent supplies translated content. The component owns only visibility.
+Compose generates the `StateField` accessors and local-reducer wiring which
+lower-level components express with `#[with_local_state]`, `#[local_state]` and
+`bind_local`.
 
-Fission assigns that identity automatically from the application root and the
-widget's structural path. The root defaults to `WidgetId::app_root()`. Retained
-runtime shells also provide `with_root_id(...)` when an embedder mounts multiple
-independent applications and needs a separate namespace for each one. An
-explicit ID set directly on the root widget remains authoritative.
-
-Use local state for small UI-local memory. Do not use it for product data that should survive navigation, sync, persistence, or sharing across distant screens. That belongs in `GlobalState`.
+Removing the widget lets the runtime prune its local values after the build.
+Reintroducing it as a new identity starts from its defaults. Keep a draft in
+app state or persistent storage when leaving the screen must not discard it.
 
 ## Use `WidgetId` for dynamic or reordered local state
 
-For static sibling widgets, Fission distinguishes local state by structural position. Unidentified dynamic-list items deliberately use the same positional rule. Add explicit identity when state must follow a logical item as its position changes.
-
-Consider this list of cards. If the user reorders it, the second card should keep its own expanded state rather than inheriting whatever used to be in the second slot.
+A row's position is not its data identity. Compose makes the distinction
+explicit at a repeated call site:
 
 ```rust
-
-
-fission_component!
-{
+fission_component! {
     pub CardList<()> {
-        props {
-            cards: Vec<CardSummary>,
-        }
+        props { cards: Vec<CardSummary> }
     }
-    view(list, _state, _cx) => rust {
-        let children = list
-                    .cards
-                    .into_iter()
-                    .map(|card| {
-                        CardRow { card: card.clone() }
-                            .id(WidgetId::explicit(&format!("card.{}", card.id)))
-                    })
-                    .collect();
-
-                Column {
-                    children,
-                    ..Default::default()
-                }
-                .into()
-    }
+    view(list, _state, _cx) =>
+    Column(children: [
+        for card in &list.cards {
+            DisclosureSection(
+                card.title.clone(),
+                card.details.clone(),
+                key: card.id,
+            )
+        },
+    ])
 }
 ```
-The `.id(...)` method comes from `WidgetIdExt`, which is in the prelude. Use a stable id from your data, such as a database id, SKU, route id, or durable slug. Do not use the list index as the id for reorderable or filterable data. An index is only stable while the order never changes.
 
-You do not need to assign IDs to every widget. Fission automatically gives the
-item's descendants stable IDs scoped beneath the explicit item ID. Use an
-explicit `WidgetId` when identity must follow data across insertion, removal,
-filtering, or reordering; leave an item unidentified when positional identity is
-the intended behavior.
+Here `CardSummary` is the app's read model with durable `id`, `title` and
+`details` fields. Filtering or sorting changes positions, not the identity
+which owns each open flag. Lower-level widgets can express the same choice
+with `.id(WidgetId::explicit(...))`.
+
+Static children can use structural identity. You do not need to hand-name
+every text descendant; descendants inherit the item's identity scope.
+Independent embedded apps can use separate shell `with_root_id` namespaces.
 
 ## Providers pass typed context down the build stack
 
-A provider lets a parent install a typed value while a subtree is being converted. Descendants read the nearest value of that type.
+A provider installs one read-only value while converting its descendants.
+Nested providers override that type only for their own subtree:
 
 ```rust
-#[derive(Clone)]
-pub struct FormSection {
-    pub name: &'static str,
+#[derive(Clone, Copy)]
+pub enum PanelMode {
+    ReadOnly,
+    Editable,
 }
 
-
-
-fission_component!
-{
-    pub SettingsForm<()> {
-    }
-    view(_component, _state, _cx) => rust {
-        Provider::new(FormSection { name: "profile" }, || Column {
-                    children: widgets![
-                        FieldLabel { text: "Display name" },
-                        Provider::new(FormSection { name: "security" }, || FieldLabel {
-                            text: "Password"
-                        }),
-                        FieldLabel { text: "Biography" },
-                    ],
-                    ..Default::default()
-                })
-                .into()
-    }
+fission_component! {
+    pub ProfilePanel<AppState>
+    view(_panel, _state, _cx) =>
+    Provider::new(PanelMode::ReadOnly, || ProfileFields)
 }
 
-
-
-fission_component!
-{
-    pub FieldLabel<()> {
-        props {
-            text: &'static str,
-        }
-    }
-    view(label, _state, _cx) => rust {
-        let section = fission::build::read::<FormSection>();
-                Text::new(format!("{}: {}", section.name, label.text)).into()
-    }
+fission_component! {
+    pub ProfileFields<AppState>
+    view(_fields, _state, _cx) =>
+    Column(children: [
+        ProfileName(),
+        Provider::new(PanelMode::Editable, || BiographyEditor),
+        ProfileSummary(),
+    ])
 }
 ```
-The output uses `profile` for the first and third label. The nested provider overrides the value only for its child, so the password label uses `security`. This is the provider stack rule: the nearest active provider of the requested type wins, and the parent value becomes visible again after the nested provider ends.
 
-Provider values must be `Clone + Send + Sync + 'static`. They are cloned when read so child widgets cannot keep borrowed references into a parent stack frame.
+The app's `ProfileName` and `ProfileSummary` see `ReadOnly`; `BiographyEditor`
+sees `Editable`. When that nested subtree finishes, the outer mode is active
+again. The example names app widgets; the provider does not construct those
+implementations for you.
 
-Use `fission::build::read::<T>()` when the provider is required and missing it is a programming error. Use `fission::build::try_read::<T>()` when the child can work without it:
+A field can consume that context without receive it through every intermediate
+prop:
 
 ```rust
-let density = fission::build::try_read::<Density>()
-    .unwrap_or(Density::Comfortable);
+fission_component! {
+    pub ProfileName<AppState>
+    view(_name, state, cx) {
+        let mode = fission::build::read::<PanelMode>();
+    } =>
+    TextInput(
+        label: Some(cx.tr("profile.name").into()),
+        bind: state.profile.name,
+        read_only: matches!(mode, PanelMode::ReadOnly),
+    )
+}
 ```
 
-You can also call `fission::build::provide(value, || child.into())` directly, but `Provider::new(value, || child)` is the normal widget-shaped API.
+Provider values are `Clone + Send + Sync + 'static` and reads clone them. A
+missing required `read::<T>()` is a programming error. Use `try_read::<T>()`
+when the component deliberately supports absence.
 
 ## Providers are context, not product state
 
-Providers are useful because they avoid plumbing small context values through every intermediate component. They are not a replacement for `GlobalState` or local widget state.
+A panel's edit mode is presentation context, not authorization. A protected
+server operation still verifies the caller independently.
 
-A provider is a good fit when:
-
-| Need | Why provider fits |
+| Need | Appropriate owner |
 | --- | --- |
-| A form section wants descendants to know the section id | The value is contextual and only matters below that parent |
-| A layout container wants descendants to use compact density | The value is scoped presentation context |
-| A page wants nested widgets to share a precomputed read-only view model | The value is derived for this subtree and does not need a reducer |
-| A preview wants to override a theme-like value inside one subtree | The nearest-provider rule gives a clean override |
+| Shared records or a draft which survives navigation | `GlobalState` |
+| One disclosure's retained visibility | Component `state` |
+| Parent-scoped density, mode or derived read model | Provider |
+| Data needed by a later async operation | Owned request payload |
+| Persistent user preference | App state plus an explicit persistence operation |
 
-A provider is a poor fit when:
-
-| Need | Better tool |
-| --- | --- |
-| User-visible data should survive navigation or reload | `GlobalState` |
-| One widget needs retained open/closed or draft state | local widget state |
-| A reducer needs to update a value later | `GlobalState` or local state through `bind_local` |
-| A service, job, or timer needs data outside build | explicit effect payloads or registered resources |
-
-Remember that providers exist only during component conversion. If you need the value later, put it in state or include it in the action/effect payload.
+If a value must be changed by a later reducer, a provider clone is not its
+authority. Store the fact in state and derive the provider input from it.
 
 ## Parent-injected state follows normal nesting
 
-The provider stack is lexical and nested. A child can read a value only because an ancestor converted it inside the provider closure.
+The provider scope comes from converting children inside its closure. Returning
+a widget which was already converted outside the provider does not retroactively
+rebuild that widget inside the new context. Supply a component for conversion
+within the provider.
 
-This means the scope is visible in the code:
-
-```rust
-Provider::new(PanelMode::ReadOnly, || Column {
-    children: widgets![
-        PanelHeader,
-        PanelBody,
-        Provider::new(PanelMode::Editable, || InlineEditor),
-        PanelFooter,
-    ],
-    ..Default::default()
-})
-```
-
-`PanelHeader`, `PanelBody`, and `PanelFooter` read `ReadOnly`. `InlineEditor` reads `Editable`. After `InlineEditor` has been converted, the parent `ReadOnly` value is active again.
-
-That predictable stack is why provider values are safer than process-wide globals. The override is local, visible, and automatically removed when conversion leaves the subtree.
+This lexical boundary is why nested overrides are local and predictable.
+They do not change a process-wide global which another independent app might
+read.
 
 ## Use the common state type when a component does not read app state
 
-Some components only need build wiring or local widget state and do not care what app state type the parent uses. In that case, request the common build scope with `()`:
+A component declared with `<()>` is intentionally app-state-agnostic. The
+disclosure above is one example: it uses props, local memory and the active
+presentation environment, but no app product data.
 
-```rust
-fission_component!
-{
-    pub LocalOnlyButton<()> {
-    }
-    view(_component, _state, _cx) => rust {
-        let (ctx, _) = fission::build::current::<()>();
-                // bind local state, animation, portal, or another state-independent runtime hook
-                Text::new("Local only").into()
-    }
-}
-```
-Use the concrete app state type when the component reads `GlobalState` or binds a reducer that updates it. Use `()` when the component is intentionally state-agnostic.
+Use the concrete app type when the component reads that app's state or binds a
+reducer which changes it. Do not use `()` as an escape from a type mismatch
+while still expect access to another app model.
 
 ## Checklist for choosing the right API
 
 | Question | Use |
 | --- | --- |
-| Is this durable product data? | `GlobalState` |
-| Is this a user intent or runtime result? | `Action` |
-| Does this change app state? | Reducer on `GlobalState` |
-| Does this change one widget's retained UI memory? | `#[local_state]` plus `ctx.bind_local(...)` |
-| Does this widget need to read current app/environment/layout values? | `ViewHandle` from `build::current::<State>()` |
-| Does this widget need to wire actions, local reducers, animation, portals, or resources? | `BuildCtxHandle` from `build::current::<State>()` |
-| Does a parent need to expose contextual read-only data to descendants? | `Provider::new(...)`, `build::read`, and `build::try_read` |
-| Is a child in a dynamic list reorderable or filterable? | `.id(WidgetId::explicit(...))` |
-| Does the work happen after component conversion? | Reducers, effects, jobs, services, capabilities, or resources |
+| Is this shared product data? | `GlobalState`; persist explicitly if needed |
+| Is this one widget's retained UI memory? | Compose `state` |
+| Is this a parent input? | `props` |
+| Does this change state? | Inline `reduce` or a reusable typed reducer |
+| Does a control edit a field? | `bind` or an explicit event binding |
+| Does a parent supply read-only build context? | `Provider` and typed reads |
+| Does the component need environment/layout input? | `cx.view` |
+| Does it register app/runtime wiring? | `cx.build` |
+| Must a repeated row retain identity across reorder? | `key: durable_id` |
+| Does work happen outside the transition? | Effect/job/service/resource/capability |
 
 ## What to avoid
 
-Do not store `BuildCtxHandle` or `ViewHandle` in a struct field for later use. They are build-scope handles.
-
-Do not mutate `GlobalState` from component conversion. Dispatch an action and update state in a reducer.
-
-Do not start network requests, file writes, or host operations from component conversion. Request that work through effects, jobs, services, capabilities, or resources.
-
-Do not use providers as a hidden global state system. If the value needs to be updated later or survive beyond the current subtree conversion, put it in state.
-
-Do not omit stable `WidgetId` values for local-state components rendered from reorderable data.
+Do not perform I/O or mutate app state during conversion, including in its
+ordinary Rust setup block. Do not retain build handles, use provider context
+as persistent storage or assign reorderable rows their array position as an ID.
 
 ## Next steps
 
-Read [Runtime model](/docs/learn/runtime-model/) for the full state-action-reducer loop. Read [Resources and async](/docs/guides/resources-and-async/) for work that happens outside component conversion. Use [State system](/reference/core/state-system/) as the reference contract for the APIs introduced here.
+- [State contract](/reference/core/state-system/)
+- [Compose bindings and effects](/compose/)
+- [Runtime model](/docs/learn/runtime-model/)
+- [Resources and async](/docs/guides/resources-and-async/)
 
 ## State and responsive layout
 
-Do not store breakpoint state in `GlobalState` just to make a screen responsive. If the branch is only about available width, use [`Responsive`](/reference/widgets/responsive/) and [`Length`](/reference/core/length/). The runtime can then inspect the layout rule and lower it consistently across shells.
-
-Use ordinary Rust branching with `view.viewport_size()` only when the branch also depends on product state, environment values, previous layout geometry, or another runtime input. State should hold durable facts such as the selected thread or open inspector, not a cached copy of the current breakpoint.
+A breakpoint is normally a layout input, not a product fact. Use `Responsive`
+for width-only branches and `Length` for dimensions. Use ordinary view-time
+conditions when geometry and actual product state jointly decide the layout.
+Neither form should trigger a load just because the viewport changed.

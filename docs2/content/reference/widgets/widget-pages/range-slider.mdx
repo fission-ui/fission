@@ -8,52 +8,99 @@ slug: /widgets/range-slider
 `RangeSlider` draws a range between `start` and `end` inside a
 `[min, max]` domain, which fits filters, budget bands, and size windows.
 
-The current implementation is visual only: it draws the track and two thumbs
-but does not send drag changes to reducers.
+It is a controlled interactive control. Pointer, keyboard, accessibility, and
+semantic test input dispatch `on_change` with proposed lower and upper values
+in `cx.input.range_slider_change()`; the bound action payload remains intact.
 
 ## Example
 
 ```rust
 use fission::prelude::*;
 
-let range_slider: Widget = RangeSlider {
-    start: 10.0,
-    end: 40.0,
-    min: 0.0,
-    max: 100.0,
-    on_change: None,
-    id: None,
+fission_component! {
+    pub WeeklyHoursFilter<()> {
+        state {
+            minimum: f32 = 8.0,
+            maximum: f32 = 24.0,
+        }
+    }
+
+    view(filter, _state, cx) =>
+        Column(
+            children: [
+                Text(cx.tr("schedule.weekly_hours")),
+                RangeSlider(
+                    id: WidgetId::explicit("schedule.weekly-hours"),
+                    semantics_identifier: Some("schedule.weekly-hours".into()),
+                    start: filter.minimum,
+                    end: filter.maximum,
+                    min: 0.0,
+                    max: 40.0,
+                    step: 1.0,
+                    on_change: reduce {
+                        if let Some(change) = cx.input.range_slider_change() {
+                            if change.start.is_finite() && change.end.is_finite()
+                                && change.start >= 0.0 && change.end <= 40.0
+                                && change.start <= change.end
+                            {
+                                filter.minimum = change.start;
+                                filter.maximum = change.end;
+                            }
+                        }
+                    },
+                ),
+                Text(format!(
+                    "{}–{} {}",
+                    filter.minimum,
+                    filter.maximum,
+                    cx.tr("duration.hours"),
+                )),
+            ],
+        )
 }
-.into();
 ```
 
-This is a good way to show a selected range today, especially inside filter summaries or mockups of a richer future control.
+The filter is a draft, measured in hours rather than money. Pointer and keyboard
+input propose a pair; the reducer validates it before updating retained state.
+Move the values into the shared search model when they drive a query across
+screens, and debounce expensive remote filtering rather than fetching on every
+pointer movement.
+
+Each thumb has its own retained identity and slider semantics. The complete
+control's semantic identifier is extended with `.start` and `.end` so tests can
+address either thumb without coordinates.
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<WidgetId>` | Stable identity for inspection, testing, and future interaction plumbing. | Defaults to `None`. |
+| `id` | `Option<WidgetId>` | Stable identity for focus and pointer capture. | Defaults to `None`. |
 | `start` | `f32` | Lower bound of the displayed range. | Required. Expected to be within `[min, max]`. |
 | `end` | `f32` | Upper bound of the displayed range. | Required. Expected to be within `[min, max]`. |
 | `min` | `f32` | Minimum domain value. | Required. |
 | `max` | `f32` | Maximum domain value. | Required. |
-| `on_change` | `Option<ActionEnvelope>` | Intended change action. | Present in the public struct, but not currently wired by the checked-in implementation. |
+| `step` | `Option<f32>` | Positive increment for snapping and key adjustment. | Without one, pointer movement is continuous and keys use one percent of the domain. |
+| `semantics_identifier` | `Option<String>` | Stable control/test identifier. | Thumbs add `.start` and `.end` suffixes. |
+| `on_change` | `Option<ActionEnvelope>` | Proposed-range notification. | Read `start`, `end`, `active_thumb`, and `source` from contextual input. |
 
 ## Current behavior
 
-`RangeSlider` currently behaves as a custom visual widget. It does not expose slider semantics, drag handling, or reducer callbacks the way [`Slider`](/reference/widgets/slider) does. In other words, it looks like a range slider, but it is not yet a finished interactive range editor.
+A proposal does not mutate the controlled values. Both pointer capture and
+keyboard adjustment use the same range-change input contract. Keep the same
+identity while a drag is in progress and validate `min <= start <= end <= max`
+in the application's transition rather than trusting a view field as authority.
 
 ## Specific advice
 
-Treat `RangeSlider` as a visual indicator unless you are extending the implementation yourself. If you need a production-ready editable control today, compose other widgets around two numeric inputs or two single sliders rather than assuming `on_change` is already live.
+Keep exact numeric inputs nearby when the task requires precise values or a
+large domain makes dragging cumbersome. The slider is an interaction shortcut,
+not the only way a user should be able to specify a constrained interval.
 
 ## Production checklist
 
-- Bind `on_change` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test both thumbs by pointer, keyboard, accessibility, and semantic identifiers.
+- Check equal endpoints, reversed/invalid domains, step snapping, and an interrupted drag.
+- Keep controlled values and ids stable while the pointer remains captured.
 
 ## Related
 

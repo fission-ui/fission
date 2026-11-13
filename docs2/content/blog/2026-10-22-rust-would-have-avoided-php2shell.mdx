@@ -1,6 +1,6 @@
 ---
 title: php2shell: Would Rust Have Fixed It? Yes...Yes, It Would Have.
-description: How to fix php2shell if your app is using PHP 5, 6, 7 or 8 and how Rust and Fission GUI framework can be a credible PHP alternative to migrate to
+description: Patch the PHP request-parser vulnerabilities behind php2shell, understand the memory-safety failure, and consider Rust and Fission for a server-rendered application.
 slug: rust-would-have-avoided-php2shell
 authors:
   - fission
@@ -42,15 +42,12 @@ Many teams are looking after PHP systems they did not build. Others run sites th
 
 Upgrade to one of these fixed PHP releases:
 
-Branch     Fixed release
-━━━━━━━━━  ━━━━━━━━━━━━━━━
-PHP 8.5           8.5.12
-─────────  ───────────────
-PHP 8.4           8.4.27
-─────────  ───────────────
-PHP 8.3           8.3.36
-─────────  ───────────────
-PHP 8.2           8.2.35
+| Branch | Fixed release |
+| --- | --- |
+| PHP 8.5 | 8.5.12 |
+| PHP 8.4 | 8.4.27 |
+| PHP 8.3 | 8.3.36 |
+| PHP 8.2 | 8.2.35 |
 
 The [official PHP security advisory](https://www.php.net/archive/2026.php) is clear: updating is the only complete fix.
 
@@ -76,6 +73,8 @@ The PHP project lists measures that reduce exposure to known attack paths:
 - Apply conservative request-body and upload limits at PHP and HTTP-server boundaries.
 - On PHP 8.5, set fatal_error_backtraces=0.
 - Remove attacker-reachable fatal errors and invalid per-request configuration.
+
+Removing PHP's memory limit also removes a protection against memory exhaustion. The PHP team recommends conservative request limits at the HTTP boundary, including the decoded request size; changing one setting without those limits can expose a different denial-of-service problem. See the [two official advisories](https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w) and the [session-state mitigation notes](https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp) before applying a temporary configuration.
 
 These settings only reduce risk along known paths; they are not patches. **They do not make an affected PHP installation safe.** Use them as a short-term measure while you upgrade, not as a reason to put the upgrade off.
 
@@ -106,7 +105,7 @@ The direct answer is yes—for these specific bugs.
 
 > Safe Rust would have prevented the specific use-after-free and stale-pointer failures behind php2shell.
 
-Rust's ownership and borrowing rules prevent safe Rust code from using memory after it has been freed. A reference cannot outlive the value it points to, and partially initialised data cannot be treated as a fully valid value. Rust's compiler and libraries can still have bugs, and the project continues to investigate compiler issues such as [this one](https://github.com/rust-lang/rust/issues/164250). The difference is that the rules that prevent these particular memory errors are checked while the program is compiled, through the [ownership model](https://doc.rust-lang.org/book/ch04-01-what-is-ownership.html).
+Rust's ownership and borrowing rules prevent safe Rust code from using memory after it has been freed. A reference cannot outlive the value it points to, and partially initialised data cannot be treated as a fully valid value. That guarantee depends on sound implementations of any unsafe Rust and native libraries underneath the application. Rust does not prevent an authentication mistake, an unsafe dependency bug, or every possible denial of service. The difference is that the rules that prevent these particular memory errors are checked while the program is compiled, through the [ownership model](https://doc.rust-lang.org/book/ch04-01-what-is-ownership.html).
 
 
 ## Why Rust for server-rendered applications?
@@ -163,7 +162,7 @@ Consider a routine screen: username, password, a sign-in button and a forgotten-
 
 The PHP version uses strict types, a prepared query, password hashing, a generic authentication error, CSRF protection, and session-ID rotation. A production system also needs rate limiting, audit logging, secure cookie settings, and a real account-recovery flow.
 
-The Fission example uses the proposed Compose API.
+The Fission example below uses Compose for the view and a typed server-form schema for the HTTP boundary. It is a view and registration excerpt, not a complete authentication system. The PHP example includes its database check; the Rust application must supply an equivalent authentication handler rather than treating a successful UI transition as proof of identity.
 
 ### PHP
 
@@ -274,140 +273,122 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 ### Fission Compose
 
+A server-rendered form does not need to copy every keystroke into application
+state. The browser owns the unsubmitted editing values; the server receives
+the declared controls when the visitor submits the form.
+
 ```rust
 use fission::prelude::*;
-use serde::{Deserialize, Serialize};
-
-#[derive(Default)]
-struct AppState {
-  session: Option<UserSession>,
-}
-
-impl GlobalState for AppState {}
-
-#[derive(Serialize)]
-struct LoginRequest {
-  username: String,
-  password: String,
-}
-
-#[derive(Deserialize, Serialize)]
-struct LoginResponse {
-  session: UserSession,
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-struct UserSession {
-  user_id: String,
-}
-
-#[fission_effect]
-async fn sign_in(
-  request: LoginRequest,
-) -> Result<LoginResponse, String> {
-  api::post("/api/login", &request)
-      .await
-      .map_err(|error| error.public_message())
-}
 
 fission_component! {
-  pub LoginPage<AppState> {
-      state {
-          username: String = String::new(),
-          password: String = String::new(),
-          signing_in: bool = false,
-          error: Option<String> = None,
-      }
-  }
-  view(login, state, cx) =>
-  Center(
-      child: Card(
-          child: Column(
-              gap: cx.spacing().m,
-              children: [
-                  Text(cx.tr("auth.sign_in.title")),
+    pub LoginPage<()> {
+        props {
+            username: String,
+            error: Option<String>,
+            submit: ActionEnvelope,
+        }
+    }
 
-                  TextInput(
-                      label: Some(
-                          cx.tr("auth.username").into()
-                      ),
-                      bind: login.username,
-                      autocomplete: Some(
-                          "username".into()
-                      ),
-                      required: true,
-                  ),
-
-                  TextInput(
-                      label: Some(
-                          cx.tr("auth.password").into()
-                      ),
-                      bind: login.password,
-                      obscure_text: true,
-                      autocomplete: Some(
-                          "current-password".into()
-                      ),
-                      required: true,
-                  ),
-
-                  if let Some(error) = &login.error {
-                      Alert(
-                          error.clone(),
-                          kind: AlertKind::Error,
-                      )
-                  },
-
-                  Button(
-                      child: Text(
-                          if login.signing_in {
-                              cx.tr("auth.signing_in")
-                          } else {
-                              cx.tr("auth.sign_in")
-                          }
-                      ),
-                      disabled: login.signing_in,
-
-                      on_press: effect sign_in(
-                          LoginRequest {
-                              username: login.username.clone(),
-                              password: login.password.clone(),
-                          },
-                      ) {
-                          on_start {
-                              login.signing_in = true;
-                              login.error = None;
-                          }
-
-                          on_ok(response) {
-                              login.password.clear();
-                              login.signing_in = false;
-                              state.session = Some(response.session);
-                              cx.effects.navigate("/account");
-                          }
-
-                          on_err(error) {
-                              login.password.clear();
-                              login.signing_in = false;
-                              login.error = Some(error);
-                          }
-                      },
-                  ),
-
-                  Link(
-                      href: "https://example.com/forgot-password",
-                      child: Text(
-                          cx.tr("auth.forgot_password")
-                      ),
-                  ),
-              ],
-          ),
-      ),
-  )
+    view(login, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Center(Card(
+            child: Column(
+                gap: tokens.spacing.m,
+                children: [
+                    Text(cx.tr("auth.sign_in.title")),
+                    TextInput(
+                        label: Some(cx.tr("auth.username")),
+                        value: login.username.clone(),
+                        name: Some("username".into()),
+                        form_id: Some("sign-in".into()),
+                        autofill_hints: vec!["username".into()],
+                        required: true,
+                    ),
+                    TextInput(
+                        label: Some(cx.tr("auth.password")),
+                        name: Some("password".into()),
+                        form_id: Some("sign-in".into()),
+                        autofill_hints: vec!["current-password".into()],
+                        obscure_text: true,
+                        autocorrect: false,
+                        spell_check: false,
+                        required: true,
+                    ),
+                    if let Some(error) = &login.error {
+                        Alert(
+                            title: error.clone(),
+                            kind: AlertKind::Error,
+                        )
+                    },
+                    Button(
+                        child: Text(cx.tr("auth.sign_in")),
+                        on_press: login.submit.clone(),
+                    ).form_id("sign-in"),
+                    Link::to(
+                        cx.tr("auth.forgot_password"),
+                        "/forgot-password/",
+                    ),
+                ],
+            ),
+        ))
 }
 ```
 
+The parent supplies an action already bound to its authentication reducer and
+an error translated for the current request. Keep English and a second
+language in the application's translation files, and install those bundles
+in the server environment. The component does not own a second session model
+or a second set of theme values.
 
-The endpoint still has to verify the password, rate-limit attempts, issue a secure session, and return a deliberately generic failure.
+Register the editable fields against that action's type in the server app:
+
+```rust
+use fission::server::{ServerFormField, ServerFormSchema};
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct LoginFields {
+    username: String,
+    password: String,
+}
+
+let schema = ServerFormSchema::new("sign-in")
+    .field(ServerFormField::text("username").required().max_length(128))
+    .field(ServerFormField::text("password").required().max_length(1024));
+
+let app = app.form_action::<LoginFields, Authenticate, _>(schema, |fields| {
+    Authenticate {
+        username: fields.username,
+        password: fields.password,
+    }
+});
+```
+
+Here `app` is the application's `FissionServerApp` and `Authenticate` is its
+own action type, bound by the parent to its authentication reducer. Those are
+application contracts, not authentication helpers provided by Fission. The
+schema rejects undeclared, repeated scalar, missing, and oversized fields
+before constructing that action. Matching `form_id` values connect the
+controls and submit button. Fission emits a signed form token and accepts
+normal browser submission without requiring a full Web app.
+
+The handler still has real work to do. It must verify the password, rate-limit
+attempts, keep credentials out of logs, rotate or issue a secure server-side
+session, and return a deliberately generic failure. Asynchronous database or
+identity-provider work belongs in a registered server job, with explicit
+success and error reducers. A Rust `session = Some(...)` assignment is not a
+browser session cookie. Neither a signed form nor a hidden route replaces
+server-side authentication and authorisation.
+
+Keep this route request-rendered and private: an action-bearing login form
+must not be served from a shared public HTML cache. Configure the action-origin
+policy and the host's CSRF checks deliberately; see the
+[SSR security guide](/docs/guides/server-site-security/). The
+[server jobs and actions guide](/docs/guides/server-site-caching-jobs-actions/)
+covers the reducer/job boundary. The
+[login form tutorial](/blog/build-a-login-page-in-rust/) covers the shared
+interactive view and validation, not a ready-made authentication backend.
 
 Compose describes the interface with Fission widgets and components. Fission can render it as server-side HTML, and the same shared interface can also be used in an Android or iOS app, or a Windows, Linux, or macOS desktop app.
 

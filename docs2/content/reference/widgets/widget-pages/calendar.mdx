@@ -13,28 +13,45 @@ in your app rather than being hidden inside the widget.
 
 ## Example
 
+The selected day uses `chrono::NaiveDate`. Add `chrono` directly to the app
+before using this example; Fission's dependency does not make the crate
+available to your code:
+
+```bash
+cargo add chrono
+```
+
 ```rust
 use chrono::NaiveDate;
 use fission::prelude::*;
 use std::sync::Arc;
 
-let widget: Widget = Calendar {
-    year: view.state().visible_year,
-    month: view.state().visible_month,
-    selected_date: view.state().selected_day,
-    on_select: Some(Arc::new(move |date: NaiveDate| ActionEnvelope {
-        id: set_selected_day_id,
-        payload: serde_json::to_vec(&SetSelectedDay(date)).unwrap(),
-    })),
-    on_navigate: Some(Arc::new(move |year, month| ActionEnvelope {
-        id: set_visible_month_id,
-        payload: serde_json::to_vec(&SetVisibleMonth { year, month }).unwrap(),
-    })),
-    cell_size: Some(40.0),
-    padding: Some(16.0),
+fission_component! {
+    pub AppointmentCalendar<()> {
+        props {
+            year: i32,
+            month: u32,
+            selected: Option<NaiveDate>,
+            select_date: Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>,
+            navigate_month: Arc<dyn Fn(i32, u32) -> ActionEnvelope + Send + Sync>,
+        }
+    }
+
+    view(calendar, _state, _cx) =>
+        Calendar(
+            year: calendar.year,
+            month: calendar.month,
+            selected_date: calendar.selected,
+            on_select: calendar.select_date.clone(),
+            on_navigate: calendar.navigate_month.clone(),
+        )
 }
-.into();
 ```
+
+The parent supplies factories for its registered date-selection and month-navigation
+actions. They create owned action payloads; they must not capture a build context
+or a borrowed state handle. Let the theme choose cell size and padding unless the
+calendar has a specific constrained placement.
 
 The reducer usually stores both the selected day and the currently visible month. Those are related, but they are not always the same thing.
 
@@ -47,18 +64,23 @@ presenting controls that appear actionable but do nothing.
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `year` | `i32` | Year shown in the current month view. | Required. |
-| `month` | `u32` | Month shown in the current month view. | Required. Expected range is `1..=12`. |
+| `month` | `u32` | Month shown in the current month view. | Required. Expected range is `1..=12`; validate before rendering. |
 | `selected_date` | `Option<NaiveDate>` | Currently selected day, if any. | Defaults to `None`. |
 | `on_select` | `Option<Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>>` | Closure that builds the action for a picked day. | Called when the user presses a day cell. |
 | `on_navigate` | `Option<Arc<dyn Fn(i32, u32) -> ActionEnvelope + Send + Sync>>` | Closure that builds the action for previous or next month. | Called with the new `(year, month)` pair. |
-| `cell_size` | `Option<f32>` | Width and height of each day cell. | Defaults to `36.0`. Use smaller sizes in sidebars and larger ones in full panels. |
-| `padding` | `Option<f32>` | Outer padding around the calendar surface. | Defaults to `16.0`. |
+| `cell_size` | `Option<f32>` | Width and height of each day cell. | Defaults to `tokens.sizing.control_md`. Respect the target's touch and focus requirements. |
+| `padding` | `Option<f32>` | Outer padding around the calendar surface. | Defaults to `tokens.spacing.m`. |
 
 ## State ownership and practical limits
 
 `Calendar` does not compute product rules such as unavailable dates, range constraints, or locale-specific week starts. The checked-in implementation is Sunday-first, uses single-letter weekday headings, and highlights today using the host's local date.
 
-That makes it a good general month picker, but if your product needs Monday-first weeks, blocked dates, or complex business calendars, plan on wrapping or extending the widget rather than assuming those rules are built in.
+This is a real boundary: a wrapper can reject an unavailable date, but the
+current grid still presents every day as selectable. It cannot promise that
+blocked dates are visibly disabled. Validate an actual year/month before
+rendering: the lowerer constructs the first day with `NaiveDate::from_ymd_opt`
+and invalid input can panic. `Default` supplies zero for the year/month fields;
+it does not provide a usable current month.
 
 ## Specific advice
 
@@ -66,10 +88,9 @@ Keep visible-month state explicit even when a date is selected. Users often need
 
 ## Production checklist
 
-- Bind `on_select`, `on_navigate` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Prefer parent layout and design-system sizing first; use explicit size or spacing fields when the product layout requires that constraint on this widget specifically.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Validate year/month and product date rules before rendering or committing a selection.
+- Test December/January navigation and leap-day selection.
+- Check long month names and the hard-coded Sunday-first/English navigation boundary for your locales.
 
 ## Related
 

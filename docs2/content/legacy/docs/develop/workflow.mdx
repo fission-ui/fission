@@ -5,7 +5,10 @@ description: Use the Fission command, targets, shells, devices, logs, and projec
 
 # Develop workflow
 
-The daily Fission workflow is built around one command, one project manifest, and one shared app model.
+The development loop has two kinds of question: whether the shared app
+behaviour is correct, and whether the selected host presents it correctly.
+Use a small reducer/component test for the first and a real target for the
+second. A successful desktop build cannot prove an Android permission flow.
 
 You write product behavior in Rust: state, actions, reducers, selectors, widgets, resources, and capabilities. Then you use the `fission` command to add hosts, run targets, attach logs, check local setup, build packages, and publish releases. The command-line tool should make the platform work repeatable without hiding the app architecture from you.
 
@@ -63,7 +66,7 @@ A target is the output family you want to run or build. A shell is the host laye
 | Does touch, safe area, or mobile density feel right? | Android or iOS | Mobile hosts answer mobile input and presentation questions. |
 | Does a command-line workflow need persistent interaction? | Terminal | The terminal shell proves keyboard, mouse, logs, and scrollback behavior. |
 | Does documentation or marketing content render as crawlable pages? | Static site | The site target answers routing, generated HTML, metadata, search, and link-validation questions. |
-| Does an ecommerce, account, dashboard, or portal page need request-time data? | Server-rendered site | The server target answers sessions, cache policy, server jobs, signed actions, workers, and islands. |
+| Does an ecommerce, account, dashboard, or portal page need request-time data? | SSR | The server target answers sessions, cache policy, server jobs, signed actions, workers, and islands. |
 
 Do not treat desktop as the only real loop. It is often the fastest place to start, but Web, Android, iOS, Terminal, Static site, and SSR targets are first-class delivery paths. Choose the host that can actually answer the current question.
 
@@ -77,17 +80,6 @@ That boundary keeps app code reviewable. A teammate can read the inbox module an
 
 ## Use [`fission.toml`](/reference/config/fission-toml/) as the project root
 
-## Lifecycle fit and verification
-
-Use the loop above to keep the next check small: run the shared feature quickly, switch to a native target when host behaviour matters, and run readiness checks before packaging or publishing.
-
-| Stage question | Verification |
-| --- | --- |
-| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
-| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
-| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
-| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |
-
 [`fission.toml`](/reference/config/fission-toml/) is the authoritative manifest for the project. It should contain stable project facts and references to larger files:
 
 | Belongs in [`fission.toml`](/reference/config/fission-toml/) | Usually belongs in a referenced file |
@@ -100,9 +92,18 @@ Use the loop above to keep the next check small: run the shared feature quickly,
 
 Keeping the root manifest readable makes it easier to review changes. The CLI can populate or edit parts of the manifest, but the files remain ordinary project files that can be committed and reviewed.
 
+## Lifecycle fit and verification
+
+Read the result at the boundary being changed. For a reducer, assert the state
+transition; for an input, inspect semantics and exercise editing; for a package,
+inspect its manifest and launch the installed artifact. Readiness checks find
+known missing tools and configuration, but do not replace any of those checks.
+
 ## Run with attached output by default
 
-`fission run` should feel like a production developer tool: it builds, launches, and attaches to useful output unless you ask it not to.
+`fission run` builds and launches the selected target and attaches to its
+supported output. Keep the output attached while diagnosing a launch failure;
+detaching makes a failed process harder to distinguish from a working one.
 
 ```bash
 fission run --target android --device emulator-5554

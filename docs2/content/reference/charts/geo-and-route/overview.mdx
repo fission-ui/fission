@@ -1,14 +1,12 @@
 ---
 title: Geo and route
 sidebar_label: Overview
-description: Fission Charts reference for the Geo and route family.
+description: Choose supplied region geometry, schematic routes or explicitly paired reports.
 ---
 
 # Geo and route
 
-This family has 10 chart variants. Pick one that matches your data. Each page has a screenshot, data shape, API notes, and code you can adapt.
-
-Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
+Start with the question the report needs to answer. Regional colour compares an area-based measure; route lines compare relationships between endpoints. These are useful in the same report, but they are not interchangeable geographical models.
 
 ![Flight-like lines screenshot](/img/charts/lines-flight-like.png)
 
@@ -27,42 +25,17 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 | [Service coverage map](./map-service-coverage) | GeoJSON regions plus values. | Use it for coverage and rollout screens. |
 | [Traffic lines](./lines-traffic) | LineSegment values. | Use it for traffic or flow intensity. |
 
-## Choosing within this family
 
-First decide what the user needs to compare or understand. Pick the simplest chart that shows it; add interaction only when it helps, and use animation only when it explains a change.
+## Choose the coordinate contract first
 
-## Authoring from a Fission component
+The [choropleth component](/reference/charts/geographic-and-route/map-choropleth/) joins stable region IDs to supplied Polygon/MultiPolygon GeoJSON. A map-type name does not fetch geometry. Validate geometry and joins before rendering because malformed inputs can otherwise leave an empty picture.
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+The [connection component](/reference/charts/geographic-and-route/lines-basic/) uses actual `LinesSeries` values, with endpoints and one relative intensity each. It fits its own bounds; curves are schematic and are not road paths or geodesics.
 
-```rust
-use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+**The current map and line fitting rules do not establish a shared projection.** Pages whose titles mention overlays retain their paths, but explain this gap and show paired reports instead of promising geographical alignment. See the [network composition](/reference/charts/geo-and-route/geo-network/) for the supported alternative. Exact route overlays need framework work outside these examples.
 
+## Keep the facts independent of the drawing
 
+Load coherent snapshots through effects and reducers, retain durable region/route IDs and provide exact values beside the chart. Translate captions and units in the parent. Choose a colour scale whose meaning stays constant across comparisons, and do not use colour as the only status signal.
 
-fission_component!
-{
-    pub GeoAndRouteChart<()> {
-    }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Geo and route")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
-}
-```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
-
-## Options, accessibility, and diagnostics
-
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Test joins, missing data, degenerate routes and report replacement before visual checks. A gallery screenshot uses separate fixtures; it does not prove navigation, data loading or coordinate alignment.

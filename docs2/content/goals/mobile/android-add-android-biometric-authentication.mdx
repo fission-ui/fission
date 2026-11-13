@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Add Android biometric authentication with Rust
-description: "Verify a warehouse lead on Android before preparing a stock adjustment. Handle unavailable biometrics and cancellation without changing inventory."
-goal: "Verify the warehouse lead on the current Android device before preparing a stock discrepancy for server review, without changing saved inventory on a failed check."
+description: "Request a local Android credential check before preparing a stock discrepancy. Keep that device check separate from a warehouse role or server approval."
+goal: "Prepare a user-entered discrepancy after the device verifies a local credential, without changing inventory or claiming the user is an authorised warehouse lead."
 path: /blog/add-android-biometric-authentication/
 order: 43
 difficulty: Beginner
@@ -10,21 +10,21 @@ duration: 40 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-add-android-biometric-authentication
 outcomes:
-  - Add the Android biometric capability to a Fission app
-  - Check whether the device can verify a local user before showing the approval action
-  - Handle a successful fingerprint or device-credential result, cancellation, and unavailable hardware
-  - Keep inventory unchanged until the server reviews the proposed adjustment
+  - "Validate the discrepancy draft before requesting local verification"
+  - "Read actual biometric or device-credential results and handle cancellation"
+  - "Keep unavailable hardware and failed verification explicit"
+  - "Leave account identity, role checks and inventory approval to an independent server flow"
 ---
 
 At Cedar Ridge Outfitters, the closing count finds **17 Trail tarps** in bin **C-12**, while the inventory system still says **18**. A stock adjustment needs a warehouse lead’s review before it is sent to the inventory service. On the shared Android handheld, the app can ask the device to verify that the current user is present before preparing that review.
 
-This screen keeps those decisions separate. A fingerprint or device-credential response confirms the local user; it does not grant that person an inventory role. After a successful check, the adjustment is only marked **ready for server review**. The backend must still check the signed-in account and its permissions before changing the saved quantity. If the prompt is cancelled or the device cannot verify anyone, the proposed count remains intact and the lead can use account sign-in instead.
+This screen keeps those decisions separate. A fingerprint or device-credential response verifies a credential enrolled on this device; it does not identify the warehouse lead or grant an inventory role. After a successful check, the adjustment is only marked **ready for server review**. The backend must still check the signed-in account and its permissions before changing the saved quantity. If the prompt is cancelled or the device cannot verify anyone, the proposed count remains intact. A production app must provide its own account-based review route; this example does not implement account sign-in or submit a stock adjustment.
 
 The browser cannot open Android’s biometric prompt, so this preview uses Fission’s real web behavior: standalone biometric authentication is unavailable. You can inspect the recovery message and confirm that the discrepancy stays unchanged. A successful prompt, cancellation, and enrollment check must be exercised in the Android app on an emulator or device.
 
 ## Create the Android app and declare biometrics
 
-Add the Android target and declare the biometric capability. Fission records the capability and updates the generated Android manifest with the biometric permissions:
+Complete [Android SDK and NDK setup](/blog/set-up-rust-android-gui-development-with-fission/) and either [create an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [connect a phone](/blog/run-a-fission-app-on-a-physical-android-phone/) first. Add the Android target and declare the biometric capability. Fission records the capability and updates the generated Android manifest with the biometric permissions:
 
 <Tabs>
 <TabItem label="Create">
@@ -61,7 +61,7 @@ The adjustment is shared app data, so the app state owns its SKU, system quantit
 
 The first button asks the host what authentication methods are available. Only after a usable method is reported does the screen enable **Verify warehouse lead**. This makes an unavailable device a clear recovery path instead of a surprise after the manager has started the approval.
 
-Open the tabs from left to right. The app module separates adjustment state and capability reducers from the screen component. The final tab starts the browser preview with one review waiting. It leaves the web host in place, so its unavailable result is the browser’s actual behavior rather than a pretend Android prompt.
+Open the tabs from left to right. The app module separates adjustment state and capability reducers from the screen component. Enter the discrepancy yourself rather than loading a fixture into the preview. Both native and Web entrypoints start with no adjustment; preparing one validates the counts and copies the draft into app state. The Web host remains in place, so its unavailable result is the browser’s actual behaviour rather than a pretend Android prompt.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -108,6 +108,7 @@ pub enum ApprovalNotice {
     CheckDeviceFirst,
     NoCredential,
     AdjustmentMissing,
+    InvalidDraft,
     WaitingForPrompt,
     ResultMissing,
     NotVerified,
@@ -128,6 +129,7 @@ impl ApprovalNotice {
             Self::CheckDeviceFirst => "approval.status.check_device_first",
             Self::NoCredential => "approval.status.no_credential",
             Self::AdjustmentMissing => "approval.status.adjustment_missing",
+            Self::InvalidDraft => "approval.status.invalid_draft",
             Self::WaitingForPrompt => "approval.status.waiting_for_prompt",
             Self::ResultMissing => "approval.status.result_missing",
             Self::NotVerified => "approval.status.not_verified",
@@ -369,12 +371,21 @@ use fission::prelude::*;
 
 use super::approval::{
     on_check_android_biometrics, on_set_approval_locale, on_verify_warehouse_lead,
-    ApprovalNotice, CheckAndroidBiometrics, SetApprovalLocale, StockApprovalState,
+    ApprovalNotice, CheckAndroidBiometrics, SetApprovalLocale, StockAdjustment, StockApprovalState,
     VerifyWarehouseLead,
 };
 
 fission_component! {
-    pub StockAdjustmentApproval<StockApprovalState> {}
+    pub StockAdjustmentApproval<StockApprovalState> {
+        state {
+            reference: String = String::new(),
+            sku: String = String::new(),
+            product: String = String::new(),
+            bin: String = String::new(),
+            expected: String = String::new(),
+            counted: String = String::new(),
+        }
+    }
     view(screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let (prompt_reason, prompt_subtitle) = state.adjustment.as_ref().map(|adjustment| {
@@ -425,12 +436,7 @@ fission_component! {
     SemanticsRegion(
         identifier: Some("stock-adjustment-approval".to_string()),
         label: Some(cx.tr("approval.screen.label")),
-        child: Container(
-            Column(gap: tokens.spacing.none, children: [
-                Spacer(flex_grow: 1.0),
-                Row(children: [
-                    Spacer(flex_grow: 1.0),
-                    Container(
+        child: Container(SafeArea(child: Scroll(child: Container(
                         Column(gap: tokens.spacing.l, children: [
                             Column(gap: tokens.spacing.xs, children: [
                                 Text(cx.tr("approval.eyebrow"))
@@ -457,6 +463,77 @@ fission_component! {
                                     on_press: use_spanish,
                                 ).semantics_identifier("approval.locale.es-ES"),
                             ]),
+                            if state.adjustment.is_none() {
+                                Column(gap: tokens.spacing.s, children: [
+                                TextInput(
+                                    label: Some(cx.tr("approval.field.reference").into()),
+                                    bind: screen.reference,
+                                    required: true,
+                                    semantics_identifier: "approval.draft.reference".to_string(),
+                                ),
+                                TextInput(
+                                    label: Some(cx.tr("approval.field.sku").into()),
+                                    bind: screen.sku,
+                                    required: true,
+                                    semantics_identifier: "approval.draft.sku".to_string(),
+                                ),
+                                TextInput(
+                                    label: Some(cx.tr("approval.field.product").into()),
+                                    bind: screen.product,
+                                    required: true,
+                                    semantics_identifier: "approval.draft.product".to_string(),
+                                ),
+                                TextInput(
+                                    label: Some(cx.tr("approval.field.bin").into()),
+                                    bind: screen.bin,
+                                    required: true,
+                                    semantics_identifier: "approval.draft.bin".to_string(),
+                                ),
+                                TextInput(
+                                    label: Some(cx.tr("approval.field.expected").into()),
+                                    bind: screen.expected,
+                                    required: true,
+                                    semantics_identifier: "approval.draft.expected".to_string(),
+                                ),
+                                TextInput(
+                                    label: Some(cx.tr("approval.field.counted").into()),
+                                    bind: screen.counted,
+                                    required: true,
+                                    semantics_identifier: "approval.draft.counted".to_string(),
+                                ),
+                                    Button(
+                                        child: Text(cx.tr("approval.prepare")),
+                                        key: "prepare-adjustment",
+                                        on_press: reduce {
+                                            let quantities = (
+                                                screen.expected.trim().parse::<u32>(),
+                                                screen.counted.trim().parse::<u32>(),
+                                            );
+                                            match quantities {
+                                                (Ok(expected), Ok(counted))
+                                                    if !screen.reference.trim().is_empty()
+                                                        && !screen.sku.trim().is_empty()
+                                                        && !screen.product.trim().is_empty()
+                                                        && !screen.bin.trim().is_empty()
+                                                        && expected != counted =>
+                                                {
+                                                    state.adjustment = Some(StockAdjustment {
+                                                        reference: screen.reference.trim().to_owned(),
+                                                        sku: screen.sku.trim().to_owned(),
+                                                        product_name: screen.product.trim().to_owned(),
+                                                        bin: screen.bin.trim().to_owned(),
+                                                        system_quantity: expected,
+                                                        physical_count: counted,
+                                                    });
+                                                    state.error = None;
+                                                    state.message = None;
+                                                }
+                                                _ => state.error = Some(ApprovalNotice::InvalidDraft),
+                                            }
+                                        },
+                                    ).semantics_identifier("approval.prepare"),
+                                ])
+                            },
                             if let Some(adjustment) = &state.adjustment {
                                 Column(gap: tokens.spacing.xs, children: [
                                     Text(cx.tr("approval.adjustment.product")
@@ -506,6 +583,30 @@ fission_component! {
                                 Text(cx.tr("approval.hint.no_credential"))
                                     .color(tokens.colors.text_secondary)
                             },
+                            if state.checking_device || state.authenticating {
+                                Spinner(
+                                    motion: Some(SpinnerMotion::Default),
+                                    label: cx.tr(if state.authenticating {
+                                        "approval.action.authenticating"
+                                    } else {
+                                        "approval.action.checking"
+                                    }),
+                                )
+                            },
+                            if state.adjustment.is_some() {
+                                Button(
+                                    child: Text(cx.tr("approval.edit")),
+                                    key: "edit-adjustment",
+                                    variant: ButtonVariant::Outline,
+                                    disabled: state.checking_device || state.authenticating,
+                                    on_press: reduce {
+                                        state.adjustment = None;
+                                        state.verified_with = None;
+                                        state.message = None;
+                                        state.error = None;
+                                    },
+                                ).semantics_identifier("approval.edit"),
+                            },
                             if let Some(message) = &state.message {
                                 if let ApprovalNotice::Verified(method) = message {
                                     Text(cx.tr(message.translation_key()).replace("{method}", &cx.tr(method.translation_key())))
@@ -529,14 +630,9 @@ fission_component! {
                     ))
                     .bg(tokens.colors.surface)
                     .border(tokens.colors.border, 1.0)
-                    .border_radius(tokens.radii.large),
-                    Spacer(flex_grow: 1.0),
-                    ]),
-                Spacer(flex_grow: 1.0),
-            ]),
-        )
+                    .border_radius(tokens.radii.large))))
         .width_length(Length::percent(100.0))
-        .height_length(Length::percent(100.0)),
+        .height_length(Length::vh(100.0)),
     )
 }
 ```
@@ -573,6 +669,15 @@ pub fn create_env() -> Env {
 <!-- fission:file path="i18n/en-US.yaml" -->
 ```yaml
 approval.screen.label: "Warehouse stock adjustment review"
+approval.field.reference: "Adjustment reference"
+approval.field.sku: "SKU"
+approval.field.product: "Product"
+approval.field.bin: "Bin"
+approval.field.expected: "Quantity in system"
+approval.field.counted: "Quantity counted"
+approval.prepare: "Prepare discrepancy"
+approval.edit: "Edit discrepancy"
+approval.status.invalid_draft: "Enter all record fields and two different whole-number quantities, zero or greater."
 approval.eyebrow: "Cedar Ridge · stock adjustment"
 approval.title: "Lead review · adjustment {reference}"
 approval.adjustment.product: "{product} · {sku}"
@@ -585,7 +690,7 @@ approval.action.authenticating: "Waiting for verification…"
 approval.action.verified: "Lead verified on this device"
 approval.action.verify_lead: "Verify warehouse lead"
 approval.hint.no_credential: "The verification action appears only after the host reports an enrolled local method. If this device cannot verify the lead, use account sign-in."
-approval.security.note: "A local result confirms who is holding this device; the inventory service still checks the lead’s account and role before changing stock."
+approval.security.note: "A local result verifies an enrolled device credential, not a warehouse identity or role. The inventory service must authorise every stock change."
 approval.locale.english: "English"
 approval.locale.spanish: "Español"
 approval.prompt.reason: "Review stock adjustment {reference} for {sku}: {counted} counted, {system} in the system."
@@ -621,6 +726,15 @@ approval.method.other: "local authentication"
 <!-- fission:file path="i18n/es-ES.yaml" -->
 ```yaml
 approval.screen.label: "Revisión de ajuste de inventario"
+approval.field.reference: "Referencia del ajuste"
+approval.field.sku: "SKU"
+approval.field.product: "Producto"
+approval.field.bin: "Ubicación"
+approval.field.expected: "Cantidad en el sistema"
+approval.field.counted: "Cantidad contada"
+approval.prepare: "Preparar discrepancia"
+approval.edit: "Editar discrepancia"
+approval.status.invalid_draft: "Completa todos los campos e introduce dos cantidades enteras diferentes, iguales o mayores que cero."
 approval.eyebrow: "Cedar Ridge · ajuste de inventario"
 approval.title: "Revisión de responsable · ajuste {reference}"
 approval.adjustment.product: "{product} · {sku}"
@@ -633,7 +747,7 @@ approval.action.authenticating: "Esperando verificación…"
 approval.action.verified: "Responsable verificado en este dispositivo"
 approval.action.verify_lead: "Verificar responsable de almacén"
 approval.hint.no_credential: "La acción de verificación aparece solo cuando el sistema detecta un método local configurado. Si este dispositivo no puede verificar al responsable, usa el inicio de sesión de la cuenta."
-approval.security.note: "El resultado local confirma quién sostiene el dispositivo; el servicio de inventario aún comprueba la cuenta y el rol antes de cambiar las existencias."
+approval.security.note: "El resultado local verifica una credencial del dispositivo, no la identidad ni el rol del responsable. El servicio de inventario debe autorizar cada cambio."
 approval.locale.english: "Inglés"
 approval.locale.spanish: "Español"
 approval.prompt.reason: "Revisar el ajuste {reference} para {sku}: se contaron {counted}; el sistema indica {system}."
@@ -665,39 +779,69 @@ approval.method.device_credential: "credencial del dispositivo"
 approval.method.other: "autenticación local"
 ```
 </TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+
+use app::StockAdjustmentApproval;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<app::StockApprovalState, _>::new(StockAdjustmentApproval::new())
+        .with_env(app::translations::create_env())
+        .with_sync_env(|state, env| { env.locale = state.locale.clone(); })
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<app::StockApprovalState, StockAdjustmentApproval> {
+    let app = MobileApp::<app::StockApprovalState, _>::new(StockAdjustmentApproval::new())
+        .with_env(app::translations::create_env())
+        .with_sync_env(|state, env| { env.locale = state.locale.clone(); });
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<app::StockApprovalState, _>::new(StockAdjustmentApproval::new())
+        .with_env(app::translations::create_env())
+        .with_sync_env(|state, env| { env.locale = state.locale.clone(); })
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
 
-use app::{StockAdjustment, StockAdjustmentApproval, StockApprovalState};
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-
-    let preview_state = StockApprovalState {
-        adjustment: Some(StockAdjustment {
-            reference: "CR-7712".into(),
-            sku: "TNT-041".into(),
-            product_name: "Trail tarp · two person".into(),
-            bin: "C-12".into(),
-            system_quantity: 18,
-            physical_count: 17,
-        }),
-        ..Default::default()
-    };
-    WebApp::<StockApprovalState, _>::new(StockAdjustmentApproval)
+    WebApp::<app::StockApprovalState, _>::new(app::StockAdjustmentApproval::new())
         .with_env(app::translations::create_env())
-        .with_state_init(move |state: &mut StockApprovalState| {
-            *state = preview_state.clone();
-        })
-        .with_sync_env(|state, env| {
-            env.locale = state.locale.clone();
-        })
-        .with_title("Cedar Ridge stock review")
+        .with_sync_env(|state, env| { env.locale = state.locale.clone(); })
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -711,7 +855,7 @@ Both capability responses arrive through `ReducerContext.input`: the availabilit
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-In the browser preview, choose **Check this device**. The web host reports that standalone biometrics are unavailable, so **Verify warehouse lead** stays hidden and the screen directs the lead to account sign-in. The discrepancy remains at 17 counted versus 18 in the system. On Android, the native host can report enrollment and open the operating-system prompt; test that path on the emulator or device in the next section.
+Enter a discrepancy: reference CR-7712, SKU TNT-041, product Trail tarp, bin C-12, system quantity 18 and counted quantity 17. Choose **Prepare discrepancy**, then **Check this device**. The web host reports that standalone biometrics are unavailable, so **Verify warehouse lead** stays hidden and the screen directs the lead to account sign-in. The discrepancy remains at the quantities you entered. Edit it and try an empty field, a negative quantity or equal quantities: these do not prepare a discrepancy. On Android, the native host can report enrollment and open the operating-system prompt; test that path on the emulator or device in the next section.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -727,7 +871,7 @@ Run the target checks from the generated project root:
 <Tabs>
 <TabItem label="Native MobileApp environment">
 ```rust
-MobileApp::<StockApprovalState, _>::new(StockAdjustmentApproval)
+MobileApp::<StockApprovalState, _>::new(StockAdjustmentApproval::new())
     .with_env(app::translations::create_env())
     .with_sync_env(|state, env| {
         env.locale = state.locale.clone();

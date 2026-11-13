@@ -1,7 +1,7 @@
 ---
 layout: goal
 title: Package and prepare a Fission iOS app for TestFlight
-description: "Package and prepare a Fission iOS app for TestFlight."
+description: Separate Simulator checks, signed IPA packaging and App Store Connect processing before distributing a Fission build through TestFlight.
 goal: Produce and verify a signed IPA, keep signing material outside source control and check version and App Store Connect inputs.
 path: /blog/package-and-prepare-a-fission-ios-app-for-testflight/
 order: 108
@@ -10,10 +10,19 @@ duration: 35 minutes
 run_command: "fission run --target ios --project-dir ."
 app: ios-package-and-prepare-a-fission-ios-app-for-testflight
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the iOS workflow and follow physical-device checks when the task requires them
+  - Keep identity, signing and device review distinct
+  - Package a signed iOS artifact with private credentials outside source control
+  - Verify upload processing and installation through TestFlight
 ---
+
+A successful Simulator build is not a TestFlight build. The Simulator runs a
+different target, and TestFlight distributes an App Store Connect upload after
+Apple has processed it. Keep those checkpoints separate so a local success does
+not conceal the signing or provider step that remains.
+
+The small Compose checklist below records a person's review. Its checkboxes do
+not inspect a certificate, package an IPA or contact Apple. Use the commands
+and artifact checks afterwards for those operations.
 
 ## Create the project and add the target
 
@@ -24,6 +33,7 @@ cargo install cargo-fission
 fission init ios-package-and-prepare-a-fission-ios-app-for-testflight
 cd ios-package-and-prepare-a-fission-ios-app-for-testflight
 fission add-target ios --project-dir .
+cargo add serde_yaml
 ```
 
 ## Files created by Fission
@@ -158,6 +168,55 @@ fission_component! {
 
 ```
 </TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod translations;
+use fission::prelude::*;
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(app::TestFlightReleaseReadiness)
+        .with_env(translations::create_env()).run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    MobileApp::<(), _>::new(app::TestFlightReleaseReadiness)
+        .with_env(translations::create_env()).run()
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    WebApp::<(), _>::new(app::TestFlightReleaseReadiness)
+        .with_env(translations::create_env()).run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::prelude::*;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("../i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("../i18n/es-ES.yaml")));
+    env
+}
+
+
+```
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
@@ -177,9 +236,9 @@ fn preview_env() -> Env {
     let mut env = Env::default();
     env.locale = Locale::from("en-US");
     env.i18n
-        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
+        .add_bundle(load_bundle("en-US", include_str!("../i18n/en-US.yaml")));
     env.i18n
-        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+        .add_bundle(load_bundle("es-ES", include_str!("../i18n/es-ES.yaml")));
     env
 }
 
@@ -197,7 +256,7 @@ pub fn run() -> Result<(), JsValue> {
 ```
 </TabItem>
 <TabItem label="i18n/en-US.yaml">
-<!-- fission:file path="src/i18n/en-US.yaml" -->
+<!-- fission:file path="i18n/en-US.yaml" -->
 ```yaml
 release.screen.label: "TestFlight release readiness checklist"
 release.app.name: "Northstar Journal"
@@ -212,7 +271,7 @@ release.signing.title: "Signing"
 release.signing.detail: "Distribution certificate and App Store provisioning profile"
 release.signing.check: "I checked the signing inputs"
 release.device.title: "TestFlight smoke test"
-release.device.detail: "Install the signed IPA on a registered iPhone before upload."
+release.device.detail: "Install the processed build through TestFlight and verify a clean launch."
 release.device.check: "I checked the device launch"
 release.status.complete: "All release checks reviewed"
 release.status.incomplete: "Release checks still need review"
@@ -220,7 +279,7 @@ release.preview.note: "Browser preview only: these checks are local and do not s
 ```
 </TabItem>
 <TabItem label="i18n/es-ES.yaml">
-<!-- fission:file path="src/i18n/es-ES.yaml" -->
+<!-- fission:file path="i18n/es-ES.yaml" -->
 ```yaml
 release.screen.label: "Lista de verificación para TestFlight"
 release.app.name: "Diario Northstar"
@@ -235,7 +294,7 @@ release.signing.title: "Firma"
 release.signing.detail: "Certificado de distribución y perfil de aprovisionamiento de App Store"
 release.signing.check: "He revisado los datos de firma"
 release.device.title: "Prueba rápida de TestFlight"
-release.device.detail: "Instala la IPA firmada en un iPhone registrado antes de subirla."
+release.device.detail: "Instala la versión procesada mediante TestFlight y comprueba que arranca."
 release.device.check: "He revisado el inicio en el dispositivo"
 release.status.complete: "Todas las comprobaciones están revisadas"
 release.status.incomplete: "Quedan comprobaciones por revisar"
@@ -249,9 +308,38 @@ release.preview.note: "Solo vista previa web: las comprobaciones son locales y n
 <!-- fission:step id="main-flow" -->
 ## Package and prepare a Fission iOS app for TestFlight
 
-Set a stable reverse-domain bundle ID and explicit marketing version and build number before packaging. First run `fission readiness package --target ios --format ipa` to find missing Xcode, identity, icon, entitlement or signing inputs. Keep certificates and provisioning material outside source control, then build a release IPA and install it on a registered iPhone through Xcode Devices and Simulators. Upload that IPA through App Store Connect and confirm processing before inviting testers; a simulator build does not test TestFlight signing or review.
+Set a stable bundle ID and an explicit marketing version and build number.
+The bundle ID must match the registered application, and each uploaded build
+needs a new build number. Keep the signing certificate in Keychain and the
+provisioning profile outside the repository. App Store Connect API credentials
+are separate from application signing credentials.
 
+```toml
+[package.ios]
+bundle_id = "com.example.northstar-journal"
+marketing_version = "1.4.0"
+build_number = "42"
+team_id = "YOUR_TEAM_ID"
+provisioning_profile = "/private/signing/Journal.mobileprovision"
+```
 
+Use the selected distribution profile and identity, not placeholder credentials:
+
+```sh
+fission readiness package --target ios --format ipa --release --project-dir .
+fission signing status --target ios --project-dir .
+fission package --target ios --format ipa --release --project-dir . --json
+```
+
+Read the emitted artifact manifest and inspect its IPA, source revision and
+signing inputs. Do not substitute a Simulator package or an older file with the
+same name. The [iOS packaging guide](/docs/build-and-package/ios-packages/)
+explains the supported signing setup.
+
+An App Store Connect distribution build is uploaded for TestFlight or App Store
+distribution. Direct installation on registered devices uses a development or
+Ad Hoc build instead; these are different signing paths. See
+[Apple's distribution methods](https://help.apple.com/xcode/mac/current/en.lproj/dev31de635e5.html).
 
 <!-- fission:preview -->
 
@@ -263,9 +351,25 @@ The compiled preview changes browser-local state only; it does not perform this 
 <!-- fission:step id="edge-state" -->
 ## Inspect the iOS release artifact
 
-Run the readiness command below before packaging so missing identity, version, SDK or signing inputs are reported before the release build. Keep signing keys and credentials outside the repository, then build the artifact that matches the store or test track.
+Create the App Store Connect app record before uploading. Publish the exact
+manifest produced above, first as a dry run:
 
-Install the produced package on a clean target and verify its identity, version, icon, permissions and launch path. A successful debug run does not prove that a signed release package is ready for upload.
+```sh
+fission publish --provider app-store --artifact path/to/artifact-manifest.json --dry-run
+```
+
+Review the destination, application identity, version and credentials before
+using the same command with `--yes`. Upload acceptance is not processing
+completion. Wait until the build appears in App Store Connect, resolve any
+processing or export-compliance requirements, then add it to the intended
+TestFlight group. External testing can require beta review. Apple's
+[upload guide](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/)
+and [TestFlight overview](https://developer.apple.com/testflight/) describe
+these separate stages.
+
+Install through TestFlight on an actual iPhone. Check the displayed version,
+first launch, retained data across an upgrade, and the workflows changed in this
+release. A checklist tick or successful CLI upload does not prove any of those.
 
 ### Run, test and build
 

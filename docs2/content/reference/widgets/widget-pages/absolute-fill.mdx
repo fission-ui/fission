@@ -18,26 +18,24 @@ A common pattern is a dimming scrim behind a modal or popover.
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = ZStack {
-    children: vec![
-        Text::new("Main content").into(),
-        absolute_fill(
-            Container::new(Text::new("").into())
-                .bg(fission::core::op::Color {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 140,
-                })
-                .into(),
-        ),
-    ],
-    ..Default::default()
+fission_component! {
+    pub DimmedContent<()> {
+        props { content: Widget }
+    }
+    view(layer, _state, cx) {
+        let shade = cx.view.env().theme.tokens.colors.text_primary.with_alpha(140);
+        let scrim = absolute_fill(
+            Container::new(Spacer::default()).bg(shade),
+        );
+    } =>
+    ZStack(children: [layer.content.clone(), scrim])
 }
-.into();
 ```
 
-The helper does not add styling or input behavior by itself. It only changes sizing. In this example, the `Container` provides the background color while `absolute_fill(...)` makes that container cover the whole stacked area.
+The helper does not add styling or input behaviour. Here `Container` supplies
+the shade and `absolute_fill(...)` gives it the stack's bounds. For a real
+dialog use `Modal`, which also owns the focus and dismissal boundary; this
+example isolates only the sizing operation.
 
 ## Field table
 

@@ -6,9 +6,7 @@ description: Fission Charts reference for the Statistical family.
 
 # Statistical
 
-This family has 20 chart variants. Pick one that matches your data. Each page has a screenshot, data shape, API notes, and code you can adapt.
-
-Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
+A statistical chart should preserve the evidence needed to understand variation or a relationship. Choose the observation population, units and calculation before choosing the shape; a credible-looking plot cannot supply those definitions afterwards.
 
 ![Activation funnel screenshot](/img/charts/funnel-activation.png)
 
@@ -17,14 +15,14 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 | Chart | Data shape | Use when |
 | --- | --- | --- |
 | [Activation funnel](./funnel-activation) | Ordered conversion stage values. | Use it when conversion loss matters more than a shared axis. |
-| [Alert hotspot scatter](./scatter-alert-hotspots) | Selected alert points over numeric axes. | Use it when only important events should pulse visually. |
+| [Alert hotspot scatter](./scatter-alert-hotspots) | Selected alert points over numeric axes. | Emphasise observations already flagged by the application policy. |
 | [API latency boxplot](./boxplot-api-latency) | Five-number summaries across service groups. | Use it to compare distributions instead of averages. |
-| [Crypto session candlestick](./candlestick-crypto-session) | OHLC values over intraday buckets. | Use it when price direction and range must be visible together. |
+| [Crypto session candlestick](./candlestick-crypto-session) | Open, close, low, high values over intraday buckets. | Use it when price direction and range must be visible together. |
 | [Customer value bubbles](./bubble-customer-value) | X, y, and value triples for customers or segments. | Use it when business value should influence point size. |
 | [Device quality parallel](./parallel-device-quality) | Rows of comparable numeric dimensions. | Use it when each item has several independent measures. |
-| [Efficiency frontier](./scatter-efficiency-frontier) | Efficiency points over value axes. | Use it to identify leading and lagging points. |
+| [Efficiency frontier](./scatter-efficiency-frontier) | Efficiency points over value axes. | Inspect measured tradeoffs; frontier classification is a separate calculation. |
 | [Equity session candlestick](./candlestick-equity-session) | Open, close, low, and high values by period. | Use it for financial price movement. |
-| [Job runtime strip](./single-axis-job-runtime) | Job positions with duration or intensity values. | Use it for queue and schedule views. |
+| [Job runtime strip](./single-axis-job-runtime) | Job positions with duration or intensity values. | Compare individual completed-job durations; lanes are not workers. |
 | [Lab sample scatter](./scatter-lab-samples) | Independent x/y samples. | Use it for correlation and clustering questions. |
 | [Plan comparison parallel](./parallel-plan-comparison) | Multi-dimensional rows on parallel axes. | Use it when tradeoffs across measures matter. |
 | [Portfolio risk return](./scatter-portfolio-return) | Risk, return, and exposure values. | Use it to compare assets or initiatives with three measures. |
@@ -35,44 +33,47 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 | [Risk bubble matrix](./scatter-risk-bubbles) | X, y, and magnitude triples. | Use it when size carries a third measure. |
 | [Risk score parallel](./parallel-risk-score) | Rows of risk dimensions on parallel axes. | Use it for multidimensional risk assessment. |
 | [Support resolution funnel](./funnel-support-resolution) | Stage/value pairs through a process. | Use it for operational process attrition. |
-| [Volume shift candlestick](./candlestick-volume-shift) | OHLC-like movement values by period. | Use it when directional change and range both matter. |
+| [Volume shift candlestick](./candlestick-volume-shift) | Open, close, low, high price values; no volume field. | Use it when directional change and range both matter. |
 
 ## Choosing within this family
 
-First decide what the user needs to compare or understand. Pick the simplest chart that shows it; add interaction only when it helps, and use animation only when it explains a change.
+Use a boxplot for ordered five-number summaries, a scatter for numeric pairs and bubbles for an additional non-negative size. Candles preserve open/close/low/high per interval, not traded volume. Funnels require a coherent cohort, whilst parallel coordinates require dimensions prepared on the renderer's fixed 0–100 scale.
+
+Keep domain IDs and exact values separate from display indices. Outlier flags, risk scores and efficient-frontier labels must come from an explicit analysis or policy; the chart APIs do not calculate them automatically.
 
 ## Authoring from a Fission component
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+This API-latency component receives already-validated endpoint summaries and parent-localized display labels.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{Axis, BoxplotSeries, Chart};
 
-
-
-fission_component!
-{
-    pub StatisticalChart<()> {
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ApiLatencySummaryOverview<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            group_labels: Vec<String>,
+            summaries: Vec<[f32; 5]>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Statistical")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
+    view(report, _state, _cx) {
+        let labels = report.group_labels.iter().map(String::as_str).collect();
+        let rows = report.summaries.iter().map(|summary| summary.to_vec()).collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(&report.axis_label)),
+        series: vec![BoxplotSeries::new(&report.series_label).data(rows).into()],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+## Checks
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Test cohort boundaries, summary conventions, missing observations and unit conversion in the report-preparation layer. Preserve the observation window and sample counts so the reader can assess the report.
+
+Inspect rendered labels, overlap and scales on the real target. Keep exact values, important findings and working filters available outside the graphic; visual emphasis and successful compilation do not establish analytical correctness.

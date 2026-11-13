@@ -16,16 +16,21 @@ absence of content.
 ```rust
 use fission::prelude::*;
 
-let save_error: Widget = Alert {
-    kind: AlertKind::Error,
-    title: "Could not save draft".into(),
-    description: Some("Check your connection and try again.".into()),
+fission_component! {
+    pub SaveFailure<()>
+    view(_notice, _state, cx) =>
+    Alert(
+        kind: AlertKind::Error,
+        title: cx.tr("draft.save_failed"),
+        description: Some(cx.tr("draft.retry_when_connected")),
+    )
 }
-.into();
 ```
 
-The title carries the outcome; the description adds useful context or a next
-step instead of repeating it.
+The translation bundle supplies a title such as “Could not save draft” and a
+description such as “Check your connection and try again”. The title carries
+the outcome; the description explains what to do about it. The message remains
+visible because the failed save is still relevant after the button press.
 
 ## Anatomy and variants
 

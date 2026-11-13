@@ -19,29 +19,41 @@ controlled open state, dismissal, and popup focus behavior to the flat model.
 ```rust
 use fission::prelude::*;
 
-let menu: Widget = Menu {
-    items: vec![
-        MenuItem {
-            label: "Archive".into(),
-            icon: None,
-            on_select: Some(archive_action),
-            semantics_identifier: Some("message.archive".into()),
-        },
-        MenuItem {
-            label: "Mark unread".into(),
-            icon: None,
-            on_select: Some(mark_unread_action),
-            semantics_identifier: Some("message.mark-unread".into()),
-        },
-    ],
-    width: Some(220.0),
-    max_height: Some(280.0),
+fission_component! {
+    pub MessageCommands<()> {
+        props {
+            archive: ActionEnvelope,
+            mark_unread: ActionEnvelope,
+        }
+    }
+
+    view(commands, _state, cx) =>
+        Menu(
+            items: vec![
+                MenuItem {
+                    label: cx.tr("message.archive"),
+                    icon: None,
+                    on_select: Some(commands.archive.clone()),
+                    semantics_identifier: Some("message.archive".into()),
+                },
+                MenuItem {
+                    label: cx.tr("message.mark_unread"),
+                    icon: None,
+                    on_select: Some(commands.mark_unread.clone()),
+                    semantics_identifier: Some("message.mark-unread".into()),
+                },
+            ],
+        )
 }
-.into();
 ```
 
 `Menu` adapts every `MenuItem` into the same themed and semantic row used by
 the richer API, so the convenience form does not create a second visual model.
+
+The parent binds actions for the same message; no command is created by a
+label alone. The next snippet is a parent-build configuration excerpt: its
+icons, permission decisions, and action envelopes are application inputs.
+Anatomy builders return owned configuration values, not another runtime.
 
 ## Composed menu anatomy
 
@@ -50,24 +62,24 @@ use fission::prelude::*;
 
 let project_menu: Widget = MenuContent::new(vec![
     MenuGroup::new(vec![
-        MenuActionItem::new("Open project")
+        MenuActionItem::new(cx.tr("project.open"))
             .leading_icon(open_icon_svg)
-            .description("Open in the current workspace")
+            .description(cx.tr("project.open_here"))
             .shortcut("Ctrl+O")
             .on_select(open_project_action)
             .semantics_identifier("project.open")
             .into(),
-        MenuActionItem::new("Move project")
-            .metadata("Unavailable offline")
+        MenuActionItem::new(cx.tr("project.move"))
+            .metadata(cx.tr("project.offline_unavailable"))
             .on_select(move_project_action)
             .disabled(!can_move_project)
             .semantics_identifier("project.move")
             .into(),
     ])
-    .label("Project")
+    .label(cx.tr("project.actions"))
     .into(),
     MenuSeparator::new().into(),
-    MenuActionItem::new("Delete project")
+    MenuActionItem::new(cx.tr("project.delete"))
         .tone(MenuItemTone::Destructive)
         .on_select(delete_project_action)
         .semantics_identifier("project.delete")

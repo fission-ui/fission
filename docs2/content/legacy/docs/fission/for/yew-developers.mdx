@@ -1,511 +1,200 @@
 ---
 title: Fission for Yew developers
-description: Translate Yew function components, hooks, messages, properties, router, and browser tests into Fission state, reducers, widgets, resources, routers, and LiveTest.
+description: Map Yew properties, hooks, callbacks, effects and routing to Fission Compose, reducers and target shells.
 ---
-
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
 
 # Fission for Yew developers
 
-Yew and Fission both let Rust developers build user interfaces with component composition and typed data. The useful instinct is that UI can be strongly typed instead of stringly DOM wiring.
+Typed props and Rust component composition carry over from Yew. The less
+obvious change is that Fission's widget tree is not an HTML tree. A shell can
+lower it to native graphics, a browser app, Terminal or document output, so
+DOM assumptions should not become the shared app architecture.
 
-The main shift is that Fission is not a Rust wrapper around browser components. It owns a multi-target widget/runtime model and uses reducers as the standard state transition path.
-
-Each migration guide builds the same checklist, so you can compare frameworks against the same features: draft input, actions, async loading, design tokens, routing, and tests.
+The excerpts below show those boundaries. They are not files to concatenate
+into another incomplete checklist. For the runnable app and its module
+structure, use [Build a single-page Web app in Rust](/blog/build-a-single-page-web-app-in-rust/).
 
 ## The state ownership rule
 
-Before translating syntax, decide where state belongs:
+A value which only controls one disclosure can stay local. Task records read
+by a list, detail screen and progress summary belong to the app.
 
-- Use `#[with_local_state]` and `#[local_state]` for retained UI memory owned by one widget identity.
-- Use `GlobalState` for product truth: todos, routing, persistence, sync state, user preferences, and shared filters.
-- Use reducers for named user intent and state transitions.
-- Use jobs, services, resources, capabilities, or runtime effects for outside work.
-- Add semantic identifiers to interactive widgets and meaningful regions so tests and accessibility tools can target product meaning instead of coordinates.
+- `props` declares parent inputs.
+- Component `state` holds retained interface memory.
+- `GlobalState` owns shared product facts.
+- `reduce` changes state synchronously.
+- Effects/jobs/services/resources/capabilities perform outside work.
+
+Compose's `state` block generates the retained-state wiring. The lower-level
+`#[with_local_state]` and `#[local_state]` attributes remain available rather
+than become a second component model.
 
 ## 1. Static UI
 
-<Tabs>
-<TabItem value="source" label="Yew">
+Yew properties and Compose props both provide typed inputs. Compose uses
+ordinary Rust widget names instead of HTML tags:
 
-```rust title="src/todo.rs"
-#[function_component(TodoApp)]
-fn todo_app() -> Html {
-    let todos = vec![
-        Todo::new(1, "Write release notes", false),
-        Todo::new(2, "Test Android package", true),
-    ];
-
-    html! {
-        <section>
-            <h1>{ "Ship checklist" }</h1>
-            { for todos.iter().map(|todo| html! {
-                <div><span>{ if todo.done { "Done" } else { "Open" } }</span><span>{ &todo.title }</span></div>
-            }) }
-        </section>
-    }
-}
-```
-
-</TabItem>
-<TabItem value="fission" label="Fission">
-
-```rust title="src/widgets/todo_app.rs"
+```rust
 use fission::prelude::*;
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Todo {
-    pub id: u64,
-    pub title: String,
-    pub done: bool,
-}
-
-
 
 fission_component! {
-    pub TodoApp<()> {
+    pub TaskTitle<()> {
+        props { title: String }
     }
-    view(_app, _state, _cx) => rust {
-        let todos = vec![
-                    Todo { id: 1, title: "Write release notes".into(), done: false },
-                    Todo { id: 2, title: "Test Android package".into(), done: true },
-                ];
-
-                let rows = todos.into_iter().map(|todo| {
-                    let status = if todo.done { "Done" } else { "Open" };
-                    Row {
-                        gap: Some(12.0),
-                        children: widgets![Text::new(status), Text::new(todo.title)],
-                        ..Default::default()
-                    }
-                    .into()
-                });
-
-                Container::new(Column {
-                    gap: Some(12.0),
-                    children: std::iter::once(Text::new("Ship checklist").size(28.0).weight(800).into())
-                        .chain(rows)
-                        .collect(),
-                    ..Default::default()
-                })
-                .padding_all(24.0)
-                .into()
-    }
+    view(task, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Text(task.title.clone()).size(tokens.typography.font_size_base)
 }
 ```
-</TabItem>
-</Tabs>
 
-The Fission side is a concrete widget value. Conversion reads inputs and returns a widget tree; it is not the place to start outside work or hide product state.
+The parent owns the string and can translate it before passing it. Importing a
+custom widget is enough to use it in the tree; Compose does not require a
+separate widget registration step.
 
 ## 2. Product state and interaction
 
-<Tabs>
-<TabItem value="source" label="Yew">
+A `Callback` often closes over values needed by a later event. In Fission,
+separate the prop snapshot used for display from the current product record
+which the reducer should change:
 
-```rust title="src/todo.rs"
-#[function_component(TodoApp)]
-fn todo_app() -> Html {
-    let draft = use_state(String::new);
-    let todos = use_state(Vec::<Todo>::new);
-
-    let add = {
-        let draft = draft.clone();
-        let todos = todos.clone();
-        Callback::from(move |_| {
-            let title = draft.trim().to_string();
-            if title.is_empty() { return; }
-            let mut next = (*todos).clone();
-            next.push(Todo::new(title));
-            todos.set(next);
-            draft.set(String::new());
-        })
-    };
-
-    html! { <TodoContent {add} /> }
-}
-```
-
-</TabItem>
-<TabItem value="fission" label="Fission">
-
-```rust title="src/state.rs"
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TodoState {
-    pub draft: String,
-    pub todos: Vec<Todo>,
-    pub next_id: u64,
-    pub current_path: String,
-}
-
-impl Default for TodoState {
-    fn default() -> Self {
-        Self {
-            draft: String::new(),
-            todos: Vec::new(),
-            next_id: 1,
-            current_path: "/".into(),
+```rust
+fission_component! {
+    pub TaskRow<TaskState> {
+        props {
+            id: u64,
+            title: String,
+            done: bool,
         }
     }
-}
-
-impl GlobalState for TodoState {}
-
-#[fission_reducer(SetDraft)]
-fn set_draft(state: &mut TodoState, ctx: &mut ReducerContext<TodoState>) {
-    let Some(change) = ctx.input.text_change() else {
-        return;
-    };
-    state.draft = change.new_text.clone();
-}
-
-#[fission_reducer(AddDraftTodo)]
-fn add_draft_todo(state: &mut TodoState) {
-    let title = state.draft.trim();
-    if title.is_empty() {
-        return;
-    }
-
-    state.todos.push(Todo {
-        id: state.next_id,
-        title: title.to_string(),
-        done: false,
-    });
-    state.next_id += 1;
-    state.draft.clear();
-}
-
-#[fission_reducer(ToggleTodo)]
-fn toggle_todo(state: &mut TodoState, id: u64) {
-    if let Some(todo) = state.todos.iter_mut().find(|todo| todo.id == id) {
-        todo.done = !todo.done;
-    }
+    view(row, state, _cx) =>
+    Checkbox(
+        label: Some(row.title.clone()),
+        checked: row.done,
+        key: "toggle-task",
+        on_toggle: reduce {
+            if let Some(task) = state.tasks.iter_mut().find(|task| task.id == row.id) {
+                task.done = !task.done;
+            }
+        },
+    )
 }
 ```
 
-```rust title="src/widgets/todo_screen.rs"
+This excerpt assumes `TaskState` implements `GlobalState` and owns task records
+with `id` and `done` fields. Repeated calls use `TaskRow(..., key: task.id)`.
+An old event for a removed record does not recreate it.
 
+A simple text setter needs even less wiring:
 
-fission_component! {
-    pub TodoScreen<TodoState> {
-    }
-    view(_screen, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<TodoState>();
-                let update_draft = with_reducer!(ctx, SetDraft, set_draft);
-                let add_todo = with_reducer!(ctx, AddDraftTodo, add_draft_todo);
-
-                let rows = view.state().todos.iter().map(|todo| {
-                    let toggle = with_reducer!(ctx, ToggleTodo(todo.id), toggle_todo);
-                    Row {
-                        gap: Some(12.0),
-                        children: widgets![
-                            Checkbox {
-                                checked: todo.done,
-                                on_toggle: Some(toggle),
-                                ..Default::default()
-                            }
-                            .semantics_identifier(format!("todo.toggle.{}", todo.id)),
-                            Text::new(todo.title.clone()),
-                        ],
-                        ..Default::default()
-                    }
-                    .semantics_identifier(format!("todo.row.{}", todo.id))
-                    .into()
-                });
-
-                Column {
-                    gap: Some(16.0),
-                    children: widgets![
-                        Text::new("Ship checklist").size(28.0).weight(800),
-                        Row {
-                            gap: Some(12.0),
-                            children: widgets![
-                                TextInput {
-                                    id: Some(WidgetId::explicit("todo-title")),
-                                    value: view.state().draft.clone(),
-                                    label: Some("New task".into()),
-                                    placeholder: Some("Add a task".into()),
-                                    on_input: Some(update_draft),
-                                    ..Default::default()
-                                }
-                                .semantics_identifier("todo.title"),
-                                Button {
-                                    child: Some(Text::new("Add task").into()),
-                                    on_press: Some(add_todo),
-                                    ..Default::default()
-                                }
-                                .semantics_identifier("todo.add"),
-                            ],
-                            ..Default::default()
-                        },
-                        Column { gap: Some(10.0), children: rows.collect(), ..Default::default() },
-                    ],
-                    ..Default::default()
-                }
-                .into()
-    }
-}
+```rust
+TextInput(
+    label: Some(cx.tr("tasks.new").into()),
+    bind: composer.draft,
+)
 ```
-</TabItem>
-</Tabs>
 
-Fission makes the state transition explicit. The button does not mutate a captured local variable; it dispatches a named action and the reducer updates product state.
+Here `composer.draft` is a retained `state` field. The binding supplies its
+value and update action. A submission reducer validates the draft and creates
+a real task; it should not add an empty placeholder merely to change the UI.
 
 ## 3. Outside work
 
-<Tabs>
-<TabItem value="source" label="Yew">
+Do not reproduce `use_effect_with` by spawning a future in the Fission view.
+View conversion may run repeatedly and should describe the current interface.
 
-```rust title="src/todo.rs"
-use_effect_with((), move |_| {
-    wasm_bindgen_futures::spawn_local(async move {
-        let todos = load_todos().await;
-        set_todos.set(todos);
-    });
-    || ()
-});
-```
+A component's explicit user operation can use `on_press: effect operation(...)`
+with `on_start`, `on_ok` and `on_err`. The function marked `#[fission_effect]`
+receives owned snapshots, not live state or a context handle. Both result
+paths are required; show `Spinner` while waiting and a usable failure state.
 
-</TabItem>
-<TabItem value="fission" label="Fission">
+For startup hydration or work which must survive a route change, use one
+startup action and app-owned jobs/resources instead. Component-owned
+completions are ignored after the component unmounts. See
+[Compose effects](/compose/) and
+[Resources and async](/docs/guides/resources-and-async/).
 
-```rust title="src/api.rs"
-use fission::core::{JobRef, JobSpec};
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct LoadTodosRequest;
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ApiError {
-    pub message: String,
-}
-
-pub struct LoadTodosJob;
-
-impl JobSpec for LoadTodosJob {
-    type Request = LoadTodosRequest;
-    type Ok = Vec<Todo>;
-    type Err = ApiError;
-
-    const NAME: &'static str = "todo.load";
-}
-
-pub const LOAD_TODOS_JOB: JobRef<LoadTodosJob> = JobRef::new(LoadTodosJob::NAME);
-```
-
-```rust title="src/state.rs"
-#[fission_reducer(LoadTodos)]
-fn load_todos(state: &mut TodoState, ctx: &mut ReducerContext<TodoState>) {
-    state.loading = true;
-    ctx.effects
-        .app(LOAD_TODOS_JOB, LoadTodosRequest)
-        .on_ok(ctx.effects.bind(TodosLoaded, reduce_with!(todos_loaded)))
-        .on_err(ctx.effects.bind(TodosFailed, reduce_with!(todos_failed)));
-}
-```
-
-</TabItem>
-</Tabs>
-
-Do not perform outside work during component conversion. Reducers request work; jobs, services, resources, or capabilities perform it; results return as actions.
+If a response could overwrite a newer edit, disable that edit for the request
+or compare operation generations before applying the result. Merely disabling
+the button which started the request does not protect every other editor.
 
 ## 4. Styling and theme
 
-<Tabs>
-<TabItem value="source" label="Yew">
+CSS classes do not define native widget layout. Use Fission's generated design
+system, read `cx.view.env().theme.tokens` in setup and prefer the built-in
+widget which owns the required behaviour.
 
-```rust title="src/todo.rs"
-html! {
-    <button class="rounded-xl border bg-white px-4 py-3 shadow-sm">
-        <input type="checkbox" checked={todo.done} />
-        <span>{ &todo.title }</span>
-    </button>
-}
-```
+A `Button` supplies activation semantics. A `FormControl` supplies field
+relationships. A `Modal` supplies a dialog boundary. Replacing these with
+painted boxes creates extra focus, accessibility and target work even when the
+first screenshot looks similar.
 
-</TabItem>
-<TabItem value="fission" label="Fission">
-
-```rust title="src/widgets/todo_row.rs"
-
-
-fission_component! {
-    pub TodoRow<TodoState> {
-        props {
-            todo: Todo,
-        }
-    }
-    view(row, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<TodoState>();
-                let tokens = &view.env().theme.tokens;
-                let toggle = with_reducer!(ctx, ToggleTodo(row.todo.id), toggle_todo);
-
-                Container::new(Row {
-                    gap: Some(tokens.spacing.s),
-                    children: widgets![
-                        Checkbox {
-                            checked: row.todo.done,
-                            on_toggle: Some(toggle),
-                            ..Default::default()
-                        }
-                        .semantics_identifier(format!("todo.toggle.{}", row.todo.id)),
-                        Text::new(row.todo.title)
-                            .size(tokens.typography.font_size_base)
-                            .color(tokens.colors.text_primary),
-                    ],
-                    ..Default::default()
-                })
-                .bg(tokens.colors.surface)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.large)
-                .padding([tokens.spacing.m, tokens.spacing.m, tokens.spacing.s, tokens.spacing.s])
-                .into()
-    }
-}
-```
-</TabItem>
-</Tabs>
-
-In Fission, the active theme is runtime environment. Read token values from `view.env().theme.tokens` and apply them through widget fields. That keeps the UI target-lowerable across native, web, mobile, terminal, static, and SSR shells.
+Static site and SSR can generate HTML/CSS; Web hosts the interactive browser
+app. Decide which output the feature needs rather than assume every target is
+a hydrated DOM page.
 
 ## 5. Routing
 
-<Tabs>
-<TabItem value="source" label="Yew">
+Fission's native `Router` matches the app's current path. The shell's route
+handler keeps that state synchronized with navigation and history:
 
-```rust title="src/todo.rs"
-#[derive(Clone, Routable, PartialEq)]
-enum Route {
-    #[at("/")]
-    Todos,
-    #[at("/todos/:id")]
-    Todo { id: u64 },
-}
-
-html! { <BrowserRouter><Switch<Route> render={switch} /></BrowserRouter> }
-```
-
-</TabItem>
-<TabItem value="fission" label="Fission">
-
-```rust title="src/routes.rs"
-use fission::widgets::{Route, Router};
-use std::sync::Arc;
-
-#[fission_reducer(NavigateTo)]
-fn navigate_to(state: &mut TodoState, path: String) {
-    state.current_path = path;
-}
-
-
-
+```rust
 fission_component! {
-    pub TodoRoutes<TodoState> {
-    }
-    view(_routes, _state, _cx) => rust {
-        let (_, view) = fission::build::current::<TodoState>();
-
-                Router::<TodoState> {
-                    current_path: view.state().current_path.clone(),
-                    routes: vec![
-                        Route {
-                            path: "/".into(),
-                            builder: Arc::new(|_, _, _| TodoScreen.into()),
-                        },
-                        Route {
-                            path: "/todos/:id".into(),
-                            builder: Arc::new(|_, _, params| TodoDetail {
-                                id: params["id"].parse().unwrap_or(0),
-                            }
-                            .into()),
-                        },
-                    ],
-                    not_found: Some(Arc::new(|_, _, _| Text::new("Not found").into())),
-                }
-                .into()
-    }
+    pub TaskRoutes<TaskState>
+    view(_routes, state, _cx) =>
+    Router::<TaskState>::new()
+        .with_path(state.current_path.clone())
+        .route_component("/", TaskScreen)
+        .route_component("/tasks/:id", TaskDetailRoute)
 }
 ```
-</TabItem>
-</Tabs>
 
-Use Fission's native `Router` and `RouterParams`. Shell URLs, deep links, static routes, server routes, and terminal route-like state should normalize into the same app-owned route state instead of each target inventing a different navigation model.
+The named components are defined by the app. `TaskDetailRoute` reads
+`RouteParams` and validates the raw ID. Do not substitute record zero for
+malformed input. Use [ProtectedRoute](/reference/widgets/protected-route/) to
+defer protected component construction, and enforce authorization again in
+protected server operations.
 
 ## 6. Testing
 
-<Tabs>
-<TabItem value="source" label="Yew">
+A browser-driven Yew test and a native-shell Fission test do not inspect the
+same host. Choose the boundary which the assertion actually needs:
 
-```rust title="src/todo.rs"
-// Browser-driven test against rendered Yew app.
-page.get_by_label("New task").fill("Publish release").await?;
-page.get_by_text("Add task").click().await?;
-page.get_by_text("Publish release").wait_for().await?;
-```
+| Requirement | Fission surface |
+| --- | --- |
+| State rule | Pure transition/reducer test |
+| Widget output, layout and semantics | `TestHarness` |
+| Typing, keyboard focus and pointer interaction | `LiveTestClient` and `/cmd` |
+| Permissions or target-specific behaviour | Live test on that host/device |
 
-</TabItem>
-<TabItem value="fission" label="Fission">
-
-```rust title="tests/live.rs"
-use fission_test_driver::{LiveTestClient, SelectorQuery};
-
-#[test]
-#[ignore]
-fn user_can_add_a_todo_in_a_real_shell() {
-    let control_port = reserve_control_port();
-    let mut child = launch_todo_app(control_port);
-    let client = LiveTestClient::connect(control_port);
-
-    client.wait_for_ready(15_000).expect("app ready");
-    client
-        .fill_text_semantic_identifier("todo.title", "Publish release")
-        .expect("fill draft");
-    client
-        .tap_semantic_identifier("todo.add")
-        .expect("add todo");
-    client
-        .wait_for_visible(SelectorQuery::label("Publish release"), 5_000)
-        .expect("todo visible");
-    client
-        .screenshot(".artifacts/screenshots/todos/added.png")
-        .expect("screenshot");
-
-    client.quit().expect("quit app");
-    let _ = child.wait();
-}
-```
-
-</TabItem>
-</Tabs>
-
-Keep fast reducer tests for business rules. Use headless `fission-test` for widget/layout/semantics assertions. Use `LiveTestClient` and `/cmd` for real shell input, focus, screenshots, selectors, and target behavior.
+Use stable semantic identifiers where a selector should survive translation.
+[Write a live UI test](/docs/cookbook/write-a-live-ui-test/) supplies complete
+launch, readiness and cleanup rather than undefined browser helper methods.
 
 ## Vocabulary map
 
 | Yew concept | Closest Fission concept | Important difference |
 | --- | --- | --- |
-| `Html` | `Widget` | Fission widgets are target-lowerable beyond the DOM. |
-| Properties | Struct fields | Typed Rust fields configure widgets. |
-| `use_state` | `#[local_state]` or `GlobalState` | Choose by ownership and lifetime. |
-| Callback | Bound action | Fission names intent and dispatches reducers. |
-| `use_effect_with` | Jobs/resources/effects | Outside work is explicit and reducer-driven. |
-| Yew Router | Fission `Router` | Same route model can run across shells. |
+| `Html` | `Widget` | Widget intent can lower beyond the browser DOM. |
+| Properties | `props` fields | Ordinary typed parent inputs. |
+| `use_state` | Component `state` or `GlobalState` | Lifetime and readers determine ownership. |
+| Callback | Bound action | Reducers resolve current state when the event runs. |
+| `use_effect_with` | Effects/jobs/resources | Conversion itself does not start I/O. |
+| Yew Router | Native `Router` | Shells adapt history and route input. |
 
 ## Common instincts to adjust
 
-Do not carry DOM assumptions into core app structure. Use Fission widgets and let shells lower appropriately.
+Do not move every callback capture into a long-lived Rust handle. Build and view
+handles are build-scoped; selected owned values can cross an async boundary,
+but those handles cannot.
 
-Do not bury product state in hook-local values once it matters outside one component identity.
-
-Keep the typed-Rust component instinct, but make reducers and semantic identifiers part of your default design.
+Keep useful typed-Rust and semantic-testing practices. They matter more, not
+less, when the same app has to work in several shells.
 
 ## What to read next
 
-Read [Testing Fission apps](/docs/learn/testing/) for unit, headless integration, LiveTest, and `/cmd` workflows.
-
-Read [State, handles, and providers](/docs/guides/state-handles-and-providers/) for the durable-state, local-state, provider, and environment decision model.
-
-Read [Resources and async](/docs/guides/resources-and-async/) for jobs, services, resources, capabilities, and reducer effects.
+- [Complete task app](/blog/build-a-single-page-web-app-in-rust/)
+- [Compose API](/compose/)
+- [State, handles and providers](/docs/guides/state-handles-and-providers/)
+- [Resources and async](/docs/guides/resources-and-async/)
+- [Testing Fission apps](/docs/learn/testing/)

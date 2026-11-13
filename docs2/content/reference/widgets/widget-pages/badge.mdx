@@ -15,14 +15,18 @@ support the main content, not carry meaning that needs a separate explanation.
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Badge {
-    text: "12 new".into(),
-    ..Default::default()
+fission_component! {
+    pub UnreadCount<()> {
+        props { count: usize }
+    }
+    view(badge, _state, _cx) =>
+    Badge(text: badge.count.to_string())
 }
-.into();
 ```
 
-This works well beside a folder title, page header, or list row label.
+Place this beside a translated folder label or summary which explains that
+the number means unread messages. A bare number elsewhere on the page would
+not carry that meaning by itself.
 
 ## Field table
 

@@ -7,7 +7,7 @@ description: Read, write, emulate, and cancel NFC sessions through a host provid
 
 Near field communication is short-range hardware interaction. The app should describe what it wants to do, then let the host open the platform NFC session, display the platform prompt, read or write the tag, and return typed records.
 
-This example scans a tag and stores its first NDEF text or URI record. The host owns the NFC session and platform prompt; reducers handle the returned data.
+This example reads an NDEF tag and shows how many records it contains. It retains the typed tag for a later product-specific decoder. An NDEF text or URI record has its own byte format; treating its complete payload as UTF-8 would include metadata bytes or corrupt the result.
 
 Do not put NFC SDK calls in reducers. NFC sessions are host-owned because permissions, hardware support, background behavior, and entitlements differ by target.
 
@@ -16,10 +16,9 @@ Do not put NFC SDK calls in reducers. NFC sessions are host-owned because permis
 Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
 
 ```rust
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct NfcState {
-    // Add these fields to your existing app state.
-    nfc_text: Option<String>,
+    tag: Option<NfcTag>,
     nfc_error: Option<String>,
     scanning_nfc: bool,
 }
@@ -27,7 +26,7 @@ struct NfcState {
 impl GlobalState for NfcState {}
 ```
 
-Keep the scan status, returned record, and error in app state. Update them from the typed completion actions.
+Keep the status, tag, and error separate. A tag with no records is still a successful scan, not an unsupported-device error. Only decode record types the app understands, and do not treat a URL on a physical tag as trusted navigation.
 
 ## 2. Configure the target and host
 
@@ -55,43 +54,49 @@ The NFC session completes after its starting reducer returns. Handle the tag and
 
 ```rust
 #[fission_reducer(TagScanned)]
-fn on_tag_scanned(state: &mut NfcState, tag: NfcTag) {
+fn on_tag_scanned(state: &mut NfcState, ctx: &mut ReducerContext<NfcState>) {
     state.scanning_nfc = false;
-    state.nfc_text = tag.records.first().map(|record| String::from_utf8_lossy(&record.payload).to_string());
-    state.nfc_error = None;
+    match ctx.input.capability_ok(SCAN_NFC_TAG) {
+        Some(tag) => {
+            state.tag = Some(tag);
+            state.nfc_error = None;
+        }
+        None => state.nfc_error = Some("The host returned no tag".into()),
+    }
 }
 
 #[fission_reducer(TagScanFailed)]
-fn on_tag_scan_failed(state: &mut NfcState, error: NfcError) {
+fn on_tag_scan_failed(state: &mut NfcState, ctx: &mut ReducerContext<NfcState>) {
     state.scanning_nfc = false;
-    state.nfc_error = Some(error.message);
+    state.nfc_error = Some(
+        ctx.input.capability_error(SCAN_NFC_TAG)
+            .map(|error| error.message)
+            .unwrap_or_else(|| "The host could not read the NFC tag".into()),
+    );
 }
 ```
 
-Cancellation, missing hardware, and unsupported hosts are expected outcomes. Explain them and allow the user to retry where appropriate.
+The registered actions only select a reducer. The actual tag and error arrive through `ctx.input`; a default `NfcTag` passed in an action would not become the scanned tag. Cancellation clears the busy state through the error path when the provider reports it as an error.
 
 ## 4. Request the capability from a reducer
 
 Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
 
 ```rust
-state.scanning_nfc = true;
-ctx.effects
-    .nfc()
-    .scan_tag(NfcScanRequest {
-        technologies: vec![NfcTechnology::Ndef],
-        prompt: Some("Hold a tag near the device".into()),
-        timeout_ms: Some(15_000),
-        allow_multiple_records: true,
-    })
-    .on_ok(ctx.effects.bind(
-        TagScanned(NfcTag::default()),
-        reduce_with!(on_tag_scanned),
-    ))
-    .on_err(ctx.effects.bind(
-        TagScanFailed(NfcError::default()),
-        reduce_with!(on_tag_scan_failed),
-    ));
+#[fission_reducer(ScanNfcTag)]
+fn on_scan_nfc_tag(
+    state: &mut NfcState,
+    request: NfcScanRequest,
+    ctx: &mut ReducerContext<NfcState>,
+) {
+    if state.scanning_nfc { return; }
+    state.scanning_nfc = true;
+    state.tag = None;
+    state.nfc_error = None;
+    let scanned = ctx.effects.bind(TagScanned, reduce_with!(on_tag_scanned));
+    let failed = ctx.effects.bind(TagScanFailed, reduce_with!(on_tag_scan_failed));
+    ctx.effects.nfc().scan_tag(request).on_ok(scanned).on_err(failed);
+}
 ```
 
 The call records a typed host request; the provider handles the platform NFC session.
@@ -101,30 +106,34 @@ The call records a typed host request; the provider handles the platform NFC ses
 Bind the button to the reducer that starts the NFC session:
 
 ```rust
-
-
-fission_component!
-{
-    pub ScanNfcTagButton<NfcState> {
+fission_component! {
+    pub ScanNfcTagButton<NfcState> {}
+    view(_button, state, cx) {
+        let request = NfcScanRequest {
+            technologies: vec![NfcTechnology::Ndef],
+            message: Some(cx.tr("nfc.hold_tag_near_device")),
+            timeout_ms: Some(15_000),
+            read_multiple_records: true,
+        };
+        let run = cx.bind(ScanNfcTag(request), reduce!(on_scan_nfc_tag));
     }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<NfcState>();
-                let run = with_reducer!(ctx, ScanNfcTag, on_scan_nfc_tag);
-
-                Button::new("Scan tag")
-                    .disabled(view.state().scanning_nfc)
-                    .on_press(run)
-                    .into()
-    }
+    => Column(children: [
+        Button(child: Text(cx.tr("nfc.scan")), disabled: state.scanning_nfc, on_press: run),
+        if state.scanning_nfc { Spinner(motion: SpinnerMotion::Default, label: cx.tr("nfc.scanning")) },
+        if let Some(tag) = &state.tag {
+            Text(format!("{}: {}", cx.tr("nfc.record_count"), tag.records.len()))
+        },
+        if let Some(error) = &state.nfc_error { Alert(title: error.clone(), kind: AlertKind::Error) },
+    ])
 }
 ```
-The button dispatches an action, the reducer requests a scan, and a completion reducer stores the record or error.
+Add the `nfc.*` labels to the translation bundles. The bounded request lets the host own the session and its platform prompt; the screen remains ordinary Compose. If this becomes an asset lookup, decode and validate the application record first, then request the lookup separately.
 
 ## 6. Provide and test the host behavior
 
 Register an `NfcHost` with `.with_nfc_host(...)`. Use `MemoryNfcHost` in tests. Real providers should report availability before scanning and return `NfcError::unsupported(...)` for operations the device cannot perform.
 
-Test availability, successful scans, text and URI tags, unsupported records, timeout, cancellation, unsupported write or emulation paths, and host errors. Also verify the UI disables scanning when availability reports no NFC hardware.
+Test availability, successful scans, empty tags, text and URI record payloads, timeout, cancellation, unsupported write or emulation paths, and host errors. In a larger onboarding flow, call `nfc().availability()` before offering NFC setup and provide an alternative when hardware is absent. The control above demonstrates the one-shot read and handles unsupported hosts explicitly.
 
 ## Platform expectations
 

@@ -12,12 +12,8 @@ slug: /widgets/text-font-style
 
 ```rust
 use fission::prelude::*;
-let widget: Widget = Text {
-    content: "Draft".into(),
-    font_style: TextFontStyle::Italic,
-    ..Default::default()
-}
-.into();
+// Inside a Compose view: posture is independent of the translated label.
+Text(cx.tr("documents.draft"), font_style: TextFontStyle::Italic)
 ```
 
 ## Choice table

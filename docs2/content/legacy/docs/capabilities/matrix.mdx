@@ -22,8 +22,8 @@ A cell marked **Yes** means there is a normal product path for the feature on th
 | [Notifications](/docs/capabilities/notifications/) | [API](/reference/capabilities/notifications/) | Provider | Provider | Provider | Limited | Yes | Yes | Shell setup |
 | [Deep links](/docs/capabilities/deep-links/) | [API](/reference/capabilities/deep-links/) | Yes | Provider | Provider | Limited | Yes | Yes | Shell setup |
 | [NFC](/docs/capabilities/nfc/) | [API](/reference/capabilities/nfc/) | Limited mobile | Hardware provider | Hardware provider | Hardware provider | Yes | Yes | Yes |
-| [Biometrics](/docs/capabilities/biometrics/) | [API](/reference/capabilities/biometrics/) | Use passkeys | Provider | Provider | Limited | Yes | Yes | Yes |
-| [Passkeys](/docs/capabilities/passkeys/) | [API](/reference/capabilities/passkeys/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
+| [Biometrics](/docs/capabilities/biometrics/) | [API](/reference/capabilities/biometrics/) | Use passkeys | Provider | Provider | Limited | Yes | Provider | Yes |
+| [Passkeys](/docs/capabilities/passkeys/) | [API](/reference/capabilities/passkeys/) | Yes | Provider | Provider | Limited | Provider | Provider | Yes |
 | [Barcode scanner](/docs/capabilities/barcode-scanner/) | [API](/reference/capabilities/barcode-scanner/) | Provider | Provider | Provider | Limited | Yes | Yes | Yes |
 | [Camera and flashlight](/docs/capabilities/camera/) | [API](/reference/capabilities/camera/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
 | [Clipboard](/docs/capabilities/clipboard/) | [API](/reference/capabilities/clipboard/) | Yes | Yes | Yes | Yes | Yes | Yes | No extra CLI value |
@@ -37,6 +37,8 @@ A cell marked **Yes** means there is a normal product path for the feature on th
 | [PDF printing](/docs/capabilities/printing/) | [API](/reference/capabilities/printing/) | Limited | Limited | Yes | Yes | Yes | Yes | none required |
 
 Fission has no built-in iOS Wi-Fi provider: its built-in host is `UnsupportedWifiHost`. An app can register a custom provider, but it remains subject to iOS policy and cannot assume general Wi-Fi scanning or connection access.
+
+Native passkey hosts default to `UnsupportedPasskeyHost`; Android and iOS apps must install a platform-specific provider as well as the domain-association metadata. iOS biometrics similarly requires an app-supplied `BiometricHost`. A generated permission string or capability declaration does not install these implementations. The corresponding references describe the current integration boundaries.
 
 Desktop support deserves a careful reading. Windows and macOS increasingly expose camera, microphone, notifications, Bluetooth, local authentication, clipboard, location, and volume APIs that a Fission host can connect to. Linux often has an equivalent route, but it may depend on portals, desktop services, BlueZ, NetworkManager, PulseAudio or PipeWire, and distribution packaging. For that reason Linux cells are more often marked limited or provider-driven.
 

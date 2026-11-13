@@ -7,11 +7,10 @@ description: The reference contract for Env, InputEvent, clipboard support, and 
 
 `Env` and `InputEvent` are the public boundary between the shared runtime, user input, and host-provided context.
 
-The two main ideas are simple.
-
-`Env` carries explicit environment values that widgets may need while building.
-
-`InputEvent` carries normalized user and lifecycle input that the runtime can process consistently across platforms.
+They have different jobs: `Env` is the presentation and host context read
+during build, whereas `InputEvent` is normalized user or lifecycle input
+processed by the runtime. Putting them behind explicit types lets a test
+supply context and input without reproducing an operating system's callbacks.
 
 The clipboard and input method editor contracts sit beside those two types because they are part of the same shell-to-runtime boundary.
 
@@ -32,7 +31,9 @@ Today, the public fields include:
 
 Use `Env` for shared presentation and host-context values, not for durable product state.
 
-A widget should read environment through `ViewHandle`, for example with `view.viewport_size()`, `view.theme()`, or `view.env.locale`.
+A widget reads environment through `ViewHandle`, for example with
+`cx.view.viewport_size()`, `cx.view.theme()`, or `cx.view.env().locale` in
+Compose. These are build-scope reads, not handles to retain for later work.
 
 ## How `Env` reaches the app
 
@@ -70,7 +71,11 @@ The public variants are:
 | `Pointer(PointerEvent)` | Mouse, touch, or stylus input |
 | `Keyboard(KeyEvent)` | Key presses and releases |
 | `Ime(ImeEvent)` | Composed-text events from an input method editor |
+| `Editing(EditingCommand)` | Platform-native semantic editing commands |
+| `TextEdit(TextEditCommand)` | Complete platform-neutral value, selection, composition, or range edit |
+| `ContextMenuRequested { point, modifiers }` | Native context-menu request at a logical position |
 | `Gesture(GestureEvent)` | Higher-level gestures such as taps or pans |
+| `ExternalDrag(ExternalDragEvent)` | Desktop drag-and-drop arriving from outside the app |
 | `Lifecycle(LifecycleEvent)` | App or surface lifecycle events such as init or resize |
 
 This normalization is a major reason cross-platform behavior stays consistent and testable.
@@ -107,7 +112,8 @@ The public input method editor event type is `ImeEvent`, with these variants:
 
 | Variant | Meaning |
 | --- | --- |
-| `Preedit { text }` | Temporary composed text that is still being edited |
+| `Preedit { text, cursor }` | Temporary composed text and optional byte-range cursor within it |
+| `Cancel` | Composition cancelled without committing text |
 | `Commit { text }` | Final text confirmed by the user |
 
 This contract exists so text-heavy widgets can handle real composition instead of pretending every character arrives as final committed text immediately.

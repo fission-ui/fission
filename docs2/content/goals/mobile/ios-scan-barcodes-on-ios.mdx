@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Scan barcodes on iOS with Rust
-description: "Update a purchase-order count from QR or Code 128 labels on iOS, with manual SKU entry when camera scanning is unavailable."
-goal: "Receive a supplier delivery by scanning each product label, reconciling counts against the purchase order, and recovering safely when a scan fails."
+description: "Receive a user-entered purchase order through real barcode results or manual SKU entry, without over-receiving an expected line."
+goal: "Apply one receiving rule to scanner and manual input: match an expected SKU and add one unit only whilst capacity remains."
 path: /blog/scan-barcodes-on-ios/
 order: 91
 difficulty: Beginner
@@ -10,615 +10,420 @@ duration: 40 minutes
 run_command: "fission run --target ios --project-dir ."
 app: ios-scan-barcodes-on-ios
 outcomes:
-  - Add iOS barcode scanning with the Fission capability provider
-  - Increase a purchase-order line only when a decoded SKU is expected and still below its ordered quantity
-  - Keep manual SKU entry available when a camera permission, device, or scan is unavailable
-  - Verify cancellation, unknown labels, permission denial, and the completed receiving count
+  - Create and lock the actual expected order before receiving starts
+  - Reject unknown labels and full lines without changing their counts
+  - Distinguish the iOS still-photo decoder and current cancellation limits from a live scanner
 ---
 
-At Greenway Market’s receiving dock, the morning shipment arrives against purchase order **PO-4807**. A clerk checks each product label, and the screen keeps a running count beside the quantity the supplier promised. The handheld scanner reads either a QR code or a Code 128 label; a damaged label can still be entered from the keyboard.
+A barcode supplies an identifier, not permission to change stock. When receiving a supplier delivery, the decoded SKU still needs to match an expected order line, and that line must still have capacity for another unit.
 
-We will build the receiving screen around that job. A scan adds one unit only when its SKU belongs to the open order and the expected quantity has not already been reached. A permission denial, cancelled camera sheet, unknown SKU, or full line leaves the existing count intact and tells the clerk what to do next.
+We will build that reconciliation rule and use it from both a real camera scan and manual entry. Start by entering the expected order from your paperwork, then lock it for receiving. This gives the native app a complete useful workflow rather than an empty screen which only works when a browser launcher injects a sample purchase order.
 
-The browser preview does not return a canned barcode. It uses the manual SKU path so you can exercise the real purchase-order rules without a camera. The installed iOS app shows a scan action that asks Fission’s configured camera provider to read the label.
+## Create the shared iOS app
 
-## Create the iOS project
+Complete [iOS setup](/blog/set-up-rust-ios-development-with-fission/) if needed.
 
-Install the Fission CLI, create a shared Rust app, add iOS, then declare the scanner capability. The capability declaration lets Fission add the mobile camera configuration the generated host needs.
-
-<Tabs>
-<TabItem label="Create the project">
 ```sh
 cargo install cargo-fission
 fission init greenway-receiving-ios
 cd greenway-receiving-ios
-cargo add serde_yaml
 fission add-target ios --project-dir .
 fission add-capability barcode-scanner --project-dir .
+cargo add serde_yaml
 ```
-</TabItem>
-<TabItem label="Files used in this guide">
-```text
-greenway-receiving-ios/
-├── Cargo.toml
-├── fission.toml
-├── src/
-│   ├── app.rs
-│   ├── lib.rs
-│   └── app/
-│       ├── receiving.rs
-│       └── widgets.rs
-└── platforms/
-    └── ios/
-        └── Info.plist
-```
-</TabItem>
-</Tabs>
 
-`receiving.rs` owns purchase-order data and scanner reducers. `widgets.rs` owns the screen and its short-lived SKU draft. The generated iOS host owns camera permission and packaging details; the shared app asks Fission’s provider to scan instead of calling an iOS API from a component.
+Review `NSCameraUsageDescription` in the generated iOS host. The capability command adds the camera configuration; its explanation should accurately describe reading delivery labels.
+
+Keep the generated `src/main.rs`. The normal native and Web launchers below run the same empty, user-configured receiving app and the real provider available to that target. There is no fixture-only order or hidden browser-only success path.
 
 <!-- fission:step id="receive-stock" -->
-## Build the receiving screen and connect the scanner
+## Make the receiving rule the authority for both input paths
 
-Keep the order and received quantities in app state because the whole receiving screen needs to see them. The text in the manual SKU field belongs to one screen, so it stays in the `ReceivingDesk` component. Both input paths call the same `record_supplier_sku` rule: a camera result and a typed code therefore cannot disagree about whether a line is valid.
+The order is application state. Its expected quantities can be entered before receiving starts but cannot be edited during the receiving session. Each line has one normalized SKU, so the same printed label cannot accidentally select two different lines.
 
-The code is split into the app modules, the component, and the shared startup. Select a tab to follow one file at a time. The browser preview seeds a sample purchase order so you can try the receiving rules immediately; the iOS app starts with empty state and should receive an open order from the app’s receiving queue or service. This tutorial keeps the order in memory and does not implement that queue or persistence layer.
+`record_sku` performs the shared transition: find the expected line, reject unknown or full lines, then add exactly one unit. A scan failure never calls that transition. Counts are derived from the records rather than maintained as a second mutable total.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
-pub mod receiving;
-pub mod translations;
-pub mod widgets;
-
-pub use receiving::{PurchaseOrderLine, ReceivingState};
-pub use widgets::ReceivingDesk;
+mod line;
+mod screen;
+mod setup;
+pub mod state;
+pub use screen::ReceivingScreen;
+pub use state::ReceivingState;
 ```
 </TabItem>
-<TabItem label="src/app/receiving.rs">
-<!-- fission:file path="src/app/receiving.rs" -->
+
+<TabItem label="src/app/state.rs">
+<!-- fission:file path="src/app/state.rs" -->
 ```rust
 use fission::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PurchaseOrderLine {
+pub struct OrderLine {
     pub sku: String,
-    pub product_name: String,
-    pub expected_units: u32,
-    pub received_units: u32,
+    pub product: String,
+    pub expected: u32,
+    pub received: u32,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReceivingState {
     pub locale: Locale,
-    pub order_reference: Option<String>,
-    pub supplier_name: Option<String>,
-    pub lines: Vec<PurchaseOrderLine>,
+    pub reference: String,
+    pub lines: Vec<OrderLine>,
+    pub started: bool,
     pub scanner_busy: bool,
-    pub notice: Option<ReceivingNotice>,
-    pub error: Option<ReceivingIssue>,
+    pub status_key: String,
+    pub status_sku: String,
+    pub diagnostic: Option<String>,
 }
 
+impl Default for ReceivingState {
+    fn default() -> Self {
+        Self {
+            locale: Locale::from("en-US"),
+            reference: String::new(),
+            lines: Vec::new(),
+            started: false,
+            scanner_busy: false,
+            status_key: "receiving.ready".into(),
+            status_sku: String::new(),
+            diagnostic: None,
+        }
+    }
+}
 impl GlobalState for ReceivingState {}
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ReceivingNotice {
-    OpeningScanner,
-    ScanCancelled,
-    Recorded { product_name: String, received: u32, expected: u32 },
-}
-
-impl ReceivingNotice {
-    pub fn translation_key(&self) -> &'static str {
-        match self {
-            Self::OpeningScanner => "receiving.notice.opening_scanner",
-            Self::ScanCancelled => "receiving.notice.scan_cancelled",
-            Self::Recorded { .. } => "receiving.notice.recorded",
-        }
+pub fn expected_units(value: &str) -> Option<u32> {
+    let value = value.trim();
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
     }
+    value
+        .parse::<u32>()
+        .ok()
+        .filter(|value| (1..=100_000).contains(value))
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ReceivingIssue {
-    EmptySku,
-    OrderMissing,
-    UnknownSku(String),
-    LineFull { product_name: String, expected: u32 },
-    MissingResult,
-    NoLabel,
-    ScannerFailed,
-    CameraDenied,
-    UnsupportedScanner,
-    ScanTimedOut,
-}
-
-impl ReceivingIssue {
-    pub fn translation_key(&self) -> &'static str {
-        match self {
-            Self::EmptySku => "receiving.error.empty_sku",
-            Self::OrderMissing => "receiving.error.order_missing",
-            Self::UnknownSku(_) => "receiving.error.unknown_sku",
-            Self::LineFull { .. } => "receiving.error.line_full",
-            Self::MissingResult => "receiving.error.missing_result",
-            Self::NoLabel => "receiving.error.no_label",
-            Self::ScannerFailed => "receiving.error.scanner_failed",
-            Self::CameraDenied => "receiving.error.camera_denied",
-            Self::UnsupportedScanner => "receiving.error.unsupported_scanner",
-            Self::ScanTimedOut => "receiving.error.scan_timed_out",
-        }
-    }
-}
-
-#[fission_reducer(SetReceivingLocale)]
-pub fn on_set_receiving_locale(state: &mut ReceivingState, locale: Locale) {
-    state.locale = locale;
-}
-
-/// Apply the same checks to a manually entered SKU and a decoded barcode.
-pub fn record_supplier_sku(state: &mut ReceivingState, value: &str) -> bool {
-    let sku = value.trim().to_ascii_uppercase();
-    if sku.is_empty() {
-        state.error = Some(ReceivingIssue::EmptySku);
-        state.notice = None;
+pub fn add_line(state: &mut ReceivingState, sku: &str, product: &str, units: &str) -> bool {
+    if state.started {
         return false;
     }
-
-    if state.order_reference.is_none() {
-        state.error = Some(ReceivingIssue::OrderMissing);
-        state.notice = None;
+    let sku = sku.trim().to_ascii_uppercase();
+    let Some(expected) = expected_units(units) else {
+        return false;
+    };
+    if sku.is_empty() || product.trim().is_empty() || state.lines.iter().any(|line| line.sku == sku)
+    {
         return false;
     }
-
-    let Some(index) = state
-        .lines
-        .iter()
-        .position(|line| line.sku.eq_ignore_ascii_case(&sku))
-    else {
-        state.error = Some(ReceivingIssue::UnknownSku(sku));
-        state.notice = None;
-        return false;
-    };
-
-    let result = {
-        let line = &mut state.lines[index];
-        if line.received_units >= line.expected_units {
-            Err(ReceivingIssue::LineFull {
-                product_name: line.product_name.clone(),
-                expected: line.expected_units,
-            })
-        } else {
-            line.received_units += 1;
-            Ok((
-                line.product_name.clone(),
-                line.received_units,
-                line.expected_units,
-            ))
-        }
-    };
-
-    let (product_name, received_units, expected_units) = match result {
-        Ok(received) => received,
-        Err(issue) => {
-            state.error = Some(issue);
-            state.notice = None;
-            return false;
-        }
-    };
-
-    state.error = None;
-    state.notice = Some(ReceivingNotice::Recorded {
-        product_name,
-        received: received_units,
-        expected: expected_units,
+    state.lines.push(OrderLine {
+        sku,
+        product: product.trim().into(),
+        expected,
+        received: 0,
     });
     true
 }
 
-#[fission_reducer(BarcodeLabelRead)]
-pub fn on_barcode_label_read(
-    state: &mut ReceivingState,
-    ctx: &mut ReducerContext<ReceivingState>,
-) {
-    state.scanner_busy = false;
-
-    let Some(results) = ctx.input.capability_ok(SCAN_BARCODE) else {
-        state.error = Some(ReceivingIssue::MissingResult);
-        state.notice = None;
-        return;
+pub fn record_sku(state: &mut ReceivingState, value: &str) -> bool {
+    let sku = value.trim().to_ascii_uppercase();
+    state.status_sku = sku.clone();
+    state.diagnostic = None;
+    if !state.started {
+        state.status_key = "receiving.start_first".into();
+        return false;
+    }
+    let Some(line) = state.lines.iter_mut().find(|line| line.sku == sku) else {
+        state.status_key = "receiving.unknown".into();
+        return false;
     };
-
-    let Some(label) = results.items.first() else {
-        state.error = Some(ReceivingIssue::NoLabel);
-        state.notice = None;
-        return;
-    };
-
-    record_supplier_sku(state, &label.value);
+    if line.received >= line.expected {
+        state.status_key = "receiving.full".into();
+        return false;
+    }
+    line.received += 1;
+    state.status_key = "receiving.recorded".into();
+    true
 }
 
-#[fission_reducer(BarcodeScanFailed)]
-pub fn on_barcode_scan_failed(
-    state: &mut ReceivingState,
-    ctx: &mut ReducerContext<ReceivingState>,
-) {
-    state.scanner_busy = false;
-    state.notice = None;
-
-    let Some(error) = ctx.input.capability_error(SCAN_BARCODE) else {
-        state.error = Some(ReceivingIssue::ScannerFailed);
-        return;
-    };
-
-    if error.code == "cancelled" {
-        state.error = None;
-        state.notice = Some(ReceivingNotice::ScanCancelled);
+pub fn scan(state: &mut ReceivingState, cx: &mut ReducerContext<ReceivingState>) {
+    if state.scanner_busy || !state.started {
         return;
     }
-
-    state.error = Some(match error.code.as_str() {
-        "permission_denied" => ReceivingIssue::CameraDenied,
-        "unsupported" => ReceivingIssue::UnsupportedScanner,
-        "timeout" => ReceivingIssue::ScanTimedOut,
-        _ => ReceivingIssue::ScannerFailed,
-    });
-}
-
-#[fission_reducer(ScanSupplierLabel)]
-pub fn on_scan_supplier_label(
-    state: &mut ReceivingState,
-    prompt: String,
-    ctx: &mut ReducerContext<ReceivingState>,
-) {
-    if state.scanner_busy || state.order_reference.is_none() {
-        return;
-    }
-
     state.scanner_busy = true;
-    state.error = None;
-    state.notice = Some(ReceivingNotice::OpeningScanner);
-
-    let on_ok = ctx.effects.bind(
-        BarcodeLabelRead,
-        reduce_with!(on_barcode_label_read),
-    );
-    let on_err = ctx.effects.bind(
-        BarcodeScanFailed,
-        reduce_with!(on_barcode_scan_failed),
-    );
-
-    ctx.effects
+    state.status_key = "receiving.scanning".into();
+    state.diagnostic = None;
+    let ok = cx.effects.bind(Scanned, reduce_with!(scanned));
+    let err = cx.effects.bind(ScanFailed, reduce_with!(scan_failed));
+    cx.effects
         .barcode_scanner()
         .scan(BarcodeScanRequest {
             formats: vec![BarcodeFormat::Code128, BarcodeFormat::QrCode],
-            prompt: Some(prompt),
+            prompt: None,
+            camera_id: None,
             timeout_ms: Some(20_000),
             allow_multiple: false,
-            ..Default::default()
         })
-        .on_ok(on_ok)
-        .on_err(on_err);
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(Scanned)]
+fn scanned(state: &mut ReceivingState, cx: &mut ReducerContext<ReceivingState>) {
+    state.scanner_busy = false;
+    let Some(results) = cx.input.capability_ok(SCAN_BARCODE) else {
+        state.status_key = "receiving.unexpected".into();
+        return;
+    };
+    let Some(label) = results.items.first() else {
+        state.status_key = "receiving.no_label".into();
+        return;
+    };
+    record_sku(state, &label.value);
+}
+
+#[fission_reducer(ScanFailed)]
+fn scan_failed(state: &mut ReceivingState, cx: &mut ReducerContext<ReceivingState>) {
+    state.scanner_busy = false;
+    let error = cx.input.capability_error(SCAN_BARCODE);
+    state.status_key = match error.as_ref().map(|error| error.code.as_str()) {
+        Some("cancelled" | "canceled") => "receiving.cancelled",
+        Some("permission_denied") => "receiving.denied",
+        Some("unsupported") => "receiving.unsupported",
+        Some("timeout") => "receiving.timeout",
+        Some("camera_error") => "receiving.camera_error",
+        _ => "receiving.failed",
+    }
+    .into();
+    state.diagnostic = error
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .or_else(|| {
+            cx.input
+                .capability_error_message(SCAN_BARCODE)
+                .map(str::to_owned)
+        });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn receiving_never_exceeds_or_changes_an_unknown_line() {
+        let mut state = ReceivingState::default();
+        assert!(add_line(&mut state, "A-1", "First product", "1"));
+        assert!(add_line(&mut state, "B-2", "Second product", "2"));
+        state.started = true;
+        assert!(record_sku(&mut state, "a-1"));
+        let first = state.lines.clone();
+        assert!(!record_sku(&mut state, "A-1"));
+        assert!(!record_sku(&mut state, "UNKNOWN"));
+        assert_eq!(state.lines, first);
+        assert!(record_sku(&mut state, "B-2"));
+        assert_eq!(state.lines[0].received, 1);
+        assert_eq!(state.lines[1].received, 1);
+    }
+
+    #[test]
+    fn order_setup_rejects_duplicate_sku_and_invalid_units() {
+        let mut state = ReceivingState::default();
+        assert!(add_line(&mut state, "A-1", "Product", "2"));
+        assert!(!add_line(&mut state, "a-1", "Duplicate", "3"));
+        assert_eq!(expected_units("2.5"), None);
+        assert_eq!(expected_units("0"), None);
+        assert_eq!(expected_units("100001"), None);
+    }
 }
 ```
 </TabItem>
-<TabItem label="src/app/widgets.rs">
-<!-- fission:file path="src/app/widgets.rs" -->
-```rust
-pub mod purchase_order_line;
 
+<TabItem label="src/app/setup.rs">
+<!-- fission:file path="src/app/setup.rs" -->
+```rust
+use super::state::{add_line, ReceivingState};
 use fission::prelude::*;
 
-use super::receiving::{
-    on_scan_supplier_label, on_set_receiving_locale, record_supplier_sku, ReceivingIssue,
-    ReceivingNotice, ReceivingState, ScanSupplierLabel, SetReceivingLocale,
-};
-use self::purchase_order_line::PurchaseOrderLineRow;
-
 fission_component! {
-    pub ReceivingDesk<ReceivingState> {
-        props {
-            browser_demo: bool,
-        }
+    pub OrderSetup<ReceivingState> {
         state {
-            manual_sku: String = String::new(),
+            sku: String = String::new(),
+            product: String = String::new(),
+            units: String = String::new(),
+            invalid: bool = false,
         }
     }
-    view(desk, state, cx) {
+    view(form, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let order_reference = state.order_reference.clone().unwrap_or_else(|| {
-            cx.tr("receiving.order.none")
-        });
-        let supplier_name = state.supplier_name.clone().unwrap_or_else(|| {
-            cx.tr("receiving.supplier.none")
-        });
-        let expected_units: u32 = state.lines.iter().map(|line| line.expected_units).sum();
-        let received_units: u32 = state.lines.iter().map(|line| line.received_units).sum();
-        let scan_label = with_reducer!(
-            cx.build,
-            ScanSupplierLabel(cx.tr("receiving.scanner.prompt")),
-            on_scan_supplier_label
-        );
-        let use_english = with_reducer!(
-            cx.build,
-            SetReceivingLocale(Locale::from("en-US")),
-            on_set_receiving_locale
-        );
-        let use_spanish = with_reducer!(
-            cx.build,
-            SetReceivingLocale(Locale::from("es-ES")),
-            on_set_receiving_locale
-        );
-        let error_message = state.error.as_ref().map(|error| match error {
-            ReceivingIssue::UnknownSku(sku) => cx
-                .tr(error.translation_key())
-                .replace("{sku}", sku),
-            ReceivingIssue::LineFull { product_name, expected } => cx
-                .tr(error.translation_key())
-                .replace("{product}", product_name)
-                .replace("{expected}", &expected.to_string()),
-            _ => cx.tr(error.translation_key()),
-        });
-        let notice_message = state.notice.as_ref().map(|notice| match notice {
-            ReceivingNotice::Recorded { product_name, received, expected } => cx
-                .tr(notice.translation_key())
-                .replace("{product}", product_name)
-                .replace("{received}", &received.to_string())
-                .replace("{expected}", &expected.to_string()),
-            _ => cx.tr(notice.translation_key()),
-        });
-    } =>
-    SemanticsRegion(
-        identifier: Some("greenway-receiving-desk".to_string()),
-        label: Some(cx.tr("receiving.screen.label")),
-        child: Container(
-            Row(children: [
-                Spacer(flex_grow: 1.0),
-                Container(
-                    Column(gap: tokens.spacing.m, children: [
-                        Column(gap: tokens.spacing.xs, children: [
-                            Text(cx.tr("receiving.title"))
-                                .weight(tokens.typography.font_weight_bold),
-                            Text(format!("{order_reference} · {supplier_name}"))
-                                .color(tokens.colors.text_secondary),
-                        ]),
-                        Row(gap: tokens.spacing.xs, children: [
-                            Button(
-                                child: Text(cx.tr("receiving.locale.english")),
-                                key: "locale-en-US",
-                                variant: if state.locale == Locale::from("en-US") { ButtonVariant::Primary } else { ButtonVariant::Outline },
-                                on_press: use_english,
-                            ).semantics_identifier("receiving.locale.en-US".to_string()),
-                            Button(
-                                child: Text(cx.tr("receiving.locale.spanish")),
-                                key: "locale-es-ES",
-                                variant: if state.locale == Locale::from("es-ES") { ButtonVariant::Primary } else { ButtonVariant::Outline },
-                                on_press: use_spanish,
-                            ).semantics_identifier("receiving.locale.es-ES".to_string()),
-                        ]),
-                        Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
-                            Text(cx.tr("receiving.lines").replace("{count}", &state.lines.len().to_string())),
-                            Text(cx.tr("receiving.total").replace("{received}", &received_units.to_string()).replace("{expected}", &expected_units.to_string())),
-                        ]),
-                        Column(gap: tokens.spacing.s, children: [
-                            Text(cx.tr("receiving.lines.heading"))
-                                .weight(tokens.typography.font_weight_semibold),
-                            if state.lines.is_empty() {
-                                Text(cx.tr("receiving.empty"))
-                                    .color(tokens.colors.text_secondary)
-                            } else {
-                                Column(gap: tokens.spacing.s, children: [
-                                    for line in state.lines.iter() {
-                                        PurchaseOrderLineRow(line.clone(), key: line.sku.clone())
-                                    }
-                                ])
-                            },
-                        ]),
-                        if !desk.browser_demo {
-                            Column(gap: tokens.spacing.s, children: [
-                                Button(
-                                    child: Text(if state.scanner_busy {
-                                        cx.tr("receiving.scanner.waiting")
-                                    } else {
-                                        cx.tr("receiving.scanner.action")
-                                    }),
-                                    key: "scan-supplier-label",
-                                    variant: ButtonVariant::Primary,
-                                    disabled: state.scanner_busy || state.order_reference.is_none(),
-                                    on_press: scan_label,
-                                )
-                                .semantics_identifier("receiving.scan-label".to_string()),
-                                Text(cx.tr("receiving.scanner.help"))
-                                    .color(tokens.colors.text_secondary),
-                            ])
-                        } else {
-                            Text(cx.tr("receiving.scanner.browser_help"))
-                                .color(tokens.colors.text_secondary)
-                        },
-                        Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                            TextInput(
-                                label: Some(cx.tr("receiving.manual.label").into()),
-                                placeholder: Some(cx.tr("receiving.manual.placeholder").into()),
-                                bind: desk.manual_sku,
-                                enabled: !state.scanner_busy && state.order_reference.is_some(),
-                                helper_text: Some(
-                                    cx.tr("receiving.manual.help").into(),
-                                ),
-                                semantics_identifier: "receiving.manual-sku".to_string(),
-                            ),
-                            Button(
-                                child: Text(cx.tr("receiving.manual.action")),
-                                key: "record-manual-sku",
-                                variant: ButtonVariant::Outline,
-                                disabled: state.scanner_busy || state.order_reference.is_none(),
-                                on_press: reduce {
-                                    let sku = desk.manual_sku.trim().to_string();
-                                    if sku.is_empty() {
-                                        state.error = Some(ReceivingIssue::EmptySku);
-                                        state.notice = None;
-                                    } else if record_supplier_sku(state, &sku) {
-                                        desk.manual_sku.clear();
-                                    }
-                                },
-                            )
-                            .semantics_identifier("receiving.record-manual-sku".to_string()),
-                        ]),
-                        if let Some(error) = error_message {
-                            Text(error).color(tokens.colors.error)
-                        },
-                        if let Some(notice) = notice_message {
-                            Text(notice).color(tokens.colors.text_secondary)
-                        },
-                    ])
-                )
-                .padding_all(tokens.spacing.l)
-                .width_length(Length::clamp(
-                    Length::points(0.0),
-                    Length::percent(100.0),
-                    Length::points(760.0),
-                ))
-                .bg(tokens.colors.surface)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.large),
-                Spacer(flex_grow: 1.0),
-            ]),
-        )
-        .width_length(Length::percent(100.0)),
-    )
+    } => Column(gap: tokens.spacing.s, children: [
+        TextInput(
+            value: state.reference.clone(), bind(on_input): to(state.reference),
+            label: Some(TextContent::Key("receiving.reference".into())),
+        ),
+        TextInput(
+            value: form.sku.clone(), bind(on_input): to(form.sku),
+            label: Some(TextContent::Key("receiving.sku".into())),
+        ),
+        TextInput(
+            value: form.product.clone(), bind(on_input): to(form.product),
+            label: Some(TextContent::Key("receiving.product".into())),
+        ),
+        TextInput(
+            value: form.units.clone(), bind(on_input): to(form.units),
+            label: Some(TextContent::Key("receiving.units".into())),
+            helper_text: Some(TextContent::Key("receiving.units_help".into())),
+            keyboard_type: TextInputType::Number, autocorrect: false,
+        ),
+        Button(
+            child: Text(cx.tr("receiving.add_line")), key: "add-order-line",
+            on_press: reduce {
+                form.invalid = !add_line(state, &form.sku, &form.product, &form.units);
+                if !form.invalid {
+                    form.sku.clear(); form.product.clear(); form.units.clear();
+                }
+            },
+        ),
+        if form.invalid { Text(cx.tr("receiving.invalid_setup")) },
+        Button(
+            child: Text(cx.tr("receiving.start")), key: "start-receiving",
+            disabled: state.reference.trim().is_empty() || state.lines.is_empty(),
+            on_press: reduce {
+                if !state.reference.trim().is_empty() && !state.lines.is_empty() {
+                    state.started = true;
+                }
+            },
+        ),
+    ])
 }
 ```
 </TabItem>
-<TabItem label="src/app/widgets/purchase_order_line.rs">
-<!-- fission:file path="src/app/widgets/purchase_order_line.rs" -->
-```rust
-use fission::prelude::*;
 
-use crate::app::receiving::{PurchaseOrderLine, ReceivingState};
+<TabItem label="src/app/line.rs">
+<!-- fission:file path="src/app/line.rs" -->
+```rust
+use super::state::ReceivingState;
+use fission::prelude::*;
 
 fission_component! {
-    pub PurchaseOrderLineRow<ReceivingState> {
-        props {
-            line: PurchaseOrderLine,
-        }
+    pub OrderLineRow<ReceivingState> {
+        props { sku: String }
     }
-    view(row, _state, cx) {
+    view(row, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some(format!(
-            "purchase-order-line.{}",
-            row.line.sku.to_ascii_lowercase(),
-        )),
-        label: Some(format!(
-            "{}",
-            cx.tr("receiving.line.semantics")
-                .replace("{product}", &row.line.product_name)
-                .replace("{received}", &row.line.received_units.to_string())
-                .replace("{expected}", &row.line.expected_units.to_string()),
-        )),
-        child: Container(
-            Row(gap: tokens.spacing.m, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Text(row.line.product_name.clone())
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(row.line.sku.clone())
-                        .color(tokens.colors.text_secondary),
-                ]),
-                Spacer(flex_grow: 1.0),
-                Text(format!(
-                    "{}",
-                    cx.tr("receiving.line.count")
-                        .replace("{received}", &row.line.received_units.to_string())
-                        .replace("{expected}", &row.line.expected_units.to_string()),
-                )),
-            ])
-        )
+        let line = state.lines.iter().find(|line| line.sku == row.sku);
+    } => if let Some(line) = line {
+        Container(Column(gap: tokens.spacing.s, children: [
+            Text(line.product.clone()).weight(tokens.typography.font_weight_semibold),
+            Text(line.sku.clone()),
+            Text(cx.tr("receiving.line_count")
+                .replace("{received}", &line.received.to_string())
+                .replace("{expected}", &line.expected.to_string())),
+        ]))
         .padding_all(tokens.spacing.m)
-        .bg(tokens.colors.background)
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.medium),
+        .border_radius(tokens.radii.medium)
+    } else {
+        Spacer()
+    }
+}
+```
+</TabItem>
+
+<TabItem label="src/app/screen.rs">
+<!-- fission:file path="src/app/screen.rs" -->
+```rust
+use super::{
+    line::OrderLineRow,
+    setup::OrderSetup,
+    state::{record_sku, scan, ReceivingState},
+};
+use fission::prelude::*;
+
+fission_component! {
+    pub ReceivingScreen<ReceivingState> {
+        state { manual_sku: String = String::new() }
+    }
+    view(screen, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let received: u64 = state.lines.iter().map(|line| u64::from(line.received)).sum();
+        let expected: u64 = state.lines.iter().map(|line| u64::from(line.expected)).sum();
+    } => SafeArea(
+        child: Scroll(
+            child: Container(Column(gap: tokens.spacing.m, children: [
+                Text(cx.tr("receiving.heading")).size(tokens.typography.heading2_size),
+                Text(cx.tr("receiving.session")),
+                Row(gap: tokens.spacing.s, children: [
+                    Button(
+                        child: Text(cx.tr("language.english")), key: "english",
+                        on_press: reduce { state.locale = Locale::from("en-US"); },
+                    ),
+                    Button(
+                        child: Text(cx.tr("language.spanish")), key: "spanish",
+                        on_press: reduce { state.locale = Locale::from("es-ES"); },
+                    ),
+                ]),
+                if !state.started {
+                    OrderSetup
+                } else {
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(state.reference.clone()),
+                        Button(
+                            child: Text(cx.tr("receiving.scan")), key: "scan-label",
+                            disabled: state.scanner_busy,
+                            on_press: reduce { scan(state, cx); },
+                        ),
+                        TextInput(
+                            value: screen.manual_sku.clone(), bind(on_input): to(screen.manual_sku),
+                            label: Some(TextContent::Key("receiving.manual".into())),
+                            read_only: state.scanner_busy,
+                        ),
+                        Button(
+                            child: Text(cx.tr("receiving.record")), key: "record-unit",
+                            disabled: state.scanner_busy || screen.manual_sku.trim().is_empty(),
+                            on_press: reduce {
+                                if !state.scanner_busy && record_sku(state, &screen.manual_sku) {
+                                    screen.manual_sku.clear();
+                                }
+                            },
+                        ),
+                    ])
+                },
+                Text(cx.tr("receiving.total")
+                    .replace("{received}", &received.to_string())
+                    .replace("{expected}", &expected.to_string())),
+                for line in &state.lines {
+                    OrderLineRow(line.sku.clone(), key: line.sku.clone())
+                },
+                if state.scanner_busy {
+                    Spinner(motion: Some(SpinnerMotion::Default), label: Some(cx.tr("receiving.scanning")))
+                },
+                Text(cx.tr(&state.status_key).replace("{sku}", &state.status_sku)),
+                if let Some(error) = &state.diagnostic { Code(text: error.clone()) },
+            ]))
+            .padding_all(tokens.spacing.l),
+        ),
     )
 }
 ```
 </TabItem>
-<TabItem label="src/lib.rs · iOS and browser startup">
-<!-- fission:file path="src/lib.rs" -->
+
+<TabItem label="src/i18n.rs">
+<!-- fission:file path="src/i18n.rs" -->
 ```rust
-pub mod app;
-#[cfg(target_arch = "wasm32")]
-#[path = "../preview/fixtures.rs"]
-mod fixtures;
-
-use crate::app::{ReceivingDesk, ReceivingState};
-use fission::prelude::*;
-
-#[cfg(target_os = "ios")]
-fn mobile_app() -> MobileApp<ReceivingState, ReceivingDesk> {
-    MobileApp::<ReceivingState, _>::new(ReceivingDesk::new(false))
-        .with_env(app::translations::create_env())
-        .with_sync_env(|state, env| env.locale = state.locale.clone())
-        .with_title("Greenway Market receiving")
-}
-
-#[cfg(target_os = "ios")]
-pub fn run_mobile() -> anyhow::Result<()> {
-    mobile_app().run()
-}
-
-#[cfg(target_arch = "wasm32")]
-fn web_app() -> WebApp<ReceivingState, ReceivingDesk> {
-    WebApp::<ReceivingState, _>::new(ReceivingDesk::new(true))
-        .with_state_init(|state| *state = fixtures::sample_purchase_order())
-        .with_env(app::translations::create_env())
-        .with_sync_env(|state, env| env.locale = state.locale.clone())
-        .with_title("Greenway Market receiving")
-        .mount("#fission-web-mount")
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen::prelude::wasm_bindgen(start)]
-pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
-    console_error_panic_hook::set_once();
-    web_app()
-        .run()
-        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-<TabItem label="preview/fixtures.rs">
-<!-- fission:file path="preview/fixtures.rs" -->
-```rust
-use crate::app::{PurchaseOrderLine, ReceivingState};
-
-pub fn sample_purchase_order() -> ReceivingState {
-    ReceivingState {
-        order_reference: Some("PO-4807".into()),
-        supplier_name: Some("Harbor Foods · Harbor Street depot".into()),
-        lines: vec![
-            PurchaseOrderLine { sku: "GLV-204".into(), product_name: "Nitrile gloves · Large".into(), expected_units: 12, received_units: 3 },
-            PurchaseOrderLine { sku: "TEA-112".into(), product_name: "Green tea · 20 sachets".into(), expected_units: 8, received_units: 0 },
-        ],
-        ..Default::default()
-    }
-}
-```
-</TabItem>
-<TabItem label="src/app/translations.rs">
-<!-- fission:file path="src/app/translations.rs" -->
-```rust
-use std::collections::HashMap;
-
 use fission::i18n::{Locale, TranslationBundle};
-use fission::prelude::Env;
-
-const SOURCES: [(&str, &str); 2] = [
-    ("en-US", include_str!("../../i18n/en-US.yaml")),
-    ("es-ES", include_str!("../../i18n/es-ES.yaml")),
-];
+use fission::prelude::*;
+use std::collections::HashMap;
 
 pub fn create_env() -> Env {
     let mut env = Env::default();
     env.locale = Locale::from("en-US");
-    for (locale, source) in SOURCES {
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
         let messages: HashMap<String, String> =
             serde_yaml::from_str(source).expect("valid receiving translations");
         env.i18n.add_bundle(TranslationBundle {
@@ -628,123 +433,181 @@ pub fn create_env() -> Env {
     }
     env
 }
+
+pub fn sync_env(state: &crate::app::ReceivingState, env: &mut Env) {
+    env.locale = state.locale.clone();
+}
 ```
 </TabItem>
+
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod i18n;
+
+use app::{ReceivingScreen, ReceivingState};
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<ReceivingState, _>::new(ReceivingScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    MobileApp::<ReceivingState, _>::new(ReceivingScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = MobileApp::<ReceivingState, _>::new(ReceivingScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<ReceivingState, _>::new(ReceivingScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod i18n;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<app::ReceivingState, _>::new(app::ReceivingScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+
 <TabItem label="i18n/en-US.yaml">
 <!-- fission:file path="i18n/en-US.yaml" -->
 ```yaml
-receiving.screen.label: "Greenway Market purchase-order receiving"
-receiving.title: "Greenway Market receiving"
-receiving.order.none: "No purchase order selected"
-receiving.supplier.none: "Open an order to begin receiving."
-receiving.locale.english: "English"
-receiving.locale.spanish: "Español"
-receiving.lines: "{count} product lines"
-receiving.total: "{received} of {expected} units checked in"
-receiving.lines.heading: "Purchase-order lines"
-receiving.empty: "No purchase order is open. Load one from the receiving queue to begin."
-receiving.scanner.prompt: "Scan one product SKU"
-receiving.scanner.waiting: "Waiting for scanner…"
-receiving.scanner.action: "Scan supplier label"
-receiving.scanner.help: "Scan one QR or Code 128 SKU. A successful read adds one unit to its matching order line."
-receiving.scanner.browser_help: "Live barcode scanning is available on the iOS target. Enter the printed SKU in this browser preview."
-receiving.manual.label: "Enter supplier SKU"
-receiving.manual.placeholder: "For example, TEA-112"
-receiving.manual.help: "Use this when a label is damaged or the camera is unavailable."
-receiving.manual.action: "Record one unit"
-receiving.line.semantics: "{product}: {received} of {expected} units received"
-receiving.line.count: "{received} / {expected} units"
-receiving.notice.opening_scanner: "Opening the product scanner…"
-receiving.notice.scan_cancelled: "Scanning was cancelled. No purchase-order counts changed; scan again or enter a SKU."
-receiving.notice.recorded: "Recorded {product}: {received} of {expected} units received."
-receiving.error.empty_sku: "Enter the SKU printed on the product label."
-receiving.error.order_missing: "Open a purchase order before receiving products."
-receiving.error.unknown_sku: "{sku} is not on this order. Check the label or ask the receiving lead before counting it."
-receiving.error.line_full: "{product} has reached its ordered quantity of {expected}. No extra unit was added."
-receiving.error.missing_result: "The scanner returned no result. Try again or enter the SKU manually."
-receiving.error.no_label: "No product label was read. Keep the bars inside the scan frame, or enter the SKU manually."
-receiving.error.scanner_failed: "The scanner could not read this label. Counts are unchanged; try again or enter the SKU manually."
-receiving.error.camera_denied: "Camera access was denied. Allow camera access in system settings or enter the SKU manually."
-receiving.error.unsupported_scanner: "This device cannot scan a live barcode. Enter the SKU manually to keep receiving."
-receiving.error.scan_timed_out: "The scanner did not read a label in time. Improve the light or enter the SKU manually."
+receiving.heading: "Receive a supplier delivery"
+receiving.session: "Enter the expected order from your paperwork, then start receiving. Records stay in memory; no supplier service or stock database is connected."
+receiving.reference: "Purchase-order reference"
+receiving.sku: "Expected product SKU"
+receiving.product: "Product name"
+receiving.units: "Expected whole units"
+receiving.units_help: "Use a whole quantity from 1 to 100000."
+receiving.add_line: "Add expected order line"
+receiving.invalid_setup: "Enter a unique SKU, a product name and a valid whole quantity."
+receiving.start: "Lock the order and start receiving"
+receiving.line_count: "{received} of {expected} units received"
+receiving.total: "Total: {received} of {expected} units"
+receiving.manual: "SKU printed on the delivered product"
+receiving.record: "Record one delivered unit"
+receiving.scan: "Photograph and read one QR or Code 128 label"
+receiving.ready: "Set up the expected order before receiving."
+receiving.start_first: "Start receiving before counting a product."
+receiving.recorded: "Recorded one unit of {sku}."
+receiving.unknown: "{sku} is not on this order. No quantity changed."
+receiving.full: "{sku} has reached its expected quantity. No extra unit was counted."
+receiving.scanning: "Waiting for the camera and barcode result…"
+receiving.unexpected: "The scanner returned no usable result. Quantities are unchanged."
+receiving.no_label: "No supported label was decoded. Try another photograph or enter the SKU."
+receiving.cancelled: "Scanning was cancelled. Quantities are unchanged."
+receiving.denied: "Camera access was denied. Review Settings or enter the SKU manually."
+receiving.unsupported: "This host cannot scan a barcode. Enter the printed SKU manually."
+receiving.timeout: "The scanner reported a timeout. Retry or enter the SKU."
+receiving.camera_error: "The iOS camera operation did not complete. Quantities are unchanged; retry or enter the SKU."
+receiving.failed: "Scanning failed. Quantities are unchanged; retry or enter the SKU."
+language.english: "English"
+language.spanish: "Español"
 ```
 </TabItem>
+
 <TabItem label="i18n/es-ES.yaml">
 <!-- fission:file path="i18n/es-ES.yaml" -->
 ```yaml
-receiving.screen.label: "Recepción de pedidos de Greenway Market"
-receiving.title: "Recepción de Greenway Market"
-receiving.order.none: "No hay ningún pedido abierto"
-receiving.supplier.none: "Abre un pedido para empezar la recepción."
-receiving.locale.english: "Inglés"
-receiving.locale.spanish: "Español"
-receiving.lines: "{count} líneas de productos"
-receiving.total: "{received} de {expected} unidades recibidas"
-receiving.lines.heading: "Líneas del pedido"
-receiving.empty: "No hay un pedido abierto. Carga uno de la cola de recepción para empezar."
-receiving.scanner.prompt: "Escanear un SKU de producto"
-receiving.scanner.waiting: "Esperando el escáner…"
-receiving.scanner.action: "Escanear etiqueta del proveedor"
-receiving.scanner.help: "Escanea un SKU QR o Code 128. Una lectura correcta añade una unidad a su línea del pedido."
-receiving.scanner.browser_help: "El escaneo de códigos está disponible en el destino iOS. En esta vista web, escribe el SKU impreso."
-receiving.manual.label: "Introduce el SKU del proveedor"
-receiving.manual.placeholder: "Por ejemplo, TEA-112"
-receiving.manual.help: "Úsalo si la etiqueta está dañada o la cámara no está disponible."
-receiving.manual.action: "Registrar una unidad"
-receiving.line.semantics: "{product}: {received} de {expected} unidades recibidas"
-receiving.line.count: "{received} / {expected} unidades"
-receiving.notice.opening_scanner: "Abriendo el escáner de productos…"
-receiving.notice.scan_cancelled: "Se canceló el escaneo. No cambió ninguna cantidad; escanea de nuevo o escribe un SKU."
-receiving.notice.recorded: "Registrado {product}: {received} de {expected} unidades recibidas."
-receiving.error.empty_sku: "Introduce el SKU impreso en la etiqueta del producto."
-receiving.error.order_missing: "Abre un pedido antes de recibir productos."
-receiving.error.unknown_sku: "{sku} no está en este pedido. Comprueba la etiqueta o consulta con la persona responsable antes de contarlo."
-receiving.error.line_full: "{product} ya alcanzó la cantidad del pedido ({expected}). No se añadió otra unidad."
-receiving.error.missing_result: "El escáner no devolvió un resultado. Vuelve a intentarlo o escribe el SKU."
-receiving.error.no_label: "No se leyó ninguna etiqueta. Centra los códigos en el marco o escribe el SKU."
-receiving.error.scanner_failed: "No se pudo leer la etiqueta. Las cantidades no cambian; vuelve a intentarlo o escribe el SKU."
-receiving.error.camera_denied: "Se denegó el acceso a la cámara. Permítelo en los ajustes del sistema o escribe el SKU."
-receiving.error.unsupported_scanner: "Este dispositivo no puede escanear códigos en directo. Escribe el SKU para continuar."
-receiving.error.scan_timed_out: "El escáner no leyó una etiqueta a tiempo. Mejora la iluminación o escribe el SKU."
+receiving.heading: "Recibir una entrega del proveedor"
+receiving.session: "Introduce el pedido de tus documentos y comienza la recepción. Los registros están en memoria; no hay un servicio del proveedor ni una base de existencias conectados."
+receiving.reference: "Referencia del pedido"
+receiving.sku: "SKU del producto esperado"
+receiving.product: "Nombre del producto"
+receiving.units: "Unidades enteras esperadas"
+receiving.units_help: "Usa una cantidad entera entre 1 y 100000."
+receiving.add_line: "Añadir línea esperada al pedido"
+receiving.invalid_setup: "Introduce un SKU único, un nombre de producto y una cantidad entera válida."
+receiving.start: "Bloquear el pedido y comenzar la recepción"
+receiving.line_count: "{received} de {expected} unidades recibidas"
+receiving.total: "Total: {received} de {expected} unidades"
+receiving.manual: "SKU impreso en el producto entregado"
+receiving.record: "Registrar una unidad entregada"
+receiving.scan: "Fotografiar y leer una etiqueta QR o Code 128"
+receiving.ready: "Configura el pedido antes de recibir productos."
+receiving.start_first: "Comienza la recepción antes de contar un producto."
+receiving.recorded: "Registrada una unidad de {sku}."
+receiving.unknown: "{sku} no está en este pedido. Ninguna cantidad cambió."
+receiving.full: "{sku} ya alcanzó la cantidad esperada. No se contó otra unidad."
+receiving.scanning: "Esperando la cámara y el resultado del código…"
+receiving.unexpected: "El escáner no devolvió un resultado utilizable. Las cantidades no cambian."
+receiving.no_label: "No se pudo leer una etiqueta compatible. Prueba otra foto o escribe el SKU."
+receiving.cancelled: "Se canceló el escaneo. Las cantidades no cambian."
+receiving.denied: "Se denegó el acceso a la cámara. Revisa Ajustes o escribe el SKU."
+receiving.unsupported: "Este host no puede leer códigos. Introduce el SKU impreso."
+receiving.timeout: "El escáner indicó un tiempo de espera agotado. Reintenta o escribe el SKU."
+receiving.camera_error: "La operación de cámara de iOS no terminó. Las cantidades no cambian; reintenta o escribe el SKU."
+receiving.failed: "El escaneo ha fallado. Las cantidades no cambian; reintenta o escribe el SKU."
+language.english: "Inglés"
+language.spanish: "Español"
 ```
 </TabItem>
 </Tabs>
 
-The scan reducer marks the camera operation as busy and queues one asynchronous request for Code 128 or QR data. Fission sends the provider response through the reducer context: the success reducer reads `ctx.input.capability_ok(SCAN_BARCODE)`, while the error reducer reads `ctx.input.capability_error(SCAN_BARCODE)`. The small `BarcodeLabelRead` and `BarcodeScanFailed` actions only route the response to the right reducer; they do not carry a made-up result in their payload. `on_barcode_label_read` then sends the decoded value through the same order-line check used by manual entry. The error reducer branches on the stable error code, so cancellation, denied camera access, an unsupported scanner, and a timeout all leave the quantities untouched. The web startup keeps the scan control out of its screen; the iOS startup exposes it and lets the installed host perform a real scan.
-
 <!-- fission:preview -->
-
 <!-- fission:checkpoint -->
-In the browser, type `GLV-204` and choose **Record one unit**. The glove line should move from 3 of 12 to 4 of 12. Then type `TEA-112` and record one unit. Finally enter `SKU-999`: the screen should explain that the code is not on this order, and neither count should change. Receive the gloves until they reach 12 of 12 and try once more; the order must reject the extra unit.
+Enter an order reference and two product lines with quantities one and two. Start receiving, manually record the first product and try it again: its count must stay at one. Enter an unknown SKU and confirm that neither line changes. The order's expected quantities must no longer be editable.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="verify-ios" -->
-## Verify the iOS camera and the recovery paths
+## Exercise the actual camera provider and its limits
 
-Run the generated app in an iOS Simulator, then repeat the scan on an iPhone. A simulator can exercise the app flow, but only the phone can verify the camera, focus behavior, and the operating system’s real permission prompt.
+The current iOS scanner opens a camera photograph flow and decodes the returned image. It is not a continuously running viewfinder which automatically recognizes a label as it enters the frame. The button describes photographing and reading a label so its wording matches that mechanism.
 
-<Tabs>
-<TabItem label="Prepare and run">
+The provider wraps camera failures as `camera_error`, including cases for which the underlying camera had more specific cancellation or permission information. The screen therefore preserves counts and offers manual entry without guessing which event occurred from an error-message string. Other providers may return the specific codes handled above. The current iOS implementation also does not enforce the requested scanner timeout or implement immediate scan cancellation; do not promise those behaviors merely because the request type has a timeout field.
+
 ```sh
+cargo test
 fission doctor ios --project-dir .
+fission devices --project-dir .
 fission run --target ios --project-dir .
+fission test --target ios --project-dir .
 ```
-</TabItem>
-<TabItem label="Check each receiving outcome">
-```text
-1. Open purchase order PO-4807 and scan a GLV-204 label. Check that one unit is added.
-2. Scan a TEA-112 label. Check that only the tea line changes.
-3. Deny camera access. Confirm the screen offers typed SKU entry and keeps both counts.
-4. Cancel the scanner, then run it again. Cancellation must not add a unit.
-5. Type SKU-999. The order must reject it without changing either line.
-6. Receive the ordered quantity for one line, then scan it again. The count must not exceed the order.
-7. Try a supported QR label as well as a Code 128 label.
-```
-</TabItem>
-</Tabs>
 
-The capability declaration adds the camera usage description to the generated iOS project. If iOS does not show a prompt or the provider reports `permission_denied`, inspect `NSCameraUsageDescription` in `platforms/ios/Info.plist` and the app’s camera access in Settings. Replace generated privacy copy with the reason this app needs to scan product labels. If the provider reports `unsupported`, keep the manual SKU path available; a device without a working scanner is still a device where a clerk can finish receiving.
+Select a simulator with [the simulator guide](/blog/choose-boot-and-launch-an-ios-simulator-with-fission/), then follow [the iPhone installation guide](/blog/install-a-fission-app-on-a-physical-iphone/) for camera qualification on hardware. Enter your expected lines on that device, photograph a matching QR or Code 128 label and verify that only its line increases.
 
-For the typed provider contract and memory-host tests, continue with the [Barcode scanner capability guide](/docs/capabilities/barcode-scanner/) and the [Barcode scanner reference](/reference/capabilities/barcode-scanner/). The [mobile inventory workflow](/blog/build-a-mobile-inventory-workflow-with-camera-and-barcode-scanning/) extends this receiving task with camera capture and attachments.
+Cancel the camera, deny access in a fresh permission context, photograph an unreadable label and try a SKU outside the order. In every case, check the actual returned state and ensure counts remain intact. Do not require a cancellation-specific message from a provider which currently erases that distinction. Test the manual path afterwards, including full-line rejection.
+
+The included tests cover quantity bounds and unknown identifiers, not the camera. Check long product names, both languages, larger text and the keyboard on the rendered target. This session has no stock backend or persistence; production receiving would need its own authorized, durable commit rather than treating an in-memory counter as a warehouse update.
 <!-- /fission:step -->

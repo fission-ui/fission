@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Manage Android app state with reducers and local state
-description: Learn where Android app records and temporary screen choices belong in Fission by building a tool-library checkout desk with Rust components and reducers.
-goal: Keep the workshop tool inventory in shared state, check items in and out, and filter the list without changing inventory.
+description: "Build a workshop lending desk where loan records belong to shared state, drafts and filters stay local, and filtering cannot change inventory."
+goal: "Register tools, record the borrower and return agreement for each loan, and filter available tools without changing those records."
 path: /blog/manage-android-app-state-with-reducers-and-local-state/
 order: 28
 difficulty: Beginner
@@ -10,787 +10,409 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-manage-android-app-state-with-reducers-and-local-state
 outcomes:
-  - Model a shared workshop inventory in GlobalState
-  - Check a tool out or back in with typed reducers
-  - Keep the available-tools filter in the screen component
-  - Run the same Rust workflow in an Android emulator
+  - "Keep tool records and borrower snapshots in GlobalState"
+  - "Use reducers to reject repeated checkout and target the intended tool by ID"
+  - "Keep unfinished form fields and the available-only filter in retained local state"
+  - "Test that filtering and reordering cannot alter or misdirect a loan"
 ---
 
-North Gate Workshop lends drills, saws, and other equipment to its volunteers. When someone checks out a tool, the whole desk needs to see who has it and when it is due back. Volunteers also need to filter the shelf to available tools. That filter should change what they see, not the inventory itself.
+A workshop lending desk needs to know which tool was borrowed, by whom, and what return was agreed. Those facts belong to the inventory. A volunteer's choice to show only available tools is different: it changes the view of that inventory, not the loans themselves.
 
-We’ll build the desk around four tools. Reducers check a tool out to Asha or mark it back on the shelf, and the summary reads the same inventory. The available-only filter belongs to the desk component because it is temporary UI state. The browser preview seeds fixture inventory so the screen has useful content; a real app starts empty and loads its stock records from its service.
+That distinction determines the state model below. Tool records and loan snapshots live in `GlobalState`. The desk retains the available-only filter and unfinished borrower fields locally. Checking a tool out copies the entered borrower and return agreement into that specific record; later edits to the fields must not relabel an existing loan.
 
-## Create an Android project
+## Create the Android project
 
-Create the app and add its Android target. The [Android development setup guide](/blog/set-up-rust-android-gui-development-with-fission/) covers the SDK, NDK, and emulator if you need to install them.
+Use [Android development setup](/blog/set-up-rust-android-gui-development-with-fission/) for SDK/NDK setup, then prepare [an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [a physical phone](/blog/run-a-fission-app-on-a-physical-android-phone/).
 
-<Tabs>
-<TabItem label="Create the app">
 ```sh
 cargo install cargo-fission
 fission init north-gate-tool-library
 cd north-gate-tool-library
 fission add-target android --project-dir .
 cargo add serde_yaml
+cargo add serde --features derive
 ```
-</TabItem>
-<TabItem label="Files for this task">
-```text
-north-gate-tool-library/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity and target configuration
-├── src/
-│   ├── main.rs                # generated target entry point
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # inventory, reducers, and components
-├── preview/
-│   ├── lib.rs                 # browser preview entry point
-│   └── fixtures.rs            # preview-only workshop records
-└── platforms/
-    └── android/               # generated Android host and packaging
-```
-</TabItem>
-</Tabs>
 
-Keep tool records and desk components in the shared Rust project under `src/`. The generated Android host launches that app; it doesn’t need another copy of the inventory rules.
+Keep the generated `src/main.rs`. The same shared library and initially empty inventory run in Android and Web. There is no second preview-only stock list and no predetermined borrower or date.
 
-<!-- fission:step id="start-screen" -->
-## Lay out the workshop shelf
+<!-- fission:step id="check-tools-in-and-out" -->
+## Put a transition beside the fact it changes
 
-Volunteers need to see which tools are available and which are checked out.
-Each row shows the tool, where it belongs, its status, and when it is due back.
+The state methods own the rules: incomplete entries are rejected, a checked-out tool cannot be lent again, and an ID identifies the same tool even after records move. Compose's `reduce` handlers invoke those transitions. They do not change state whilst constructing the view.
 
-Start with a read-only screen. It is easier to check the inventory layout before adding actions. `ToolCard` gives each tool the same presentation, while `ToolLibraryDesk` arranges the summary and rows from `GlobalState`. Its named scroll region keeps the whole shelf reachable on a phone and gives TalkBack a useful description. Preview data is seeded by the preview shell, not created during component conversion.
+`ToolSummary` derives its totals from the records, not from counters updated separately by each button. The local filter calls a read-only query over those same records. A tool disappearing under that filter is therefore still checked out, not deleted.
 
 <Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Loan { pub borrower: String, pub return_agreement: String }
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Tool {
+    pub id: u64,
+    pub name: String,
+    pub location: String,
+    pub loan: Option<Loan>,
+}
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ToolLibraryState {
+    pub tools: Vec<Tool>,
+    next_id: u64,
+}
+impl GlobalState for ToolLibraryState {}
+impl ToolLibraryState {
+    pub fn add(&mut self, name: String, location: String) -> bool {
+        if name.trim().is_empty() || location.trim().is_empty() { return false; }
+        let Some(id) = self.next_id.checked_add(1) else { return false; };
+        self.next_id = id;
+        self.tools.push(Tool {
+            id, name: name.trim().to_owned(), location: location.trim().to_owned(), loan: None,
+        });
+        true
+    }
+    pub fn check_out(&mut self, id: u64, borrower: String, return_agreement: String) {
+        if borrower.trim().is_empty() || return_agreement.trim().is_empty() { return; }
+        if let Some(tool) = self.tools.iter_mut().find(|tool| tool.id == id) {
+            if tool.loan.is_none() {
+                tool.loan = Some(Loan {
+                    borrower: borrower.trim().to_owned(),
+                    return_agreement: return_agreement.trim().to_owned(),
+                });
+            }
+        }
+    }
+    pub fn check_in(&mut self, id: u64) {
+        if let Some(tool) = self.tools.iter_mut().find(|tool| tool.id == id) { tool.loan = None; }
+    }
+    pub fn visible_tools(&self, available_only: bool) -> Vec<&Tool> {
+        self.tools.iter().filter(|tool| !available_only || tool.loan.is_none()).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn filtering_does_not_change_inventory_and_checkout_keeps_its_snapshot() {
+        let mut state = ToolLibraryState::default();
+        assert!(state.add("Drill".into(), "Bench".into()));
+        assert!(state.add("Saw".into(), "Rack".into()));
+        let id = state.tools[0].id;
+        state.check_out(id, "Sam".into(), "Return at the next agreed workshop session".into());
+        state.check_out(id, "Other person".into(), "Today".into());
+        let before = state.clone();
+        assert_eq!(state.visible_tools(true).len(), 1);
+        assert_eq!(state.visible_tools(false).len(), 2);
+        assert_eq!(state, before);
+        assert_eq!(state.tools[0].loan.as_ref().unwrap().borrower, "Sam");
+        state.tools.reverse();
+        state.check_in(id);
+        assert!(state.tools.iter().find(|tool| tool.id == id).unwrap().loan.is_none());
+        assert_eq!(state.visible_tools(true).len(), 2);
+    }
+}
+
+```
+</TabItem>
+<TabItem label="src/form.rs">
+<!-- fission:file path="src/form.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::ToolLibraryState;
+
+fission_component! {
+    pub AddToolForm<ToolLibraryState> {
+        state { name: String = String::new(), location: String = String::new() }
+    }
+    view(form, state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
+    Column(gap: tokens.spacing.s, children: [
+        Text(cx.tr("tool.add_title")).weight(tokens.typography.font_weight_bold),
+        TextInput(label: Some(cx.tr("tool.name").into()), bind: form.name,
+            semantics_identifier: "tool.new.name".to_owned()),
+        TextInput(label: Some(cx.tr("tool.location").into()), bind: form.location,
+            semantics_identifier: "tool.new.location".to_owned()),
+        Button(
+            child: Text(cx.tr("tool.add")), key: "tool.add",
+            disabled: form.name.trim().is_empty() || form.location.trim().is_empty(),
+            on_press: reduce {
+                if state.add(form.name.clone(), form.location.clone()) {
+                    form.name.clear();
+                    form.location.clear();
+                }
+            },
+        ),
+    ])
+}
+```
+</TabItem>
+<TabItem label="src/card.rs">
+<!-- fission:file path="src/card.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::{Tool, ToolLibraryState};
+
+fission_component! {
+    pub ToolCard<ToolLibraryState> {
+        props { tool: Tool, borrower: String, return_agreement: String }
+    }
+    view(card, state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
+    SemanticsRegion(
+        identifier: Some(format!("tool.card.{}", card.tool.id)),
+        label: Some(format!("{}: {}", cx.tr("tool.name"), card.tool.name)),
+        child: Container(
+            Column(gap: tokens.spacing.s, children: [
+                Text(card.tool.name.clone()).weight(tokens.typography.font_weight_bold),
+                Text(format!("{}: {}", cx.tr("tool.location"), card.tool.location)),
+                if let Some(loan) = &card.tool.loan {
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(format!("{}: {}", cx.tr("tool.borrower"), loan.borrower)),
+                        Text(format!("{}: {}", cx.tr("tool.return"), loan.return_agreement)),
+                        Button(
+                            child: Text(cx.tr("tool.check_in")), key: "tool.check_in",
+                            on_press: reduce { state.check_in(card.tool.id); },
+                        ),
+                    ])
+                } else {
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("tool.available")),
+                        Button(
+                            child: Text(cx.tr("tool.check_out")), key: "tool.check_out",
+                            disabled: card.borrower.trim().is_empty() || card.return_agreement.trim().is_empty(),
+                            on_press: reduce {
+                                state.check_out(
+                                    card.tool.id, card.borrower.clone(), card.return_agreement.clone(),
+                                );
+                            },
+                        ),
+                    ])
+                },
+            ])
+        ).padding_all(tokens.spacing.m).bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0).border_radius(tokens.radii.medium),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/summary.rs">
+<!-- fission:file path="src/summary.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::ToolLibraryState;
+
+fission_component! {
+    pub ToolSummary<ToolLibraryState> {}
+    view(_summary, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let available = state.tools.iter().filter(|tool| tool.loan.is_none()).count();
+        let checked_out = state.tools.len() - available;
+    } =>
+    Column(gap: tokens.spacing.s, children: [
+        Text(format!("{}: {available}", cx.tr("tool.available"))),
+        Text(format!("{}: {checked_out}", cx.tr("tool.checked_out"))),
+    ])
+}
+```
+</TabItem>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
-use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
+use crate::{card::ToolCard, form::AddToolForm, state::ToolLibraryState, summary::ToolSummary};
+
+fission_component! {
+    pub ToolLibraryDesk<ToolLibraryState> {
+        state {
+            available_only: bool = false,
+            borrower: String = String::new(),
+            return_agreement: String = String::new(),
+        }
+    }
+    view(desk, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let visible = state.visible_tools(desk.available_only);
+    } =>
+    SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.l, children: [
+            Text(cx.tr("tool.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("tool.scope")),
+            AddToolForm(),
+            Divider(),
+            TextInput(label: Some(cx.tr("tool.borrower").into()), bind: desk.borrower,
+                semantics_identifier: "loan.borrower".to_owned()),
+            TextInput(label: Some(cx.tr("tool.return").into()), bind: desk.return_agreement,
+                helper_text: Some(cx.tr("tool.return_help").into()),
+                semantics_identifier: "loan.return".to_owned()),
+            ToolSummary(),
+            Checkbox(
+                label: Some(cx.tr("tool.filter")),
+                checked: desk.available_only,
+                bind(on_toggle): to(desk.available_only),
+                semantics_identifier: "tool.available_only".to_owned(),
+            ),
+            if visible.is_empty() {
+                Text(cx.tr(if state.tools.is_empty() { "tool.empty" } else { "tool.none_available" }))
+            } else {
+                Column(gap: tokens.spacing.m, children: [
+                    for tool in visible {
+                        ToolCard(
+                            tool.clone(), desk.borrower.clone(), desk.return_agreement.clone(),
+                            key: tool.id,
+                        ).id(WidgetId::explicit(&format!("tool.{}", tool.id)))
+                    },
+                ])
+            },
+        ])
+    ).padding_all(tokens.spacing.l)))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
 use std::collections::HashMap;
+use fission::prelude::*;
 
 pub fn create_env() -> Env {
     let mut env = Env::default();
     env.locale = Locale::from("en-US");
-    for (locale, yaml) in [
+    for (locale, source) in [
         ("en-US", include_str!("../i18n/en-US.yaml")),
         ("es-ES", include_str!("../i18n/es-ES.yaml")),
     ] {
         let messages: HashMap<String, String> =
-            serde_yaml::from_str(yaml).expect("valid North Gate translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(locale),
-            messages,
-        });
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
     }
     env
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ToolStatus {
-    Available,
-    CheckedOut {
-        borrower: &'static str,
-        due: &'static str,
-    },
-}
-
-impl ToolStatus {
-    pub fn is_available(&self) -> bool {
-        matches!(self, Self::Available)
-    }
-
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Tool {
-    pub id: u32,
-    pub name_key: &'static str,
-    pub location_key: &'static str,
-    pub status: ToolStatus,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ToolLibraryState {
-    pub tools: Vec<Tool>,
-}
-
-impl GlobalState for ToolLibraryState {}
-
-fission_component! {
-    pub ToolCard<()> { tool: Tool }
-    view(card, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let name = cx.tr(card.tool.name_key);
-        let location = cx.tr(card.tool.location_key);
-        let status = match card.tool.status {
-            ToolStatus::Available => cx.tr("tool.status.available"),
-            ToolStatus::CheckedOut { borrower, due } => cx.tr("tool.status.checked_out")
-                .replace("{borrower}", borrower)
-                .replace("{due}", due),
-        };
-        let label = cx.tr("tool.a11y.card")
-            .replace("{name}", &name)
-            .replace("{location}", &location);
-    } =>
-    SemanticsRegion(
-        identifier: Some(format!("workshop-tool-{}", card.tool.id)),
-        label: Some(label),
-        child: Container(
-            Column(gap: tokens.spacing.xs, align_items: ir_op::AlignItems::Start, children: [
-                Text(name)
-                    .weight(tokens.typography.font_weight_semibold),
-                Text(cx.tr("tool.stored_at").replace("{location}", &location))
-                    .color(tokens.colors.text_secondary),
-                Text(status).color(tokens.colors.text_secondary),
-            ]),
-        )
-        .padding_all(tokens.spacing.m)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.medium)
-        .width_length(Length::percent(100.0)),
-    )
-}
-
-fission_component! {
-    pub ToolLibraryDesk<ToolLibraryState> {}
-    view(_desk, state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let tools = &state.tools;
-        let available = tools.iter()
-            .filter(|tool| tool.status.is_available())
-            .count();
-        let checked_out = tools.len() - available;
-    } =>
-    SemanticsRegion(
-        identifier: Some("north-gate-tool-library".to_string()),
-        label: Some(cx.tr("tool.library.a11y")),
-        child: Scroll(
-            flex_grow: 1.0,
-            height: cx.view.viewport_size().height,
-            semantic_label: Some(cx.tr("tool.inventory.a11y")),
-            child: Container(
-                Column(align_items: ir_op::AlignItems::Center, children: [
-                    Container(
-                        Column(gap: tokens.spacing.l, children: [
-                            Column(gap: tokens.spacing.xs, children: [
-                                Text(cx.tr("tool.library.name"))
-                                    .weight(tokens.typography.font_weight_bold),
-                                Text(cx.tr("tool.library.subtitle"))
-                                    .color(tokens.colors.text_secondary),
-                            ]),
-                            Column(gap: tokens.spacing.xs, children: [
-                                Text(cx.tr("tool.summary.available").replace("{count}", &available.to_string())),
-                                Text(cx.tr("tool.summary.checked_out").replace("{count}", &checked_out.to_string()))
-                                    .color(tokens.colors.text_secondary),
-                            ]),
-                            if tools.is_empty() {
-                                Widget::from(EmptyState {
-                                    title: cx.tr("tool.empty.inventory.title"),
-                                    description: Some(cx.tr("tool.empty.inventory.help")),
-                                    ..Default::default()
-                                })
-                            } else {
-                                Column(gap: tokens.spacing.s, children: [
-                                    for tool in tools.iter() {
-                                        ToolCard(tool.clone(), key: tool.id)
-                                            .id(WidgetId::explicit(&format!("north-gate.tool.{}", tool.id)))
-                                    },
-                                ])
-                            },
-                        ]),
-                    )
-                    .padding_all(tokens.spacing.l)
-                    .bg(tokens.colors.background)
-                    .width_length(Length::clamp(
-                        Length::points(0.0),
-                        Length::percent(100.0),
-                        Length::points(760.0),
-                    )),
-                ]),
-            )
-            .width_length(Length::percent(100.0))
-            .bg(tokens.colors.background),
-        ),
-    )
 }
 ```
 </TabItem>
 <TabItem label="i18n/en-US.yaml">
 <!-- fission:file path="i18n/en-US.yaml" -->
 ```yaml
-tool.library.a11y: "North Gate Workshop tool library"
-tool.inventory.a11y: "Workshop tool inventory"
-tool.summary.a11y: "Workshop tool availability"
-tool.library.name: "North Gate Workshop"
-tool.library.subtitle: "Workshop tool lending desk"
-tool.summary.available: "Available · {count}"
-tool.summary.checked_out: "Checked out · {count}"
-tool.drill: "Cordless drill"
-tool.saw: "Circular saw"
-tool.sander: "Orbital sander"
-tool.washer: "Pressure washer"
-tool.location.assembly: "Assembly bench"
-tool.location.cutting: "Cutting bay"
-tool.location.finishing: "Finishing table"
-tool.location.wash: "Wash area"
-tool.a11y.card: "{name}, stored at {location}"
-tool.stored_at: "Stored at {location}"
-tool.status.available: "Available on the shelf"
-tool.status.checked_out: "Checked out by {borrower} · due {due}"
-tool.check_out: "Check out to Asha"
-tool.check_in: "Check in"
-tool.filter.all: "Show all tools"
-tool.filter.available: "Available tools only"
-tool.empty.available: "No tools are available for checkout. Show all tools to review who has the equipment."
-tool.empty.available.title: "No tools match this filter."
-tool.empty.inventory.title: "No workshop inventory is loaded."
-tool.empty.inventory.help: "Connect the stock service or add a tool record to see the checkout list."
-tool.notice.checked_out: "{tool} checked out to Asha. Return by Friday at 5:00 pm."
-tool.notice.checked_in: "{tool} is back on the shelf."
+tool.title: "Workshop lending desk"
+tool.scope: "Inventory and loans stay in this session only. No stock service or borrower account is connected."
+tool.add_title: "Register a tool"
+tool.name: "Tool name"
+tool.location: "Storage location"
+tool.add: "Add tool"
+tool.borrower: "Borrower"
+tool.return: "Agreed return details"
+tool.return_help: "Enter the agreement made with the borrower. This is a note, not a validated date or an automatic reminder."
+tool.available: "Available"
+tool.checked_out: "Checked out"
+tool.check_in: "Record return"
+tool.check_out: "Check out using the borrower above"
+tool.filter: "Show only available tools"
+tool.empty: "No inventory yet. Register an actual tool above."
+tool.none_available: "No available tools. Clear the filter to see current loans."
 ```
 </TabItem>
 <TabItem label="i18n/es-ES.yaml">
 <!-- fission:file path="i18n/es-ES.yaml" -->
 ```yaml
-tool.library.a11y: "Biblioteca de herramientas del taller North Gate"
-tool.inventory.a11y: "Inventario de herramientas del taller"
-tool.summary.a11y: "Disponibilidad de herramientas"
-tool.library.name: "Taller North Gate"
-tool.library.subtitle: "Préstamo de herramientas del taller"
-tool.summary.available: "Disponibles · {count}"
-tool.summary.checked_out: "Prestadas · {count}"
-tool.drill: "Taladro inalámbrico"
-tool.saw: "Sierra circular"
-tool.sander: "Lijadora orbital"
-tool.washer: "Hidrolimpiadora"
-tool.location.assembly: "Banco de montaje"
-tool.location.cutting: "Zona de corte"
-tool.location.finishing: "Mesa de acabado"
-tool.location.wash: "Zona de lavado"
-tool.a11y.card: "{name}, guardada en {location}"
-tool.stored_at: "Guardada en {location}"
-tool.status.available: "Disponible en el estante"
-tool.status.checked_out: "Prestada a {borrower} · devolución: {due}"
-tool.check_out: "Prestar a Asha"
+tool.title: "Préstamo de herramientas"
+tool.scope: "El inventario y los préstamos solo duran esta sesión. No hay servicio de existencias ni cuentas conectadas."
+tool.add_title: "Registrar una herramienta"
+tool.name: "Nombre de la herramienta"
+tool.location: "Lugar de almacenamiento"
+tool.add: "Añadir herramienta"
+tool.borrower: "Persona que la toma prestada"
+tool.return: "Condiciones acordadas de devolución"
+tool.return_help: "Introduce lo acordado. Es una nota, no una fecha validada ni un recordatorio automático."
+tool.available: "Disponible"
+tool.checked_out: "Prestada"
 tool.check_in: "Registrar devolución"
-tool.filter.all: "Mostrar todas las herramientas"
-tool.filter.available: "Solo herramientas disponibles"
-tool.empty.available: "No hay herramientas disponibles para prestar. Muestra todas para ver quién tiene el equipo."
-tool.empty.available.title: "No hay herramientas que coincidan con este filtro."
-tool.empty.inventory.title: "No se ha cargado el inventario del taller."
-tool.empty.inventory.help: "Conecta el servicio de existencias o añade una herramienta para ver la lista de préstamos."
-tool.notice.checked_out: "Se ha prestado {tool} a Asha. Debe devolverla el viernes a las 17:00."
-tool.notice.checked_in: "{tool} ha vuelto al estante."
+tool.check_out: "Prestar a la persona indicada arriba"
+tool.filter: "Mostrar solo herramientas disponibles"
+tool.empty: "Aún no hay inventario. Registra una herramienta real."
+tool.none_available: "No hay herramientas disponibles. Quita el filtro para ver los préstamos."
 ```
 </TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-#[path = "../preview/fixtures.rs"]
-mod fixtures;
-
-use app::ToolLibraryState;
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    WebApp::<ToolLibraryState, _>::new(app::ToolLibraryDesk::new())
-        .with_state_init(|state| state.tools = fixtures::sample_tools())
-        .with_env(app::create_env())
-        .with_title("North Gate Workshop tool library")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-<TabItem label="preview/fixtures.rs">
-<!-- fission:file path="preview/fixtures.rs" -->
-```rust
-use crate::app::{Tool, ToolStatus};
-
-pub fn sample_tools() -> Vec<Tool> {
-    vec![
-        Tool { id: 2201, name_key: "tool.drill", location_key: "tool.location.assembly", status: ToolStatus::Available },
-        Tool { id: 2202, name_key: "tool.saw", location_key: "tool.location.cutting", status: ToolStatus::CheckedOut { borrower: "Ravi", due: "Friday, 5:00 pm" } },
-        Tool { id: 2203, name_key: "tool.sander", location_key: "tool.location.finishing", status: ToolStatus::Available },
-        Tool { id: 2204, name_key: "tool.washer", location_key: "tool.location.wash", status: ToolStatus::CheckedOut { borrower: "Elena", due: "Saturday, noon" } },
-    ]
-}
-```
-</TabItem>
-</Tabs>
-
-<!-- fission:preview -->
-
-<!-- fission:checkpoint -->
-Find the circular saw in the cutting bay. Its row should name Ravi as the borrower and show a Friday, 5:00 pm return time. The drill and sander should be available.
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
-
-<!-- fission:step id="check-tools-in-and-out" -->
-## Check tools in and out with reducers
-
-Checking out a tool changes shared inventory. The drill row and available count should change together; checking in Elena’s pressure washer should update the same record, not just hide its card.
-
-`ToolLibraryState` implements `GlobalState` and owns the tool list. `CheckOutTool` and `CheckInTool` carry a stable tool ID. Their reducers reject a repeated or invalid transition, update the matching record, and leave a notice. Both `ToolSummary` and `ToolCard` read the same state, so there is no second count to keep in sync by hand.
-
-The filter is different: volunteers can focus on available tools, then show the whole shelf to check who has the rest. `available_only` is retained local state in `ToolLibraryDesk` because it changes the visible rows, not the equipment records. Replace `src/app.rs` and try the drill, saw, and filter in the preview.
-
-<Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
-```rust
-use fission::i18n::{Locale, TranslationBundle};
-use fission::prelude::*;
-use std::collections::HashMap;
-
-pub fn create_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    for (locale, yaml) in [
-        ("en-US", include_str!("../i18n/en-US.yaml")),
-        ("es-ES", include_str!("../i18n/es-ES.yaml")),
-    ] {
-        let messages: HashMap<String, String> =
-            serde_yaml::from_str(yaml).expect("valid North Gate translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(locale),
-            messages,
-        });
-    }
-    env
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ToolStatus {
-    Available,
-    CheckedOut {
-        borrower: &'static str,
-        due: &'static str,
-    },
-}
-
-impl ToolStatus {
-    pub fn is_available(&self) -> bool {
-        matches!(self, Self::Available)
-    }
-
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ToolNotice {
-    CheckedOut(&'static str),
-    CheckedIn(&'static str),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Tool {
-    pub id: u32,
-    pub name_key: &'static str,
-    pub location_key: &'static str,
-    pub status: ToolStatus,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct ToolLibraryState {
-    pub tools: Vec<Tool>,
-    pub notice: Option<ToolNotice>,
-}
-
-impl Default for ToolLibraryState {
-    fn default() -> Self {
-        Self {
-            tools: Vec::new(),
-            notice: None,
-        }
-    }
-}
-
-impl GlobalState for ToolLibraryState {}
-
-#[fission_reducer(CheckOutTool)]
-pub fn on_check_out_tool(state: &mut ToolLibraryState, tool_id: u32) {
-    let notice = state
-        .tools
-        .iter_mut()
-        .find(|tool| tool.id == tool_id)
-        .and_then(|tool| {
-            if !tool.status.is_available() {
-                return None;
-            }
-            tool.status = ToolStatus::CheckedOut {
-                borrower: "Asha",
-                due: "Friday, 5:00 pm",
-            };
-            Some(ToolNotice::CheckedOut(tool.name_key))
-        });
-
-    if let Some(notice) = notice {
-        state.notice = Some(notice);
-    }
-}
-
-#[fission_reducer(CheckInTool)]
-pub fn on_check_in_tool(state: &mut ToolLibraryState, tool_id: u32) {
-    let notice = state
-        .tools
-        .iter_mut()
-        .find(|tool| tool.id == tool_id)
-        .and_then(|tool| {
-            if tool.status.is_available() {
-                return None;
-            }
-            tool.status = ToolStatus::Available;
-            Some(ToolNotice::CheckedIn(tool.name_key))
-        });
-
-    if let Some(notice) = notice {
-        state.notice = Some(notice);
-    }
-}
-
-fission_component! {
-    pub ToolSummary<ToolLibraryState> {}
-    view(_summary, library, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let available = library.tools.iter()
-            .filter(|tool| tool.status.is_available())
-            .count();
-        let checked_out = library.tools.len() - available;
-    } =>
-    SemanticsRegion(
-        identifier: Some("workshop-tool-summary".to_string()),
-        label: Some(cx.tr("tool.summary.a11y")),
-        child: Column(gap: tokens.spacing.xs, children: [
-            Text(cx.tr("tool.summary.available").replace("{count}", &available.to_string())),
-            Text(cx.tr("tool.summary.checked_out").replace("{count}", &checked_out.to_string()))
-                .color(tokens.colors.text_secondary),
-        ]),
-    )
-}
-
-fission_component! {
-    pub ToolCard<ToolLibraryState> { tool: Tool }
-    view(card, _library, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let available = card.tool.status.is_available();
-        let name = cx.tr(card.tool.name_key);
-        let location = cx.tr(card.tool.location_key);
-        let status = match card.tool.status {
-            ToolStatus::Available => cx.tr("tool.status.available"),
-            ToolStatus::CheckedOut { borrower, due } => cx.tr("tool.status.checked_out")
-                .replace("{borrower}", borrower)
-                .replace("{due}", due),
-        };
-        let label = cx.tr("tool.a11y.card")
-            .replace("{name}", &name)
-            .replace("{location}", &location);
-    } =>
-    SemanticsRegion(
-        identifier: Some(format!("workshop-tool-{}", card.tool.id)),
-        label: Some(label),
-        child: Container(
-            Column(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Start, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Text(name)
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(cx.tr("tool.stored_at").replace("{location}", &location))
-                        .color(tokens.colors.text_secondary),
-                    Text(status).color(tokens.colors.text_secondary),
-                ]),
-                if available {
-                    Button(
-                        child: Text(cx.tr("tool.check_out")),
-                        key: "check-out-tool",
-                        variant: ButtonVariant::Primary,
-                        on_press: with_reducer!(
-                            cx.build,
-                            CheckOutTool(card.tool.id),
-                            on_check_out_tool,
-                        ),
-                    )
-                    .semantics_identifier(format!("workshop-tool.check-out.{}", card.tool.id))
-                } else {
-                    Button(
-                        child: Text(cx.tr("tool.check_in")),
-                        key: "check-in-tool",
-                        variant: ButtonVariant::Outline,
-                        on_press: with_reducer!(
-                            cx.build,
-                            CheckInTool(card.tool.id),
-                            on_check_in_tool,
-                        ),
-                    )
-                    .semantics_identifier(format!("workshop-tool.check-in.{}", card.tool.id))
-                },
-            ]),
-        )
-        .padding_all(tokens.spacing.m)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.medium)
-        .width_length(Length::percent(100.0)),
-    )
-}
-
-fission_component! {
-    pub ToolLibraryDesk<ToolLibraryState> {
-        state {
-            available_only: bool = false,
-        }
-    }
-    view(desk, library, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let visible_tools: Vec<Tool> = library.tools.iter()
-            .filter(|tool| !desk.available_only || tool.status.is_available())
-            .cloned()
-            .collect();
-        let notice_text = library.notice.map(|notice| {
-            let (key, tool_key) = match notice {
-                ToolNotice::CheckedOut(key) => ("tool.notice.checked_out", key),
-                ToolNotice::CheckedIn(key) => ("tool.notice.checked_in", key),
-            };
-            cx.tr(key).replace("{tool}", &cx.tr(tool_key))
-        });
-    } =>
-    SemanticsRegion(
-        identifier: Some("north-gate-tool-library".to_string()),
-        label: Some(cx.tr("tool.library.a11y")),
-        child: Scroll(
-            flex_grow: 1.0,
-            height: cx.view.viewport_size().height,
-            semantic_label: Some(cx.tr("tool.inventory.a11y")),
-            child: Container(
-                Column(align_items: ir_op::AlignItems::Center, children: [
-                    Container(
-                        Column(gap: tokens.spacing.l, children: [
-                            Column(gap: tokens.spacing.xs, children: [
-                                Text(cx.tr("tool.library.name"))
-                                    .weight(tokens.typography.font_weight_bold),
-                                Text(cx.tr("tool.library.subtitle"))
-                                    .color(tokens.colors.text_secondary),
-                            ]),
-                            ToolSummary(),
-                            Button(
-                                child: Text(if desk.available_only {
-                                    cx.tr("tool.filter.all")
-                                } else {
-                                    cx.tr("tool.filter.available")
-                                }),
-                                key: "toggle-available-tools",
-                                variant: ButtonVariant::Outline,
-                                on_press: reduce {
-                                    desk.available_only = !desk.available_only;
-                                },
-                            )
-                            .semantics_identifier("workshop-tools.toggle-available"),
-                            if library.tools.is_empty() {
-                                Widget::from(EmptyState {
-                                    title: cx.tr("tool.empty.inventory.title"),
-                                    description: Some(cx.tr("tool.empty.inventory.help")),
-                                    ..Default::default()
-                                })
-                            } else if visible_tools.is_empty() {
-                                Widget::from(EmptyState {
-                                    title: cx.tr("tool.empty.available.title"),
-                                    description: Some(cx.tr("tool.empty.available")),
-                                    ..Default::default()
-                                })
-                            } else {
-                                Column(gap: tokens.spacing.s, children: [
-                                    for tool in visible_tools.iter() {
-                                        ToolCard(tool.clone(), key: tool.id)
-                                            .id(WidgetId::explicit(&format!("north-gate.tool.{}", tool.id)))
-                                    },
-                                ])
-                            },
-            if let Some(notice) = notice_text {
-                Text(notice)
-                    .color(tokens.colors.text_secondary)
-            },
-                        ]),
-                    )
-                    .padding_all(tokens.spacing.l)
-                    .bg(tokens.colors.background)
-                    .width_length(Length::clamp(
-                        Length::points(0.0),
-                        Length::percent(100.0),
-                        Length::points(760.0),
-                    )),
-                ]),
-            )
-            .width_length(Length::percent(100.0))
-            .bg(tokens.colors.background),
-        ),
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn sample_tools() -> Vec<Tool> {
-        vec![
-            Tool { id: 2201, name_key: "tool.drill", location_key: "tool.location.assembly", status: ToolStatus::Available },
-            Tool { id: 2202, name_key: "tool.saw", location_key: "tool.location.cutting", status: ToolStatus::CheckedOut { borrower: "Ravi", due: "Friday, 5:00 pm" } },
-            Tool { id: 2203, name_key: "tool.sander", location_key: "tool.location.finishing", status: ToolStatus::Available },
-            Tool { id: 2204, name_key: "tool.washer", location_key: "tool.location.wash", status: ToolStatus::CheckedOut { borrower: "Elena", due: "Saturday, noon" } },
-        ]
-    }
-
-    #[test]
-    fn checking_out_an_available_tool_updates_the_shared_record() {
-        let mut state = ToolLibraryState::default();
-        state.tools = sample_tools();
-
-        on_check_out_tool(&mut state, 2201);
-
-        let tool = state.tools.iter().find(|tool| tool.id == 2201).unwrap();
-        assert_eq!(
-            tool.status,
-            ToolStatus::CheckedOut {
-                borrower: "Asha",
-                due: "Friday, 5:00 pm",
-            }
-        );
-        assert_eq!(state.notice, Some(ToolNotice::CheckedOut("tool.drill")));
-    }
-
-    #[test]
-    fn checking_in_a_tool_makes_it_available_again() {
-        let mut state = ToolLibraryState::default();
-        state.tools = sample_tools();
-
-        on_check_in_tool(&mut state, 2204);
-
-        let tool = state.tools.iter().find(|tool| tool.id == 2204).unwrap();
-        assert_eq!(tool.status, ToolStatus::Available);
-        assert_eq!(state.notice, Some(ToolNotice::CheckedIn("tool.washer")));
-    }
-}
-```
-</TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-#[path = "../preview/fixtures.rs"]
-mod fixtures;
-
-use app::ToolLibraryState;
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    WebApp::<ToolLibraryState, _>::new(app::ToolLibraryDesk::new())
-        .with_state_init(|state| state.tools = fixtures::sample_tools())
-        .with_env(app::create_env())
-        .with_title("North Gate Workshop tool library")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-</Tabs>
-
-<!-- fission:preview -->
-
-<!-- fission:checkpoint -->
-Check out the cordless drill to Asha. The available total should drop from two to one, and the drill row should show Asha’s return time. Check in Elena’s pressure washer; it should become available and the notice should name the tool. Choose `Available tools only` to hide checked-out items, then `Show all tools` to bring them back without changing any status.
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
-
-<!-- fission:step id="run-on-android" -->
-## Run the checkout desk on Android
-
-The browser preview lets you try the inventory rules without an emulator. The Android app uses the same `ToolLibraryDesk` and `ToolLibraryState`; only the shell and host change. Replace the generated app’s `CounterApp` references in `src/lib.rs`. Leave `src/main.rs` to select the Android entry point.
-
-<Tabs>
 <TabItem label="src/lib.rs">
 <!-- fission:file path="src/lib.rs" -->
 ```rust
 pub mod app;
+pub mod state;
+mod form;
+mod card;
+mod summary;
+mod translations;
 
-use crate::app::{ToolLibraryDesk, ToolLibraryState};
+use app::ToolLibraryDesk;
+use state::ToolLibraryState;
 use fission::prelude::*;
-
-#[cfg(target_os = "android")]
-const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
-
-#[cfg(any(target_os = "android", target_os = "ios"))]
-fn mobile_app() -> MobileApp<ToolLibraryState, ToolLibraryDesk> {
-    let app = MobileApp::<ToolLibraryState, _>::new(ToolLibraryDesk::new())
-        .with_title("North Gate Workshop tool library")
-        .with_env(crate::app::create_env());
-    #[cfg(target_os = "android")]
-    let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
-    app
-}
-
-#[cfg(target_arch = "wasm32")]
-fn web_app() -> WebApp<ToolLibraryState, ToolLibraryDesk> {
-    WebApp::<ToolLibraryState, _>::new(ToolLibraryDesk::new())
-        .with_title("North Gate Workshop tool library")
-        .with_env(crate::app::create_env())
-}
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> anyhow::Result<()> {
     DesktopApp::<ToolLibraryState, _>::new(ToolLibraryDesk::new())
-        .with_env(crate::app::create_env())
+        .with_env(translations::create_env())
         .run()
 }
-
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub fn run_mobile() -> anyhow::Result<()> {
-    mobile_app().run()
+fn mobile_app() -> MobileApp<ToolLibraryState, ToolLibraryDesk> {
+    let app = MobileApp::<ToolLibraryState, _>::new(ToolLibraryDesk::new())
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
 }
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
 
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(app_handle: AndroidApp) {
     let _ = mobile_app().run_with_android_app(app_handle);
 }
-
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
     console_error_panic_hook::set_once();
-    web_app()
+    WebApp::<ToolLibraryState, _>::new(ToolLibraryDesk::new())
+        .with_env(translations::create_env())
         .run()
         .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
-<TabItem label="Run, test, and build">
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+include!("../src/lib.rs");
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Register two tools and enter an actual borrower and return agreement. Lend one tool, then change those fields: the existing loan must retain its original values. Enable the available-only filter, clear it and record the return. The summary and row should agree throughout.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="run-on-android" -->
+## Check state lifetime as well as appearance
+
 ```sh
 cargo test
 fission doctor android --project-dir .
 fission devices --project-dir .
-fission run --target android --project-dir .
+adb devices -l
+fission run --target android --device <adb-serial> --project-dir .
 fission test --target android --project-dir .
 fission build --target android --project-dir . --release
 ```
-</TabItem>
-<TabItem label="Emulator or connected phone">
-```sh
-fission devices --project-dir .
-fission run --target android --device <device-id> --project-dir .
-```
-</TabItem>
-</Tabs>
 
-Run `cargo test` first. The reducer tests check that checkout records Asha and check-in returns the pressure washer to the shelf. Then launch the app in an emulator, check out the drill, and confirm the row and available count both change. Check in the pressure washer. Finally, use TalkBack to confirm that each row announces the tool, location, status, and action. The same Rust app runs on a physical phone; the [Android device guide](/blog/run-a-fission-app-on-a-physical-android-phone/) covers USB debugging and installation.
+The unit test checks filtering leaves the inventory unchanged, rejects overwriting an active loan, and returns the intended tool after the list is reversed. On Android, test the same interactions with the keyboard open, long names and larger system text. A hidden row must not be the only way to learn that a tool is currently borrowed.
+
+Local state lasts with the retained component identity. It is not a database, and filtering a row out can remove that row's local state. This example puts the loan in shared state precisely because the loan must not disappear with the card. The screen's filter can reset if that screen is removed; move it into shared state only if remembering it across screens becomes a product requirement.
+
+`GlobalState` also does not imply disk persistence. Closing the process loses this inventory. Adding SQLite changes the authority for committed records and requires loading/error states, not a claim that the local filter suddenly became durable. Nor does entering a borrower verify their identity: a real lending service must enforce its own access rules.
+
+The return agreement here is deliberately text, not an unvalidated timestamp presented as a date. Scheduling reminders and calculating overdue status require a proper date model and are outside this lesson.
 
 <!-- /fission:step -->
 

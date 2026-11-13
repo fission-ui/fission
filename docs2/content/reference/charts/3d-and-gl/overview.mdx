@@ -1,14 +1,16 @@
 ---
 title: 3D and GL
 sidebar_label: Overview
-description: Fission Charts reference for the 3D and GL family.
+description: Choose a spatial representation and understand the scene geometry used by the 3D gallery.
 ---
 
 # 3D and GL
 
-This family has 44 chart variants. Pick one that matches your data. Each page has a screenshot, data shape, API notes, and code you can adapt.
+Depth is useful when it preserves a relationship the reader needs: a path through a building, a grid of spatial readings or the shape of a measured surface. It is less useful when it merely gives ordinary totals a more elaborate appearance. Perspective and occlusion then make the comparison harder without adding information.
 
-Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
+The 44 gallery variants below are example presentations, not 44 separate built-in series types. They use `fission::three_d::Scene3D` with cube, sphere and mesh primitives. The resulting scene fits into a normal Fission layout, but its geometry does not automatically acquire chart axes, data labels or per-item interaction.
+
+Enable Fission's `three-d` feature and keep the source data separate from its geometry. Load measurements through the application's effect/reducer flow, validate the projection and render the scene once the required data is available.
 
 ![3D bar screenshot](/img/charts/bar3d-basic.png)
 
@@ -63,40 +65,39 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 
 ## Choosing within this family
 
-First decide what the user needs to compare or understand. Pick the simplest chart that shows it; add interaction only when it helps, and use animation only when it explains a change.
+Start with the relationship in the data. Independent observations suit a point cloud; ordered observations suit a trajectory; connected samples with justified interpolation can form a surface. A graph needs explicit relationships as well as positions. Choosing the wrong representation can imply a path or surface which the source data never established.
+
+Keep important values and relationships available outside the image. A title names a scene, but cannot explain every node, observation or triangle to a reader who cannot see it.
 
 ## Authoring from a Fission component
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+This small presentation boundary accepts a scene already built by a subject-specific component or geometry projection. It does not fetch data or invent substitute measurements.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::three_d::Scene3D;
 
-
-
-fission_component!
-{
-    pub Fission3DAndGLChart<()> {
+fission_component! {
+    pub SpatialScenePanel<()> {
+        props {
+            title: TextContent,
+            scene: Scene3D,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("3D and GL")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
+    view(panel, _state, _cx) => Column(children: [
+        Text(panel.title.clone()),
+        panel.scene.clone(),
+    ])
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
+Supply a localised title and size the scene intentionally using its optional `width` and `height`. The legacy `Scene3D` used here exposes no `size`, `camera` or `ambient_light` builder methods. It also does not emit `ChartInteractionEvent` values for individual primitives; choose a scene API with explicit picking support if that interaction is required.
 
 ## Options, accessibility, and diagnostics
 
 | Area | What to decide | How to check it |
 | --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+| Geometry | Use finite coordinates, valid indices and intentional scene units. | Test the data-to-geometry projection independently. |
+| Meaning | Preserve source gaps, graph relationships and the distinction between planned and observed values. | Test cases where a missing sample could create a false connection. |
+| Accessibility | Provide labels, source values and important relationships outside the image. | Check that the same question can be answered without seeing the scene. |
+| Failure handling | Distinguish an empty dataset from a failed or incomplete load. | Exercise those states before constructing the geometry. |
+| Performance | Bound the display projection whilst retaining original measurements. | Measure representative geometry counts and inspect overlap in a real rendering. |

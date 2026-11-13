@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Capture repair photos in a shared Android and iOS app
-description: "Add Fission camera capture to a shared Rust repair workflow, handle permission and capture errors, and test both Android and iOS hosts."
-goal: Request camera permission and capture a still image from shared Android/iOS code, then handle the typed metadata and one-shot image stream.
+description: "Capture real inspection photos from shared Android and iOS code, consuming their one-shot streams before attaching them to an asset."
+goal: "Keep an asset's note and actual photo associated through capture and replacement failures on both mobile hosts."
 path: /blog/build-a-shared-mobile-media-workflow/
 order: 118
 difficulty: Beginner
@@ -10,12 +10,17 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: mobile-build-a-shared-mobile-media-workflow
 outcomes:
-  - Request camera access and capture a still image through Fission's typed capability
-  - Keep capture state and error feedback in shared Rust reducers
-  - Verify the deterministic browser preview, then test the native camera on Android and iOS
+  - Request real permission and preserve the prior photo on replacement failure
+  - Register bounded stream collection on normal native and Web entrypoints
+  - Prepare a session-local image snapshot without claiming it was uploaded or saved
 ---
+Sharing a camera button is not the same as sharing the media workflow. The important work is deciding when permission is requested, which asset the result belongs to, how its bytes are retained and what happens when a replacement fails.
 
-## Create the project and add the target
+We will capture an actual inspection photo for a user-entered asset and prepare a session-local repair review. The app keeps the note, image and their reference together. It never substitutes a memory-provider image or reports a stream identifier as if it were attached evidence.
+
+## Create the shared project
+
+Complete [Android SDK/NDK setup](/blog/set-up-rust-android-gui-development-with-fission/) and [iOS setup](/blog/set-up-rust-ios-development-with-fission/) first.
 
 ```sh
 cargo install cargo-fission
@@ -23,82 +28,546 @@ fission init mobile-build-a-shared-mobile-media-workflow
 cd mobile-build-a-shared-mobile-media-workflow
 fission add-target android ios --project-dir .
 fission add-capability camera --project-dir .
+cargo add serde --features derive
+cargo add serde_yaml
 ```
 
-## Files created by Fission
-
-Fission generates Android and iOS hosts alongside the shared Rust project:
-
-```text
-mobile-build-a-shared-mobile-media-workflow/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
-├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
-└── platforms/
-    ├── android/              # generated Android host
-    └── ios/                  # generated iOS host
-```
-
-Keep the repair screen and capture state in shared Rust. Request camera access through Fission's capability; the generated hosts handle the platform-specific provider. This guide covers still photos, not microphone recording or video playback.
+Inspect the generated Android permission declaration and iOS `NSCameraUsageDescription`. Give the latter an accurate purpose and check the final artifact. Keep the generated `src/main.rs`; normal native and Web launchers below register the shared stream-processing job.
 
 <!-- fission:step id="start-screen" -->
-## Build the equipment photo screen
+## Use one real capture flow
 
-Start with an equipment inspection that needs a photo of a damaged part. The screen identifies the asset and lets the technician draft what they observed before adding a photo. That note remains a component-local draft in this preview; a production workflow would save it with the work order. The next step requests permission and captures through Fission.
+This is the bounded photo workflow developed in [the iOS capture tutorial](/blog/capture-photos-and-use-the-flashlight-on-ios/), applied to a repair inspection rather than a preloaded delivery. Its provider boundary stays target-specific, whilst the app's state transitions and image preparation remain shared.
+
+The global draft belongs to the inspection workflow, not one disposable camera widget. A capture snapshots its asset reference; a changed reference cannot silently inherit that photo. The prepared review contains its own note and actual image snapshot, not a boolean which merely suggests that evidence exists.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+pub mod jobs;
+mod screen;
+pub mod state;
+pub use screen::RepairScreen;
+pub use state::RepairState;
+```
+</TabItem>
+<TabItem label="src/app/jobs.rs">
+<!-- fission:file path="src/app/jobs.rs" -->
+```rust
+use fission::core::{CameraCapture, JobCtx, JobRef, JobSpec};
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PhotoRequest {
+    pub reference: String,
+    pub capture: CameraCapture,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InspectionPhoto {
+    pub reference: String,
+    pub bytes: Vec<u8>,
+    pub content_type: String,
+}
+pub struct CollectPhoto;
+impl JobSpec for CollectPhoto {
+    type Request = PhotoRequest;
+    type Ok = InspectionPhoto;
+    type Err = String;
+    const NAME: &'static str = "repair.collect-photo";
+}
+pub const COLLECT_PHOTO: JobRef<CollectPhoto> = JobRef::new(CollectPhoto::NAME);
+
+pub async fn collect_photo(request: PhotoRequest, cx: JobCtx) -> Result<InspectionPhoto, String> {
+    let mut stream = cx
+        .open_data_stream(request.capture.stream)
+        .map_err(|error| error.to_string())?;
+    // Consume the one-shot handle even when its metadata fails these bounds.
+    let pixels = u64::from(request.capture.width) * u64::from(request.capture.height);
+    if pixels == 0 || pixels > 16_000_000 {
+        return Err("Unsupported image dimensions".into());
+    }
+    if !matches!(
+        request.capture.content_type.as_str(),
+        "image/jpeg" | "image/png"
+    ) {
+        return Err("Only JPEG and PNG arrival photos are accepted".into());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
+        let chunk = chunk.map_err(|error| error.to_string())?;
+        let length = bytes
+            .len()
+            .checked_add(chunk.len())
+            .ok_or("Image is too large")?;
+        if length > 8 * 1024 * 1024 {
+            return Err("Image exceeds the eight-MiB limit".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    if bytes.is_empty() {
+        return Err("The camera returned an empty image".into());
+    }
+    Ok(InspectionPhoto {
+        reference: request.reference,
+        bytes,
+        content_type: request.capture.content_type,
+    })
+}
+```
+</TabItem>
+<TabItem label="src/app/state.rs">
+<!-- fission:file path="src/app/state.rs" -->
+```rust
+use super::jobs::{InspectionPhoto, PhotoRequest, COLLECT_PHOTO};
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReviewSnapshot {
+    pub reference: String,
+    pub note: String,
+    pub photo: InspectionPhoto,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RepairState {
+    pub locale: Locale,
+    pub reference: String,
+    pub note: String,
+    pub busy: bool,
+    pub status_key: String,
+    pub error: Option<String>,
+    pub device: Option<CameraDevice>,
+    pub photo: Option<InspectionPhoto>,
+    pub capture_reference: Option<String>,
+    pub torch_on: bool,
+    pub torch_requested: Option<bool>,
+    pub review: Option<ReviewSnapshot>,
+}
+impl Default for RepairState {
+    fn default() -> Self {
+        Self {
+            locale: Locale::from("en-US"),
+            reference: String::new(),
+            note: String::new(),
+            busy: false,
+            status_key: "repair.ready".into(),
+            error: None,
+            device: None,
+            photo: None,
+            capture_reference: None,
+            torch_on: false,
+            torch_requested: None,
+            review: None,
+        }
+    }
+}
+impl GlobalState for RepairState {}
+
+fn unexpected(state: &mut RepairState) {
+    state.busy = false;
+    state.capture_reference = None;
+    state.torch_requested = None;
+    state.status_key = "repair.unexpected".into();
+}
+
+pub fn check_camera(state: &mut RepairState, cx: &mut ReducerContext<RepairState>) {
+    if state.busy || state.torch_on {
+        return;
+    }
+    state.busy = true;
+    state.error = None;
+    state.status_key = "repair.permission_pending".into();
+    let ok = cx
+        .effects
+        .bind(PermissionReturned, reduce_with!(permission_returned));
+    let err = cx.effects.bind(CameraFailed, reduce_with!(camera_failed));
+    cx.effects
+        .camera()
+        .request_permission(CameraPermissionRequest { reason: None })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(PermissionReturned)]
+fn permission_returned(state: &mut RepairState, cx: &mut ReducerContext<RepairState>) {
+    match cx.input.capability_ok(REQUEST_CAMERA_PERMISSION) {
+        Some(CameraPermission::Granted) => {
+            state.status_key = "repair.features_pending".into();
+            let ok = cx
+                .effects
+                .bind(FeaturesReturned, reduce_with!(features_returned));
+            let err = cx.effects.bind(CameraFailed, reduce_with!(camera_failed));
+            cx.effects.camera().availability().on_ok(ok).on_err(err);
+        }
+        Some(CameraPermission::Denied | CameraPermission::Restricted) => {
+            state.busy = false;
+            state.device = None;
+            state.status_key = "repair.denied".into();
+        }
+        Some(CameraPermission::Unknown) => {
+            state.busy = false;
+            state.device = None;
+            state.status_key = "repair.unknown".into();
+        }
+        None => unexpected(state),
+    }
+}
+
+#[fission_reducer(FeaturesReturned)]
+fn features_returned(state: &mut RepairState, cx: &mut ReducerContext<RepairState>) {
+    let Some(features) = cx.input.capability_ok(GET_CAMERA_AVAILABILITY) else {
+        unexpected(state);
+        return;
+    };
+    state.busy = false;
+    if features.permission != CameraPermission::Granted {
+        state.device = None;
+        state.status_key = "repair.denied".into();
+        return;
+    }
+    state.device = features
+        .devices
+        .iter()
+        .find(|device| device.facing == CameraFacing::Back)
+        .or_else(|| features.devices.first())
+        .cloned();
+    state.status_key = if state.device.is_some() {
+        "repair.camera_ready"
+    } else {
+        "repair.unavailable"
+    }
+    .into();
+}
+
+pub fn capture(state: &mut RepairState, cx: &mut ReducerContext<RepairState>) {
+    if state.busy || state.reference.trim().is_empty() {
+        return;
+    }
+    let Some(device) = state.device.clone() else {
+        return;
+    };
+    state.capture_reference = Some(state.reference.trim().to_owned());
+    state.busy = true;
+    state.error = None;
+    state.status_key = "repair.capture_pending".into();
+    let ok = cx.effects.bind(Captured, reduce_with!(captured));
+    let err = cx.effects.bind(CameraFailed, reduce_with!(camera_failed));
+    cx.effects
+        .camera()
+        .capture_photo(CameraCaptureRequest {
+            camera_id: Some(device.id),
+            facing: device.facing,
+            resolution: Some(CameraResolution {
+                width: 1600,
+                height: 1200,
+            }),
+            format: CameraImageFormat::Jpeg,
+            flash: CameraFlashMode::Off,
+            quality: Some(88),
+        })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(Captured)]
+fn captured(state: &mut RepairState, cx: &mut ReducerContext<RepairState>) {
+    let Some(capture) = cx.input.capability_ok(CAPTURE_PHOTO) else {
+        unexpected(state);
+        return;
+    };
+    let Some(reference) = state.capture_reference.take() else {
+        unexpected(state);
+        return;
+    };
+    state.status_key = "repair.image_pending".into();
+    let ok = cx
+        .effects
+        .bind(PhotoCollected, reduce_with!(photo_collected));
+    let err = cx.effects.bind(PhotoFailed, reduce_with!(photo_failed));
+    cx.effects
+        .app(COLLECT_PHOTO, PhotoRequest { reference, capture })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(PhotoCollected)]
+fn photo_collected(state: &mut RepairState, cx: &mut ReducerContext<RepairState>) {
+    state.busy = false;
+    match cx.input.job_ok(COLLECT_PHOTO) {
+        Some(photo) => {
+            state.photo = Some(photo);
+            state.status_key = "repair.attached".into();
+        }
+        None => unexpected(state),
+    }
+}
+
+#[fission_reducer(PhotoFailed)]
+fn photo_failed(state: &mut RepairState, cx: &mut ReducerContext<RepairState>) {
+    state.busy = false;
+    state.status_key = "repair.failed".into();
+    state.error = cx.input.job_err(COLLECT_PHOTO);
+    if state.error.is_none() {
+        unexpected(state);
+    }
+}
+
+pub fn toggle_torch(state: &mut RepairState, cx: &mut ReducerContext<RepairState>) {
+    if state.busy {
+        return;
+    }
+    let Some(device) = state.device.as_ref().filter(|device| device.has_flashlight) else {
+        return;
+    };
+    let request = CameraFlashlightRequest {
+        camera_id: Some(device.id.clone()),
+        enabled: !state.torch_on,
+        intensity: None,
+    };
+    state.torch_requested = Some(request.enabled);
+    state.busy = true;
+    state.error = None;
+    state.status_key = "repair.torch_pending".into();
+    let ok = cx.effects.bind(TorchChanged, reduce_with!(torch_changed));
+    let err = cx.effects.bind(CameraFailed, reduce_with!(camera_failed));
+    cx.effects
+        .camera()
+        .set_flashlight(request)
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(TorchChanged)]
+fn torch_changed(state: &mut RepairState, cx: &mut ReducerContext<RepairState>) {
+    state.busy = false;
+    match (
+        cx.input.capability_ok(SET_CAMERA_FLASHLIGHT),
+        state.torch_requested.take(),
+    ) {
+        (Some(()), Some(enabled)) => {
+            state.torch_on = enabled;
+            state.status_key = "repair.torch_changed".into();
+        }
+        _ => unexpected(state),
+    }
+}
+
+#[fission_reducer(CameraFailed)]
+fn camera_failed(state: &mut RepairState, cx: &mut ReducerContext<RepairState>) {
+    state.busy = false;
+    state.capture_reference = None;
+    state.torch_requested = None;
+    let error = cx
+        .input
+        .capability_error(REQUEST_CAMERA_PERMISSION)
+        .or_else(|| cx.input.capability_error(GET_CAMERA_AVAILABILITY))
+        .or_else(|| cx.input.capability_error(CAPTURE_PHOTO))
+        .or_else(|| cx.input.capability_error(SET_CAMERA_FLASHLIGHT));
+    match error {
+        Some(error) => {
+            state.status_key = if error.code == "unsupported" {
+                "repair.unavailable"
+            } else {
+                "repair.failed"
+            }
+            .into();
+            state.error = Some(format!("{}: {}", error.code, error.message));
+        }
+        None => unexpected(state),
+    }
+}
+
+pub fn prepare_review(state: &mut RepairState) {
+    if state.busy {
+        return;
+    }
+    let Some(photo) = state.photo.as_ref() else {
+        return;
+    };
+    let reference = state.reference.trim();
+    if reference.is_empty() || state.note.trim().is_empty() || photo.reference != reference {
+        return;
+    }
+    state.review = Some(ReviewSnapshot {
+        reference: reference.to_owned(),
+        note: state.note.trim().to_owned(),
+        photo: photo.clone(),
+    });
+}
+```
+</TabItem>
+<TabItem label="src/app/screen.rs">
+<!-- fission:file path="src/app/screen.rs" -->
+```rust
+use super::state::{capture, check_camera, prepare_review, toggle_torch, RepairState};
 use fission::prelude::*;
 
 fission_component! {
-    pub WorkOrderScreen<()> {
-        state {
-            note_draft: String = String::new(),
-        }
-    }
-    view(screen, _state, cx) {
+    pub RepairScreen<RepairState> {}
+    view(_screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some("work-order-screen".to_string()),
-        label: Some(cx.tr("work.title")),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(cx.tr("work.site"))
-                    .weight(tokens.typography.font_weight_bold),
-                Text(cx.tr("work.title"))
-                    .size(tokens.typography.heading2_size),
-                Text(cx.tr("work.asset"))
-                    .color(tokens.colors.text_secondary),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text(cx.tr("work.context")),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-                TextInput(
-                    label: Some(cx.tr("work.note.label").into()),
-                    placeholder: Some(cx.tr("work.note.placeholder").into()),
-                    helper_text: Some(cx.tr("work.note.help").into()),
-                    bind: screen.note_draft,
-                    multiline: true,
-                    semantics_identifier: "work-order.note-draft".to_string(),
-                ),
+        let matching_photo = state.photo.as_ref()
+            .is_some_and(|photo| photo.reference == state.reference.trim());
+        let can_prepare = !state.busy && !state.reference.trim().is_empty()
+            && !state.note.trim().is_empty() && matching_photo;
+        let image_width = (cx.view.viewport_size().width - 2.0 * tokens.spacing.l).clamp(1.0, 560.0);
+    } => SafeArea(child: Scroll(child: Container(Column(gap: tokens.spacing.m, children: [
+        Text(cx.tr("repair.title")).size(tokens.typography.heading2_size),
+        Text(cx.tr("repair.explanation")),
+        Row(gap: tokens.spacing.s, children: [
+            Button(child: Text(cx.tr("language.english")), key: "english",
+                on_press: reduce { state.locale = Locale::from("en-US"); }),
+            Button(child: Text(cx.tr("language.spanish")), key: "spanish",
+                on_press: reduce { state.locale = Locale::from("es-ES"); }),
+        ]),
+        FormControl(
+            label: Some(cx.tr("repair.reference")),
+            required: true,
+            child: TextInput(
+                value: state.reference.clone(),
+                bind(on_input): to(state.reference),
+            ),
+        ),
+        FormControl(
+            label: Some(cx.tr("repair.note")),
+            required: true,
+            child: TextInput(
+                value: state.note.clone(),
+                bind(on_input): to(state.note),
+                multiline: true,
+                keyboard_type: TextInputType::Multiline,
+            ),
+        ),
+        Button(child: Text(cx.tr("repair.check_camera")), key: "camera-access",
+            disabled: state.busy || state.torch_on,
+            on_press: reduce { check_camera(state, cx); }),
+        Button(child: Text(cx.tr("repair.capture")), key: "capture",
+            disabled: state.busy || state.device.is_none() || state.reference.trim().is_empty(),
+            on_press: reduce { capture(state, cx); }),
+        if state.device.as_ref().is_some_and(|device| device.has_flashlight) {
+            Button(child: Text(cx.tr(if state.torch_on { "repair.torch_off" } else { "repair.torch_on" })),
+                key: "torch", disabled: state.busy,
+                on_press: reduce { toggle_torch(state, cx); })
+        } else { Text(cx.tr("repair.no_torch")) },
+        if state.busy {
+            Spinner(motion: Some(SpinnerMotion::Default), label: Some(cx.tr(&state.status_key)))
+        },
+        Text(cx.tr(&state.status_key)),
+        if let Some(error) = &state.error { Code(text: error.clone()) },
+        if let Some(photo) = &state.photo {
+            Column(gap: tokens.spacing.s, children: [
+                Text(cx.tr("repair.photo_for").replace("{reference}", &photo.reference)),
+                Image::memory(photo.bytes.clone()).size(image_width, image_width * 0.75)
+                    .fit(ir_op::ImageFit::Contain).semantic_label(cx.tr("repair.photo_label")),
             ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
+        },
+        Button(child: Text(cx.tr("repair.prepare")), key: "prepare", disabled: !can_prepare,
+            on_press: reduce { prepare_review(state); }),
+        if let Some(review) = &state.review {
+            Column(gap: tokens.spacing.s, children: [
+                Text(cx.tr("repair.prepared")).weight(tokens.typography.font_weight_semibold),
+                Text(review.reference.clone()),
+                Text(review.note.clone()),
+                Text(cx.tr("repair.prepared_photo").replace("{bytes}", &review.photo.bytes.len().to_string())),
+            ])
+        },
+        Text(cx.tr("repair.scope")).color(tokens.colors.text_secondary),
+    ])).padding_all(tokens.spacing.l)))
+}
+```
+</TabItem>
+<TabItem label="src/i18n.rs">
+<!-- fission:file path="src/i18n.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid voice note translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+
+pub fn sync_env(state: &crate::app::RepairState, env: &mut Env) {
+    env.locale = state.locale.clone();
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod i18n;
+
+use app::{RepairScreen, RepairState};
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<RepairState, _>::new(RepairScreen)
+        .with_env(i18n::create_env())
+        .with_async(|asyncs| {
+            asyncs.register_job(app::jobs::COLLECT_PHOTO, |request, cx| async move {
+                app::jobs::collect_photo(request, cx).await
+            });
+        })
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    MobileApp::<RepairState, _>::new(RepairScreen)
+        .with_env(i18n::create_env())
+        .with_async(|asyncs| {
+            asyncs.register_job(app::jobs::COLLECT_PHOTO, |request, cx| async move {
+                app::jobs::collect_photo(request, cx).await
+            });
+        })
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = MobileApp::<RepairState, _>::new(RepairScreen)
+        .with_env(i18n::create_env())
+        .with_async(|asyncs| {
+            asyncs.register_job(app::jobs::COLLECT_PHOTO, |request, cx| async move {
+                app::jobs::collect_photo(request, cx).await
+            });
+        })
+        .with_sync_env(i18n::sync_env)
+        .run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<RepairState, _>::new(RepairScreen)
+        .with_env(i18n::create_env())
+        .with_async(|asyncs| {
+            asyncs.register_job(app::jobs::COLLECT_PHOTO, |request, cx| async move {
+                app::jobs::collect_photo(request, cx).await
+            });
+        })
+        .with_sync_env(i18n::sync_env)
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
@@ -106,413 +575,152 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
-
-use std::collections::HashMap;
+mod i18n;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-fn preview_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    env.i18n.add_bundle(TranslationBundle {
-        locale: Locale::from("en-US"),
-        messages: HashMap::from([
-            ("work.site".into(), "Northbank Maintenance · compressor bay".into()),
-            ("work.title".into(), "Capture evidence for a repair".into()),
-            ("work.asset".into(), "CMP-7A-2219 · worn coupling guard".into()),
-            ("work.pending".into(), "Inspection notes not confirmed".into()),
-            ("work.complete".into(), "Inspection notes confirmed".into()),
-            ("work.mark".into(), "Confirm inspection notes".into()),
-            ("work.recorded".into(), "Notes confirmed".into()),
-            ("work.waiting".into(), "Waiting for the Fission host…".into()),
-            ("work.error".into(), "The host could not complete this action".into()),
-            ("work.result".into(), "Host result".into()),
-            ("work.ready".into(), "Ready. This preview uses a deterministic in-memory provider.".into()),
-            ("work.note.label".into(), "Inspection note draft".into()),
-            ("work.note.placeholder".into(), "Describe what you found on site".into()),
-            ("work.note.help".into(), "Draft only; it stays in this screen and is not saved or attached.".into()),
-            ("work.context".into(), "Check the framing and purpose before opening the camera.".into()),
-            ("work.action".into(), "Record photo review".into())
-        ]),
-    });
-    env.i18n.add_bundle(TranslationBundle {
-        locale: Locale::from("es-ES"),
-        messages: HashMap::from([
-            ("work.site".into(), "Mantenimiento Northbank · sala de compresores".into()),
-            ("work.title".into(), "Capturar evidencia para una reparación".into()),
-            ("work.asset".into(), "CMP-7A-2219 · protector de acoplamiento desgastado".into()),
-            ("work.pending".into(), "Notas de inspección sin confirmar".into()),
-            ("work.complete".into(), "Notas de inspección confirmadas".into()),
-            ("work.mark".into(), "Confirmar las notas de inspección".into()),
-            ("work.recorded".into(), "Notas confirmadas".into()),
-            ("work.waiting".into(), "Esperando al host de Fission…".into()),
-            ("work.error".into(), "El host no pudo completar esta acción".into()),
-            ("work.result".into(), "Resultado del host".into()),
-            ("work.ready".into(), "Listo. Esta vista previa usa un proveedor en memoria.".into()),
-            ("work.note.label".into(), "Borrador de nota de inspección".into()),
-            ("work.note.placeholder".into(), "Describe lo que observaste en el lugar".into()),
-            ("work.note.help".into(), "Solo borrador; permanece en esta pantalla y no se guarda ni se adjunta.".into()),
-            ("work.context".into(), "Revisa el encuadre y el propósito antes de abrir la cámara.".into()),
-            ("work.action".into(), "Registrar revisión de la foto".into())
-        ]),
-    });
-    env
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::WorkOrderScreen)
-        .with_env(preview_env())
-        .with_title("Work-order preview")
+    WebApp::<app::RepairState, _>::new(app::RepairScreen)
+        .with_env(i18n::create_env())
+        .with_async(|asyncs| {
+            asyncs.register_job(app::jobs::COLLECT_PHOTO, |request, cx| async move {
+                app::jobs::collect_photo(request, cx).await
+            });
+        })
+        .with_sync_env(i18n::sync_env)
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+repair.title: "Photograph a repair inspection"
+repair.explanation: "Enter the actual asset reference and inspection note, then attach a real camera photo."
+repair.reference: "Asset or repair reference"
+repair.note: "Condition observed"
+repair.check_camera: "Check camera access and features"
+repair.capture: "Capture inspection photo"
+repair.torch_on: "Turn flashlight on"
+repair.torch_off: "Turn flashlight off"
+repair.no_torch: "Flashlight control is shown only after this camera reports a torch."
+repair.ready: "No camera request has been made."
+repair.permission_pending: "Waiting for camera permission…"
+repair.features_pending: "Checking camera features…"
+repair.denied: "Camera access was denied or restricted. Keep the note and review device policy or Settings."
+repair.unknown: "Camera permission remains unknown. The note is unchanged."
+repair.camera_ready: "The host reported a camera available. Capture still needs to succeed."
+repair.unavailable: "The camera operation is unavailable on this host."
+repair.capture_pending: "Capturing a photograph…"
+repair.image_pending: "Reading the actual image…"
+repair.attached: "The camera image is attached in this session."
+repair.failed: "The operation failed. The previous image and draft are unchanged."
+repair.unexpected: "The host returned no usable result. The previous image and draft are unchanged."
+repair.torch_pending: "Waiting for the flashlight response…"
+repair.torch_changed: "The host confirmed the flashlight request."
+repair.photo_for: "Camera photo for asset {reference}"
+repair.photo_label: "Actual camera photo for the inspected asset"
+repair.prepare: "Prepare repair review"
+repair.prepared: "Prepared review snapshot — not sent"
+repair.prepared_photo: "This snapshot contains the actual {bytes}-byte photograph."
+repair.scope: "Everything is session-local. Preparing a review does not save it or send a repair request. Turn the flashlight off when finished."
+language.english: "English"
+language.spanish: "Español"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+repair.title: "Fotografiar una inspección"
+repair.explanation: "Introduce la referencia real del equipo y la observación; después adjunta una foto de la cámara."
+repair.reference: "Referencia de equipo o reparación"
+repair.note: "Estado observado"
+repair.check_camera: "Comprobar acceso y funciones de cámara"
+repair.capture: "Capturar foto de inspección"
+repair.torch_on: "Encender la linterna"
+repair.torch_off: "Apagar la linterna"
+repair.no_torch: "El control aparece solo cuando esta cámara indica que tiene linterna."
+repair.ready: "No se ha solicitado acceso a la cámara."
+repair.permission_pending: "Esperando el permiso de cámara…"
+repair.features_pending: "Comprobando las funciones de cámara…"
+repair.denied: "El acceso fue denegado o restringido. Conserva la nota y revisa la política del dispositivo o Ajustes."
+repair.unknown: "El permiso sigue siendo desconocido. La nota no ha cambiado."
+repair.camera_ready: "El host indicó una cámara disponible. La captura aún debe completarse."
+repair.unavailable: "La operación de cámara no está disponible en este host."
+repair.capture_pending: "Capturando una fotografía…"
+repair.image_pending: "Leyendo la imagen real…"
+repair.attached: "La foto de cámara está adjunta durante esta sesión."
+repair.failed: "La operación falló. La imagen anterior y el borrador no han cambiado."
+repair.unexpected: "El host no devolvió un resultado utilizable. La imagen anterior y el borrador no han cambiado."
+repair.torch_pending: "Esperando la respuesta de la linterna…"
+repair.torch_changed: "El host confirmó la solicitud de linterna."
+repair.photo_for: "Foto de cámara del equipo {reference}"
+repair.photo_label: "Foto real de cámara del equipo inspeccionado"
+repair.prepare: "Preparar revisión de reparación"
+repair.prepared: "Resumen preparado — no enviado"
+repair.prepared_photo: "Este resumen contiene la fotografía real de {bytes} bytes."
+repair.scope: "Todo permanece en esta sesión. Preparar una revisión no la guarda ni envía una solicitud de reparación. Apaga la linterna al terminar."
+language.english: "Inglés"
+language.spanish: "Español"
+```
+</TabItem>
 </Tabs>
-<!-- fission:preview -->
 
+<!-- fission:preview -->
 <!-- fission:checkpoint -->
-This stage is an app screen with a real state transition, not a device mock. The next stage connects a separate user action to the typed Camera capability and shows its success or error result.
+Enter an asset and observation, check access and capture. Inspect the actual returned image. Preparing a repair review must remain disabled when its asset reference differs from the photo's reference.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Run the Camera operation through Fission
+## Treat the stream as a resource, not a success message
 
-Keep host work out of component conversion. The button dispatches a typed action; the reducer requests permission and only queues capture after the host grants it. Separate completion reducers update the screen. The Web preview installs `MemoryCameraHost`, whose deterministic permission and sample image exercise the same typed path without opening a browser camera.
+The camera returns metadata and a one-shot stream handle. The registered job opens that handle, reads asynchronously with an eight-MiB bound and accepts only the documented JPEG/PNG dimensions. The old photo remains visible until a complete replacement has been collected. A metadata-only result never becomes a new attachment.
 
-The result includes image metadata and a one-shot stream handle. This example reports the metadata; it does not save or upload the photo. Consume the stream in a job or service before treating it as attached evidence.
+Both the shell and preview register that job. Forgetting the registration would leave a valid-looking button whose completion can never produce usable evidence. Each effect callback is explicitly bound and decodes its own actual typed result; there is no manually maintained second callback registry.
 
-<Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
-```rust
-use fission::prelude::*;
+Only one capture, collection or torch request is admitted at a time. This makes the small workflow's ownership clear without an unnecessary operation-ID mechanism. If you allow concurrent work or switch inspections whilst operations are pending, add an explicit request identity and reject stale completions.
 
-#[derive(Debug, Default)]
-pub struct WorkOrderState {
-    pub pending: bool,
-    pub result: Option<String>,
-    pub error: Option<String>,
-}
+The current native iOS capture uses a still-photo API, not a live viewfinder. Its cancellation method is currently a no-op. This screen therefore promises neither interactive framing nor a functioning Cancel button. A product requiring those controls needs the corresponding native capture UI and lifecycle policy before release.
 
-impl GlobalState for WorkOrderState {}
-
-#[fission_reducer(RunCapability)]
-pub fn run_capability(state: &mut WorkOrderState, ctx: &mut ReducerContext<WorkOrderState>) {
-    state.pending = true;
-    state.result = None;
-    state.error = None;
-
-    let ok: ActionEnvelope = CameraPermissionReceived.into();
-    let err: ActionEnvelope = CameraPermissionFailed.into();
-
-    ctx.effects
-        .camera()
-        .request_permission(CameraPermissionRequest {
-            reason: Some("Capture a photo of the damaged compressor guard.".into()),
-        })
-        .on_ok(ok)
-        .on_err(err);
-}
-
-#[fission_reducer(CameraPermissionReceived)]
-pub fn camera_permission_received(
-    state: &mut WorkOrderState,
-    ctx: &mut ReducerContext<WorkOrderState>,
-) {
-    match ctx.input.capability_ok(REQUEST_CAMERA_PERMISSION) {
-        Some(CameraPermission::Granted) => {
-            state.pending = true;
-            let ok: ActionEnvelope = CapabilitySucceeded.into();
-            let err: ActionEnvelope = CapabilityFailed.into();
-
-            ctx.effects
-                .camera()
-                .capture_photo(CameraCaptureRequest {
-                    camera_id: None,
-                    facing: CameraFacing::Back,
-                    resolution: Some(CameraResolution { width: 1_600, height: 1_200 }),
-                    format: CameraImageFormat::Jpeg,
-                    flash: CameraFlashMode::Auto,
-                    quality: Some(86),
-                })
-                .on_ok(ok)
-                .on_err(err);
-        }
-        Some(CameraPermission::Denied | CameraPermission::Restricted) => {
-            state.pending = false;
-            state.error = Some(
-                "Camera access was not granted. Allow it in device Settings to capture evidence."
-                    .into(),
-            );
-        }
-        Some(CameraPermission::Unknown) | None => {
-            state.pending = false;
-            state.error = Some("The host did not confirm camera permission.".into());
-        }
-    }
-}
-
-#[fission_reducer(CameraPermissionFailed)]
-pub fn camera_permission_failed(
-    state: &mut WorkOrderState,
-    ctx: &mut ReducerContext<WorkOrderState>,
-) {
-    state.pending = false;
-    state.result = None;
-    state.error = Some(ctx
-        .input
-        .capability_error(REQUEST_CAMERA_PERMISSION)
-        .map(|error| format!("{}: {}", error.code, error.message))
-        .or_else(|| {
-            ctx.input
-                .capability_error_message(REQUEST_CAMERA_PERMISSION)
-                .map(str::to_owned)
-        })
-        .unwrap_or_else(|| "The host returned no camera permission result.".into()));
-}
-
-#[fission_reducer(CapabilitySucceeded)]
-pub fn capability_succeeded(
-    state: &mut WorkOrderState,
-    ctx: &mut ReducerContext<WorkOrderState>,
-) {
-    state.pending = false;
-    state.error = None;
-    state.result = ctx
-        .input
-        .capability_ok(CAPTURE_PHOTO)
-        .map(|value| {
-            format!(
-                "Camera returned a {}×{} {} image in a one-shot stream.",
-                value.width, value.height, value.content_type
-            )
-        });
-    if state.result.is_none() {
-        state.error = Some("The host completed without the expected typed result.".into());
-    }
-}
-
-#[fission_reducer(CapabilityFailed)]
-pub fn capability_failed(
-    state: &mut WorkOrderState,
-    ctx: &mut ReducerContext<WorkOrderState>,
-) {
-    state.pending = false;
-    state.result = None;
-    state.error = Some(ctx
-        .input
-        .capability_error(CAPTURE_PHOTO)
-        .map(|error| format!("{}: {}", error.code, error.message))
-        .or_else(|| {
-            ctx.input
-                .capability_error_message(CAPTURE_PHOTO)
-                .map(str::to_owned)
-        })
-        .unwrap_or_else(|| "The host returned an error without details.".into()));
-}
-
-pub fn callback_registry() -> ActionRegistry<WorkOrderState> {
-    let mut registry = ActionRegistry::new();
-    registry.register(reduce_with!(camera_permission_received));
-    registry.register(reduce_with!(camera_permission_failed));
-    registry.register(reduce_with!(capability_succeeded));
-    registry.register(reduce_with!(capability_failed));
-    registry
-}
-
-fission_component! {
-    pub WorkOrderScreen<WorkOrderState> {
-        state {
-            note_draft: String = String::new(),
-        }
-    }
-    view(screen, state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let action = with_reducer!(cx.build, RunCapability, run_capability);
-        let status = if state.pending {
-            cx.tr("work.waiting")
-        } else if let Some(error) = &state.error {
-            format!("{}: {error}", cx.tr("work.error"))
-        } else if let Some(result) = &state.result {
-            format!("{}: {result}", cx.tr("work.result"))
-        } else {
-            cx.tr("work.ready")
-        };
-    } =>
-    SemanticsRegion(
-        identifier: Some("work-order-camera".to_string()),
-        label: Some(cx.tr("work.title")),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(cx.tr("work.site"))
-                    .weight(tokens.typography.font_weight_bold),
-                Text(cx.tr("work.title"))
-                    .size(tokens.typography.heading2_size),
-                Text(cx.tr("work.asset"))
-                    .color(tokens.colors.text_secondary),
-                Text(cx.tr("work.context")),
-                TextInput(
-                    label: Some(cx.tr("work.note.label").into()),
-                    placeholder: Some(cx.tr("work.note.placeholder").into()),
-                    helper_text: Some(cx.tr("work.note.help").into()),
-                    bind: screen.note_draft,
-                    multiline: true,
-                    semantics_identifier: "work-order.note-draft".to_string(),
-                ),
-                Button(
-                    child: Text(cx.tr("work.action")),
-                    key: "run-capability",
-                    variant: ButtonVariant::Primary,
-                    disabled: state.pending,
-                    loading: state.pending,
-                    on_press: action,
-                ),
-                Container(Text(status))
-                    .padding_all(tokens.spacing.m)
-                    .bg(tokens.colors.background)
-                    .border(tokens.colors.border, 1.0)
-                    .border_radius(tokens.radii.medium),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
-}
-```
-</TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-
-use std::collections::HashMap;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-fn preview_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    env.i18n.add_bundle(TranslationBundle {
-        locale: Locale::from("en-US"),
-        messages: HashMap::from([
-            ("work.site".into(), "Northbank Food Hub".into()),
-            ("work.title".into(), "WO-1048 · Cold-room compressor".into()),
-            ("work.asset".into(), "Asset CMP-7A-2219 · due today".into()),
-            ("work.pending".into(), "No camera request prepared".into()),
-            ("work.complete".into(), "Camera returned a sample image".into()),
-            ("work.mark".into(), "Capture equipment photo".into()),
-            ("work.recorded".into(), "Capture complete".into()),
-            ("work.waiting".into(), "Waiting for the Fission host…".into()),
-            ("work.error".into(), "The host could not complete this action".into()),
-            ("work.result".into(), "Host result".into()),
-            ("work.ready".into(), "Ready. This preview uses a deterministic in-memory provider.".into()),
-            ("work.note.label".into(), "Inspection note draft".into()),
-            ("work.note.placeholder".into(), "Describe what you found on site".into()),
-            ("work.note.help".into(), "Draft only; it stays in this screen and is not saved or attached.".into()),
-            ("work.context".into(), "Capture the damaged guard. The result is an image stream; store or upload it in a job before treating it as attached evidence.".into()),
-            ("work.action".into(), "Capture inspection photo".into())
-        ]),
-    });
-    env.i18n.add_bundle(TranslationBundle {
-        locale: Locale::from("es-ES"),
-        messages: HashMap::from([
-            ("work.site".into(), "Centro de alimentos Northbank".into()),
-            ("work.title".into(), "OT-1048 · Compresor de cámara fría".into()),
-            ("work.asset".into(), "Activo CMP-7A-2219 · vence hoy".into()),
-            ("work.pending".into(), "No se ha preparado una solicitud de cámara".into()),
-            ("work.complete".into(), "La cámara devolvió una imagen de ejemplo".into()),
-            ("work.mark".into(), "Capturar foto del equipo".into()),
-            ("work.recorded".into(), "Captura completada".into()),
-            ("work.waiting".into(), "Esperando al host de Fission…".into()),
-            ("work.error".into(), "El host no pudo completar esta acción".into()),
-            ("work.result".into(), "Resultado del host".into()),
-            ("work.ready".into(), "Listo. Esta vista previa usa un proveedor en memoria.".into()),
-            ("work.note.label".into(), "Borrador de nota de inspección".into()),
-            ("work.note.placeholder".into(), "Describe lo que observaste en el lugar".into()),
-            ("work.note.help".into(), "Solo borrador; permanece en esta pantalla y no se guarda ni se adjunta.".into()),
-            ("work.context".into(), "Captura el protector dañado. El resultado es un flujo de imagen; guárdalo o súbelo mediante un job antes de tratarlo como evidencia adjunta.".into()),
-            ("work.action".into(), "Capturar foto de inspección".into())
-        ]),
-    });
-    env
-}
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    let mut app = WebApp::<app::WorkOrderState, _>::new(app::WorkOrderScreen)
-        .with_env(preview_env())
-        .with_camera_host(MemoryCameraHost::default())
-        .with_title("Mobile Camera capability preview");
-    app.absorb_registry(app::callback_registry());
-    app.mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-</Tabs>
 <!-- fission:preview -->
-
 <!-- fission:checkpoint -->
-The preview exercises permission and capture with an in-memory host. On Android and iOS, verify the native permission prompt, denial path, and captured metadata on a supported simulator or physical device. To retain the actual photo, consume its one-shot stream in a job or service.
+Deny access or fail a replacement. The prior image, note and prepared review must remain available. A browser cannot qualify either mobile host's camera, privacy prompt or flashlight.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Verify the native request on Android and iOS
+## Run the same inspection on both targets
 
-Build and launch this target on a supported emulator or device, then use the feature action above. Check the result the host returns, including denial, cancellation or unsupported hardware where those outcomes apply.
-
-Repeat with the feature unavailable, denied or cancelled, as applicable. Confirm the screen preserves the user’s existing data and offers the right recovery step. Use a physical device when the behavior depends on real hardware or an operating-system prompt.
-
-### Run, test and build
+Use the configured Android emulator or a connected phone:
 
 ```sh
-cargo test
 fission doctor android --project-dir .
 fission run --target android --project-dir .
 fission test --target android --project-dir .
-fission build --target android --project-dir . --release
+adb devices -l
+fission run --target android --device <adb-serial> --project-dir .
 ```
 
-`cargo test` runs Rust tests you add for reducer or stale-completion rules; the generated scaffold does not create those feature tests. `fission doctor` checks each target’s toolchain, `fission run` launches its emulator or Simulator, and `fission test` checks that the generated host can start. A release build validates packaging, not real hardware behavior.
-
-
-### Run the shared project on both mobile targets
-
-Run both target checks from the generated project root:
+On macOS, launch the iOS simulator:
 
 ```sh
-fission doctor android --project-dir .
-fission run --target android --project-dir .
 fission doctor ios --project-dir .
+fission devices --project-dir .
 fission run --target ios --project-dir .
-fission test --target android --project-dir .
 fission test --target ios --project-dir .
 ```
 
+Follow [physical iPhone installation](/blog/install-a-fission-app-on-a-physical-iphone/) for a signed phone build. Test real permission grant/denial, image contents, a larger image exceeding the bound, background/foreground transitions and torch on/off where reported. Switch language and inspect small-screen scrolling with the keyboard open.
 
-Verify the relevant hardware on a connected Android phone and a signed iPhone build. Use `adb devices -l` and `fission run --target android --device <adb-serial> --project-dir .` for Android. For iOS, use `fission package --project-dir . --target ios --format ipa --release` and install through Xcode Devices and Simulators. The iOS `fission run` path is simulator-only.
+A prepared repair review is not a submitted report. Persisting or uploading it requires a separate authenticated service flow which confirms the write before the UI reports durable success. Keep that result distinct from capturing bytes into session memory.
 
-
-### Current references
-
-Use these for the media widgets, Camera provider, and state flow shown above:
-
-- [Media](/reference/widgets/media/)
 - [Camera capability guide](/docs/capabilities/camera/)
 - [Camera capability reference](/reference/capabilities/camera/)
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
+- [Controlled provider testing](/blog/test-mobile-capability-flows-without-depending-on-hardware-for-every-test/)
 <!-- /fission:step -->

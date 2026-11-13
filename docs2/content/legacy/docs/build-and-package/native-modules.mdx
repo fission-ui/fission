@@ -54,7 +54,12 @@ platform = "x64"
 cargo_package = "device-protection-helper"
 ```
 
-The module `path` is only a source-root hint. Platform paths still resolve from the project root unless the field says otherwise in the [`fission.toml` reference](/reference/config/fission-toml/). Prefer project-relative paths so CI, teammates, and release reviewers see the same structure.
+The module `path` is only a source-root hint. Platform paths still resolve from
+the project root unless the field says otherwise in the
+[`fission.toml` reference](/reference/config/fission-toml/). Keep source and
+generated-product paths project-relative so the declared module graph survives
+a checkout on another machine. Private signing inputs are a different kind of
+path: they must resolve on the signing host without entering the public tree.
 
 ## macOS extensions
 
@@ -75,10 +80,10 @@ scheme = "FileProvider"
 bundle = "FileProvider.appex"
 kind = "app-extension"
 entitlements = "platforms/macos/native/FileProvider.entitlements"
-provisioning_profile = "profiles/FileProvider.provisionprofile"
+provisioning_profile = "/path/to/private/FileProvider.provisionprofile"
 
 [native.modules.macos.products.run]
-provisioning_profile = "profiles/FileProviderDevelopment.provisionprofile"
+provisioning_profile = "/path/to/private/FileProviderDevelopment.provisionprofile"
 signing_identity = "Apple Development"
 ```
 
@@ -226,7 +231,14 @@ product = "ScannerSDK"
 from = "1.2.3"
 ```
 
-Keep privacy strings, usage descriptions, entitlements, and capability declarations in the normal target/capability configuration. Native modules should supply native source/dependency information, not hide product policy.
+The scanner dependency coordinates above are illustrative placeholders, not a
+downloadable Fission SDK. Use the vendor's real, pinned package and checked-in
+native adapter source. Fission already has camera/barcode capabilities; add a
+native module only when the actual SDK requirement goes beyond those providers.
+
+Keep privacy strings, usage descriptions, entitlements, and capability
+declarations in the normal target/capability configuration. Linking a framework
+does not request user consent or establish the app's permission policy.
 
 ## How native modules flow through commands
 

@@ -14,14 +14,11 @@ the instruction.
 ```rust
 use fission::prelude::*;
 
-let chord = HStack {
-    spacing: Some(6.0),
-    children: vec![
-        Kbd { text: "Ctrl".into() }.into(),
-        Kbd { text: "C".into() }.into(),
-    ],
-}
-.into();
+// In view: copy_modifier is derived from the actual bound host shortcut.
+Row(gap: cx.view.env().theme.tokens.spacing.xs, children: [
+    Kbd(text: copy_modifier.clone()),
+    Kbd(text: "C"),
+])
 ```
 
 Building each key separately usually reads better than putting the whole chord in one box.

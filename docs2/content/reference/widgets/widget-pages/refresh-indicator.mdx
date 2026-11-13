@@ -15,18 +15,37 @@ drag events, and `on_refresh` starts the refresh work.
 ```rust
 use fission::prelude::*;
 
-let content = RefreshIndicator::new(product_list)
-    .id(WidgetId::explicit("catalog.refresh"))
-    .status(view.state().refresh_status)
-    .pulled_extent(view.state().pulled_extent)
-    .trigger_distance(80.0)
-    .displacement(64.0)
-    .on_pull_start(with_reducer!(ctx, PullStarted, on_pull_started))
-    .on_pull_update(with_reducer!(ctx, PullUpdated, on_pull_updated))
-    .on_pull_cancel(with_reducer!(ctx, PullCanceled, on_pull_canceled))
-    .on_refresh(with_reducer!(ctx, RefreshProducts, on_refresh_products))
-    .into();
+fission_component! {
+    pub RefreshableCatalog<()> {
+        props {
+            products: Widget,
+            status: RefreshIndicatorStatus,
+            pulled_extent: f32,
+            start_pull: ActionEnvelope,
+            update_pull: ActionEnvelope,
+            cancel_pull: ActionEnvelope,
+            refresh: ActionEnvelope,
+        }
+    }
+
+    view(catalog, _state, _cx) =>
+        RefreshIndicator(
+            catalog.products.clone(),
+            id: WidgetId::explicit("catalog.refresh"),
+            status: catalog.status,
+            pulled_extent: catalog.pulled_extent,
+            on_pull_start: catalog.start_pull.clone(),
+            on_pull_update: catalog.update_pull.clone(),
+            on_pull_cancel: catalog.cancel_pull.clone(),
+            on_refresh: catalog.refresh.clone(),
+        )
+}
 ```
+
+The parent supplies one owned scrollable catalog and actions bound to its
+refresh lifecycle. The refresh reducer guards duplicate requests, marks
+`Refreshing`, and queues a job; both completion paths settle the indicator and
+preserve existing data on failure. A retry remains available without a pull gesture.
 
 `on_pull_update` receives pointer drag data through the reducer context. Store the accumulated pulled distance in state. When the user releases after crossing `trigger_distance`, `on_refresh` fires.
 
@@ -44,8 +63,8 @@ let content = RefreshIndicator::new(product_list)
 | `color` | `Option<Color>` | Progress arc color override. | Defaults to theme primary. |
 | `background_color` | `Option<Color>` | Indicator container background override. | Defaults to theme surface. |
 | `track_color` | `Option<Color>` | Progress track color override. | Defaults to theme border. |
-| `stroke_width` | `f32` | Progress stroke width. | Defaults to `4.0`. |
-| `indicator_size` | `f32` | Inner progress indicator size. | Defaults to `36.0`. |
+| `stroke_width` | `Option<f32>` | Progress stroke width. | `None` uses twice the theme's thick border width. |
+| `indicator_size` | `Option<f32>` | Inner progress indicator size. | `None` uses the refresh-indicator recipe. |
 | `on_pull_start` | `Option<ActionEnvelope>` | Action dispatched when dragging starts. | Usually sets status to `Drag`. |
 | `on_pull_update` | `Option<ActionEnvelope>` | Action dispatched for drag movement. | Usually updates `pulled_extent` and arms the refresh. |
 | `on_pull_cancel` | `Option<ActionEnvelope>` | Action dispatched when release does not refresh. | Usually resets status and pull distance. |
@@ -63,11 +82,9 @@ let content = RefreshIndicator::new(product_list)
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test sub-threshold cancellation, armed release, duplicate refresh, success, and failure.
+- Keep a labelled refresh action available without dragging.
+- Verify the indicator settles without discarding existing catalog data on a failed refresh.
 
 ## Related
 

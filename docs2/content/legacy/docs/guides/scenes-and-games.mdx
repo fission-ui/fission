@@ -31,7 +31,7 @@ For a 2D game with optional Rapier physics, enable the facade features:
 
 ```toml
 [dependencies]
-fission = { version = "0.15.1", features = [
+fission = { version = "0.16.0", features = [
   "desktop",
   "game",
   "scene2d",
@@ -60,40 +60,48 @@ Your app owns a serialisable scene value. The processor validates it and
 prepares draw, culling, diagnostics, bounds, and picking results. The scene
 does not contain renderer handles or backend types.
 
-```rust,ignore
+The following projection makes one model boundary concrete: a
+warehouse zone is a rectangle with an app-owned identity, geometry, and fill.
+It is a decorative scene node until the app supplies interaction metadata.
+
+```rust
+use fission::prelude::*;
 use fission::scene2d::*;
 
-let mut scene = Scene2DIR::new(
-    SceneId::new(1),
-    Viewport2D::new(960.0, 540.0),
-);
-scene.nodes.push(Node2D {
-    id: NodeId::new(1),
-    parent: None,
-    transform: Transform2::IDENTITY,
-    visible: true,
-    opacity: 1.0,
-    layer: 0,
-    blend_mode: BlendMode2D::Normal,
-    clip: None,
-    content: NodeContent2D::Rectangle {
-        rect: Rect2D::new(Vec2::ZERO, Vec2::new(120.0, 80.0)),
+fn zone_scene(
+    scene_id: SceneId,
+    zone_id: NodeId,
+    viewport: Viewport2D,
+    rect: Rect2D,
+    fill: Rgba,
+) -> Scene2DIR {
+    let mut scene = Scene2DIR::new(scene_id, viewport);
+    let mut zone = Node2D::group(zone_id);
+    zone.content = NodeContent2D::Rectangle {
+        rect,
         style: PathStyle2D {
-            fill: Some(Fill2D {
-                color: Rgba::new(0.18, 0.44, 0.94, 1.0),
-            }),
+            fill: Some(Fill2D { color: fill }),
             stroke: None,
         },
-        corner_radius: 8.0,
-    },
-    interaction: None,
-});
+        corner_radius: 0.0,
+    };
+    scene.nodes.push(zone);
+    scene
+}
 
-let viewport: Widget = Scene2D::new(scene)
-    .width(960.0)
-    .height(540.0)
-    .into();
+fission_component! {
+    pub ZonePreview<()> {
+        props { scene: Scene2DIR }
+    }
+    view(preview, _state, _cx) => Scene2D(preview.scene.clone())
+}
 ```
+
+The parent derives those inputs from its actual zone model. `zone_scene`
+returns scene data rather than a hidden widget tree; `ZonePreview` supplies
+the Compose component boundary. Its viewport dimensions come from the scene.
+Do not encode selection or inventory solely as fill colour—provide a semantic
+control and textual status for operations that matter to the user.
 
 `Scene3DIR` follows the same model. A 3D scene can contain cubes, spheres,
 application-provided triangle meshes, and static glTF or GLB models. It also
@@ -111,7 +119,12 @@ Implement `Game` for the authoritative simulation state. `react` handles typed
 messages, `step` advances one fixed simulation step, and `present` derives the
 scene. Rendering and physics remain projections of that state.
 
-```rust,ignore
+This implementation excerpt assumes the app defines `MyGame`, `GameMessage`,
+and the three domain methods below. `MyGame` must also implement `GameState`;
+the complete public-API examples later in the guide supply that runnable
+simulation, rather than leaving those functions as invented no-ops.
+
+```rust
 use fission::game::*;
 
 impl Game for MyGame {

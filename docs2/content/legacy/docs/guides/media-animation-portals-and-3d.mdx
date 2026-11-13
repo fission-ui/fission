@@ -5,13 +5,14 @@ description: Learn how Fission handles motion, overlays, embedded media, and the
 
 # Media, animation, portals, and 3D
 
-Media, animation, portals, and 3D each cross a different runtime boundary. This guide shows where Fission handles each one and when to reach for it.
+Opening a drawer, playing a video, and moving through a scene need different
+runtime mechanics. They should not each introduce another owner for app state.
+Fission keeps their declarations in the widget tree while the runtime or shell
+owns transient motion, overlay placement, and host-backed surfaces.
 
-Animation changes over time. Portals and overlays appear above the normal page flow. Media and embeds may depend on host-managed surfaces. Three-dimensional scenes feel like they belong to a separate rendering world.
-
-Fission keeps all four inside the same explicit runtime model as the rest of the user interface. That is the point of learning them together.
-
-They are not random exceptions. They are places where the framework proves that a serious app can still keep deterministic structure, explicit registration, and testable behavior.
+The distinction matters when testing: a deterministic layout can prove where
+the video belongs without proving the host decoder will play a particular
+file. Choose the boundary the requirement actually depends on.
 
 ## Animation: motion owned by the runtime
 
@@ -45,6 +46,11 @@ scale, drawers slide, tooltips and toasts ease in, tabs move their indicator,
 accordions collapse, and buttons ripple from the pointer. Each widget's
 `motion` field chooses another preset, and `Some(ModalMotion::None)` (or the
 matching `None` preset) turns one widget's motion off.
+
+Check the widget's actual default rather than assuming all loading indicators
+animate. `Spinner` has `motion: None` by default; use
+`Spinner(motion: SpinnerMotion::Default, label: cx.tr("loading.messages"))`
+for an animated, named pending state. `animated: true` is not its current API.
 
 To ship an app with no built-in motion, set `Env::widget_motion` once:
 
@@ -131,7 +137,10 @@ A common mistake is expecting every aspect of media playback to be as determinis
 
 Three-dimensional content often tempts frameworks into creating a separate mini-engine with its own rules. Fission deliberately avoids that split.
 
-The current 3D path is `Scene3D` from the `three-d` facade feature. It is treated as an embedded scene inside the normal layout system.
+For new retained scenes, use `fission::scene3d::Scene3D` through the `scene3d`
+feature. The older `three-d` facade path is a compatibility surface, not the
+best starting point for a new scene app. Import the intended type explicitly
+instead of assuming every `Scene3D` spelling has the same model.
 
 What is it? A widget that describes a 3D scene and lowers it into an embed-style runtime path.
 
@@ -143,7 +152,10 @@ When should you not use it? Do not use `Scene3D` as an excuse to move ordinary t
 
 A common mistake is assuming 3D should control the rest of the screen. In Fission, the main app still owns navigation, state flow, layout around the scene, and shell integration. The 3D scene is one surface inside that architecture, not a competing app runtime.
 
-The `chart-gallery` example is the current checked-in proof for this path.
+The [scenes and games guide](/docs/guides/scenes-and-games/) covers retained
+2D/3D scenes, their alpha boundaries, and the scene qualification examples.
+Chart-gallery's 3D examples exercise chart surfaces, not every scene or game
+capability.
 
 ## How these four topics still fit the core model
 

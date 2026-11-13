@@ -23,6 +23,11 @@ Screen readers, accessibility inspectors, remote-control tools, and native text 
 
 The bridge can report and update text values and selections. Platform tools can also inspect and operate buttons, checkboxes, radio buttons, sliders, and switches.
 
+Bridge integration is not proof that every screen-reader path is complete on
+every target. For current Android TalkBack, Web canvas, and other limitations,
+use the [accessibility matrix](/reference/platform/accessibility/) and test
+the actual controls with the target's assistive technology.
+
 ## Text input and IME composition
 
 Text input now keeps IME composition separate from committed text instead of flattening every incoming event into one value.

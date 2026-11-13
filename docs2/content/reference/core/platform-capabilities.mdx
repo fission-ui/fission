@@ -83,20 +83,22 @@ Clipboard has no generated platform config in the built-in declaration. Notifica
 A capability effect is queued from a reducer:
 
 ```rust
+let captured = ctx.effects.bind(AudioCaptured, reduce!(on_audio_captured));
+let failed = ctx.effects.bind(AudioCaptureFailed, reduce!(on_audio_capture_failed));
 ctx.effects
     .microphone()
     .capture_audio(MicrophoneCaptureRequest::default())
-    .on_ok(ctx.effects.bind(
-        AudioCaptured(MicrophoneCapture::default()),
-        reduce_with!(on_audio_captured),
-    ))
-    .on_err(ctx.effects.bind(
-        AudioCaptureFailed(MicrophoneError::default()),
-        reduce_with!(on_audio_failed),
-    ));
+    .on_ok(captured)
+    .on_err(failed);
 ```
 
-The reducer returns. The shell provider handles the request. The runtime dispatches either `AudioCaptured` with the provider's success payload or `AudioCaptureFailed` with the provider's error payload.
+These unit actions and reducers are defined in the [Microphone guide](/docs/capabilities/microphone/).
+The reducer returns, the shell handles the request, and the runtime dispatches
+one of those actions with separate completion input. The success reducer reads
+`ctx.input.capability_ok(CAPTURE_MICROPHONE_AUDIO)`; the error reducer reads
+`capability_error(...)` or its message fallback. Passing a default capture in
+the action would not cause the host to populate it. Bind callbacks before
+creating the effect builder because both need mutable access to `ctx.effects`.
 
 Unsupported default providers return typed errors. They do not silently succeed. App code should treat errors as expected state transitions and render useful recovery UI.
 

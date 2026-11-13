@@ -7,7 +7,10 @@ description: The reference overview for layout and structure widgets, including 
 
 Layout widgets answer one question before anything else in the user interface does: how should space be divided, constrained, layered, and protected?
 
-That makes them different from display widgets, which mostly show information, and input widgets, which mostly collect intent. Layout widgets decide the structure the rest of the user interface lives inside.
+The choice follows the relationship between the children. A row preserves a
+horizontal sequence; a grid makes both axes explicit; a stack layers children
+in one region. Using a more complicated layout does not remove the need to
+define those relationships, and often makes overflow harder to explain.
 
 ## How to choose among layout widgets
 
@@ -69,7 +72,7 @@ These widgets become important when a layout needs to react to host conditions o
 | `Clip` | [Clip](/reference/widgets/clip) | A child must be clipped to a region |
 | `Transform` | [Transform](/reference/widgets/transform) | A child needs visual transformation |
 | `Composite` | [Composite](/reference/widgets/composite) | You need composition or repaint-boundary control |
-| `FocusScope` | [FocusScope](/reference/widgets/focus-scope) | Focus traversal should stay within a layout region |
+| `FocusScope` | [FocusScope](/reference/widgets/focus-scope) | Group focus; enable a barrier only for deliberate containment |
 | `InteractiveViewer` | [InteractiveViewer](/reference/widgets/interactive-viewer) | One child needs a runtime pan-and-zoom camera |
 | `InfiniteCanvas` | [InfiniteCanvas](/reference/widgets/infinite-canvas) | Nodes and edges need a declarative, pannable world |
 

@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Handle Android location permission denials in a trail report app
-description: "Request Android location only when a trail crew asks for a map pin, and keep the report usable when access is denied."
-goal: Let trail crews report a hazard with an assigned trail segment, then add a map pin only when location access is available.
+description: "Keep a trail report editable when location is denied. Request access only for an optional pin and read the actual permission and position results."
+goal: "Draft a trail hazard report that works without coordinates, and add an optional pin only after location access has been confirmed."
 path: /blog/handle-android-capability-permissions-and-denial-states/
 order: 39
 difficulty: Beginner
@@ -10,19 +10,19 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-handle-android-capability-permissions-and-denial-states
 outcomes:
-  - Keep a trail report usable without GPS coordinates
-  - Ask for foreground location only after the crew member chooses to add a pin
-  - Preserve the report text when Android denies access or cannot return a position
-  - Verify grant, denial, and a later permission change on Android
+  - "Preserve the segment and observation through denial and position failures"
+  - "Separate requesting permission from checking the answer after Android's prompt"
+  - "Decode typed permission, position and error results rather than placeholder action data"
+  - "Check coarse access, revocation and later settings changes without requiring background location"
 ---
 
-Juniper County's trail crew records hazards during afternoon inspections. A report needs a trail segment and a clear description even when a phone has no signal or its user declines location access. A map pin is useful for a washout or fallen tree, but it must not block the report.
+A trail report needs a recognisable segment and a useful description. Coordinates can help the next crew find a fallen tree, but requiring them would make the whole report depend on permission, location services and a returned position.
 
-The app below keeps the report text in `GlobalState` and asks for a position only after **Request location access** and **Add map pin**. The browser preview uses Fission's `MemoryGeolocationHost`: it returns a documented test position through the real capability path, but it does not ask the browser for permission or claim to prove Android behavior. The Android app uses its native provider. In both cases this example keeps changes in memory only; there is no persistence or county-service upload.
+Here, those are separate concerns. The report starts empty and remains editable without location. The user requests foreground access only when a map pin is useful, checks the permission after the Android prompt, and then explicitly asks for a position. Nothing is saved or sent to a service in this example.
 
 ## Create the Android project
 
-Create the shared Rust app, add Android as a target, declare geolocation, and add the YAML parser used for the checked-in English and Spanish messages.
+Use [SDK/NDK setup](/blog/set-up-rust-android-gui-development-with-fission/) before launching on [an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [a phone](/blog/run-a-fission-app-on-a-physical-android-phone/).
 
 ```sh
 cargo install cargo-fission
@@ -33,22 +33,22 @@ fission add-capability geolocation --project-dir .
 cargo add serde_yaml
 ```
 
-The report screen and reducers stay in shared Rust code. The generated Android host handles the operating-system permission and location provider; it does not duplicate the report rules.
+Keep the generated `src/main.rs`. Shared state owns the draft and confirmed permission; the shell only configures and launches the same application. Locale is also state, mirrored into `Env` for both targets rather than selected independently by each widget.
 
 <!-- fission:step id="trail-report-permissions" -->
-## Build the report and optional location flow
+## Preserve the report whilst permission changes
 
-Start with an empty report in native builds. The preview seeds one example trail segment so the screen has something useful to try; that fixture is not part of the Android app. Text fields, permission state, and a returned position all live in `GlobalState`, while reducers request the host operation and handle success or failure.
+The callback action carries no invented permission or error. Completion reducers decode the actual typed result from `ctx.input`; binding an action with `Unknown` or a default error would preserve that placeholder instead of replacing it with the host response.
+
+A permission request is not itself a grant. The current Android provider asks for OS permission and immediately returns its current snapshot, potentially before the user answers. That is why the interface keeps **Request location access** and **Refresh access status** separate. An explicit check does not reopen the prompt.
 
 <Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
 ```rust
 use fission::prelude::*;
 
-pub mod translations;
-
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct TrailReportState {
     pub locale: Locale,
     pub trail_segment: String,
@@ -60,7 +60,22 @@ pub struct TrailReportState {
     pub issue: Option<TrailIssue>,
 }
 
+impl Default for TrailReportState {
+    fn default() -> Self {
+        Self {
+            locale: Locale::from("en-US"), trail_segment: String::new(),
+            observation: String::new(), permission: GeolocationPermission::Unknown,
+            permission_pending: false, location_pending: false, position: None, issue: None,
+        }
+    }
+}
 impl GlobalState for TrailReportState {}
+impl TrailReportState {
+    pub fn apply_permission(&mut self, permission: GeolocationPermission) {
+        self.permission = permission;
+        if permission != GeolocationPermission::Granted { self.position = None; }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrailIssue {
@@ -75,7 +90,7 @@ pub enum TrailIssue {
 }
 
 impl TrailIssue {
-    fn translation_key(self) -> &'static str {
+    pub fn translation_key(self) -> &'static str {
         match self {
             Self::PermissionRequestFailed => "trail.error.permission_request",
             Self::PermissionRefreshFailed => "trail.error.permission_refresh",
@@ -94,36 +109,22 @@ pub fn on_set_trail_locale(state: &mut TrailReportState, locale: Locale) {
     state.locale = locale;
 }
 
-#[fission_reducer(TrailSegmentChanged)]
-pub fn on_trail_segment_changed(
-    state: &mut TrailReportState,
-    ctx: &mut ReducerContext<TrailReportState>,
-) {
-    let Some(change) = ctx.input.text_change() else {
-        return;
-    };
-    state.trail_segment = change.new_text.clone();
-}
-
-#[fission_reducer(TrailObservationChanged)]
-pub fn on_trail_observation_changed(
-    state: &mut TrailReportState,
-    ctx: &mut ReducerContext<TrailReportState>,
-) {
-    let Some(change) = ctx.input.text_change() else {
-        return;
-    };
-    state.observation = change.new_text.clone();
-}
-
 #[fission_reducer(TrailPermissionReceived)]
 pub fn on_trail_permission_received(
-    state: &mut TrailReportState,
-    permission: GeolocationPermission,
+    state: &mut TrailReportState, ctx: &mut ReducerContext<TrailReportState>,
 ) {
     state.permission_pending = false;
-    state.permission = permission;
-    state.issue = None;
+    match ctx.input.capability_ok(REQUEST_GEOLOCATION_PERMISSION)
+        .or_else(|| ctx.input.capability_ok(GET_GEOLOCATION_PERMISSION)) {
+        Some(permission) => {
+            state.apply_permission(permission);
+            state.issue = None;
+        }
+        None => {
+            state.permission = GeolocationPermission::Unknown;
+            state.issue = Some(TrailIssue::PermissionRefreshFailed);
+        }
+    }
 }
 
 #[fission_reducer(TrailPermissionRequestFailed)]
@@ -143,13 +144,13 @@ pub fn on_request_trail_permission(
     state: &mut TrailReportState,
     ctx: &mut ReducerContext<TrailReportState>,
 ) {
-    if state.permission_pending {
+    if state.permission_pending || state.location_pending {
         return;
     }
     state.permission_pending = true;
     state.issue = None;
     let on_ok = ctx.effects.bind(
-        TrailPermissionReceived(GeolocationPermission::Unknown),
+        TrailPermissionReceived,
         reduce_with!(on_trail_permission_received),
     );
     let on_err = ctx.effects.bind(
@@ -171,13 +172,13 @@ pub fn on_refresh_trail_permission(
     state: &mut TrailReportState,
     ctx: &mut ReducerContext<TrailReportState>,
 ) {
-    if state.permission_pending {
+    if state.permission_pending || state.location_pending {
         return;
     }
     state.permission_pending = true;
     state.issue = None;
     let on_ok = ctx.effects.bind(
-        TrailPermissionReceived(GeolocationPermission::Unknown),
+        TrailPermissionReceived,
         reduce_with!(on_trail_permission_received),
     );
     let on_err = ctx.effects.bind(
@@ -208,11 +209,16 @@ pub fn on_trail_position_received(
 #[fission_reducer(TrailPositionFailed)]
 pub fn on_trail_position_failed(
     state: &mut TrailReportState,
-    error: GeolocationError,
+    ctx: &mut ReducerContext<TrailReportState>,
 ) {
     state.location_pending = false;
+    let error = ctx.input.capability_error(GET_CURRENT_POSITION);
+    let Some(error) = error else {
+        state.issue = Some(TrailIssue::PositionFailed);
+        return;
+    };
     if error.code == "permission_denied" {
-        state.permission = GeolocationPermission::Denied;
+        state.apply_permission(GeolocationPermission::Denied);
     }
     state.issue = Some(match error.code.as_str() {
         "permission_denied" => TrailIssue::PositionDenied,
@@ -228,7 +234,7 @@ pub fn on_add_trail_map_pin(
     state: &mut TrailReportState,
     ctx: &mut ReducerContext<TrailReportState>,
 ) {
-    if state.location_pending {
+    if state.location_pending || state.permission_pending {
         return;
     }
     if state.permission != GeolocationPermission::Granted {
@@ -242,7 +248,7 @@ pub fn on_add_trail_map_pin(
         reduce_with!(on_trail_position_received),
     );
     let on_err = ctx.effects.bind(
-        TrailPositionFailed(GeolocationError::default()),
+        TrailPositionFailed,
         reduce_with!(on_trail_position_failed),
     );
     ctx.effects
@@ -256,14 +262,36 @@ pub fn on_add_trail_map_pin(
         .on_err(on_err);
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn optional_location_does_not_initialise_or_destroy_report_text() {
+        let mut report = TrailReportState::default();
+        report.trail_segment = "Ridge trail".into();
+        report.observation = "Fallen branch across the path".into();
+        report.apply_permission(GeolocationPermission::Denied);
+        assert!(report.position.is_none());
+        assert!(!report.trail_segment.is_empty());
+        assert!(!report.observation.is_empty());
+    }
+}
+
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::*;
+
 fission_component! {
     pub TrailReportScreen<TrailReportState> {}
     view(_screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let english = with_reducer!(cx.build, SetTrailLocale(Locale::from("en-US")), on_set_trail_locale);
         let spanish = with_reducer!(cx.build, SetTrailLocale(Locale::from("es-ES")), on_set_trail_locale);
-        let segment_changed = with_reducer!(cx.build, TrailSegmentChanged, on_trail_segment_changed);
-        let observation_changed = with_reducer!(cx.build, TrailObservationChanged, on_trail_observation_changed);
         let request_permission = with_reducer!(cx.build, RequestTrailPermission, on_request_trail_permission);
         let refresh_permission = with_reducer!(cx.build, RefreshTrailPermission, on_refresh_trail_permission);
         let add_map_pin = with_reducer!(cx.build, AddTrailMapPin, on_add_trail_map_pin);
@@ -299,8 +327,8 @@ fission_component! {
                         Container(
                             Column(gap: tokens.spacing.m, children: [
                                 Text(cx.tr("trail.report.title")).weight(tokens.typography.font_weight_bold),
-                                TextInput(label: Some(cx.tr("trail.segment.label").into()), placeholder: Some(cx.tr("trail.segment.placeholder").into()), helper_text: Some(cx.tr("trail.segment.help").into()), bind: state.trail_segment, on_input: segment_changed, required: true, semantics_identifier: "trail-report.segment".to_string()),
-                                TextInput(label: Some(cx.tr("trail.observation.label").into()), placeholder: Some(cx.tr("trail.observation.placeholder").into()), helper_text: Some(cx.tr("trail.observation.help").into()), bind: state.observation, on_input: observation_changed, multiline: true, required: true, semantics_identifier: "trail-report.observation".to_string()),
+                                TextInput(label: Some(cx.tr("trail.segment.label").into()), placeholder: Some(cx.tr("trail.segment.placeholder").into()), helper_text: Some(cx.tr("trail.segment.help").into()), bind: state.trail_segment, required: true, semantics_identifier: "trail-report.segment".to_string()),
+                                TextInput(label: Some(cx.tr("trail.observation.label").into()), placeholder: Some(cx.tr("trail.observation.placeholder").into()), helper_text: Some(cx.tr("trail.observation.help").into()), bind: state.observation, multiline: true, required: true, semantics_identifier: "trail-report.observation".to_string()),
                                 Text(cx.tr("trail.report.session_only")).color(tokens.colors.text_secondary),
                             ])
                         )
@@ -320,10 +348,13 @@ fission_component! {
                                     Text(if state.permission_pending { cx.tr("trail.location.checking") } else { permission_text })
                                         .color(tokens.colors.text_secondary),
                                     Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                                        Button(child: Text(cx.tr("trail.action.request")), key: "request-location", variant: ButtonVariant::Outline, disabled: state.permission_pending, on_press: request_permission).semantics_identifier("trail-report.request-location".to_string()),
-                                        Button(child: Text(cx.tr("trail.action.refresh")), key: "refresh-location", variant: ButtonVariant::Outline, disabled: state.permission_pending, on_press: refresh_permission).semantics_identifier("trail-report.refresh-location".to_string()),
-                                        Button(child: Text(if state.location_pending { cx.tr("trail.action.locating") } else { cx.tr("trail.action.add_pin") }), key: "add-map-pin", variant: ButtonVariant::Primary, disabled: state.location_pending || state.permission != GeolocationPermission::Granted, on_press: add_map_pin).semantics_identifier("trail-report.add-map-pin".to_string()),
+                                        Button(child: Text(cx.tr("trail.action.request")), key: "request-location", variant: ButtonVariant::Outline, disabled: state.permission_pending || state.location_pending, on_press: request_permission).semantics_identifier("trail-report.request-location".to_string()),
+                                        Button(child: Text(cx.tr("trail.action.refresh")), key: "refresh-location", variant: ButtonVariant::Outline, disabled: state.permission_pending || state.location_pending, on_press: refresh_permission).semantics_identifier("trail-report.refresh-location".to_string()),
+                                        Button(child: Text(if state.location_pending { cx.tr("trail.action.locating") } else { cx.tr("trail.action.add_pin") }), key: "add-map-pin", variant: ButtonVariant::Primary, disabled: state.location_pending || state.permission_pending || state.permission != GeolocationPermission::Granted, on_press: add_map_pin).semantics_identifier("trail-report.add-map-pin".to_string()),
                                     ]),
+                                    if state.permission_pending || state.location_pending {
+                                        Spinner(motion: Some(SpinnerMotion::Default), label: cx.tr("trail.location.checking"))
+                                    },
                                     if let Some(position) = &state.position {
                                         Text(cx.tr("trail.location.pin").replace("{latitude}", &format!("{:.5}", position.latitude)).replace("{longitude}", &format!("{:.5}", position.longitude)).replace("{accuracy}", &format!("{:.0}", position.accuracy_meters)))
                                             .color(tokens.colors.primary),
@@ -352,74 +383,24 @@ fission_component! {
 }
 ```
 </TabItem>
-<TabItem label="src/app/translations.rs">
-<!-- fission:file path="src/app/translations.rs" -->
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
 ```rust
 use std::collections::HashMap;
-
-use fission::i18n::{Locale, TranslationBundle};
-use fission::prelude::Env;
+use fission::prelude::*;
 
 pub fn create_env() -> Env {
     let mut env = Env::default();
     env.locale = Locale::from("en-US");
     for (locale, source) in [
-        ("en-US", include_str!("../../i18n/en-US.yaml")),
-        ("es-ES", include_str!("../../i18n/es-ES.yaml")),
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
     ] {
         let messages: HashMap<String, String> =
-            serde_yaml::from_str(source).expect("valid trail-report translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(locale),
-            messages,
-        });
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
     }
     env
-}
-```
-</TabItem>
-<TabItem label="src/lib.rs">
-<!-- fission:file path="src/lib.rs" -->
-```rust
-pub mod app;
-
-use app::{TrailReportScreen, TrailReportState};
-use fission::prelude::*;
-
-#[cfg(target_os = "android")]
-pub fn run_mobile() -> anyhow::Result<()> {
-    MobileApp::<TrailReportState, _>::new(TrailReportScreen::new())
-        .with_title("Juniper Trail Reports")
-        .with_env(app::translations::create_env())
-        .with_sync_env(|state, env| env.locale = state.locale.clone())
-        .run()
-}
-
-#[cfg(target_os = "android")]
-#[no_mangle]
-fn android_main(app_handle: AndroidApp) {
-    let _ = MobileApp::<TrailReportState, _>::new(TrailReportScreen::new())
-        .with_title("Juniper Trail Reports")
-        .with_env(app::translations::create_env())
-        .with_sync_env(|state, env| env.locale = state.locale.clone())
-        .run_with_android_app(app_handle);
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen::prelude::wasm_bindgen(start)]
-pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
-    console_error_panic_hook::set_once();
-    WebApp::<TrailReportState, _>::new(TrailReportScreen::new())
-        .with_state_init(|state| {
-            state.trail_segment = "North Ridge · Timber bridge".into();
-        })
-        .with_env(app::translations::create_env())
-        .with_sync_env(|state, env| env.locale = state.locale.clone())
-        .with_geolocation_host(MemoryGeolocationHost::default())
-        .with_title("Juniper County trail report")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
@@ -507,28 +488,84 @@ trail.error.position_unavailable: "No se devolvió ninguna posición. Comprueba 
 trail.error.position_failed: "El sistema no pudo devolver una posición. El texto del informe no ha cambiado."
 ```
 </TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+pub mod state;
+mod translations;
+
+use app::TrailReportScreen;
+use state::TrailReportState;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<TrailReportState, _>::new(TrailReportScreen)
+        .with_env(translations::create_env())
+        .with_sync_env(|state, env| env.locale = state.locale.clone())
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<TrailReportState, TrailReportScreen> {
+    let app = MobileApp::<TrailReportState, _>::new(TrailReportScreen)
+        .with_env(translations::create_env())
+        .with_sync_env(|state, env| env.locale = state.locale.clone());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<TrailReportState, _>::new(TrailReportScreen)
+        .with_env(translations::create_env())
+        .with_sync_env(|state, env| env.locale = state.locale.clone())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+include!("../src/lib.rs");
+```
+</TabItem>
 </Tabs>
 
 <!-- fission:preview -->
-
 <!-- fission:checkpoint -->
-Edit the trail segment and observation. In the browser preview, request and add a pin: the memory host returns a deterministic test position through the same effect and reducer path, without prompting your browser or reading its location. The Android app asks the OS only after the request action. If permission is denied or the provider fails, the text remains editable and the report continues without coordinates.
+Enter a segment and observation before trying location. Grant, denial and failure must leave both fields intact. A newly confirmed denial removes the old pin rather than presenting it as current access. The preview uses the actual browser geolocation provider, not a fabricated test position; browser consent and secure-context requirements still apply.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="verify-permission-paths" -->
-## Verify grant, denial, and a later settings change
-
-The preview demonstrates the typed capability flow, not Android hardware or its permission dialog. Use an Android emulator to test the generated permission declaration and the OS prompt. Start from a fresh install or reset this app’s location permission in Android Settings. Request access and choose **Don’t allow**. Confirm the report remains usable and that **Add map pin** stays disabled. Reset the permission, allow foreground access, refresh the status after the system prompt closes, and then add the pin.
-
-Open the app’s location permission in Android Settings, change it, and return to the report. Refresh the status and verify the screen reflects the new host response without prompting again. A granted position is still only in app memory here; persist or submit it through a separate effect only when the product requires that behavior.
+## Verify denial and a later settings change
 
 ```sh
+cargo test
 fission doctor android --project-dir .
-fission run --target android --project-dir .
+adb devices -l
+fission run --target android --device <adb-serial> --project-dir .
 fission test --target android --project-dir .
 fission build --target android --project-dir . --release
 ```
 
-Inspect the generated manifest before release and keep only the permissions this workflow needs. A one-time map pin does not need background location. Android's [runtime permission guidance](https://developer.android.com/training/permissions/requesting) recommends asking in context and degrading gracefully when a permission is declined. See the [Geolocation reference](/reference/capabilities/geolocation/) for the provider contract.
+Begin with this app's location permission disabled in Android Settings. Enter report text, request access and decline. After the dialog closes, refresh the status: adding a pin should remain unavailable whilst the report remains editable. Grant foreground access, recheck, then request the position. Repeat after revoking access; a failed lookup must not erase the report or silently submit its previous pin.
+
+Permission and position accuracy are different facts. Android can grant coarse access, and the returned accuracy is part of the result, not a fixed promise made by the interface. The one-shot provider may return an eligible recent position; this is not continuous tracking. Do not log a user's coordinates to diagnose button behaviour.
+
+Inspect the generated manifest and retain only permissions the feature requires. A one-time map pin does not justify background location. Emulator tests can exercise the prompt and supplied emulator position; a physical walk and real location-service conditions are separate checks. No build command proves those outcomes.
+
+Android's [runtime permission guidance](https://developer.android.com/training/permissions/requesting) explains the OS policy. The [Geolocation reference](/reference/capabilities/geolocation/) defines Fission's portable request and result types.
 <!-- /fission:step -->

@@ -12,7 +12,11 @@ categories:
 
 Fission 0.6.1 makes generated Android and iOS projects useful starting points for app-owned native SDK integrations. It also keeps iOS on the Vello GPU renderer instead of falling back to software uploads. The mobile target work is tracked in [issue #83](https://github.com/fission-ui/fission/issues/83).
 
-Fission core should not bundle payment, camera, scanner, or other product-specific SDKs. Instead, generated projects now have a supported place for capability crates and apps to add native sources, dependencies, permissions, framework links, and manifest entries. You can integrate an SDK without maintaining a separate mobile project by hand.
+An app's third-party payment, specialist camera, or scanner SDK does not belong
+inside the shared UI core. Generated projects now give capability crates and
+apps a supported place for native sources, dependencies, permissions,
+framework links, and manifest entries. The app owns the SDK integration while
+the generated host keeps the platform project part of the normal build path.
 
 The iOS renderer fix is in [PR #82](https://github.com/fission-ui/fission/pull/82). It fixes a black screen on simulator adapters that do not support indirect execution. The renderer crates in this release use `fission-vello 0.6.0-fission.2`.
 

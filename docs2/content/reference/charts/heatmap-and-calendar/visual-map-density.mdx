@@ -8,17 +8,15 @@ description: Fission Charts reference for Visual map density.
 
 ![Visual map density screenshot](/img/charts/visual-map-density.png)
 
-Heatmap with explicit visual map color scale. Use it when color needs a visible numeric range. The screenshot is from Fission's chart gallery.
+The same cell value should mean the same thing in charts being compared. `VisualMap` makes the numeric range explicit, so a lightly loaded queue does not appear as busy as a heavily loaded one just because each chart uses a different range. The screenshot is from Fission's chart gallery.
 
 ## What the chart is for
 
-This chart is in the **Heatmap and calendar** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
+Here, queue sizes use a fixed range from zero to ten jobs. That upper bound is an application decision, not a property inferred from the samples. Use a range appropriate to the measure and make its units clear in nearby text; colour alone does not explain a number.
 
 ## Data model
 
-This example uses `HeatmapSeries plus VisualMap`. Keep the source values in Rust types and map them to the series or component below.
+`HeatmapSeries` supplies `(x_index, y_index, value)` triples. `VisualMap` supplies the range used to colour those values. Keep the sample values and the range in the same units, and test values outside that range as well as those inside it.
 
 ## Rust API
 
@@ -26,7 +24,7 @@ This example uses `HeatmapSeries plus VisualMap`. Keep the source values in Rust
 | --- | --- | --- |
 | `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
 | `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
+| `y_axis` | `Axis` | Names the shifts; `VisualMap` maps each sample's numeric value to colour. |
 | `series` | `Series` | Provides the typed data model for this chart family. |
 | `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
 
@@ -36,12 +34,16 @@ This example uses `HeatmapSeries plus VisualMap`. Keep the source values in Rust
 use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
 
 let chart = Chart::new()
-    .title("Load")
+    .title("Queued jobs — scale: 0 to 10")
     .x_axis(Axis::category(vec!["Mon", "Tue", "Wed"]))
     .y_axis(Axis::category(vec!["AM", "PM"]))
     .visual_map(VisualMap::new().min(0.0).max(10.0))
-    .series(vec![HeatmapSeries::new("Load")
-        .data(vec![(0, 0, 3.0), (1, 0, 8.0), (2, 1, 5.0)])
+    .series(vec![HeatmapSeries::new("Queued jobs")
+        .data(vec![
+            (0, 0, 3.0),
+            (1, 0, 8.0),
+            (2, 1, 5.0),
+        ])
         .into()]);
 ```
 
@@ -51,7 +53,7 @@ Only add interaction when it helps the user. Fission emits typed `ChartInteracti
 
 ## Testing guidance
 
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
+Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `docs2/site/assets/img/charts` before the static-site build.
 
 ## Authoring from a Fission component
 
@@ -61,23 +63,31 @@ Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or re
 use fission::prelude::*;
 use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
 
-
-
-fission_component!
-{
+// The parent resolves display labels from its translation bundles.
+fission_component! {
     pub VisualMapDensityChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            column_labels: Vec<String>,
+            row_labels: Vec<String>,
+            queued_jobs: Vec<(usize, usize, f32)>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Load")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed"]))
-                    .y_axis(Axis::category(vec!["AM", "PM"]))
-                    .visual_map(VisualMap::new().min(0.0).max(10.0))
-                    .series(vec![HeatmapSeries::new("Load")
-                        .data(vec![(0, 0, 3.0), (1, 0, 8.0), (2, 1, 5.0)])
-                        .into()])
-                    .into()
-    }
+    view(chart, _state, _cx) =>
+        Chart(
+            title: Some(chart.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                chart.column_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::category(
+                chart.row_labels.iter().map(String::as_str).collect(),
+            )),
+            visual_map: Some(VisualMap::new().min(0.0).max(10.0)),
+            series: vec![HeatmapSeries::new(&chart.series_label)
+                .data(chart.queued_jobs.clone())
+                .into()],
+        )
 }
 ```
 Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.

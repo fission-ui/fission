@@ -101,7 +101,6 @@ Minimum project configuration:
 bundle_id = "com.example.notes"
 team_id = "ABCDE12345"
 entitlements = "platforms/ios/Entitlements.plist"
-provisioning_profile = "release-content/signing/ios/App.mobileprovision"
 signing_identity = "Apple Distribution"
 
 [distribution.app_store]
@@ -113,6 +112,14 @@ api_key_env = "APP_STORE_CONNECT_API_KEY"
 api_key_base64_env = "APP_STORE_CONNECT_API_KEY_BASE64"
 default_track = "testflight"
 ```
+
+Keep the provisioning profile and signing keys outside the repository.
+The generated IPA script reads `IOS_PROVISIONING_PROFILE` as a local file
+path; supply it through the release environment on macOS. Entitlements are
+reviewable app policy, but a provisioning profile can contain account and
+device information and should not be copied into `release-content/` for
+commit. Store the matching certificate/private key in the macOS signing
+environment, not beside the tutorial's source.
 
 App Store Connect has separate concepts for upload, build processing, TestFlight
 assignment, and App Review submission. Keep those decisions explicit. A common

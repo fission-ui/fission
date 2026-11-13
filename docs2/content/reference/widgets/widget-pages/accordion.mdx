@@ -14,24 +14,42 @@ or email metadata that should not take up the whole screen.
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Accordion {
-    items: vec![
-        AccordionItem {
-            title: "Details".into(),
-            content: details_node,
-            is_expanded: view.state().details_open,
-            on_toggle: Some(toggle_details_action),
-        },
-        AccordionItem {
-            title: "History".into(),
-            content: history_node,
-            is_expanded: view.state().history_open,
-            on_toggle: Some(toggle_history_action),
-        },
-    ],
+fission_component! {
+    pub ProjectDetails<()> {
+        props {
+            details: Widget,
+            history: Widget,
+            details_open: bool,
+            history_open: bool,
+            toggle_details: ActionEnvelope,
+            toggle_history: ActionEnvelope,
+        }
+    }
+
+    view(section, _state, cx) =>
+        Accordion(
+            items: vec![
+                AccordionItem {
+                    title: cx.tr("project.details"),
+                    content: section.details.clone(),
+                    is_expanded: section.details_open,
+                    on_toggle: Some(section.toggle_details.clone()),
+                },
+                AccordionItem {
+                    title: cx.tr("project.history"),
+                    content: section.history.clone(),
+                    is_expanded: section.history_open,
+                    on_toggle: Some(section.toggle_history.clone()),
+                },
+            ],
+        )
 }
-.into();
 ```
+
+The parent binds the two actions and owns the expansion policy. The component
+receives already-built content, so it does not duplicate the project's data
+loading or history model. `AccordionItem` is a data model; its fully specified
+Rust literal is not another widget-authoring API.
 
 The widget only reflects state. If your product wants exactly one section open at a time, that rule belongs in the reducer. If your product wants several sections open together, that also belongs in the reducer.
 
@@ -40,12 +58,17 @@ The widget only reflects state. If your product wants exactly one section open a
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `items` | `Vec<AccordionItem>` | The sections to render from top to bottom. | Defaults to an empty list. |
+| `motion` | `Option<AccordionMotion>` | Panel and chevron transitions. | `None` follows the app's standard widget-motion policy. |
 
 ## State ownership and behavior
 
 `Accordion` does not own expansion state. Each item brings its own `is_expanded` flag and `on_toggle` action. That means the widget does not enforce a single-open pattern, does not remember the last opened section, and does not silently mutate anything on its own.
 
-The checked-in renderer builds each header as a ghost button and places the expanded content in a second container underneath it. This produces a clear stacked presentation, but it also means each expanded item is two visible blocks rather than one animated height transition.
+Each header is a button whose expanded relationship points at the panel.
+The standard motion policy animates panel collapse/fade and the chevron;
+`motion: Some(AccordionMotion::None)` opts out. A reduced-motion environment
+also changes the effective motion. Expansion remains controlled state rather
+than a consequence inferred from the animation.
 
 ## Specific advice
 
@@ -53,10 +76,9 @@ An accordion should reduce scanning cost, not hide essential content. If users m
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test both expansion policies if the app offers single-open and multi-open variants.
+- Check focus and expanded-panel relationships after opening, closing, and reduced-motion transitions.
+- Keep section order stable; the compact item model derives panel identity from position.
 
 ## Related
 

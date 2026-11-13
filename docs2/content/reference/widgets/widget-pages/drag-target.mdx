@@ -15,22 +15,29 @@ surface that highlights while something is dragged over it, use
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = DragTarget {
-    id: Some(WidgetId::explicit("move_card_target")),
-    semantics_identifier: Some("board.move_card_target".into()),
-    child: Text::new("Drop here to move").into(),
-    hover_child: Some(Text::new("Release to move here").into()),
-    on_drop: Some(ctx.bind(
-        MoveCardHere,
-        reduce_with!((|state: &mut BoardState, _action: MoveCardHere, ctx| {
-            if let Some(bytes) = ctx.input.as_internal_drop() {
-                state.pending_drop_card_id = Some(String::from_utf8(bytes.to_vec()).unwrap());
-            }
-        })),
-    )),
+fission_component! {
+    pub BoardColumnDropTarget<()> {
+        props {
+            column_id: String,
+            accept_card: ActionEnvelope,
+        }
+    }
+
+    view(target, _state, cx) =>
+        DragTarget(
+            id: WidgetId::explicit(&format!("board.column.{}", target.column_id)),
+            semantics_identifier: Some(format!("board.column.{}", target.column_id)),
+            child: Text(cx.tr("board.drop_to_move")),
+            hover_child: Text(cx.tr("board.release_to_move")),
+            on_drop: target.accept_card.clone(),
+        )
 }
-.into();
 ```
+
+The parent binds `accept_card` with this column's durable id. Its reducer reads
+`cx.input.as_internal_drop()`, decodes UTF-8 fallibly, confirms that the card and
+column still exist and the move is allowed, then changes the authoritative board.
+Invalid bytes or a removed card must not panic or create a phantom pending move.
 
 The dropped payload travels through `ctx.input`, not through the action type itself. That keeps the drag payload explicit and lets the reducer decide how to decode it.
 
@@ -54,10 +61,9 @@ Keep the drag payload small and stable. A database id, path, or serialized enum 
 
 ## Production checklist
 
-- Bind `on_drop` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Reject malformed or stale payloads and unauthorised moves in the reducer.
+- Test an interrupted drag and a source removed during dragging.
+- Supply a keyboard-accessible move action as an alternative to pointer dragging.
 
 ## Related
 

@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Make an Android layout adapt to phones, tablets and changing window sizes
-description: "Make an Android layout adapt to phones, tablets and changing window sizes using Fission."
-goal: Use responsive Fission composition and verify portrait, landscape and multi-window layouts.
+description: "Build a recipe editor that stacks on a phone and sits beside its reading view on wider screens, without duplicating the draft or cloning retained trees."
+goal: "Keep one user-authored recipe draft visible and editable across independently constructed compact and wide layouts."
 path: /blog/make-an-android-layout-adapt-to-phones-tablets-and-changing-window-sizes/
 order: 32
 difficulty: Beginner
@@ -10,412 +10,454 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-make-an-android-layout-adapt-to-phones-tablets-and-changing-window-sizes
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - "Keep recipe content in one shared state model"
+  - "Choose compact or wide composition with the active design-system breakpoint"
+  - "Construct an independent component tree for each responsive branch"
+  - "Check resize, keyboard and larger-text behaviour without losing the draft"
 ---
 
-## Create the project and add the target
+A tablet is not simply a larger phone, and a phone does not always have its full display available. Rotation, split-screen and a keyboard change the space the app can use. Choose a layout from that available space rather than from a list of device names.
 
-Create the project and add the target used by this guide. Fission generates the native host; the app and its behaviour stay in shared Rust code.
+Here, we build a recipe editor with a reading view. On a narrow screen, the editor comes first and the card follows below. With more room they sit side by side. Both arrangements edit the same draft, so changing the layout cannot create a second recipe or discard what the user typed.
+
+## Create the Android project
+
+Complete [Android SDK/NDK setup](/blog/set-up-rust-android-gui-development-with-fission/), then prepare [an emulator](/blog/create-and-launch-a-fission-android-emulator/) or connect [a phone](/blog/run-a-fission-app-on-a-physical-android-phone/).
 
 ```sh
 cargo install cargo-fission
 fission init android-make-an-android-layout-adapt-to-phones-tablets-and-changing-window-sizes
 cd android-make-an-android-layout-adapt-to-phones-tablets-and-changing-window-sizes
 fission add-target android --project-dir .
+cargo add serde_yaml
 ```
 
-## Files created by Fission
-
-This is the starter tree Fission generates. Keep shared app code in `src/`; the generated platform files handle native launch and packaging.
-
-```text
-android-make-an-android-layout-adapt-to-phones-tablets-and-changing-window-sizes/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
-├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
-└── platforms/
-    └── android/              # generated Android host
-```
-
-Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
+Keep the generated `src/main.rs`. Shared draft state, the editor, reading card and layout components have separate modules. Native and Web shells below launch the same app from the first step.
 
 <!-- fission:step id="start-screen" -->
-## Create the app screen
+## Make the narrow layout useful first
 
-Start with a phone-sized screen. The next section adds responsive composition for wider phones, tablets, and multi-window sizes.
+The app starts with an empty recipe, not a demonstration work order. Inputs bind to the shared draft and the reading card observes those values. The screen is scrollable and respects safe-area insets, so adding a long recipe or opening the keyboard does not require a fixed-height card.
+
+The draft is in `GlobalState` because both layout branches must observe the same content. A row-local draft in each branch would create two independent editors; matching their labels would not make their state shared.
 
 <Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Debug, Default)]
+pub struct RecipeState {
+    pub title: String,
+    pub ingredients: String,
+    pub instructions: String,
+}
+impl GlobalState for RecipeState {}
+```
+</TabItem>
+<TabItem label="src/editor.rs">
+<!-- fission:file path="src/editor.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::RecipeState;
+
+fission_component! {
+    pub RecipeEditor<RecipeState> {}
+    view(_editor, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Card(child: Column(gap: tokens.spacing.m, children: [
+        Text(cx.tr("recipe.edit")).weight(tokens.typography.font_weight_semibold),
+        TextInput(
+            label: Some(cx.tr("recipe.name").into()),
+            bind: state.title,
+        ),
+        TextInput(
+            label: Some(cx.tr("recipe.ingredients").into()),
+            multiline: true,
+            bind: state.ingredients,
+        ),
+        TextInput(
+            label: Some(cx.tr("recipe.instructions").into()),
+            multiline: true,
+            bind: state.instructions,
+        ),
+    ]))
+}
+```
+</TabItem>
+<TabItem label="src/recipe_preview.rs">
+<!-- fission:file path="src/recipe_preview.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::RecipeState;
+
+fission_component! {
+    pub RecipePreview<RecipeState> {}
+    view(_preview, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Card(child: Column(gap: tokens.spacing.m, children: [
+        Text(cx.tr("recipe.preview")).weight(tokens.typography.font_weight_semibold),
+        if state.title.trim().is_empty()
+            && state.ingredients.trim().is_empty()
+            && state.instructions.trim().is_empty()
+        {
+            EmptyState(
+                title: cx.tr("recipe.empty"),
+                description: cx.tr("recipe.empty_help"),
+            )
+        } else {
+            Column(gap: tokens.spacing.m, children: [
+                Text(if state.title.trim().is_empty() {
+                    cx.tr("recipe.untitled")
+                } else { state.title.clone() }).size(tokens.typography.heading2_size),
+                Text(cx.tr("recipe.ingredients")).weight(tokens.typography.font_weight_semibold),
+                Text(state.ingredients.clone()),
+                Text(cx.tr("recipe.instructions")).weight(tokens.typography.font_weight_semibold),
+                Text(state.instructions.clone()),
+            ])
+        },
+    ]))
+}
+```
+</TabItem>
+<TabItem label="src/compact.rs">
+<!-- fission:file path="src/compact.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{editor::RecipeEditor, recipe_preview::RecipePreview, state::RecipeState};
+
+fission_component! {
+    pub CompactRecipeLayout<RecipeState> {}
+    view(_layout, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.m, children: [
+        RecipeEditor(),
+        RecipePreview(),
+    ])
+}
+```
+</TabItem>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+use crate::{compact::CompactRecipeLayout, state::RecipeState};
 
 fission_component! {
-    pub WideLayout<()> {
-    }
-    view(_layout, _state, cx) {
+    pub RecipeWorkbench<RecipeState> {}
+    view(_app, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Row(gap: tokens.spacing.m, children: [
-        Container(Column(gap: tokens.spacing.s, children: [
-            Text(cx.tr("responsive.order"))
-                .weight(tokens.typography.font_weight_semibold),
-            Text(cx.tr("responsive.asset")),
-            Text(cx.tr("responsive.location"))
-                .color(tokens.colors.text_secondary),
-        ]))
-        .padding_all(tokens.spacing.m)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.medium),
-        Container(Column(gap: tokens.spacing.s, children: [
-            Text(cx.tr("responsive.inspection"))
-                .weight(tokens.typography.font_weight_semibold),
-            Text(cx.tr("responsive.sensor")),
-            Text(cx.tr("responsive.photo")),
-        ]))
-        .padding_all(tokens.spacing.m)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.medium),
-    ])
-}
-
-fission_component! {
-    pub CompactLayout<()> {
-    }
-    view(_layout, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    Column(gap: tokens.spacing.m, children: [
-        Container(Column(gap: tokens.spacing.s, children: [
-            Text(cx.tr("responsive.order"))
-                .weight(tokens.typography.font_weight_semibold),
-            Text(cx.tr("responsive.asset")),
-            Text(cx.tr("responsive.location"))
-                .color(tokens.colors.text_secondary),
-        ]))
-        .padding_all(tokens.spacing.m)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.medium),
-        Container(Column(gap: tokens.spacing.s, children: [
-            Text(cx.tr("responsive.inspection"))
-                .weight(tokens.typography.font_weight_semibold),
-            Text(cx.tr("responsive.sensor")),
-            Text(cx.tr("responsive.photo")),
-        ]))
-        .padding_all(tokens.spacing.m)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.medium),
-    ])
-}
-
-
-fission_component! {
-    pub AndroidLayoutAdaptPhonesTablets<()>
-    view(_preview, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some("responsive-layout-example".to_string()),
-        label: Some(cx.tr("responsive.title")),
-        child: Column(gap: tokens.spacing.m, children: [
-            Text(cx.tr("responsive.title"))
-                .weight(tokens.typography.font_weight_bold),
-            Text(cx.tr("responsive.description")),
-            Responsive::new(WideLayout::new())
-            .id(WidgetId::explicit("tutorial.responsive"))
-            .case(ResponsiveCase::max_width(
-                640.0,
-                CompactLayout::new(),
-            )),
-            Text(cx.tr("responsive.hint"))
-                .color(tokens.colors.text_secondary),
-        ]),
+    SafeArea(
+        child: Scroll(
+            child: Container(
+                child: Column(gap: tokens.spacing.m, children: [
+                    Text(cx.tr("recipe.title")).size(tokens.typography.heading2_size),
+                    Text(cx.tr("recipe.scope")),
+                    CompactRecipeLayout(),
+                ]),
+            ).padding_all(tokens.spacing.l),
+        ),
     )
 }
 ```
 </TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
 ```rust
-mod app;
-
+use std::collections::HashMap;
 use fission::prelude::*;
-use wasm_bindgen::prelude::*;
 
-fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
-    TranslationBundle {
-        locale: Locale::from(locale),
-        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
-    }
-}
-
-fn preview_env() -> Env {
+pub fn create_env() -> Env {
     let mut env = Env::default();
-    env.i18n.add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
-    env.i18n.add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
     env
-}
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::AndroidLayoutAdaptPhonesTablets)
-        .with_env(preview_env())
-        .with_title("android make an android layout adapt to phones tablets and changing window sizes")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
 <TabItem label="i18n/en-US.yaml">
-<!-- fission:file path="src/i18n/en-US.yaml" -->
+<!-- fission:file path="i18n/en-US.yaml" -->
 ```yaml
-responsive.title: "WO-1048 site visit"
-responsive.description: "Keep the work order and inspection checklist readable as the available width changes."
-responsive.order: "Work order  /  WO-1048"
-responsive.asset: "Cold-room compressor"
-responsive.location: "Northbank Food Hub  /  Service bay 2"
-responsive.inspection: "Inspection checklist"
-responsive.sensor: "Record compressor temperature"
-responsive.photo: "Attach a service photo"
-responsive.hint: "Resize the preview: the layout switches between a two-pane tablet view and a stacked phone view."
+recipe.title: "Draft a recipe card"
+recipe.scope: "Edit your own recipe and read the card alongside it when space allows. This draft is in memory only; it is not saved."
+recipe.edit: "Recipe draft"
+recipe.name: "Recipe name"
+recipe.ingredients: "Ingredients"
+recipe.instructions: "Instructions"
+recipe.preview: "Reading view"
+recipe.empty: "Your recipe card is empty"
+recipe.empty_help: "Add a name, ingredients or instructions in the editor."
+recipe.untitled: "Untitled recipe"
 ```
 </TabItem>
 <TabItem label="i18n/es-ES.yaml">
-<!-- fission:file path="src/i18n/es-ES.yaml" -->
+<!-- fission:file path="i18n/es-ES.yaml" -->
 ```yaml
-responsive.title: "Visita OT-1048"
-responsive.description: "Mantén legibles la orden de trabajo y la lista de inspección cuando cambie el ancho disponible."
-responsive.order: "Orden de trabajo  /  OT-1048"
-responsive.asset: "Compresor de cámara fría"
-responsive.location: "Centro de alimentos Northbank  /  Área de servicio 2"
-responsive.inspection: "Lista de inspección"
-responsive.sensor: "Registra la temperatura del compresor"
-responsive.photo: "Adjunta una foto del servicio"
-responsive.hint: "Cambia el tamaño de la vista: el diseño pasa de dos paneles en una tableta a una columna en un teléfono."
+recipe.title: "Preparar una ficha de receta"
+recipe.scope: "Edita tu receta y lee la ficha a su lado cuando haya espacio. El borrador solo está en memoria; no se guarda."
+recipe.edit: "Borrador de receta"
+recipe.name: "Nombre de la receta"
+recipe.ingredients: "Ingredientes"
+recipe.instructions: "Instrucciones"
+recipe.preview: "Vista de lectura"
+recipe.empty: "La ficha de receta está vacía"
+recipe.empty_help: "Añade un nombre, ingredientes o instrucciones en el editor."
+recipe.untitled: "Receta sin título"
 ```
 </TabItem>
-</Tabs>
-<!-- fission:preview -->
-<!-- /fission:step -->
-
-<!-- fission:step id="main-flow" -->
-## Make an Android layout adapt to phones, tablets and changing window sizes
-
-Use Responsive for width-driven layout branches and Length for dimensions that should clamp or scale; do not scatter viewport arithmetic across child components. Keep the primary action visible on a narrow phone, then let a wider layout use extra space for a second pane or inspector. Test portrait, landscape, split-screen or resized windows, and the largest supported text scale. Read the [responsive UI guide](/docs/learn/responsive-ui/) and verify the phone, tablet and fallback branches rather than relying on one screenshot.
-
-The component below is a browser-safe version of this screen. It uses Fission's retained component state and widgets to make the task visible; it does not call a native provider or operating-system API.
-
-<!-- fission:file path="src/app.rs" -->
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
 ```rust
+pub mod app;
+mod state;
+mod editor;
+mod recipe_preview;
+mod compact;
+mod translations;
+
+use app::RecipeWorkbench;
+use state::RecipeState;
 use fission::prelude::*;
 
-fission_component! {
-    pub WideLayout<()> {
-    }
-    view(_layout, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    Row(gap: tokens.spacing.m, children: [
-        Container(Column(gap: tokens.spacing.s, children: [
-            Text(cx.tr("responsive.order"))
-                .weight(tokens.typography.font_weight_semibold),
-            Text(cx.tr("responsive.asset")),
-            Text(cx.tr("responsive.location"))
-                .color(tokens.colors.text_secondary),
-        ]))
-        .padding_all(tokens.spacing.m)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.medium),
-        Container(Column(gap: tokens.spacing.s, children: [
-            Text(cx.tr("responsive.inspection"))
-                .weight(tokens.typography.font_weight_semibold),
-            Text(cx.tr("responsive.sensor")),
-            Text(cx.tr("responsive.photo")),
-        ]))
-        .padding_all(tokens.spacing.m)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.medium),
-    ])
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<RecipeState, _>::new(RecipeWorkbench)
+        .with_env(translations::create_env())
+        .run()
 }
-
-fission_component! {
-    pub CompactLayout<()> {
-    }
-    view(_layout, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    Column(gap: tokens.spacing.m, children: [
-        Container(Column(gap: tokens.spacing.s, children: [
-            Text(cx.tr("responsive.order"))
-                .weight(tokens.typography.font_weight_semibold),
-            Text(cx.tr("responsive.asset")),
-            Text(cx.tr("responsive.location"))
-                .color(tokens.colors.text_secondary),
-        ]))
-        .padding_all(tokens.spacing.m)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.medium),
-        Container(Column(gap: tokens.spacing.s, children: [
-            Text(cx.tr("responsive.inspection"))
-                .weight(tokens.typography.font_weight_semibold),
-            Text(cx.tr("responsive.sensor")),
-            Text(cx.tr("responsive.photo")),
-        ]))
-        .padding_all(tokens.spacing.m)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.medium),
-    ])
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<RecipeState, RecipeWorkbench> {
+    let app = MobileApp::<RecipeState, _>::new(RecipeWorkbench)
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
 }
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
 
-
-fission_component! {
-    pub AndroidLayoutAdaptPhonesTablets<()>
-    view(_preview, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some("responsive-layout-example".to_string()),
-        label: Some(cx.tr("responsive.title")),
-        child: Column(gap: tokens.spacing.m, children: [
-            Text(cx.tr("responsive.title"))
-                .weight(tokens.typography.font_weight_bold),
-            Text(cx.tr("responsive.description")),
-            Responsive::new(WideLayout::new())
-            .id(WidgetId::explicit("tutorial.responsive"))
-            .case(ResponsiveCase::max_width(
-                640.0,
-                CompactLayout::new(),
-            )),
-            Text(cx.tr("responsive.hint"))
-                .color(tokens.colors.text_secondary),
-        ]),
-    )
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<RecipeState, _>::new(RecipeWorkbench)
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
-
-<!-- fission:preview -->
-
-
-<Tabs>
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod state;
+mod editor;
+mod recipe_preview;
+mod compact;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
-    TranslationBundle {
-        locale: Locale::from(locale),
-        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
-    }
-}
-
-fn preview_env() -> Env {
-    let mut env = Env::default();
-    env.i18n.add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
-    env.i18n.add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
-    env
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::AndroidLayoutAdaptPhonesTablets)
-        .with_env(preview_env())
-        .with_title("Northbank Field Service · Android")
+    WebApp::<state::RecipeState, _>::new(app::RecipeWorkbench)
+        .with_env(translations::create_env())
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
-<TabItem label="src/i18n/en-US.yaml">
-<!-- fission:file path="src/i18n/en-US.yaml" -->
-```yaml
-responsive.title: "WO-1048 site visit"
-responsive.description: "Keep the work order and inspection checklist readable as the available width changes."
-responsive.order: "Work order  /  WO-1048"
-responsive.asset: "Cold-room compressor"
-responsive.location: "Northbank Food Hub  /  Service bay 2"
-responsive.inspection: "Inspection checklist"
-responsive.sensor: "Record compressor temperature"
-responsive.photo: "Attach a service photo"
-responsive.hint: "Resize the preview: the layout switches between a two-pane tablet view and a stacked phone view."
+</Tabs>
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Enter your recipe name, a few ingredients and several lines of instructions. The reading view should update from the same values. On a narrow screen, scroll between the form and card without losing the draft.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Choose independent layouts around a design-system breakpoint
+
+`Responsive` owns the width rule. The app does not scatter viewport comparisons through the editor and preview. The breakpoint comes from the active design system; test whether that threshold gives these two panes enough room rather than assuming it suits every design.
+
+The identity-aware constructor builds each branch under a different retained scope. Supply component values which construct independent trees, not clones of a prebuilt `Widget`. The editor and preview implementations are still shared code; their mounted widget instances are separate.
+
+<Tabs>
+<TabItem label="src/wide.rs">
+<!-- fission:file path="src/wide.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{editor::RecipeEditor, recipe_preview::RecipePreview, state::RecipeState};
+
+fission_component! {
+    pub WideRecipeLayout<RecipeState> {}
+    view(_layout, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Start, children: [
+        Container(child: RecipeEditor(), width: 0.0, min_width: 0.0, flex_grow: 1.0),
+        Container(child: RecipePreview(), width: 0.0, min_width: 0.0, flex_grow: 1.0),
+    ])
+}
 ```
 </TabItem>
-<TabItem label="src/i18n/es-ES.yaml">
-<!-- fission:file path="src/i18n/es-ES.yaml" -->
-```yaml
-responsive.title: "Visita OT-1048"
-responsive.description: "Mantén legibles la orden de trabajo y la lista de inspección cuando cambie el ancho disponible."
-responsive.order: "Orden de trabajo  /  OT-1048"
-responsive.asset: "Compresor de cámara fría"
-responsive.location: "Centro de alimentos Northbank  /  Área de servicio 2"
-responsive.inspection: "Lista de inspección"
-responsive.sensor: "Registra la temperatura del compresor"
-responsive.photo: "Adjunta una foto del servicio"
-responsive.hint: "Cambia el tamaño de la vista: el diseño pasa de dos paneles en una tableta a una columna en un teléfono."
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{compact::CompactRecipeLayout, state::RecipeState};
+use crate::wide::WideRecipeLayout;
+fission_component! {
+    pub RecipeWorkbench<RecipeState> {}
+    view(_app, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SafeArea(
+        child: Scroll(
+            child: Container(
+                child: Column(gap: tokens.spacing.m, children: [
+                    Text(cx.tr("recipe.title")).size(tokens.typography.heading2_size),
+                    Text(cx.tr("recipe.scope")),
+                    Responsive::new_with_id(
+                        WidgetId::explicit("recipe.layout"),
+                        || WideRecipeLayout,
+                    ).case_max_width_with(
+                        tokens.breakpoints.medium_max,
+                        || CompactRecipeLayout,
+                    ),
+                ]),
+            ).padding_all(tokens.spacing.l),
+        ),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod state;
+mod editor;
+mod recipe_preview;
+mod compact;
+mod wide;
+mod translations;
+
+use app::RecipeWorkbench;
+use state::RecipeState;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<RecipeState, _>::new(RecipeWorkbench)
+        .with_env(translations::create_env())
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<RecipeState, RecipeWorkbench> {
+    let app = MobileApp::<RecipeState, _>::new(RecipeWorkbench)
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<RecipeState, _>::new(RecipeWorkbench)
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod state;
+mod editor;
+mod recipe_preview;
+mod compact;
+mod wide;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::RecipeState, _>::new(app::RecipeWorkbench)
+        .with_env(translations::create_env())
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
 ```
 </TabItem>
 </Tabs>
+<!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Resize the browser panel around 640 points and confirm the layout changes from two columns to a vertical flow.
+Type a recipe, widen the window until the panes sit side by side, then make it narrow again. The same draft must remain visible. Below the maximum-width threshold the compact branch applies; at the threshold and above, the wide fallback applies.
+
+The responsive widget constructs and lowers its branches even when only one is visible. Hidden content is not an authorisation or resource-startup boundary. Keep effects out of component conversion and use `ProtectedRoute` when access must prevent constructing a tree.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Check the layout and system settings on Android
-
-Run the same screen at a narrow phone width and a wider window. Resize or rotate while it is open, then change the system text size and appearance where this tutorial covers them. Content should reflow without clipping essential controls or status messages.
-
-Use real platform insets for safe-area checks and let Fission’s responsive layout choose the arrangement. Avoid fixing a problem with device-specific padding that breaks the other sizes.
-
-### Run, test and build
+## Check width changes whilst the app is in use
 
 ```sh
-cargo test
 fission doctor android --project-dir .
 fission run --target android --project-dir .
 fission test --target android --project-dir .
 fission build --target android --project-dir . --release
 ```
 
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
+On an emulator and a phone, rotate whilst a field is focused, open the keyboard, use a narrow split-screen window and increase Android's text size. The reading view and inputs should remain reachable without horizontal clipping. Focus and selection also need native checks; shared draft values alone do not prove those interactions survive every layout transition.
 
+Test immediately below, at and above the chosen breakpoint, with a long Spanish label and a long recipe. A wide screenshot with short English text does not qualify the compact branch.
 
-### Emulator and connected-device commands
+This example uses viewport width because it chooses the page layout. A reusable widget embedded in a narrower panel can use `Responsive::container_query()` instead. Do not select a phone layout merely because its parent happens to be an Android shell.
 
-Run these emulator checks from the generated project root:
-
-```sh
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
-```
-
+<!-- fission:checkpoint -->
+The editor now has two arrangements and one draft authority. Layout adapts to space, components use design tokens and the native shell supplies safe-area and text-scale inputs. Persistence is deliberately not implemented, so restarting the app clears the recipe.
 
 ### Current references
 
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
+- [Responsive UI guide](/docs/learn/responsive-ui/)
 - [Responsive](/docs/guides/theming-and-i18n/)
 - [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
 - [Fission component and widget reference](/reference/widgets/catalog/)

@@ -1,87 +1,79 @@
 ---
 title: 3D globe status
 sidebar_label: 3D globe status
-description: Fission Charts reference for 3D globe status.
+description: Show site status on a globe whilst preserving unknown status as a distinct state.
 ---
 
 # 3D globe status
 
 ![3D globe status screenshot](/img/charts/scene3d-globe-status.png)
 
-This example uses Fission Charts' typed Rust API. Use it when global context matters. The screenshot is from Fission's chart gallery.
+An operational map needs more than online and offline. A site whose status could not be checked is unknown, not automatically healthy or unavailable. Keep that state explicit so the presentation cannot turn a failed observation into a misleading conclusion.
 
-## What the chart is for
+A globe helps with geographic context, but its hidden hemisphere prevents it from being a complete status list. Keep site names, status and observation time available outside the scene.
 
-This chart is in the **3D and GL** family. Use it when a visual makes the pattern easier to spot.
+## Compose example
 
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Globe sphere with visible markers`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `Scene3D` | `Scene3D` | Defines native 3D primitives, camera, light, and material data. |
-| `width / height` | `f32` | Optional fixed size; omit them when the scene should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::three_d::{Scene3D, Vec3};
-
-let scene = Scene3D::new()
-    .size(720.0, 420.0)
-    .camera(Vec3::new(3.5, 2.6, 5.0), Vec3::ZERO)
-    .ambient_light(0.45);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Positions use the unit-sphere convention from [Globe](./globe-basic), including the slight radial offset for markers. The parent supplies validated positions and theme colours with sufficient contrast.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::core::op::Color;
+use fission::three_d::{Point3D, Primitive3D, Scene3D};
 
+#[derive(Clone, Copy)]
+pub enum SiteStatus { Operational, Unavailable, Unknown }
 
+#[derive(Clone)]
+pub struct SiteMarker {
+    pub position: Point3D,
+    pub status: SiteStatus,
+}
 
-fission_component!
-{
-    pub Fission3DGlobeStatusChart<()> {
+fission_component! {
+    pub SiteStatusGlobe<()> {
+        props {
+            title: TextContent,
+            sites: Vec<SiteMarker>,
+            globe_color: Color,
+            operational_color: Color,
+            unavailable_color: Color,
+            unknown_color: Color,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("3D globe status")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
+    view(globe, _state, _cx) {
+        let mut scene = Scene3D::new().height(320.0)
+            .add_primitive(Primitive3D::Sphere {
+                center: Point3D::new(0.0, 0.0, 0.0),
+                radius: 1.0,
+                color: globe.globe_color,
+            });
+        for site in &globe.sites {
+            let color = match site.status {
+                SiteStatus::Operational => globe.operational_color,
+                SiteStatus::Unavailable => globe.unavailable_color,
+                SiteStatus::Unknown => globe.unknown_color,
+            };
+            scene = scene.add_primitive(Primitive3D::Sphere {
+                center: site.position.clone(),
+                radius: 0.06,
+                color,
+            });
+        }
+    } => Column(children: [
+        Text(globe.title.clone()),
+        scene,
+    ])
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Enable the `three-d` feature. This is native scene geometry, not a `Chart` series with automatically generated site labels or `ChartInteractionEvent` selection.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## Status is not just a colour
+
+Use a labelled list or table to expose each status and its freshness; colour alone is not an accessible status mechanism. Update the model through effects and reducers rather than requesting status checks while constructing the scene.
+
+Test unknown and stale observations separately from confirmed unavailability. Inspect overlapping and hidden markers in a real rendering. The gallery screenshot is sample geometry rather than a live service-health claim.
 
 Tags: `3d`, `globe`.
 

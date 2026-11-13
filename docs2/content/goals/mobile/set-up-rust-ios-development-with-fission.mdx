@@ -1,6 +1,6 @@
 ---
 layout: goal
-title: Set up Rust iOS development with Fission: Xcode, simulator and iPhone
+title: "Set up Rust iOS development with Fission: Xcode, simulator and iPhone"
 description: "Set up Xcode, the iOS Simulator and Rust targets so you can build a Fission iOS app."
 goal: Select Xcode, install the Rust device and simulator targets, verify the iOS Simulator SDK, and distinguish simulator runs from signed iPhone builds.
 path: /blog/set-up-rust-ios-development-with-fission/
@@ -14,17 +14,11 @@ outcomes:
   - Explain the state, component and host behaviour involved
   - Verify both target workflows and follow physical-device checks when the task requires them
 ---
-To build an iOS app with Fission, install Xcode, its simulator tools, and the
-Rust targets for simulator and device. The checks below show what is installed
-and where a simulator run ends and a signed iPhone build begins.
+A simulator build and an iPhone build share application code but do not establish the same result. The simulator needs its own SDK and Rust target; a physical-device build also needs signing and a device installation path. Combining those into a single “iOS works” check makes failures harder to locate.
+
+We will first select the Xcode installation, verify the simulator SDK and install the matching Rust targets. Only after the app launches in the simulator will we consider the additional requirements for an iPhone.
 
 At the end, you should be able to launch the app in an iOS Simulator. Installing on a physical iPhone also needs Apple signing and Developer Mode. The browser preview cannot verify either path; use the terminal and Xcode checks in this guide.
-
-### The Fission pieces in this example
-
-`fission_component!` describes reusable UI. It can receive typed props and keep small pieces of interface state, such as an open panel or an unsaved draft. Building a component reads state and creates widgets; it does not write files or call iOS APIs.
-
-Put product data that must survive a screen change in `GlobalState`. A typed action names what happened, and its reducer makes the synchronous state change. For a permission, file, network request or database, the reducer queues an effect or capability request and returns. A later success or error action updates state, so the screen can report the result without waiting on the main thread.
 
 ## Create the project and add the target
 
@@ -35,6 +29,7 @@ cargo install cargo-fission
 fission init set-up-rust-ios-development-with-fission
 cd set-up-rust-ios-development-with-fission
 fission add-target ios --project-dir .
+cargo add serde_yaml
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 ```
 
@@ -74,7 +69,8 @@ set-up-rust-ios-development-with-fission/
 ├── src/
 │   ├── main.rs                # generated app entrypoint
 │   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
+│   ├── app.rs                 # Compose checklist
+│   └── translations.rs        # embedded language bundles
 └── platforms/
     └── ios/                  # generated iOS host
 ```
@@ -84,201 +80,186 @@ Keep the screen, shared state, reducers and reusable `fission_component!` compon
 <!-- fission:step id="start-screen" -->
 ## Create the app screen
 
-The example screen gives the project something to install and launch. It does not check Xcode or the simulator; the commands in this guide do that.
+The screen gives the native build something concrete to launch. Its checkboxes record your review of terminal output; they cannot inspect Xcode or establish that signing worked. Replace both the component and normal `src/lib.rs` entrypoint below, keeping the generated `src/main.rs`.
+
+The three flags are retained interface memory, not application configuration. Reloading or restarting clears them. The app installs English and Spanish messages and starts explicitly in English.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+
 fission_component! {
-    pub IosToolchainChecklist<()> {
+    pub ToolchainChecklist<()> {
         state {
-            xcode_checked: bool = false,
-            simulator_checked: bool = false,
-            rust_targets_checked: bool = false,
+            tools_checked: bool = false,
+            runtime_checked: bool = false,
+            targets_checked: bool = false,
         }
     }
     view(setup, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let reviewed = [setup.xcode_checked, setup.simulator_checked, setup.rust_targets_checked]
-            .iter()
-            .filter(|checked| **checked)
-            .count();
-        let status = if reviewed == 3 {
-            cx.tr("setup.status.complete")
-        } else {
-            cx.tr("setup.status.incomplete")
-        };
+        let reviewed = [setup.tools_checked, setup.runtime_checked, setup.targets_checked]
+            .iter().filter(|checked| **checked).count();
     } =>
-    SemanticsRegion(
-        identifier: Some("ios-toolchain-checklist".to_string()),
-        label: Some(cx.tr("setup.screen.label")),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Text(cx.tr("setup.app.name"))
-                        .weight(tokens.typography.font_weight_bold),
-                    Text(cx.tr("setup.route"))
-                        .color(tokens.colors.text_secondary),
-                ]),
-                Badge(text: cx.tr("setup.preview.badge")),
-                Divider(),
-                Text(cx.tr("setup.title"))
-                    .size(tokens.typography.heading2_size),
-                Text(cx.tr("setup.summary"))
-                    .color(tokens.colors.text_secondary),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text(cx.tr("setup.xcode.title"))
-                            .weight(tokens.typography.font_weight_semibold),
-                        Text(cx.tr("setup.xcode.detail")),
-                        Checkbox(
-                            checked: setup.xcode_checked,
-                            label: Some(cx.tr("setup.xcode.check")),
-                            semantics_identifier: Some("ios-setup.xcode".to_string()),
-                            on_toggle: reduce { setup.xcode_checked = !setup.xcode_checked; },
-                        ),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text(cx.tr("setup.simulator.title"))
-                            .weight(tokens.typography.font_weight_semibold),
-                        Text(cx.tr("setup.simulator.detail")),
-                        Checkbox(
-                            checked: setup.simulator_checked,
-                            label: Some(cx.tr("setup.simulator.check")),
-                            semantics_identifier: Some("ios-setup.simulator-sdk".to_string()),
-                            on_toggle: reduce { setup.simulator_checked = !setup.simulator_checked; },
-                        ),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text(cx.tr("setup.targets.title"))
-                            .weight(tokens.typography.font_weight_semibold),
-                        Text(cx.tr("setup.targets.detail")),
-                        Checkbox(
-                            checked: setup.rust_targets_checked,
-                            label: Some(cx.tr("setup.targets.check")),
-                            semantics_identifier: Some("ios-setup.rust-targets".to_string()),
-                            on_toggle: reduce { setup.rust_targets_checked = !setup.rust_targets_checked; },
-                        ),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: status),
-                    Text(format!("{reviewed} / 3"))
-                        .color(tokens.colors.text_secondary),
-                ]),
-                Text(cx.tr("setup.preview.note"))
-                    .color(tokens.colors.text_secondary),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
+    Container(SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("setup.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("setup.summary")).color(tokens.colors.text_secondary),
+            Text(cx.tr("setup.manual")).weight(tokens.typography.font_weight_semibold),
+            Divider(),
+            Checkbox(
+                checked: setup.tools_checked,
+                label: Some(cx.tr("setup.tools.check")),
+                semantics_identifier: Some("setup.tools".into()),
+                bind(on_toggle): to(setup.tools_checked),
+            ),
+            Text(cx.tr("setup.tools.detail")),
+            Checkbox(
+                checked: setup.runtime_checked,
+                label: Some(cx.tr("setup.runtime.check")),
+                semantics_identifier: Some("setup.runtime".into()),
+                bind(on_toggle): to(setup.runtime_checked),
+            ),
+            Text(cx.tr("setup.runtime.detail")),
+            Checkbox(
+                checked: setup.targets_checked,
+                label: Some(cx.tr("setup.targets.check")),
+                semantics_identifier: Some("setup.targets".into()),
+                bind(on_toggle): to(setup.targets_checked),
+            ),
+            Text(cx.tr("setup.targets.detail")),
+            Divider(),
+            Text(cx.tr("setup.reviewed").replace("{count}", &reviewed.to_string())),
+            Text(cx.tr("setup.scope")).color(tokens.colors.text_secondary),
+        ])
+    ).padding_all(tokens.spacing.l)
+     .width_length(Length::percent(100.0))
+     .max_width(680.0))))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod translations;
+
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(app::ToolchainChecklist)
+        .with_env(translations::create_env())
+        .run()
 }
 
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), app::ToolchainChecklist> {
+    let app = MobileApp::<(), _>::new(app::ToolchainChecklist)
+        .with_env(translations::create_env())
+        .with_title("Toolchain checklist");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::ToolchainChecklist)
+        .with_env(translations::create_env())
+        .with_title("Toolchain checklist")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("checked-in setup translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+setup.title: "iOS development checklist"
+setup.summary: "Keep track of the checks you have run in your own terminal."
+setup.manual: "Mark these only after reviewing the command output."
+setup.tools.check: "Xcode installation selected"
+setup.tools.detail: "Run xcode-select -p and xcodebuild -version on your Mac."
+setup.runtime.check: "Simulator runtime available"
+setup.runtime.detail: "Check xcrun simctl list devices available and the iphonesimulator SDK."
+setup.targets.check: "Rust targets installed"
+setup.targets.detail: "Check aarch64-apple-ios and aarch64-apple-ios-sim with rustup target list --installed."
+setup.reviewed: "{count} of 3 checks marked"
+setup.scope: "This is a manual checklist, not a toolchain diagnostic. Your marks are local to this session; reloading clears them."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+setup.title: "Lista de desarrollo para iOS"
+setup.summary: "Anota las comprobaciones que has ejecutado en tu propio terminal."
+setup.manual: "Marca cada casilla tras revisar la salida del comando."
+setup.tools.check: "Instalación de Xcode seleccionada"
+setup.tools.detail: "Ejecuta xcode-select -p y xcodebuild -version en tu Mac."
+setup.runtime.check: "Entorno del simulador disponible"
+setup.runtime.detail: "Comprueba xcrun simctl list devices available y el SDK iphonesimulator."
+setup.targets.check: "Destinos de Rust instalados"
+setup.targets.detail: "Comprueba aarch64-apple-ios y aarch64-apple-ios-sim con rustup target list --installed."
+setup.reviewed: "{count} de 3 comprobaciones marcadas"
+setup.scope: "Esta lista es manual; no diagnostica las herramientas. Las marcas son locales a la sesión y se borran al recargar."
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
-    TranslationBundle {
-        locale: Locale::from(locale),
-        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
-    }
-}
-
-fn preview_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    env.i18n
-        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
-    env.i18n
-        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
-    env
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::IosToolchainChecklist)
-        .with_env(preview_env())
-        .with_title("iOS Toolchain Setup")
+    WebApp::<(), _>::new(app::ToolchainChecklist)
+        .with_env(translations::create_env())
+        .with_title("Toolchain checklist")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
-
-```
-</TabItem>
-<TabItem label="i18n/en-US.yaml">
-<!-- fission:file path="src/i18n/en-US.yaml" -->
-```yaml
-setup.screen.label: "Rust iOS development setup checklist"
-setup.app.name: "Rust iOS Setup"
-setup.route: "Toolchain · iOS"
-setup.preview.badge: "Manual readiness checklist"
-setup.title: "Get the Simulator build ready"
-setup.summary: "Check Xcode, its Simulator SDK and the Rust targets before running the app."
-setup.xcode.title: "Select Xcode"
-setup.xcode.detail: "Run xcode-select -p and xcodebuild -version in your terminal."
-setup.xcode.check: "I checked the selected Xcode installation"
-setup.simulator.title: "Install the Simulator runtime"
-setup.simulator.detail: "Check iphonesimulator with xcrun and confirm an available Simulator device."
-setup.simulator.check: "I checked the Simulator SDK and runtime"
-setup.targets.title: "Install Rust targets"
-setup.targets.detail: "Add aarch64-apple-ios and aarch64-apple-ios-sim with rustup."
-setup.targets.check: "I checked both Rust targets"
-setup.status.complete: "All setup checks marked complete"
-setup.status.incomplete: "Setup checks still need attention"
-setup.preview.note: "These checkboxes are your notes; the browser preview cannot inspect Xcode or your Rust toolchain."
-```
-</TabItem>
-<TabItem label="i18n/es-ES.yaml">
-<!-- fission:file path="src/i18n/es-ES.yaml" -->
-```yaml
-setup.screen.label: "Lista de preparación para desarrollar Rust en iOS"
-setup.app.name: "Configuración de iOS con Rust"
-setup.route: "Herramientas · iOS"
-setup.preview.badge: "Lista manual de preparación"
-setup.title: "Prepara la compilación para el simulador"
-setup.summary: "Comprueba Xcode, su SDK de simulador y los destinos de Rust antes de ejecutar la app."
-setup.xcode.title: "Selecciona Xcode"
-setup.xcode.detail: "Ejecuta xcode-select -p y xcodebuild -version en el terminal."
-setup.xcode.check: "He comprobado la instalación de Xcode seleccionada"
-setup.simulator.title: "Instala el entorno del simulador"
-setup.simulator.detail: "Comprueba iphonesimulator con xcrun y confirma que haya un dispositivo disponible."
-setup.simulator.check: "He comprobado el SDK y el entorno del simulador"
-setup.targets.title: "Instala los destinos de Rust"
-setup.targets.detail: "Añade aarch64-apple-ios y aarch64-apple-ios-sim con rustup."
-setup.targets.check: "He comprobado ambos destinos de Rust"
-setup.status.complete: "Todas las comprobaciones están marcadas"
-setup.status.incomplete: "Quedan comprobaciones de configuración"
-setup.preview.note: "Estas casillas son tus notas; la vista web no puede inspeccionar Xcode ni las herramientas de Rust."
 ```
 </TabItem>
 </Tabs>
@@ -309,5 +290,4 @@ These references explain the API contract behind the example and the target-spec
 - [Fission iOS target guide](/reference/platform/targets/)
 - [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
 - [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
 <!-- /fission:step -->

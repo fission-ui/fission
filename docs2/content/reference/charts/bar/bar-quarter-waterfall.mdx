@@ -1,94 +1,89 @@
 ---
 title: Quarter waterfall
 sidebar_label: Quarter waterfall
-description: Fission Charts reference for Quarter waterfall.
+description: Explain an opening balance, sequential quarterly changes and the resulting closing balance.
 ---
 
 # Quarter waterfall
 
 ![Quarter waterfall screenshot](/img/charts/bar-quarter-waterfall.png)
 
-This example uses Fission Charts' typed Rust API. Use it for financial bridge and variance analysis. The screenshot is from Fission's chart gallery.
+A waterfall explains how an opening value becomes a closing value. Each intermediate bar starts at the previous cumulative result rather than at zero. Drawing a list of positive and negative deltas from zero is a change chart, not the same construction.
 
-## What the chart is for
+For a quarterly financial bridge, preserve the order and meaning of the adjustments. The opening and closing bars are totals; the bars between them are changes. They should not be summed together as if every category were another contribution.
 
-This chart is in the **Bar** family. Use it when a visual makes the pattern easier to spot.
+## Construct the offsets explicitly
 
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Sequential deltas that explain a final value`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, BarSeries, Chart};
-
-let chart = Chart::new()
-    .title("Orders")
-    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-    .y_axis(Axis::value())
-    .series(vec![BarSeries::new("Orders")
-        .data(vec![120.0, 156.0, 184.0, 212.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Fission has no separate waterfall-series type here. A transparent base series supplies the starting height and a visible series supplies each change. They share one stack key. The gallery screenshot is illustrative sample output; the component below makes the cumulative construction explicit.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, BarSeries, Chart};
+use fission::core::op::Color;
+use fission::charts::{Axis, BarSeries, Chart, Series};
 
+#[derive(Clone)]
+pub struct QuarterAdjustment {
+    pub label: String,
+    pub change: f32,
+}
 
-
-fission_component!
-{
-    pub QuarterWaterfallChart<()> {
+fission_component! {
+    pub QuarterBridgeChart<()> {
+        props {
+            title: String,
+            opening_label: String,
+            closing_label: String,
+            change_label: String,
+            opening: f32,
+            adjustments: Vec<QuarterAdjustment>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Orders")
-                    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-                    .y_axis(Axis::value())
-                    .series(vec![BarSeries::new("Orders")
-                        .data(vec![120.0, 156.0, 184.0, 212.0])
-                        .into()])
-                    .into()
-    }
+    view(bridge, _state, _cx) {
+        let mut labels = vec![bridge.opening_label.as_str()];
+        let mut offsets = vec![0.0];
+        let mut changes = vec![bridge.opening];
+        let mut running = bridge.opening;
+
+        for adjustment in &bridge.adjustments {
+            labels.push(adjustment.label.as_str());
+            offsets.push(running);
+            changes.push(adjustment.change);
+            running += adjustment.change;
+        }
+
+        labels.push(bridge.closing_label.as_str());
+        offsets.push(0.0);
+        changes.push(running);
+
+        let transparent = Color { r: 0, g: 0, b: 0, a: 0 };
+    } => Chart(
+        title: Some(bridge.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value()),
+        series: vec![
+            Series::Bar(BarSeries::new("")
+                .stack("quarter-bridge")
+                .color(transparent)
+                .data(offsets)),
+            Series::Bar(BarSeries::new(&bridge.change_label)
+                .stack("quarter-bridge")
+                .data(changes)),
+        ],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Enable the `charts` feature. A negative change draws downwards from its offset because the stack adds that signed value to the preceding base. The transparent colour is an implementation detail for geometry, not a user-facing status colour.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## Keep financial authority outside the chart
+
+The example calculates display offsets in scene values. Calculate the authoritative closing balance using the application's money type, then test that the display projection agrees within the chosen display precision. Validate finite inputs and cumulative results.
+
+Do not add an ordinary legend for the invisible base: it is not a business measure. Likewise, a custom tooltip must expose the adjustment and cumulative balance rather than misleadingly presenting the offset as another transaction.
+
+## Checks
+
+Test an increase, a decrease, no changes and a balance crossing zero. Verify that the closing total equals opening plus adjustments, then inspect the actual rendered offsets. Provide the same reconciliation in an accessible table with translated labels. The screenshot above is a gallery fixture, not output from this component's props.
 
 Tags: `bar`, `waterfall`.
 

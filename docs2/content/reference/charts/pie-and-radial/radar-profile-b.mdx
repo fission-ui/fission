@@ -8,85 +8,53 @@ description: Fission Charts reference for Radar profile B.
 
 ![Radar profile B screenshot](/img/charts/radar-profile-b.png)
 
-Filled radar chart for overlapping profile comparison. Use it when the profile shape matters. The screenshot is from Fission's chart gallery.
+Two profiles are comparable only when each position describes the same dimension on the same scale. A radar can show the shape of a supplier's current assessment against its earlier assessment, but the order must remain fixed. The screenshot is from Fission's chart gallery.
 
 ## What the chart is for
 
-This chart is in the **Pie and radial** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
+Use this view to discuss which capabilities changed, not to compare polygon areas. Reordering the dimensions changes the shape and area without changing any score. Retain the underlying named values and assessment dates.
 
 ## Data model
 
-This example uses `Vec<Vec<f32>> metric profiles`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
+Supply two four-value rows on a 0–100 scale. The current renderer fills and outlines each row with a palette colour, but `RadarSeries` does not attach an individual name to each row or draw spoke labels. Explain row order and dimension order outside the image.
 
 ## Authoring from a Fission component
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+The component receives fixed-length current and previous assessments. Its parent supplies a localized explanation naming the dimensions and which profile is shown first.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{Chart, RadarSeries};
 
-
-
-fission_component!
-{
-    pub RadarProfileBChart<()> {
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub SupplierAssessmentComparison<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            previous_scores: [f32; 4],
+            current_scores: [f32; 4],
+            profile_description: TextContent,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
-    }
+    view(review, _state, _cx) => Column(children: [
+        Text(review.profile_description.clone()),
+        Chart(
+            title: Some(review.chart_title.clone()),
+            series: vec![RadarSeries::new(&review.series_label)
+                .data(vec![
+                    review.previous_scores.to_vec(),
+                    review.current_scores.to_vec(),
+                ])
+                .into()],
+        ),
+    ])
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+## Testing and accessibility
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Test identical profiles, a changed dimension and an incomplete assessment before rendering. Check overlap without relying on colour alone. Provide a table with previous/current values and dates; the renderer's unnamed rows are not an adequate accessible comparison on their own.
 
 Tags: `radar`, `profile`.
 

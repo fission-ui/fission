@@ -16,15 +16,30 @@ Use `VStack` for simple grouped sections. Do not use it when you need richer `Co
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = VStack {
-    spacing: Some(12.0),
-    children: vec![
-        Text::new("Title").into(),
-        Text::new("Body copy").into(),
-    ],
+fission_component! {
+    pub DocumentSummary<()> {
+        props {
+            title: String,
+            excerpt: String,
+        }
+    }
+
+    view(document, _state, cx) {
+        let spacing = &cx.view.env().theme.tokens.spacing;
+    } =>
+        VStack(
+            spacing: spacing.m,
+            children: [
+                Text(document.title.clone()),
+                Text(document.excerpt.clone()),
+            ],
+        )
 }
-.into();
 ```
+
+The title and excerpt are document content from the parent, not hard-coded
+placeholder copy. The component chooses vertical grouping and theme spacing;
+it does not need another card boundary just to place two paragraphs.
 
 ## Field table
 

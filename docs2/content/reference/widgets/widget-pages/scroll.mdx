@@ -9,7 +9,7 @@ slug: /widgets/scroll
 Use it for long forms, article content, settings, or horizontal strips when
 building the whole subtree is acceptable.
 
-Use `Scroll` when building the whole child subtree is acceptable. Do not use it for very large uniform-height lists where virtualization matters. That is the job of [`LazyColumn`](/reference/widgets/lazy-column).
+Do not use it for very large uniform-height lists where virtualization matters. That is the job of [`LazyColumn`](/reference/widgets/lazy-column).
 
 ## Example
 
@@ -17,25 +17,24 @@ Use `Scroll` when building the whole child subtree is acceptable. Do not use it 
 use fission::prelude::*;
 use fission::op::FlexDirection;
 
-let widget: Widget = Scroll {
-    direction: FlexDirection::Column,
-    flex_grow: 1.0,
-    child: Some(
-        Column {
-            gap: Some(16.0),
-            children: vec![
-                Text::new("Section 1").into(),
-                Text::new("Section 2").into(),
-                Text::new("Section 3").into(),
-            ],
-            ..Default::default()
-        }
-        .into(),
-    ),
-    ..Default::default()
+fission_component! {
+    pub DocumentViewport<()> {
+        props { document: Widget }
+    }
+
+    view(viewport, _state, _cx) =>
+        Scroll(
+            id: WidgetId::explicit("document.canvas.scroll"),
+            direction: FlexDirection::Column,
+            flex_grow: 1.0,
+            child: viewport.document.clone(),
+        )
 }
-.into();
 ```
+
+The parent supplies the document's real, variable-height content. The explicit
+viewport id is also used by programmatic reveal below; it must not be rebuilt
+with a different id when the selected page changes.
 
 ## Field table
 
@@ -70,31 +69,34 @@ Use `ctx.effects.scroll_into_view(...)` when a reducer needs to reveal a widget 
 use fission::prelude::*;
 
 #[fission_reducer(SelectPage)]
-fn select_page(state: &mut DocumentState, action: SelectPage, ctx: &mut ReducerContext<DocumentState>) {
-    state.selected_page = action.page;
+fn select_page(state: &mut DocumentState, page: u32, ctx: &mut ReducerContext<DocumentState>) {
+    state.selected_page = page;
 
     ctx.effects.scroll_into_view(ScrollIntoViewRequest {
         container: Some(WidgetId::explicit("document.canvas.scroll")),
-        target: WidgetId::explicit(&format!("document.page.{}", action.page)),
+        target: WidgetId::explicit(&format!("document.page.{}", page)),
         axis: ScrollAxis::Vertical,
         alignment: ScrollAlignment::Start,
-        padding: [24.0, 24.0, 24.0, 24.0],
+        padding: [0.0; 4],
         behavior: ScrollBehavior::Instant,
         if_needed: false,
     });
 }
 ```
 
+This reducer excerpt assumes the app's `DocumentState` owns `selected_page`
+and the document creates matching `document.page.<id>` children. The macro
+generates `SelectPage(page)` from the payload parameter; do not recursively take
+`SelectPage` as its own payload. Zero reveal padding is intentional here; pass
+a known layout inset when the document requires it.
+
 Keep the scroll container and reveal targets on stable explicit IDs. If `container` is `None`, Fission uses the nearest matching scroll ancestor. `ScrollAlignment::Nearest` uses the smallest offset change that makes the target visible; `Start`, `Center`, `End`, and `Fraction(_)` place it deliberately inside the viewport.
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Prefer parent layout and design-system sizing first; use explicit size or spacing fields when the product layout requires that constraint on this widget specifically.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Check bounded viewport height, variable content heights, and revealed targets.
+- Preserve scroll and child identities across selection and data updates.
+- Test deliberate nested scroll interactions rather than adding a second vertical viewport accidentally.
 
 ## Related
 

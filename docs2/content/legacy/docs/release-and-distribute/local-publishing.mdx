@@ -5,9 +5,18 @@ description: Use Fission's guided local publishing flow without committing crede
 
 # Local publishing
 
-Use local publishing when your production credentials are on your machine and you want guidance from preflight through provider upload.
+Use local publishing to establish the release path on your machine before
+turning it into unattended CI. The guided interface gathers missing decisions;
+it still produces the same package manifest and provider receipt as the
+direct commands.
 
-The guided flow should:
+For example, with a configured Play provider:
+
+```console
+fission publish --project-dir . --provider play-store
+```
+
+Work through the flow in this order:
 
 - run preflight checks,
 - show required and recommended release metadata,
@@ -20,3 +29,7 @@ The guided flow should:
 - show provider receipts and next actions.
 
 Use the local flow to prove the release process. Once it works, put the same non-interactive steps in CI.
+
+Review the selected track, package identity, version/build, and artifact before
+authorising upload. Keep credentials in the protected local release area or
+environment; a convenient wizard does not make them suitable project files.

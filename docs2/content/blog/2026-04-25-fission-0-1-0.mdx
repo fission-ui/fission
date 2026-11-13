@@ -29,4 +29,9 @@ The result is a foundation release: layout, rendering, input, examples, facade e
 ## What this means for developers
 
 
-The best way to judge a framework is to try the part your app will depend on. Create a small app, run the documented command, inspect what Fission generated, and add a test for the behaviour you need. If that path is unclear, the docs or CLI still need work.
+The useful test of this foundation is an interaction, not an empty window.
+The inbox and editor examples exercise selection, scrolling, overlays, and
+text entry through the real runtime. Start with the path closest to your app
+and retain a regression test for it. For today's setup and authoring API, use
+the [current documentation](/docs/), rather than treating this first release's
+surface as the current contract.

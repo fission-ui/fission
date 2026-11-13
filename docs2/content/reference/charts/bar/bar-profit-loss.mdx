@@ -1,94 +1,64 @@
 ---
 title: Profit and loss bars
 sidebar_label: Profit and loss bars
-description: Fission Charts reference for Profit and loss bars.
+description: Compare signed period results against the same zero baseline.
 ---
 
 # Profit and loss bars
 
 ![Profit and loss bars screenshot](/img/charts/bar-profit-loss.png)
 
-This example uses Fission Charts' typed Rust API. Use it when gains and losses must share one baseline. The screenshot is from Fission's chart gallery.
+Profit and loss share a reference point: zero. A positive bar represents profit for a reporting period, whilst a negative bar represents loss. Keeping them on one scale makes the direction and size of each result visible without treating losses as positive magnitudes in another chart.
 
-## What the chart is for
+Define the accounting measure before presenting it. Operating profit, gross profit and cash movement are not interchangeable simply because each can be positive or negative.
 
-This chart is in the **Bar** family. Use it when a visual makes the pattern easier to spot.
+## Compose example
 
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Positive and negative values on one value axis`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, BarSeries, Chart};
-
-let chart = Chart::new()
-    .title("Orders")
-    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-    .y_axis(Axis::value())
-    .series(vec![BarSeries::new("Orders")
-        .data(vec![120.0, 156.0, 184.0, 212.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+The parent supplies net results calculated by its accounting model, converted into one display unit. Do not use the chart's `f32` values as the authoritative money representation.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, BarSeries, Chart};
+use fission::charts::{Axis, BarSeries, Chart, Series};
 
+#[derive(Clone)]
+pub struct PeriodResult {
+    pub period: String,
+    pub net_result: f32,
+}
 
-
-fission_component!
-{
-    pub ProfitAndLossBarsChart<()> {
+fission_component! {
+    pub PeriodResultsChart<()> {
+        props {
+            title: String,
+            result_label: String,
+            unit_label: String,
+            rows: Vec<PeriodResult>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Orders")
-                    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-                    .y_axis(Axis::value())
-                    .series(vec![BarSeries::new("Orders")
-                        .data(vec![120.0, 156.0, 184.0, 212.0])
-                        .into()])
-                    .into()
-    }
+    view(results, _state, _cx) {
+        let periods = results.rows.iter().map(|row| row.period.as_str()).collect();
+        let amounts: Vec<f32> = results.rows.iter().map(|row| row.net_result).collect();
+        let bound = amounts.iter()
+            .fold(1.0_f32, |bound, amount| bound.max(amount.abs()));
+    } => Chart(
+        title: Some(results.title.clone()),
+        x_axis: Some(Axis::category(periods)),
+        y_axis: Some(Axis::value().min(-bound).max(bound)
+            .name(results.unit_label.clone())),
+        series: vec![
+            Series::Bar(BarSeries::new(&results.result_label).data(amounts)),
+        ],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Enable Fission's `charts` feature. Signed `BarSeries::data` values cross the zero baseline without a separate loss-series type. The explicit symmetric limits avoid giving equal profit and loss amounts different visual weight.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## Checks
+
+Validate finite amounts and a consistent reporting period before rendering. An incomplete period or unavailable result needs an explicit qualification; inserting zero would imply a known break-even result.
+
+Provide the numeric results and accounting measure in accessible text or a table. Direction should remain understandable without a red/green colour distinction. Test positive, negative and break-even results and inspect the rendered baseline with the intended currency-unit labels. The gallery screenshot uses sample data.
 
 Tags: `bar`, `negative`.
 

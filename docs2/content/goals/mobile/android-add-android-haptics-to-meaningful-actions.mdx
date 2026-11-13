@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Add Android haptics to meaningful actions
-description: "Add Android haptics to meaningful actions using Fission."
-goal: Use haptic feedback selectively and provide an equally clear visual response.
+description: "Record an inspection result once, then request optional haptic feedback. A vibration failure must not undo the completed state transition."
+goal: "Use a short haptic confirmation to reinforce a completed inspection while preserving an equally clear visual result when haptics are unavailable."
 path: /blog/add-android-haptics-to-meaningful-actions/
 order: 50
 difficulty: Beginner
@@ -10,14 +10,19 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-add-android-haptics-to-meaningful-actions
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - "Keep the inspection transition authoritative and haptic feedback optional"
+  - "Request the real host operation through explicit completion callbacks"
+  - "Prevent repeated actions while feedback is pending"
+  - "Show the recorded result without relying on a vibration or static loading glyph"
 ---
+
+Completing an inspection and feeling a vibration are two different outcomes. The first changes the work record; the second helps the technician notice that change. If the device has no vibrator, or its settings suppress feedback, the inspection must still be complete.
+
+Here, we build that distinction into a compressor inspection screen. The completion is always visible. Haptics are requested afterwards, through an asynchronous capability, and their failure does not undo the work.
 
 ## Create the project and add the target
 
-Create the project and add the target used by this guide. Fission generates the native host; the app and its behaviour stay in shared Rust code.
+Complete [Android SDK and NDK setup](/blog/set-up-rust-android-gui-development-with-fission/) and either [create an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [connect a phone](/blog/run-a-fission-app-on-a-physical-android-phone/) first. The emulator is useful for the screen, but a physical phone is needed to judge the feedback.
 
 ```sh
 cargo install cargo-fission
@@ -25,6 +30,7 @@ fission init android-add-android-haptics-to-meaningful-actions
 cd android-add-android-haptics-to-meaningful-actions
 fission add-target android --project-dir .
 fission add-capability haptics --project-dir .
+cargo add serde_yaml
 ```
 
 ## Files created by Fission
@@ -43,7 +49,7 @@ android-add-android-haptics-to-meaningful-actions/
     └── android/              # generated Android host
 ```
 
-Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
+Replace `src/lib.rs` below as well as the screen. A normal Android launch and the embedded preview must use the same app; leaving the generated entrypoint unchanged would launch its counter instead. Keep the generated `src/main.rs` thin. The translations live outside the screen so every shell installs the same bundles.
 
 <!-- fission:step id="start-screen" -->
 ## Give an inspection completion a clear response
@@ -118,7 +124,7 @@ const SOURCES: [(&str, &str); 2] = [
     ("es-ES", include_str!("../i18n/es-ES.yaml")),
 ];
 
-pub fn preview_env() -> Env {
+pub fn create_env() -> Env {
     let mut env = Env::default();
     env.locale = Locale::from("en-US");
     for (locale, yaml) in SOURCES {
@@ -177,6 +183,53 @@ inspection.haptic_complete: "Inspección completada. La solicitud háptica ha fi
 inspection.haptic_unavailable: "Inspección completada. La respuesta háptica no está disponible."
 ```
 </TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod i18n;
+
+use app::InspectionCompletion;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(InspectionCompletion::new())
+        .with_env(i18n::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), InspectionCompletion> {
+    let app = MobileApp::<(), _>::new(InspectionCompletion::new())
+        .with_env(i18n::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(InspectionCompletion::new())
+        .with_env(i18n::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
@@ -191,7 +244,7 @@ pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     let preview = app::InspectionCompletion::new();
     WebApp::<(), _>::new(preview)
-        .with_env(i18n::preview_env())
+        .with_env(i18n::create_env())
         .with_title("Northbank compressor inspection")
         .mount("#fission-web-mount")
         .run()
@@ -236,8 +289,10 @@ pub struct InspectionState {
 
 impl GlobalState for InspectionState {}
 
-#[fission_reducer(CompleteInspection)]
 fn complete_inspection(state: &mut InspectionState, ctx: &mut ReducerContext<InspectionState>) {
+    if state.complete {
+        return;
+    }
     state.complete = true;
     state.feedback = FeedbackState::Sending;
     state.haptic_error = None;
@@ -275,7 +330,6 @@ fission_component! {
     pub InspectionCompletion<InspectionState> {}
     view(_inspection, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let complete = with_reducer!(cx.build, CompleteInspection, complete_inspection);
         let feedback = if let Some(error) = &state.haptic_error {
             format!("{}: {error}", cx.tr("inspection.haptic_unavailable"))
         } else {
@@ -309,8 +363,11 @@ fission_component! {
                 child: Text(if state.complete { cx.tr("inspection.done") } else { cx.tr("inspection.action") }),
                 key: "complete-inspection",
                 disabled: state.complete,
-                on_press: complete,
+                on_press: reduce { complete_inspection(state, cx); },
             ),
+            if state.feedback == FeedbackState::Sending {
+                Spinner(motion: Some(SpinnerMotion::Default), label: cx.tr("inspection.sending"))
+            },
             Text(feedback).color(tokens.colors.text_secondary),
         ]))
         .padding_all(tokens.spacing.l)
@@ -318,6 +375,53 @@ fission_component! {
         .border(tokens.colors.border, 1.0)
         .border_radius(tokens.radii.large),
     )
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod i18n;
+
+use app::InspectionCompletion;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<app::InspectionState, _>::new(InspectionCompletion)
+        .with_env(i18n::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<app::InspectionState, InspectionCompletion> {
+    let app = MobileApp::<app::InspectionState, _>::new(InspectionCompletion)
+        .with_env(i18n::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<app::InspectionState, _>::new(InspectionCompletion)
+        .with_env(i18n::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
@@ -334,8 +438,7 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     WebApp::<app::InspectionState, _>::new(app::InspectionCompletion::new())
-        .with_haptic_host(MemoryHapticHost::default())
-        .with_env(i18n::preview_env())
+        .with_env(i18n::create_env())
         .with_title("Northbank compressor inspection")
         .mount("#fission-web-mount")
         .run()
@@ -345,7 +448,9 @@ pub fn run() -> Result<(), JsValue> {
 </TabItem>
 </Tabs>
 
-The browser preview installs `MemoryHapticHost`, so pressing the action exercises the same Fission capability and completion reducers without vibrating hardware:
+The preview leaves Fission's actual Web host in place. Pressing the action requests feedback from that host; an unsupported or unavailable result is handled by the same error reducer. It does not substitute an in-memory success for a device result.
+
+The completed flag here lasts for the current app run. In a work-order app that promises saved completion, persist or submit that change and confirm it before requesting the success haptic. An optional vibration is not an acknowledgement from the server.
 
 The [complete Haptics guide](/docs/capabilities/haptics/) explains configuration and platform behaviour. On a physical Android device, verify the actual vibration too. If the host reports haptics are unavailable, the inspection should still be marked complete and the screen should still explain what happened.
 
@@ -354,16 +459,16 @@ Keep platform-specific code behind Fission’s typed provider boundary; the shar
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Press “Complete inspection”. The browser memory host should return success and the screen should show that the haptic request finished. This exercises the same request path without pretending the browser produced physical vibration.
+Press “Complete inspection”. Completion stays visible whether the host accepts the haptic request or reports it unavailable. A successful request means the host accepted it; it does not prove the user felt a vibration.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
 ## Verify the native request on Android
 
-The browser preview uses an in-memory provider, not the Android vibrator. Build and launch on a supported emulator or device, then use the same action and compare the visible result with the feedback the Android host actually provides. Also check that an unavailable or denied haptic request does not undo the completed inspection.
+The browser result is not a measurement of the Android vibrator. Run the same screen on a phone, complete the inspection, and compare the visible response with the feedback you feel. Repeat with vibration disabled in the device settings. The app must remain usable in both cases.
 
-Repeat with the feature unavailable, denied or cancelled, as applicable. Confirm the screen preserves the user’s existing data and offers the right recovery step. Use a physical device when the behavior depends on real hardware or an operating-system prompt.
+Do not add a permission or cancellation prompt just to make the example look like another capability flow. Haptics are optional feedback here, not a prerequisite for completing the inspection.
 
 ### Run, test and build
 
@@ -396,7 +501,7 @@ adb devices -l
 fission run --target android --device <adb-serial> --project-dir .
 ```
 
-An emulator can exercise the UI and memory-provider outcomes; it is not evidence that physical hardware or an OS permission flow works.
+An emulator can exercise the screen and its actual host outcome. It cannot establish vibration strength or timing on the phone the technician will carry.
 
 
 ### Current references
@@ -407,5 +512,4 @@ These references explain the API contract behind the example and the target-spec
 - [Haptics capability reference](/reference/capabilities/haptics/)
 - [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
 - [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
 <!-- /fission:step -->

@@ -1,95 +1,58 @@
 ---
 title: Market share pie
 sidebar_label: Market share pie
-description: Fission Charts reference for Market share pie.
+description: Compare a small number of exclusive market categories with a true pie rather than a donut.
 ---
 
 # Market share pie
 
 ![Market share pie screenshot](/img/charts/analytics-market-pie.png)
 
-This example uses Fission Charts' typed Rust API. Use it for small whole comparisons. The screenshot is from Fission's chart gallery.
+A market-share chart needs a defined market. Shares of subscriptions, revenue and active organisations can all be useful, but they are not interchangeable.
 
-## What the chart is for
+Start with counts or amounts from the same market and reporting period. The pie then shows each category's part of that total; it does not decide what should have been counted.
 
-This chart is in the **Analytics** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Label/value market share pairs`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Chart, Legend, PieSeries};
-
-let chart = Chart::new()
-    .title("Share")
-    .legend(Legend::top_right())
-    .series(vec![PieSeries::new("Share")
-        .inner_radius(48.0)
-        .data(vec![("Search", 38.0), ("Direct", 32.0), ("Ads", 18.0)])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+## Compose example
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Chart, Legend, PieSeries};
+use fission::charts::{Chart, PieSeries, Series};
 
+#[derive(Clone)]
+pub struct MarketCategory {
+    pub label: String,
+    pub amount: f32,
+}
 
-
-fission_component!
-{
-    pub MarketSharePieChart<()> {
+fission_component! {
+    pub MarketShare<()> {
+        props {
+            title: String,
+            measure_label: String,
+            categories: Vec<MarketCategory>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Share")
-                    .legend(Legend::top_right())
-                    .series(vec![PieSeries::new("Share")
-                        .inner_radius(48.0)
-                        .data(vec![("Search", 38.0), ("Direct", 32.0), ("Ads", 18.0)])
-                        .into()])
-                    .into()
-    }
+    view(market, _state, _cx) {
+        let values = market.categories.iter()
+            .map(|category| (category.label.as_str(), category.amount))
+            .collect();
+    } => Chart(
+        title: Some(market.title.clone()),
+        series: vec![Series::Pie(
+            PieSeries::new(&market.measure_label)
+                .inner_radius(0.0)
+                .data(values),
+        )],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Unlike the device donut, this example has no hole. Require finite, non-negative amounts and a positive total before constructing it. Translate category names in the parent, keeping their underlying market identifiers stable in the data model.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## Check what the whole excludes
 
-Tags: `analytics`, `pie`.
+Include an explicit remainder where the dataset does not name every category. Otherwise, the chart normalises a partial sample to a whole and can overstate every visible share.
+
+Keep the category count small, show exact amounts and percentages beside the pie, and use bars when differences between similar categories matter. Test that the categories are exclusive and reconcile to the reported market total. The gallery image has its own fixture and may use different presentation settings.
 
 [Analytics family overview](./overview)

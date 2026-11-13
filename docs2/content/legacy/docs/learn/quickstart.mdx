@@ -5,7 +5,10 @@ description: Install Rust, scaffold a first Fission app, run it on desktop, and 
 
 # Quickstart
 
-You’ll install Fission, run a small app, and find the files you’ll work in. We’ll start on desktop; you can add other targets when you’re ready to test them.
+The first useful check is whether a state change reaches the screen. Start with
+the generated desktop counter so that check does not also depend on a mobile
+SDK or browser packaging. Once it runs, the same shared app can be used by the
+other targets.
 
 The starter app is a counter. It’s enough to show how state, an action, a reducer, and the Compose view fit together.
 
@@ -93,7 +96,7 @@ Add targets as you need them. A target adds the files and host setup for a platf
 Web is usually the simplest next target to try.
 
 ```bash
-fission add-target web --project-dir my-app
+fission add-target web --project-dir .
 ```
 
 This updates [`fission.toml`](/reference/config/fission-toml/) and creates `platforms/web/run-browser.sh`. The script builds the WebAssembly package and serves it locally. Read `platforms/web/README.md` for prerequisites, including `wasm-pack`, before running it.
@@ -101,7 +104,7 @@ This updates [`fission.toml`](/reference/config/fission-toml/) and creates `plat
 After the target is added, the normal command is:
 
 ```bash
-fission run --target web --project-dir my-app
+fission run --target web --project-dir .
 ```
 
 This builds the browser package and serves it locally. Keep the terminal open while you use the app.
@@ -111,7 +114,7 @@ This builds the browser package and serves it locally. Keep the terminal open wh
 Android needs the Android SDK and NDK. Install and configure those before adding the target.
 
 ```bash
-fission add-target android --project-dir my-app
+fission add-target android --project-dir .
 ```
 
 This creates `platforms/android/run-emulator.sh`. The script builds and packages the app, installs it into an emulator, and launches it. Read `platforms/android/README.md` for the required tools and environment variables before running it.
@@ -119,8 +122,8 @@ This creates `platforms/android/run-emulator.sh`. The script builds and packages
 Check which devices Fission can see, then run the app:
 
 ```bash
-fission devices --project-dir my-app
-fission run --target android --project-dir my-app
+fission devices --project-dir .
+fission run --target android --project-dir .
 ```
 
 If several devices are connected, pass `--device <id>` with an ID from `fission devices`.
@@ -130,7 +133,7 @@ If several devices are connected, pass `--device <id>` with an ID from `fission 
 iOS needs Xcode and its simulator tools.
 
 ```bash
-fission add-target ios --project-dir my-app
+fission add-target ios --project-dir .
 ```
 
 This creates `platforms/ios/run-sim.sh`. The script builds the app and launches it in an iPhone simulator. Read `platforms/ios/README.md` for the current simulator prerequisites and setup notes.
@@ -138,8 +141,8 @@ This creates `platforms/ios/run-sim.sh`. The script builds the app and launches 
 List available devices and run the app:
 
 ```bash
-fission devices --project-dir my-app
-fission run --target ios --project-dir my-app
+fission devices --project-dir .
+fission run --target ios --project-dir .
 ```
 
 The run command attaches to simulator logs by default.

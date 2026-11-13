@@ -8,87 +8,66 @@ description: Fission Charts reference for Annotated line.
 
 ![Annotated line screenshot](/img/charts/line-annotation.png)
 
-Line chart with a callout annotation in the plot area. Use it to explain a visible change directly on the chart. The screenshot is from Fission's chart gallery.
-
-## What the chart is for
-
-This chart is in the **Line** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
+An annotated line combines the values with the context a reader needs to interpret them. For an export dashboard, a note about changing the completion rule can be as important as the apparent rise in completed jobs. The screenshot is from Fission's chart gallery.
 
 ## Data model
 
-This example uses `LineSeries plus ChartGraphic`. Keep the source values in Rust types and map them to the series or component below.
+The line receives daily completed-job counts and a short explanatory note. ChartGraphic places that note relative to the plot; its x and y values are fractions, not dates or data values. It therefore does not automatically stay attached to one sample when the reporting range changes.
 
 ## Rust API
 
-| Field | Type | Notes |
+| Setting | Type | Meaning |
 | --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
+| `ChartGraphic::text` | Constructor | Creates a text graphic from a position, string and colour. |
+| `ChartGraphic::rect` | Constructor | Creates a plot-relative rectangular graphic. |
+| `ChartGraphic::line` | Constructor | Creates a line from a plot-relative position and extent. |
+| `Chart::graphics` field | `Vec<ChartGraphic>` | Supplies the overlay graphics. |
 
 ## Authoring from a Fission component
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+This component receives prepared data and a note. The short series has a fixed reporting week; change the labels alongside the values when the period changes.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{Axis, Chart, ChartGraphic, LineSeries};
 
-
-
-fission_component!
-{
+// The parent resolves display labels from its translation bundles.
+fission_component! {
     pub AnnotatedLineChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            category_labels: Vec<String>,
+            values: Vec<f32>,
+            note: String,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
-    }
+    view(report, _state, cx) {
+        let colors = &cx.view.env().theme.tokens.colors;
+        let note = ChartGraphic {
+            width: 0.65,
+            height: 0.12,
+            ..ChartGraphic::text(0.05, 0.05, report.note.clone(), colors.text_primary)
+        };
+        let graphics = vec![note];
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                report.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            graphics: graphics,
+            series: vec![LineSeries::new(&report.series_label)
+                .data(report.values.clone())
+                .into()],
+        )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+## Testing and accessibility
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Test a long translated note, a changed report range and mobile width. Keep the full explanation in normal text outside the chart so the painted note is not the only source of essential context.
 
 Tags: `line`, `graphic`.
 

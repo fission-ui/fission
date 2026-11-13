@@ -15,7 +15,9 @@ outcomes:
   - Keep this form separate from authentication and session policy
 ---
 
-Harbour Supply staff open the app from a shift alert or an order task. This tutorial builds the login form, not authentication: the preview keeps its fields in the browser, checks that they look usable, and does not send credentials, sign anyone in, or create a session. A real app must verify credentials on the server and enforce access on every protected operation.
+Collecting credentials and verifying them are different jobs. A form can tell someone that they have left out their password; it cannot determine whether that password grants access to a warehouse. Treating the first result as the second would make the UI look complete without establishing any trust.
+
+We will build Harbour Supply's form with labelled fields, retained input and feedback beside the field that needs correcting. The preview performs those checks locally. It does not send credentials, create a session or claim that someone has signed in. When you connect an authentication service, that service must verify credentials and authorise protected operations independently.
 
 Install the Fission CLI and scaffold a Web project for the form preview:
 
@@ -34,18 +36,20 @@ harbour-login-form/
 ├── Cargo.toml                 # generated dependencies
 ├── fission.toml               # app identity, targets and capabilities
 ├── src/
-│   ├── main.rs                 # generated Web entrypoint
+│   ├── main.rs                 # generated native entrypoint
 │   ├── lib.rs                  # shared app setup
 │   ├── app.rs                  # the Fission component shown in this tutorial
-│   ├── translations.rs         # embedded English and Spanish messages
-│   └── i18n/
-│       ├── en-US.yaml
-│       └── es-ES.yaml
+│   └── translations.rs         # embedded English and Spanish messages
+├── i18n/
+│   ├── en-US.yaml
+│   └── es-ES.yaml
 ├── platforms/                  # generated host files after add-target
 └── tests/                      # project-specific flow checks
 ```
 
 The form owns only the values it displays. It does not own a user session or decide whether someone can access a protected page.
+
+Replace the generated `src/lib.rs` with the version below. It installs the translations and launches `LoginForm` for the Web target; the generated `src/main.rs` can still call its native entrypoint. The separate `preview/lib.rs` is the documentation harness, not a file the normal application needs to launch.
 
 <!-- fission:step id="start-screen" -->
 ## Add labelled email and password fields
@@ -69,13 +73,17 @@ fission_component! {
     view(login, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
+    Center(Container(
         Column(
             gap: tokens.spacing.m,
             children: [
                 Text(cx.tr("login.brand")).weight(tokens.typography.font_weight_bold),
                 Text(cx.tr("login.title")).color(tokens.colors.text_secondary),
                 TextInput(label: Some(cx.tr("login.email.label").into()),
+                    keyboard_type: TextInputType::EmailAddress,
+                    autocorrect: false,
+                    spell_check: false,
+                    autofill_hints: vec!["username".into()],
                     placeholder: Some(cx.tr("login.email.placeholder").into()),
                     required: true,
                     bind: login.email,
@@ -85,6 +93,9 @@ fission_component! {
                     placeholder: Some(cx.tr("login.password.placeholder").into()),
                     required: true,
                     obscure_text: true,
+                    autocorrect: false,
+                    spell_check: false,
+                    autofill_hints: vec!["current-password".into()],
                     bind: login.password,
                     key: "login-password",
                     semantics_identifier: "harbour.login.password".to_string()),
@@ -97,6 +108,36 @@ fission_component! {
     .bg(tokens.colors.surface)
     .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.large)
+    .width_length(Length::percent(100.0))
+    .max_width(480.0))
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod translations;
+
+use fission::prelude::*;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(app::LoginForm::new())
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::LoginForm::new())
+        .with_env(translations::create_env())
+        .with_title("Harbour Supply login form")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
@@ -188,7 +229,7 @@ login.preview.note: "Tus datos permanecen en esta vista previa del navegador."
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Add labelled email and password fields: Confirm the initial screen names the task and its next action.
+Click each label and tab through both fields. Check that the password is obscured, that both labels remain visible after entering text, and that the browser preview makes no sign-in claim.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -208,7 +249,12 @@ use fission::prelude::*;
 fn validate_login_form(email: &str, password: &str) -> Result<(), &'static str> {
     if email.trim().is_empty() {
         Err("login.validation.email_required")
-    } else if !email.contains('@') {
+    } else if !email.trim().split_once('@').is_some_and(|(name, domain)| {
+        !name.is_empty()
+            && !domain.is_empty()
+            && !domain.contains('@')
+            && !email.chars().any(char::is_whitespace)
+    }) {
         Err("login.validation.email_invalid")
     } else if password.is_empty() {
         Err("login.validation.password_required")
@@ -227,11 +273,15 @@ fission_component! {
     }
     view(login, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let email_error = login.feedback.as_deref()
+            .filter(|key| key.starts_with("login.validation.email")).map(|key| cx.tr(key));
+        let password_error = login.feedback.as_deref()
+            .filter(|key| *key == "login.validation.password_required").map(|key| cx.tr(key));
     } =>
     SemanticsRegion(
         identifier: Some("harbour-supply-login".to_string()),
         label: Some(cx.tr("login.semantics.form")),
-        child: Container(Column(gap: tokens.spacing.m, children: [
+        child: Center(Container(Column(gap: tokens.spacing.m, children: [
             Column(gap: tokens.spacing.xs, children: [
                 Text(cx.tr("login.brand")).weight(tokens.typography.font_weight_bold),
                 Text(cx.tr("login.title")).weight(tokens.typography.font_weight_semibold),
@@ -241,6 +291,12 @@ fission_component! {
                 label: Some(cx.tr("login.email.label").into()),
                 placeholder: Some(cx.tr("login.email.placeholder").into()),
                 name: Some("email".into()),
+                keyboard_type: TextInputType::EmailAddress,
+                autocorrect: false,
+                spell_check: false,
+                autofill_hints: vec!["username".into()],
+                error_text: email_error.clone().map(Into::into),
+                validation_message: email_error.clone(),
                 required: true,
                 bind: login.email,
                 key: "login-email",
@@ -250,6 +306,11 @@ fission_component! {
                 label: Some(cx.tr("login.password.label").into()),
                 placeholder: Some(cx.tr("login.password.placeholder").into()),
                 name: Some("password".into()),
+                autocorrect: false,
+                spell_check: false,
+                autofill_hints: vec!["current-password".into()],
+                error_text: password_error.clone().map(Into::into),
+                validation_message: password_error.clone(),
                 required: true,
                 obscure_text: true,
                 bind: login.password,
@@ -279,8 +340,33 @@ fission_component! {
             .padding_all(tokens.spacing.l)
             .bg(tokens.colors.surface)
             .border(tokens.colors.border, 1.0)
-            .border_radius(tokens.radii.large),
+            .border_radius(tokens.radii.large)
+            .width_length(Length::percent(100.0))
+            .max_width(480.0)),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_login_form;
+
+    #[test]
+    fn missing_fields_have_specific_messages() {
+        assert_eq!(validate_login_form("", "secret"), Err("login.validation.email_required"));
+        assert_eq!(validate_login_form("receiver@example.com", ""), Err("login.validation.password_required"));
+    }
+
+    #[test]
+    fn incomplete_addresses_do_not_pass_the_convenience_check() {
+        for email in ["@", "receiver@", "@example.com", "receiver@@example.com", "receiver @example.com"] {
+            assert_eq!(validate_login_form(email, "secret"), Err("login.validation.email_invalid"));
+        }
+    }
+
+    #[test]
+    fn form_validation_does_not_apply_password_policy() {
+        assert_eq!(validate_login_form("receiver@example.com", "  secret  "), Ok(()));
+    }
 }
 ```
 </TabItem>
@@ -316,7 +402,7 @@ Check input before handing it off: Submit empty fields, then try an invalid emai
 <!-- fission:step id="edge-state" -->
 ## Keep authentication separate from the form
 
-The `@` check here is only a small example of feedback while someone fills out a form. It is not a security check. A real service still needs to verify credentials on the server, avoid revealing whether an account exists, and authorize every protected operation independently.
+The email check catches missing parts and accidental whitespace; it is not a complete email-address parser or a security check. It deliberately leaves the password unchanged. A real service still needs to verify credentials on the server, avoid revealing whether an account exists, and authorise every protected operation independently.
 
 This tutorial stops before that service boundary because the form alone cannot implement a trustworthy sign-in flow. Fission's protected-route widget controls which component tree is built; it is not a substitute for server authorization.
 

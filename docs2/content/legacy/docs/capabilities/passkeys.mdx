@@ -7,7 +7,7 @@ description: Register and authenticate WebAuthn-style credentials through the ho
 
 Passkeys are account credentials. The host may unlock the credential with fingerprint, face, device PIN, password manager, phone, or hardware key, but the app receives WebAuthn registration or authentication data that the server must verify.
 
-The example follows one sign-in attempt: receive a server challenge, ask the host for an assertion, then send it to the server for verification. The code here covers the Fission side of that flow; your server must verify the assertion before granting a session.
+One sign-in attempt has three operations: obtain a fresh server challenge, ask the host for an assertion, and send that assertion to the server for verification. This page implements the middle operation. It assumes the app's challenge-loading effect has already supplied a `PasskeyAuthenticationRequest`; it deliberately does not create a session from a host result.
 
 Do not use passkeys for local-only unlock when no server identity is involved. Use biometrics for local verification and passkeys for account registration or sign-in.
 
@@ -16,19 +16,18 @@ Do not use passkeys for local-only unlock when no server identity is involved. U
 Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
 
 ```rust
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct PasskeyState {
-    // Add these fields to your existing app state.
-    login_challenge: Vec<u8>,
-    known_credentials: Vec<PasskeyCredentialDescriptor>,
+    authentication_request: Option<PasskeyAuthenticationRequest>,
     pending_assertion: Option<PasskeyAuthenticationResult>,
     login_error: Option<String>,
+    authenticating: bool,
 }
 
 impl GlobalState for PasskeyState {}
 ```
 
-State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
+`None` means no fresh challenge is ready. The challenge-loading effect sets `authentication_request` only after the server succeeds. Consume that request when starting the prompt, so retrying does not silently reuse a challenge from an earlier attempt. The pending assertion is proof material for verification, not authenticated app state.
 
 ## 2. Configure the target and host
 
@@ -56,70 +55,79 @@ The host responds after the starting reducer returns. Handle the assertion and a
 
 ```rust
 #[fission_reducer(PasskeyAssertionReady)]
-fn on_passkey_assertion_ready(state: &mut PasskeyState, assertion: PasskeyAuthenticationResult) {
-    state.pending_assertion = Some(assertion);
-    state.login_error = None;
+fn on_passkey_assertion_ready(state: &mut PasskeyState, ctx: &mut ReducerContext<PasskeyState>) {
+    state.authenticating = false;
+    match ctx.input.capability_ok(AUTHENTICATE_PASSKEY) {
+        Some(assertion) => {
+            state.pending_assertion = Some(assertion);
+            state.login_error = None;
+        }
+        None => state.login_error = Some("The host returned no credential assertion".into()),
+    }
 }
 
 #[fission_reducer(PasskeySignInFailed)]
-fn on_passkey_sign_in_failed(state: &mut PasskeyState, error: PasskeyError) {
+fn on_passkey_sign_in_failed(state: &mut PasskeyState, ctx: &mut ReducerContext<PasskeyState>) {
+    state.authenticating = false;
     state.pending_assertion = None;
-    state.login_error = Some(error.message);
+    state.login_error = Some(
+        ctx.input.capability_error(AUTHENTICATE_PASSKEY)
+            .map(|error| error.message)
+            .unwrap_or_else(|| "The host could not obtain a credential assertion".into()),
+    );
 }
 ```
 
-Keep both paths explicit. A denied permission, unavailable device, unsupported host, or cancelled prompt is not an exceptional mystery; it is normal product behavior the UI should explain.
+The unit completion action selects the reducer; `ctx.input` contains the actual assertion. The success branch does not set a `signed_in` flag. In the complete app, that branch should queue the shared server-verification job, and only that job's validated completion can establish a session. Clear the pending assertion after verification or rejection, and obtain a new challenge before retrying.
 
 ## 4. Request the capability from a reducer
 
 Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
 
 ```rust
-ctx.effects
-    .passkeys()
-    .authenticate(PasskeyAuthenticationRequest {
-        relying_party_id: "example.com".into(),
-        challenge: state.login_challenge.clone(),
-        allow_credentials: state.known_credentials.clone(),
-        user_verification: PasskeyUserVerification::Preferred,
-        mediation: PasskeyMediation::Conditional,
-        timeout_ms: Some(60_000),
-    })
-    .on_ok(ctx.effects.bind(
-        PasskeyAssertionReady(PasskeyAuthenticationResult::default()),
-        reduce_with!(on_passkey_assertion_ready),
-    ))
-    .on_err(ctx.effects.bind(
-        PasskeySignInFailed(PasskeyError::default()),
-        reduce_with!(on_passkey_sign_in_failed),
-    ));
+#[fission_reducer(SignInWithPasskey)]
+fn on_sign_in_with_passkey(state: &mut PasskeyState, ctx: &mut ReducerContext<PasskeyState>) {
+    if state.authenticating { return; }
+    let Some(mut request) = state.authentication_request.take() else { return; };
+    if request.challenge.is_empty() {
+        state.login_error = Some("The server supplied an empty challenge".into());
+        return;
+    }
+    request.mediation = PasskeyMediation::Required;
+    state.authenticating = true;
+    state.pending_assertion = None;
+    state.login_error = None;
+    let ready = ctx.effects.bind(PasskeyAssertionReady, reduce_with!(on_passkey_assertion_ready));
+    let failed = ctx.effects.bind(PasskeySignInFailed, reduce_with!(on_passkey_sign_in_failed));
+    ctx.effects.passkeys().authenticate(request).on_ok(ready).on_err(failed);
+}
 ```
 
-The call records a typed host request. A configured provider handles it, or returns `unsupported` when this target has no provider.
+The button requests visible mediation, rather than conditional form autofill. The request's relying-party id, challenge, allowed credentials, verification policy, and timeout come from the app's server-backed sign-in flow. Do not generate the challenge in the widget or use a fixed challenge in production. A missing provider reports an unsupported error rather than satisfying verification locally.
 
 ## 5. Trigger the reducer from the UI
 
 Wire the user-facing control with the normal Fission action pattern. This example uses a small widget so the binding has one clear home.
 
 ```rust
-
-
-fission_component!
-{
-    pub PasskeySignInButton<PasskeyState> {
+fission_component! {
+    pub PasskeySignInButton<PasskeyState> {}
+    view(_button, state, cx) {
+        let run = cx.bind(SignInWithPasskey, reduce!(on_sign_in_with_passkey));
     }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<PasskeyState>();
-                let run = with_reducer!(ctx, SignInWithPasskey, on_sign_in_with_passkey);
-
-                Button::new("Sign in with passkey")
-                    .disabled(false)
-                    .on_press(run)
-                    .into()
-    }
+    => Column(children: [
+        Button(
+            child: Text(cx.tr("passkeys.sign_in")),
+            disabled: state.authenticating || state.authentication_request.is_none(),
+            on_press: run,
+        ),
+        if state.authenticating { Spinner(motion: SpinnerMotion::Default, label: cx.tr("passkeys.authenticating")) },
+        if state.pending_assertion.is_some() { Text(cx.tr("passkeys.server_verification_required")) },
+        if let Some(error) = &state.login_error { Alert(title: error.clone(), kind: AlertKind::Error) },
+    ])
 }
 ```
-Rename the widget and action for your product. The widget dispatches an action, the reducer requests the host operation, and a completion reducer handles the result.
+Define the `passkeys.*` labels in the translation bundles. This control remains disabled until challenge loading succeeds. The larger sign-in screen must also expose its challenge-loading, server-verification, and retry states; the host prompt is one stage of that screen, not the whole authentication protocol.
 
 ## 6. Provide and test the host behavior
 

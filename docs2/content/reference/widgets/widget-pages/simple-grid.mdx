@@ -19,17 +19,29 @@ Use `SimpleGrid` when the goal is responsive card wrapping. Do not use it when y
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = SimpleGrid {
-    min_child_width: 220.0,
-    gap: Some(16.0),
-    children: vec![
-        Text::new("Card A").into(),
-        Text::new("Card B").into(),
-        Text::new("Card C").into(),
-    ],
+fission_component! {
+    pub AttachmentGallery<()> {
+        props {
+            previews: Vec<Widget>,
+            minimum_preview_width: f32,
+        }
+    }
+
+    view(gallery, _state, cx) {
+        let spacing = &cx.view.env().theme.tokens.spacing;
+    } =>
+        SimpleGrid(
+            min_child_width: gallery.minimum_preview_width,
+            gap: spacing.m,
+            children: gallery.previews.clone(),
+        )
 }
-.into();
 ```
+
+Each preview is a real independently constructed child with an id derived from
+its attachment. The parent chooses a readable minimum width and constructs
+a separate gallery tree for each responsive branch instead of cloning one tree
+into several simultaneously retained layouts.
 
 ## Field table
 
@@ -53,11 +65,9 @@ When exact placement matters more than natural wrapping, stop using `SimpleGrid`
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Prefer parent layout and design-system sizing first; use explicit size or spacing fields when the product layout requires that constraint on this widget specifically.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Check minimum child width against the narrowest supported parent.
+- Keep attachment ids stable through filtering and deletion.
+- Use explicit Grid tracks when rows and columns carry meaning, not only card flow.
 
 ## Related
 

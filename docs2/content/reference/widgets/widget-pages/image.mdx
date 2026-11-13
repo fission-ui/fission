@@ -18,24 +18,44 @@ Use the typed constructors instead of passing raw strings around. They tell Fiss
 
 ```rust
 use fission::prelude::*;
+use fission::op::ImageFit;
 
-let avatar = Image::asset("assets/avatar.png")
-    .size(48.0, 48.0)
-    .semantic_label("Sam's profile photo")
-    .into();
+fission_component! {
+    pub ProductThumbnail<()> {
+        props {
+            request: ImageRequest,
+            accessible_label: String,
+            width: f32,
+            height: f32,
+        }
+    }
 
-let product = Image::network(product.thumbnail.clone())
-    .size(220.0, 160.0)
-    .fit(ir_op::ImageFit::Contain)
-    .semantic_label(format!("{} product image", product.title))
-    .into();
+    view(photo, _state, _cx) =>
+        Image(
+            request: photo.request.clone(),
+            width: photo.width,
+            height: photo.height,
+            fit: ImageFit::Contain,
+        ).semantic_label(photo.accessible_label.clone())
+}
 ```
+
+The parent supplies the real image request and a translated accessible label,
+including the product name where useful. Bounds come from the card's layout;
+they are not a second palette or spacing system hidden inside the image.
+Create requests with the typed image constructors, for example
+`Image::network(product.thumbnail.clone()).request` or
+`Image::asset("assets/brand-mark.png").request`.
 
 Use `asset` for files shipped with the app, `file` for an explicit local file path, `network` for `http` or `https` images, `memory` when you already have bytes, and `svg_text` for inline SVG content. Network images are loaded asynchronously; the widget still reserves the size you give it, then the shell repaints when the decoded image is ready.
 
 ## Pick the fit based on the content
 
 The `fit` setting controls how the decoded image is scaled inside the widget's layout box.
+The remaining constructor snippets belong inside a parent's build scope, with
+`view`/`cx`, the loaded product, and its translated labels provided by that
+parent. These typed Rust image constructors are also valid expressions inside
+Compose; they do not need `rust { ... }`.
 
 | Fit | What it does | Good use cases | Tradeoff |
 | --- | --- | --- | --- |
@@ -53,9 +73,9 @@ When `Contain` leaves empty space or `Cover` crops an edge, `alignment` decides 
 ```rust
 let banner = Image::network(view.state().banner_url.clone())
     .size(640.0, 240.0)
-    .fit(ir_op::ImageFit::Cover)
+    .fit(ImageFit::Cover)
     .alignment(ImageAlignment::TopCenter)
-    .semantic_label("Spring campaign banner")
+    .semantic_label(cx.tr("campaign.banner"))
     .into();
 ```
 
@@ -71,14 +91,14 @@ let protected = Image::network(view.state().signed_url.clone())
     .cache_size(440, 320)
     .cache_policy(ImageCachePolicy::MemoryOnly)
     .size(220.0, 160.0)
-    .fit(ir_op::ImageFit::Contain)
-    .semantic_label("Invoice preview")
+    .fit(ImageFit::Contain)
+    .semantic_label(cx.tr("invoice.preview"))
     .into();
 ```
 
 `cache_size` asks the loader to decode or resize toward a target pixel size. It is useful for long lists where a thumbnail should not keep a full-size original in memory. `cache_policy` describes the intended caching behavior; shell implementations may use it differently depending on platform support.
 
-Do not perform network fetches manually inside `component conversion`. `component conversion` should only describe the UI. Put the URL in app state and let the image pipeline load the bytes.
+Do not perform network fetches while converting a component. Conversion describes the UI. Put the URL in app state and let the image pipeline load the bytes.
 
 ## Field table
 
@@ -118,8 +138,8 @@ For grids and cards, the most stable pattern is:
 ```rust
 let thumbnail = Image::network(product.thumbnail.clone())
     .size(220.0, 160.0)
-    .fit(ir_op::ImageFit::Contain)
-    .semantic_label(format!("Photo of {}", product.title))
+    .fit(ImageFit::Contain)
+    .semantic_label(product.accessible_photo_label.clone())
     .into();
 ```
 
@@ -128,9 +148,9 @@ For background-like imagery, use `Cover` and choose an alignment that keeps the 
 ```rust
 let hero = Image::network(view.state().hero_url.clone())
     .size(720.0, 320.0)
-    .fit(ir_op::ImageFit::Cover)
+    .fit(ImageFit::Cover)
     .alignment(ImageAlignment::Center)
-    .semantic_label("Featured destination")
+    .semantic_label(cx.tr("destination.featured"))
     .into();
 ```
 

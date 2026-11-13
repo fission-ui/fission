@@ -11,34 +11,32 @@ A custom page is not a special HTML template. It is a normal Fission widget tree
 
 ## 1. Create reusable page components
 
-Use normal Rust modules and `Widget` implementations. Avoid putting a whole page into one function. The documentation site uses this pattern for its home page components.
+Use focused Rust modules and Compose components. A hero, feature list, and
+footer are meaningful retained boundaries; one function containing the entire
+site makes those boundaries harder to reuse and review.
 
 ```rust
 use fission::prelude::*;
 
-fission_component!
-{
-    pub HomePageHero<()> {
-    }
-    view(component, _state, _cx) => rust {
-        Column {
-                    gap: Some(20.0),
-                    children: vec![
-                        Text::new("Build production apps in Rust")
-                            .size(56.0)
-                            .weight(FontWeight::Bold)
-                            .into(),
-                        Text::new("macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets share one application model.")
-                            .size(20.0)
-                            .into(),
-                    ],
-                    ..Default::default()
-                }
-                .into()
-    }
+fission_component! {
+    pub HomePageHero<()> {}
+    view(_hero, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.l, children: [
+        Text(
+            TextContent::Key("home.title".into()),
+            font_size: tokens.typography.display_sm_size,
+            font_weight: tokens.typography.font_weight_bold,
+        ),
+        Text(TextContent::Key("home.description".into())),
+    ])
 }
 ```
-A component should describe one reusable part of the page. Keep data loading, routing, and product configuration outside the component so it remains easy to test and reuse.
+Define the two `home.*` messages in the site's translation bundles. Install
+their prepared environment with `FissionSite::with_env(...)`; see
+[Theming and i18n](/docs/guides/theming-and-i18n/). The hero consumes that
+environment rather than loading fonts, translations, or remote data itself.
 
 ## 2. Register a route widget
 
@@ -49,7 +47,7 @@ use anyhow::Result;
 use fission::prelude::*;
 use fission::site::{build_from_cli, FissionSite};
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct SiteState;
 impl GlobalState for SiteState {}
 
@@ -76,12 +74,6 @@ The static-site shell owns a deliberately plain documentation layout. Keep produ
 Use `content_header_widget` to replace the default header on every content-backed route. The factory receives a `SiteRenderContext`, so it can select a different retained component for a route family without placing product-specific conditions in the shell.
 
 ```rust
-#[derive(Clone)]
-struct DocsHeader;
-
-#[derive(Clone)]
-struct JournalHeader;
-
 fn site_app() -> FissionSite {
     FissionSite::new()
         .content_header_widget::<SiteState, _, _>(|ctx| {
@@ -95,6 +87,10 @@ fn site_app() -> FissionSite {
         .footer_widget::<SiteState, _>(SiteFooter)
 }
 ```
+
+`DocsHeader`, `JournalHeader`, and `SiteFooter` here name app-owned Compose
+components in the site's widget modules. They must implement the normal widget
+conversion; declaring empty Rust structs alone would not render a header.
 
 Programmatic routes registered with `route_widget` own their complete page layout, including their header. The content header override only applies to Markdown or MDX content routes. A footer registered with `footer_widget` is shared by both kinds of route.
 
@@ -113,15 +109,16 @@ css_files = ["site/tokens.css", "site/overrides.css"]
 Use semantic identifiers on the retained regions your stylesheet owns:
 
 ```rust
-Column {
-    children: vec![page_content],
-    semantics: Some(Semantics {
+fission_component! {
+    pub ProductDocLayout<()> {
+        props { content: Widget }
+    }
+    view(layout, _state, _cx) =>
+    SemanticsRegion(
+        child: layout.content.clone(),
         identifier: Some("product-doc-layout".into()),
-        ..Semantics::default()
-    }),
-    ..Default::default()
+    )
 }
-.into()
 ```
 
 ```css

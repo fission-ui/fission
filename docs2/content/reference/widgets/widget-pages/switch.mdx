@@ -15,20 +15,26 @@ form submission or a set of independent selections.
 
 ```rust
 use fission::prelude::*;
-let widget: Widget = Switch {
-checked: view.state().notifications_enabled,
-on_toggle: Some(ctx.bind(
-    ToggleNotifications,
-    reduce_with!((|state: &mut SettingsState, _action: ToggleNotifications, _| {
-        state.notifications_enabled = !state.notifications_enabled;
-    })),
-)),
-..Default::default()
+
+#[derive(Debug, Default)]
+pub struct Preferences { notifications_enabled: bool }
+impl GlobalState for Preferences {}
+
+fission_component! {
+    pub NotificationSetting<Preferences> {}
+
+    view(_setting, state, cx) =>
+        FormControl(
+            label: Some(cx.tr("preferences.notifications")),
+            child: Switch(bind: state.notifications_enabled),
+        )
 }
-.into();
 ```
 
-As with other controlled widgets, the switch only reflects `checked`. The reducer owns the state transition.
+The short binding supplies both the current value and its update action.
+This changes an app-wide preference in memory; a preference that must survive
+restart also needs the application's explicit Store save/hydration flow.
+Enabling notifications in this flag is not an operating-system permission grant.
 
 ## Field table
 
@@ -36,6 +42,7 @@ As with other controlled widgets, the switch only reflects `checked`. The reduce
 | --- | --- | --- | --- |
 | `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
 | `checked` | `bool` | Whether the switch is currently on. | Defaults to `false`. |
+| `disabled` | `bool` | Whether the control is unavailable. | Defaults to `false`; does not replace reducer-side permission checks. |
 | `on_toggle` | `Option<ActionEnvelope>` | Action dispatched when the switch is pressed. | Defaults to `None`. |
 
 ## Semantics and state flow
@@ -50,10 +57,9 @@ Pair a switch with clear nearby text so the user knows what is being turned on o
 
 ## Production checklist
 
-- Bind `on_toggle` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Verify the visible label is attached to the actual switch node.
+- Test retained preference state separately from host notification permission.
+- Test Store failure and restart hydration if the setting is persisted.
 
 ## Related
 

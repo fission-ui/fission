@@ -5,13 +5,15 @@ description: The navigational map of Fission's widget surface, grouped by job an
 
 # Widget catalog
 
-Use this catalog to find the Fission widget that fits the job you’re building.
+Choose the widget by the responsibility it should own. A menu, for example,
+needs selection, focus, dismissal, and accessible relationships, not merely a
+column of buttons. Starting with the specific control keeps those behaviours
+in Fission instead of recreating them in each application.
 
-This isn’t a tutorial. Pick a widget family, then open the dedicated page for the widget or supporting type you need.
-
-A good rule is to choose by job first.
-
-If you are shaping space, start with layout. If you are collecting user intent, start with inputs. If you are rendering information-heavy screens, start with display and data. If the feature needs layered interface, routing, or overlays, start with overlays and navigation. If the feature needs host-backed or custom surfaces, start with media.
+The tables separate visible widgets from their configuration types. Both can
+appear inside a Compose component, but a configuration record such as
+`TableColumn` is not itself another retained widget. Open the dedicated page
+for required inputs, state ownership, and target or feature boundaries.
 
 ## Layout and structure
 
@@ -39,7 +41,7 @@ Use these widgets to size, position, and arrange the rest of your interface.
 | `AspectRatio` | [AspectRatio](/reference/widgets/aspect-ratio) | Preserve width-to-height ratio |
 | `SafeArea` | [SafeArea](/reference/widgets/safe-area) | Respect window or device insets |
 | `LayoutBuilder` | [LayoutBuilder](/reference/widgets/layout-builder) | Build based on current layout constraints |
-| `Responsive` | [Responsive](/reference/widgets/responsive) | Select a child branch from viewport or container breakpoints |
+| `Responsive` | [Responsive](/reference/widgets/responsive) | Select an independently built child tree from responsive predicates |
 | `absolute_fill(...)` | [absolute_fill](/reference/widgets/absolute-fill) | Fill the available stacked bounds |
 | `Clip` | [Clip](/reference/widgets/clip) | Clip child drawing to a shape or bounds |
 | `Transform` | [Transform](/reference/widgets/transform) | Visual transformation wrapper |
@@ -80,7 +82,7 @@ Use these widgets when people need to enter, change, or choose a value.
 | `Dropzone` | [Dropzone](/reference/widgets/dropzone) | File or payload drop region |
 | `FileUpload` | [FileUpload](/reference/widgets/file-upload) | Upload-oriented input wrapper |
 | `FormControl` | [FormControl](/reference/widgets/form-control) | Label, helper, and validation wrapper |
-| `DropDown` | [DropDown](/reference/widgets/drop-down) | Dropdown wrapper and helper surface |
+| `DropDown` | [DropDown](/reference/widgets/drop-down) | Trigger only; use Select for a complete choice popup |
 
 For the family-level explanation, see [Input widgets](/reference/widgets/inputs).
 
@@ -161,7 +163,7 @@ Use these widgets for navigation, menus, dialogs, and other content that sits ab
 | `RouteParams` | [RouteParams](/reference/widgets/route-params) | Route parameter access type |
 | `Router` | [Router](/reference/widgets/router) | Route selection widget |
 | `Hero` | [Hero](/reference/widgets/hero) | Shared-element transition surface |
-| `Transition` | [Transition](/reference/widgets/transition) | Animation-oriented transition wrapper |
+| `Motion` / `Presence` | [Transitions](/reference/widgets/transition) | Real retained motion and enter/exit wrappers; no public Transition type |
 
 For the family-level explanation, see [Overlays and navigation](/reference/widgets/overlays-and-navigation).
 

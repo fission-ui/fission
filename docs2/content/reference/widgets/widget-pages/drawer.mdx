@@ -22,27 +22,35 @@ Use a [`Modal`](/reference/widgets/modal) for a blocking decision, or a
 ```rust
 use fission::prelude::*;
 
-let drawer = Drawer {
-    id: WidgetId::explicit("filters_drawer"),
-    side: DrawerSide::Right,
-    is_open: view.state().show_filters,
-    on_dismiss: Some(ctx.bind(
-        ToggleFilters(false),
-        reduce_with!((|state: &mut GlobalState, action: ToggleFilters, _| {
-            state.show_filters = action.0;
-        })),
-    )),
-    width: Some(360.0),
-    content:
-        VStack {
-            spacing: Some(16.0),
-            children: vec![filter_form.into()],
-        }
-        .into(),
-    ,
+fission_component! {
+    pub FilterDrawer<()> {
+        props { filters: Widget }
+        state { open: bool = false }
+    }
+
+    view(drawer, _state, cx) =>
+        Column(
+            children: [
+                Button(
+                    child: Text(cx.tr("search.filters")),
+                    on_press: reduce { drawer.open = true; },
+                ),
+                Drawer(
+                    id: WidgetId::explicit("search.filters"),
+                    side: DrawerSide::Right,
+                    is_open: drawer.open,
+                    dismiss_semantics_identifier: Some("search.close-filters".into()),
+                    content: drawer.filters.clone(),
+                    on_dismiss: reduce { drawer.open = false; },
+                ),
+            ],
+        )
 }
-.into();
 ```
+
+Only panel visibility is local; filter values and the query they affect belong
+to the parent model. Closing sets visibility to false, so duplicate dismiss
+requests are harmless. The parent supplies one owned filter tree for this drawer.
 
 The reducer owns `show_filters`. The drawer itself only reads that state and emits `on_dismiss` when the user taps the backdrop.
 
@@ -52,8 +60,10 @@ The reducer owns `show_filters`. The drawer itself only reads that state and emi
 | --- | --- | --- | --- |
 | `id` | `WidgetId` | Stable identity for the portal entry. | Required. Give each drawer a stable id so the runtime can track it consistently. |
 | `side` | `DrawerSide` | Which horizontal edge the panel attaches to. | Use `Left` or `Right`. |
-| `is_open` | `bool` | Whether the drawer should be visible this frame. | When `false`, the widget returns an inert spacer and registers no portal. |
+| `is_open` | `bool` | Whether the drawer should be visible this frame. | Controlled visibility, including any retained exit transition. |
 | `on_dismiss` | `Option<ActionEnvelope>` | Action dispatched when the backdrop is tapped. | Defaults to `None`. If you omit it, the backdrop still covers the screen but does not close the drawer for you. |
+| `motion` | `Option<DrawerMotion>` | Entry/exit transition policy. | `None` follows standard widget motion. |
+| `dismiss_semantics_identifier` | `Option<String>` | Stable backdrop-dismissal test identifier. | Useful when a page has several overlays. |
 | `content` | `Widget` | The panel body. | Build the full drawer user interface here. |
 | `width` | `Option<f32>` | Requested panel width in logical pixels. | Defaults to `300.0`. The runtime clamps it to the current viewport so the drawer still fits on smaller screens. |
 
@@ -67,16 +77,16 @@ The panel itself is pinned to the chosen edge and stretches from top to bottom. 
 
 Put only temporary, secondary user interface in a drawer. If people need to finish a task before they can continue, use a modal dialog instead. If the panel is always visible on large screens, consider a normal layout widget such as [`SplitView`](/reference/widgets/split-view), [`Row`](/reference/widgets/row), or [`Column`](/reference/widgets/column) instead of opening and closing an overlay.
 
-Also note that the current implementation does not animate the drawer sliding in or out by itself. It appears and disappears as state changes. If motion is important to your product, treat that as an explicit design decision and test the chosen pattern carefully.
+The standard widget-motion policy supplies drawer entry/exit transitions.
+Use `motion: Some(DrawerMotion::None)` when this panel should not animate;
+otherwise reduced-motion behaviour follows the environment. Keep the same
+identity through the exit so retained motion and focus refer to one panel.
 
 ## Production checklist
 
-- Bind `on_dismiss` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Prefer parent layout and design-system sizing first; use explicit size or spacing fields when the product layout requires that constraint on this widget specifically.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Check open, backdrop dismiss, explicit close, and focus restoration.
+- Test narrow viewports and long filter labels with the app's translated bundles.
+- Verify an exit transition cannot activate obscured background content.
 
 ## Related
 

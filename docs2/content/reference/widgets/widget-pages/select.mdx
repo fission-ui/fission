@@ -19,65 +19,89 @@ its label when building the control.
 ```rust
 use fission::prelude::*;
 
-let theme_select: Widget = Select {
-    id: WidgetId::explicit("theme-select"),
-    selected_label: view.state().theme_label(),
-    items: vec![
-        SelectItem {
-            label: "System".into(),
-            icon: None,
-            on_select: system_theme_and_close_action,
-            semantics_identifier: Some("theme-select.system".into()),
-            form_value: Some("system".into()),
-        },
-        SelectItem {
-            label: "Dark".into(),
-            icon: None,
-            on_select: dark_theme_and_close_action,
-            semantics_identifier: Some("theme-select.dark".into()),
-            form_value: Some("dark".into()),
-        },
-    ],
-    is_open: view.state().theme_select_open,
-    on_toggle: Some(toggle_theme_select_action),
-    trigger_semantics_identifier: Some("theme-select.trigger".into()),
-    placeholder: "Select theme".into(),
-    width: Some(240.0),
-    ..Default::default()
+fission_component! {
+    pub ThemeChoice<()> {
+        props {
+            selected_label: Option<String>,
+            open: bool,
+            choose_system: ActionEnvelope,
+            choose_dark: ActionEnvelope,
+            toggle_popup: ActionEnvelope,
+        }
+    }
+
+    view(choice, _state, cx) =>
+        FormControl(
+            label: Some(cx.tr("preferences.theme")),
+            child: Select(
+                id: WidgetId::explicit("preferences.theme"),
+                selected_label: choice.selected_label.clone(),
+                items: vec![
+                    SelectItem {
+                        label: cx.tr("theme.system"),
+                        icon: None,
+                        on_select: choice.choose_system.clone(),
+                        semantics_identifier: Some("theme.system".into()),
+                        form_value: Some("system".into()),
+                    },
+                    SelectItem {
+                        label: cx.tr("theme.dark"),
+                        icon: None,
+                        on_select: choice.choose_dark.clone(),
+                        semantics_identifier: Some("theme.dark".into()),
+                        form_value: Some("dark".into()),
+                    },
+                ],
+                is_open: choice.open,
+                on_toggle: choice.toggle_popup.clone(),
+                trigger_semantics_identifier: Some("theme.trigger".into()),
+                placeholder: cx.tr("theme.choose"),
+                width: None,
+            ),
+        )
 }
-.into();
 ```
+
+The parent derives the translated selected label from its real theme enum and
+binds selection actions that also close the popup. `SelectItem` is a model, so
+its required action is an ordinary owned envelope rather than another widget
+handler registration. Synchronise the resulting preference into the shell's
+environment and persist it explicitly when required.
 
 Each item action normally stores the new value and closes the popup in one
 explicit reducer transition.
 
 Use the retained anatomy when the list needs groups, headings, separators,
-descriptions, metadata, disabled choices, or an explicit selected indicator:
+descriptions, metadata, disabled choices, or an explicit selected indicator.
+This is a parent-build configuration excerpt: `AccessLevel`, permission
+state, and registered actions belong to that application:
 
 ```rust
 use fission::prelude::*;
 
 let selected = view.state().access_level;
+// Derive this label through the application's translation mapping.
+let selected_label = access_label;
 let access_select: Widget = SelectLayout::new(
     WidgetId::explicit("access-level"),
-    SelectTrigger::new(selected.label())
+    SelectTrigger::new(selected_label)
         .size(ComponentSize::Sm)
         .semantics_identifier("access-level.trigger"),
     SelectContent::new(vec![
         SelectGroup::new(vec![
-            SelectOption::option("Viewer", selected == AccessLevel::Viewer)
+            SelectOption::option(cx.tr("access.viewer"), selected == AccessLevel::Viewer)
                 .on_select(select_viewer_and_close_action)
                 .into(),
-            SelectOption::option("Editor", selected == AccessLevel::Editor)
+            SelectOption::option(cx.tr("access.editor"), selected == AccessLevel::Editor)
                 .on_select(select_editor_and_close_action)
                 .into(),
             SelectSeparator::new().into(),
-            SelectOption::option("Owner", selected == AccessLevel::Owner)
-                .description("Can manage members and billing")
+            SelectOption::option(cx.tr("access.owner"), selected == AccessLevel::Owner)
+                .description(cx.tr("access.owner_description"))
                 .on_select(select_owner_and_close_action)
                 .into(),
         ])
-        .label("Access level")
+        .label(cx.tr("access.level"))
         .into(),
     ]),
 )

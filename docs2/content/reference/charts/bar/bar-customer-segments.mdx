@@ -1,94 +1,67 @@
 ---
 title: Customer segment bars
 sidebar_label: Customer segment bars
-description: Fission Charts reference for Customer segment bars.
+description: Compare customer segments across the same reporting periods with grouped bars.
 ---
 
 # Customer segment bars
 
 ![Customer segment bars screenshot](/img/charts/bar-customer-segments.png)
 
-This example uses Fission Charts' typed Rust API. Use it to compare segments without splitting the page. The screenshot is from Fission's chart gallery.
+A change in total customers can conceal a change in who the customers are. Grouping personal and business counts within each reporting period lets the reader compare the two segments without switching between charts.
 
-## What the chart is for
+Define the measure first. These rows count active customer accounts, not revenue or sessions. The activity window and segment rules must stay the same across periods or the apparent change may come from the query rather than the product.
 
-This chart is in the **Bar** family. Use it when a visual makes the pattern easier to spot.
+## Compose example
 
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Segment values grouped by period`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, BarSeries, Chart};
-
-let chart = Chart::new()
-    .title("Orders")
-    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-    .y_axis(Axis::value())
-    .series(vec![BarSeries::new("Orders")
-        .data(vec![120.0, 156.0, 184.0, 212.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Keep each period's segment counts together, then derive both series from those rows.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, BarSeries, Chart};
+use fission::charts::{Axis, BarSeries, Chart, Legend, Series};
 
+#[derive(Clone)]
+pub struct SegmentPeriod {
+    pub period: String,
+    pub personal_accounts: f32,
+    pub business_accounts: f32,
+}
 
-
-fission_component!
-{
-    pub CustomerSegmentBarsChart<()> {
+fission_component! {
+    pub CustomerSegmentsChart<()> {
+        props {
+            title: String,
+            personal_label: String,
+            business_label: String,
+            rows: Vec<SegmentPeriod>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Orders")
-                    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-                    .y_axis(Axis::value())
-                    .series(vec![BarSeries::new("Orders")
-                        .data(vec![120.0, 156.0, 184.0, 212.0])
-                        .into()])
-                    .into()
-    }
+    view(segments, _state, _cx) {
+        let labels = segments.rows.iter().map(|row| row.period.as_str()).collect();
+        let personal = segments.rows.iter().map(|row| row.personal_accounts).collect();
+        let business = segments.rows.iter().map(|row| row.business_accounts).collect();
+    } => Chart(
+        title: Some(segments.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Bar(BarSeries::new(&segments.personal_label).data(personal)),
+            Series::Bar(BarSeries::new(&segments.business_label).data(business)),
+        ],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Enable the `charts` feature. Neither `BarSeries` sets a stack key, so each has its own zero baseline within the category. Stacking would answer a different question: how the segments contribute to a combined total.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+The reusable component receives its title, translated segment names and period labels from its parent. Counts are validated display values; retain the original account records and classification rules in the data layer.
+
+## Check the comparison
+
+Test that sorting periods preserves both segments' alignment. Check the query with accounts which change segment and decide which period's classification applies; the chart cannot resolve that ambiguity for you.
+
+Provide counts in an accessible table and retain a legend so segment identity is not colour-only. Inspect long translated names and narrow layouts in a rendered target. The gallery screenshot uses sample data rather than these input rows.
 
 Tags: `bar`, `segment`.
 

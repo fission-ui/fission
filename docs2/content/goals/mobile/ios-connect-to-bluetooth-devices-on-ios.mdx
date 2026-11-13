@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Keep an iOS inspection usable without Bluetooth
-description: Build a Rust iOS inspection screen that reports when Bluetooth is unsupported and gives technicians a practical manual probe-label fallback.
-goal: Handle the default iOS Bluetooth host honestly and keep a cold-room inspection moving with a validated probe label.
+description: "Keep an inspection usable when the iOS Bluetooth host is unsupported, with a validated manual probe-label path."
+goal: "Record the actual printed probe label without pretending that the app scanned, connected to or read a sensor."
 path: /blog/connect-to-bluetooth-devices-on-ios/
 order: 98
 difficulty: Beginner
@@ -10,367 +10,110 @@ duration: 25 minutes
 run_command: "fission run --target ios --project-dir ."
 app: ios-connect-to-bluetooth-devices-on-ios
 outcomes:
-  - Show the unsupported Bluetooth result from the default iOS host
-  - Keep a manual probe-label path available without claiming a device was scanned
-  - Keep loading, unsupported, failed, empty, and successful custom-host results distinct
-  - Verify the app in the iOS Simulator and on a phone when testing a custom host
+  - Decode the default unsupported Bluetooth response through a bound callback
+  - Validate and prepare the technician's manually entered probe label
+  - Preserve the inspection whilst pending, failed or unavailable host results are shown
 ---
 
-Fission's default iOS shell does not include a Bluetooth provider. If an app requests a Bluetooth scan without installing its own `BluetoothHost`, Fission returns an `unsupported` result; it does not show a system permission prompt or discover a device.
+A probe's printed label can identify a draft inspection, but it cannot stand in for a Bluetooth measurement. Keeping those meanings separate lets the technician continue a legitimate manual step without making the app claim work it has not done.
 
-That does not need to stop the rest of the job. This example is a Northbank receiving screen for checking a cold-room probe. It tries the Bluetooth scan, explains the unsupported result, and keeps a manual probe-label path available. The example does not pretend that entering a label reads the probe or saves an inspection to a server.
+Fission's default iOS host has no Bluetooth provider. This page's stated goal is to handle that unsupported path and retain a validated manual label, not to implement native Bluetooth. The example deliberately uses the same unsupported provider on Web, so its preview cannot create a misleading successful scan.
 
-If your app supplies an iOS Bluetooth provider later, the same screen can display its real scan results. The provider is the part that must implement the platform-specific Bluetooth work.
+## Create the app
 
-## Create the iOS project
-
-Keep the screen and state in shared Rust. This tutorial handles the unsupported default host; it does not add Bluetooth privacy descriptions for a provider that does not exist in this example.
+Complete [iOS setup](/blog/set-up-rust-ios-development-with-fission/) if needed.
 
 ```sh
 cargo install cargo-fission
 fission init northbank-ios-probe-check
 cd northbank-ios-probe-check
-cargo add serde_yaml
 fission add-target ios --project-dir .
+cargo add serde_yaml
 ```
 
-The generated iOS host owns launch and packaging. The screen, reducers, and manual fallback stay in the shared app.
+No Bluetooth permission is requested by this unsupported provider. Installing an actual provider later requires its own capability configuration, privacy setup and device checks; that work is not supplied by the manual label field.
 
-```text
-northbank-ios-probe-check/
-├── Cargo.toml
-├── fission.toml
-├── i18n/
-│   ├── en-US.yaml
-│   └── es-ES.yaml
-├── src/
-│   ├── app.rs
-│   ├── lib.rs
-│   ├── main.rs
-│   └── translations.rs
-└── platforms/
-    └── ios/
-```
+Keep the generated `src/main.rs`. The normal shared library below starts the same screen and providers as the documentation preview.
 
 <!-- fission:step id="inspection-screen" -->
-## Build the probe-check screen
+## Model outcomes which cannot contradict each other
 
-The screen makes two paths visible: try Bluetooth if a provider is installed, or enter the printed probe label. The field is app state, so the UI always shows what the technician has entered. A successful local check means only that the label is non-empty; it is not a backend write or a sensor reading.
+One `ScanStatus` replaces a collection of independent pending, complete, failed and unsupported booleans. The screen cannot therefore be both scanning and successfully finished because one callback forgot to clear a flag.
 
-The preview starts with an empty field and an idle scan status. The sample app will install Fission's unsupported host in the next step, so trying the scan exercises the same fallback this iOS target uses by default.
-
-<Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
-```rust
-use fission::prelude::*;
-
-#[derive(Debug, Default)]
-pub struct ProbeCheckState {
-    pub scan_pending: bool,
-    pub scan_complete: bool,
-    pub scan_unsupported: bool,
-    pub scan_failed: bool,
-    pub devices: Vec<BluetoothDevice>,
-    pub probe_label: String,
-    pub label_error: bool,
-    pub confirmed_label: Option<String>,
-}
-
-impl GlobalState for ProbeCheckState {}
-
-#[fission_reducer(UpdateProbeLabel)]
-pub fn update_probe_label(state: &mut ProbeCheckState, ctx: &mut ReducerContext<ProbeCheckState>) {
-    let Some(change) = ctx.input.text_change() else {
-        return;
-    };
-    state.probe_label = change.new_text.clone();
-    state.label_error = false;
-    state.confirmed_label = None;
-}
-
-#[fission_reducer(ConfirmProbeLabel)]
-pub fn confirm_probe_label(state: &mut ProbeCheckState) {
-    let label = state.probe_label.trim();
-    if label.is_empty() {
-        state.label_error = true;
-        state.confirmed_label = None;
-        return;
-    }
-    state.label_error = false;
-    state.confirmed_label = Some(label.to_owned());
-}
-
-fission_component! {
-    pub ProbeCheckScreen<ProbeCheckState> {}
-    view(_screen, state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let scan_status = if state.scan_pending {
-            cx.tr("probe.scan_pending")
-        } else if state.scan_unsupported {
-            cx.tr("probe.scan_unsupported")
-        } else if state.scan_failed {
-            cx.tr("probe.scan_failed")
-        } else if state.scan_complete && state.devices.is_empty() {
-            cx.tr("probe.scan_empty")
-        } else if state.scan_complete {
-            format!("{} {}", cx.tr("probe.scan_found"), state.devices.len())
-        } else {
-            cx.tr("probe.scan_idle")
-        };
-        let label_action = with_reducer!(cx.build, UpdateProbeLabel, update_probe_label);
-        let confirm_action = with_reducer!(cx.build, ConfirmProbeLabel, confirm_probe_label);
-        let manual_result = if let Some(label) = &state.confirmed_label {
-            format!("{} {label}", cx.tr("probe.label_ready"))
-        } else if state.label_error {
-            cx.tr("probe.label_required")
-        } else {
-            cx.tr("probe.label_help")
-        };
-    } =>
-    SemanticsRegion(
-        identifier: Some("northbank-probe-check".into()),
-        label: Some(cx.tr("probe.title")),
-        child: Container(Column(gap: tokens.spacing.l, children: [
-            Column(gap: tokens.spacing.xs, children: [
-                Text(cx.tr("probe.site"))
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.primary),
-                Text(cx.tr("probe.title"))
-                    .size(tokens.typography.heading1_size),
-                Text(cx.tr("probe.intro"))
-                    .color(tokens.colors.text_secondary),
-            ]),
-            Container(Column(gap: tokens.spacing.m, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Text(cx.tr("probe.bluetooth_heading"))
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(cx.tr("probe.bluetooth_explanation"))
-                        .color(tokens.colors.text_secondary),
-                ]),
-                Button(
-                    child: Text(cx.tr("probe.scan_action")),
-                    key: "scan-for-probe",
-                    variant: ButtonVariant::Outline,
-                    disabled: true,
-                ),
-                if state.devices.is_empty() {
-                    Text(scan_status)
-                } else {
-                    Column(gap: tokens.spacing.s, children: [
-                        Text(scan_status),
-                        for device in state.devices.iter() {
-                            Container(Column(gap: tokens.spacing.xs, children: [
-                                Text(device.name.clone().unwrap_or_else(|| cx.tr("probe.unnamed").into()))
-                                    .weight(tokens.typography.font_weight_semibold),
-                                Text(match device.rssi {
-                                    Some(rssi) => format!("{} {rssi} dBm", cx.tr("probe.signal")),
-                                    None => cx.tr("probe.signal_unavailable").into(),
-                                })
-                                .color(tokens.colors.text_secondary),
-                            ]), key: device.id.clone())
-                            .padding_all(tokens.spacing.m)
-                            .bg(tokens.colors.background)
-                            .border(tokens.colors.border, 1.0)
-                            .border_radius(tokens.radii.medium)
-                            .id(WidgetId::explicit(&device.id))
-                        },
-                    ])
-                },
-            ]))
-            .padding_all(tokens.spacing.l)
-            .bg(tokens.colors.surface)
-            .border(tokens.colors.border, 1.0)
-            .border_radius(tokens.radii.large),
-            Container(Column(gap: tokens.spacing.m, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Text(cx.tr("probe.manual_heading"))
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(cx.tr("probe.manual_explanation"))
-                        .color(tokens.colors.text_secondary),
-                ]),
-                TextInput(
-                    id: Some(WidgetId::explicit("probe-label")),
-                    semantics_identifier: Some("probe-label".into()),
-                    label: Some(cx.tr("probe.label").into()),
-                    placeholder: Some(cx.tr("probe.label_placeholder").into()),
-                    value: state.probe_label.clone(),
-                    required: true,
-                    error_text: state.label_error.then(|| cx.tr("probe.label_required").into()),
-                    on_input: label_action,
-                ),
-                Button(
-                    child: Text(cx.tr("probe.confirm_label")),
-                    key: "confirm-probe-label",
-                    variant: ButtonVariant::Primary,
-                    on_press: confirm_action,
-                ),
-                Text(manual_result),
-            ]))
-            .padding_all(tokens.spacing.l)
-            .bg(tokens.colors.surface)
-            .border(tokens.colors.border, 1.0)
-            .border_radius(tokens.radii.large),
-        ]))
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.background)
-        .width_length(Length::clamp(
-            Length::points(0.0),
-            Length::percent(100.0),
-            Length::points(680.0),
-        )),
-    )
-}
-```
-</TabItem>
-<TabItem label="i18n/en-US.yaml">
-<!-- fission:file path="i18n/en-US.yaml" -->
-```yaml
-probe.site: "Northbank Receiving · cold room 2"
-probe.title: "Confirm the temperature probe"
-probe.intro: "Check that the right probe is available before you start the inspection."
-probe.bluetooth_heading: "Bluetooth discovery"
-probe.bluetooth_explanation: "Try a scan only if this app has an iOS Bluetooth provider. The default Fission iOS host does not include one."
-probe.scan_action: "Try Bluetooth scan"
-probe.scan_pending: "Checking for nearby probes…"
-probe.scan_unsupported: "Bluetooth discovery is not available in this iOS build. Use the printed probe label below."
-probe.scan_failed: "The scan failed. The manual label path is still available."
-probe.scan_empty: "The scan completed but found no matching probes. Check the probe and try again, or use its printed label."
-probe.scan_found: "Nearby probes returned by the installed host:"
-probe.scan_idle: "No scan has been requested."
-probe.unnamed: "Unnamed Bluetooth device"
-probe.signal: "Signal"
-probe.signal_unavailable: "Signal strength was not reported"
-probe.manual_heading: "Continue with the printed label"
-probe.manual_explanation: "Read the short ID printed on the probe. This example checks the entry locally; it does not read the sensor or submit the inspection."
-probe.label: "Probe label"
-probe.label_placeholder: "For example, CR-204"
-probe.label_help: "Enter the ID printed on the probe."
-probe.label_required: "Enter a probe label before continuing."
-probe.label_ready: "Probe label ready for the next local step:"
-probe.confirm_label: "Use this probe label"
-```
-</TabItem>
-<TabItem label="i18n/es-ES.yaml">
-<!-- fission:file path="i18n/es-ES.yaml" -->
-```yaml
-probe.site: "Recepción Northbank · cámara fría 2"
-probe.title: "Confirma la sonda de temperatura"
-probe.intro: "Comprueba que tienes la sonda correcta antes de iniciar la inspección."
-probe.bluetooth_heading: "Detección por Bluetooth"
-probe.bluetooth_explanation: "Prueba el escaneo solo si esta aplicación incluye un proveedor Bluetooth para iOS. El host iOS predeterminado de Fission no lo incluye."
-probe.scan_action: "Probar el escaneo Bluetooth"
-probe.scan_pending: "Buscando sondas cercanas…"
-probe.scan_unsupported: "La detección Bluetooth no está disponible en esta compilación de iOS. Usa la etiqueta impresa de la sonda."
-probe.scan_failed: "El escaneo ha fallado. Aún puedes usar la etiqueta manual."
-probe.scan_empty: "El escaneo terminó, pero no encontró sondas compatibles. Comprueba la sonda e inténtalo de nuevo, o usa su etiqueta impresa."
-probe.scan_found: "Sondas cercanas devueltas por el proveedor instalado:"
-probe.scan_idle: "No se ha solicitado ningún escaneo."
-probe.unnamed: "Dispositivo Bluetooth sin nombre"
-probe.signal: "Señal"
-probe.signal_unavailable: "No se informó de la intensidad de señal"
-probe.manual_heading: "Continúa con la etiqueta impresa"
-probe.manual_explanation: "Lee el identificador corto impreso en la sonda. Este ejemplo comprueba el dato localmente; no lee el sensor ni envía la inspección."
-probe.label: "Etiqueta de la sonda"
-probe.label_placeholder: "Por ejemplo, CR-204"
-probe.label_help: "Introduce el identificador impreso en la sonda."
-probe.label_required: "Introduce una etiqueta de sonda para continuar."
-probe.label_ready: "Etiqueta lista para el siguiente paso local:"
-probe.confirm_label: "Usar esta etiqueta"
-```
-</TabItem>
-<TabItem label="preview/lib.rs and src/translations.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-mod translations;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    WebApp::<app::ProbeCheckState, _>::new(app::ProbeCheckScreen)
-        .with_env(translations::create_env())
-        .with_title("Northbank iOS probe-check preview")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
-<!-- fission:file path="src/translations.rs" -->
-```rust
-use fission::prelude::*;
-use std::collections::HashMap;
-
-pub fn create_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    for (locale, source) in [
-        ("en-US", include_str!("../i18n/en-US.yaml")),
-        ("es-ES", include_str!("../i18n/es-ES.yaml")),
-    ] {
-        let messages: HashMap<String, String> =
-            serde_yaml::from_str(source).expect("valid probe-check translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(locale),
-            messages,
-        });
-    }
-    env
-}
-```
-</TabItem>
-</Tabs>
-<!-- fission:preview -->
-
-<!-- fission:checkpoint -->
-This first step gives the screen its layout and a working local label check. The scan button stays disabled until the next step wires the Bluetooth effect; the field does not claim a device was scanned or an inspection was saved.
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
-
-<!-- fission:step id="unsupported-result" -->
-## Show the real unsupported result
-
-The scan is a Fission effect requested by a reducer. Its completion actions read the typed capability result and update state; component conversion never calls the host. The example installs `UnsupportedBluetoothHost` in both its Web preview and its generated iOS app. On iOS, that matches the current default. If an app later installs a working provider with `with_bluetooth_host`, the same success reducer will render the devices returned by that provider.
-
-The unsupported response is different from a permission denial, a failed scan, and a successful scan with no matching devices. Keep those states separate so a technician gets a useful next step rather than a false success.
+The manual draft belongs to the component. Its confirmed label belongs to application state for the next local workflow step. The label rule rejects empty, excessively long or control-character input; it does not establish that a physical probe exists or that the user selected the correct one.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+mod screen;
+pub mod state;
+pub use screen::ProbeScreen;
+pub use state::ProbeState;
+```
+</TabItem>
+
+<TabItem label="src/app/state.rs">
+<!-- fission:file path="src/app/state.rs" -->
+```rust
 use fission::prelude::*;
 
-#[derive(Debug, Default)]
-pub struct ProbeCheckState {
-    pub scan_pending: bool,
-    pub scan_complete: bool,
-    pub scan_unsupported: bool,
-    pub scan_failed: bool,
-    pub devices: Vec<BluetoothDevice>,
-    pub probe_label: String,
-    pub label_error: bool,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ScanStatus {
+    Idle,
+    Pending,
+    Unsupported,
+    Failed,
+    Returned(Vec<BluetoothDevice>),
+}
+
+impl ScanStatus {
+    pub fn key(&self) -> &'static str {
+        match self {
+            Self::Idle => "probe.idle",
+            Self::Pending => "probe.pending",
+            Self::Unsupported => "probe.unsupported",
+            Self::Failed => "probe.failed",
+            Self::Returned(devices) if devices.is_empty() => "probe.empty",
+            Self::Returned(_) => "probe.returned",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProbeState {
+    pub locale: Locale,
+    pub scan: ScanStatus,
+    pub error: Option<String>,
     pub confirmed_label: Option<String>,
 }
 
-impl GlobalState for ProbeCheckState {}
+impl Default for ProbeState {
+    fn default() -> Self {
+        Self {
+            locale: Locale::from("en-US"),
+            scan: ScanStatus::Idle,
+            error: None,
+            confirmed_label: None,
+        }
+    }
+}
+impl GlobalState for ProbeState {}
 
-#[fission_reducer(ScanForProbe)]
-pub fn scan_for_probe(
-    state: &mut ProbeCheckState,
-    ctx: &mut ReducerContext<ProbeCheckState>,
-) {
-    state.scan_pending = true;
-    state.scan_complete = false;
-    state.scan_unsupported = false;
-    state.scan_failed = false;
-    state.devices.clear();
+pub fn valid_label(label: &str) -> bool {
+    let label = label.trim();
+    !label.is_empty() && label.chars().count() <= 64 && !label.chars().any(char::is_control)
+}
 
-    let ok = ctx.effects.bind(ProbeScanSucceeded, reduce_with!(probe_scan_succeeded));
-    let err = ctx.effects.bind(ProbeScanFailed, reduce_with!(probe_scan_failed));
-    ctx.effects
+pub fn scan(state: &mut ProbeState, cx: &mut ReducerContext<ProbeState>) {
+    if state.scan == ScanStatus::Pending {
+        return;
+    }
+    state.scan = ScanStatus::Pending;
+    state.error = None;
+    let ok = cx.effects.bind(ScanReturned, reduce_with!(scan_returned));
+    let err = cx.effects.bind(ScanFailed, reduce_with!(scan_failed));
+    cx.effects
         .bluetooth()
         .scan_devices(BluetoothScanRequest {
             service_uuids: vec!["0000181a-0000-1000-8000-00805f9b34fb".into()],
@@ -382,217 +125,133 @@ pub fn scan_for_probe(
         .on_err(err);
 }
 
-#[fission_reducer(ProbeScanSucceeded)]
-pub fn probe_scan_succeeded(
-    state: &mut ProbeCheckState,
-    ctx: &mut ReducerContext<ProbeCheckState>,
-) {
-    state.scan_pending = false;
-    state.scan_unsupported = false;
-    state.scan_failed = false;
-    if let Some(result) = ctx.input.capability_ok(SCAN_BLUETOOTH_DEVICES) {
-        state.scan_complete = true;
-        state.devices = result.devices;
-    } else {
-        state.scan_complete = false;
-        state.scan_failed = true;
-        state.devices.clear();
-    }
-}
-
-#[fission_reducer(ProbeScanFailed)]
-pub fn probe_scan_failed(
-    state: &mut ProbeCheckState,
-    ctx: &mut ReducerContext<ProbeCheckState>,
-) {
-    state.scan_pending = false;
-    state.scan_complete = false;
-    state.devices.clear();
-    let error = ctx.input.capability_error(SCAN_BLUETOOTH_DEVICES);
-    state.scan_unsupported = error.as_ref().is_some_and(|error| error.code == "unsupported");
-    state.scan_failed = !state.scan_unsupported;
-}
-
-#[fission_reducer(UpdateProbeLabel)]
-pub fn update_probe_label(state: &mut ProbeCheckState, ctx: &mut ReducerContext<ProbeCheckState>) {
-    let Some(change) = ctx.input.text_change() else {
-        return;
+#[fission_reducer(ScanReturned)]
+fn scan_returned(state: &mut ProbeState, cx: &mut ReducerContext<ProbeState>) {
+    state.scan = match cx.input.capability_ok(SCAN_BLUETOOTH_DEVICES) {
+        Some(result) => ScanStatus::Returned(result.devices),
+        None => ScanStatus::Failed,
     };
-    state.probe_label = change.new_text.clone();
-    state.label_error = false;
-    state.confirmed_label = None;
 }
 
-#[fission_reducer(ConfirmProbeLabel)]
-pub fn confirm_probe_label(state: &mut ProbeCheckState) {
-    let label = state.probe_label.trim();
-    if label.is_empty() {
-        state.label_error = true;
-        state.confirmed_label = None;
-        return;
+#[fission_reducer(ScanFailed)]
+fn scan_failed(state: &mut ProbeState, cx: &mut ReducerContext<ProbeState>) {
+    let error = cx.input.capability_error(SCAN_BLUETOOTH_DEVICES);
+    state.scan = if error
+        .as_ref()
+        .is_some_and(|error| error.code == "unsupported")
+    {
+        ScanStatus::Unsupported
+    } else {
+        ScanStatus::Failed
+    };
+    state.error = error
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .or_else(|| {
+            cx.input
+                .capability_error_message(SCAN_BLUETOOTH_DEVICES)
+                .map(str::to_owned)
+        });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn label_rule_accepts_text_not_a_fake_probe_read() {
+        assert!(valid_label(" CR-204 "));
+        assert!(valid_label("Sonda Álvarez"));
+        assert!(!valid_label(" "));
+        assert!(!valid_label("probe\nsecond-line"));
+        assert!(!valid_label(&"x".repeat(65)));
     }
-    state.label_error = false;
-    state.confirmed_label = Some(label.to_owned());
 }
+```
+</TabItem>
 
-pub fn callback_registry() -> ActionRegistry<ProbeCheckState> {
-    let mut registry = ActionRegistry::new();
-    registry.register(reduce_with!(probe_scan_succeeded));
-    registry.register(reduce_with!(probe_scan_failed));
-    registry
-}
+<TabItem label="src/app/screen.rs">
+<!-- fission:file path="src/app/screen.rs" -->
+```rust
+use super::state::{scan, valid_label, ProbeState, ScanStatus};
+use fission::prelude::*;
 
 fission_component! {
-    pub ProbeCheckScreen<ProbeCheckState> {}
-    view(_screen, state, cx) {
+    pub ProbeScreen<ProbeState> {
+        state {
+            label: String = String::new(),
+            attempted: bool = false,
+        }
+    }
+    view(form, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let scan_status = if state.scan_pending {
-            cx.tr("probe.scan_pending")
-        } else if state.scan_unsupported {
-            cx.tr("probe.scan_unsupported")
-        } else if state.scan_failed {
-            cx.tr("probe.scan_failed")
-        } else if state.scan_complete && state.devices.is_empty() {
-            cx.tr("probe.scan_empty")
-        } else if state.scan_complete {
-            format!("{} {}", cx.tr("probe.scan_found"), state.devices.len())
-        } else {
-            cx.tr("probe.scan_idle")
-        };
-        let scan_action = with_reducer!(cx.build, ScanForProbe, scan_for_probe);
-        let label_action = with_reducer!(cx.build, UpdateProbeLabel, update_probe_label);
-        let confirm_action = with_reducer!(cx.build, ConfirmProbeLabel, confirm_probe_label);
-        let manual_result = if let Some(label) = &state.confirmed_label {
-            format!("{} {label}", cx.tr("probe.label_ready"))
-        } else if state.label_error {
-            cx.tr("probe.label_required")
-        } else {
-            cx.tr("probe.label_help")
-        };
-    } =>
-    SemanticsRegion(
-        identifier: Some("northbank-probe-check".into()),
-        label: Some(cx.tr("probe.title")),
-        child: Container(Column(gap: tokens.spacing.l, children: [
-            Column(gap: tokens.spacing.xs, children: [
-                Text(cx.tr("probe.site"))
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.primary),
-                Text(cx.tr("probe.title"))
-                    .size(tokens.typography.heading1_size),
-                Text(cx.tr("probe.intro"))
-                    .color(tokens.colors.text_secondary),
-            ]),
-            Container(Column(gap: tokens.spacing.m, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Text(cx.tr("probe.bluetooth_heading"))
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(cx.tr("probe.bluetooth_explanation"))
-                        .color(tokens.colors.text_secondary),
+        let error = (form.attempted && !valid_label(&form.label))
+            .then(|| cx.tr("probe.invalid_label"));
+    } => SafeArea(
+        child: Scroll(
+            child: Container(Column(gap: tokens.spacing.m, children: [
+                Text(cx.tr("probe.heading")).size(tokens.typography.heading2_size),
+                Text(cx.tr("probe.explanation")),
+                Row(gap: tokens.spacing.s, children: [
+                    Button(
+                        child: Text(cx.tr("language.english")), key: "english",
+                        on_press: reduce { state.locale = Locale::from("en-US"); },
+                    ),
+                    Button(
+                        child: Text(cx.tr("language.spanish")), key: "spanish",
+                        on_press: reduce { state.locale = Locale::from("es-ES"); },
+                    ),
                 ]),
                 Button(
-                    child: Text(cx.tr("probe.scan_action")),
-                    key: "scan-for-probe",
-                    variant: ButtonVariant::Outline,
-                    disabled: state.scan_pending,
-                    loading: state.scan_pending,
-                    on_press: scan_action,
+                    child: Text(cx.tr("probe.scan")), key: "scan-probe",
+                    disabled: state.scan == ScanStatus::Pending,
+                    on_press: reduce { scan(state, cx); },
                 ),
-                if state.devices.is_empty() {
-                    Text(scan_status)
-                } else {
+                if state.scan == ScanStatus::Pending {
+                    Spinner(motion: Some(SpinnerMotion::Default), label: Some(cx.tr("probe.pending")))
+                },
+                Text(cx.tr(state.scan.key())),
+                if let Some(error) = &state.error { Code(text: error.clone()) },
+                if let ScanStatus::Returned(devices) = &state.scan {
+                    Text(cx.tr("probe.count").replace("{count}", &devices.len().to_string()))
+                },
+                Divider(),
+                FormControl(
+                    label: Some(cx.tr("probe.label")),
+                    helper: Some(cx.tr("probe.label_help")),
+                    error: error, required: true,
+                    child: TextInput(
+                        value: form.label.clone(), bind(on_input): to(form.label),
+                        semantics_identifier: Some("probe.label".into()),
+                    ),
+                ),
+                Button(
+                    child: Text(cx.tr("probe.confirm")), key: "confirm-label",
+                    on_press: reduce {
+                        form.attempted = true;
+                        if valid_label(&form.label) {
+                            state.confirmed_label = Some(form.label.trim().to_owned());
+                        }
+                    },
+                ),
+                if let Some(label) = &state.confirmed_label {
                     Column(gap: tokens.spacing.s, children: [
-                        Text(scan_status),
-                        for device in state.devices.iter() {
-                            Container(Column(gap: tokens.spacing.xs, children: [
-                                Text(device.name.clone().unwrap_or_else(|| cx.tr("probe.unnamed").into()))
-                                    .weight(tokens.typography.font_weight_semibold),
-                                Text(match device.rssi {
-                                    Some(rssi) => format!("{} {rssi} dBm", cx.tr("probe.signal")),
-                                    None => cx.tr("probe.signal_unavailable").into(),
-                                })
-                                .color(tokens.colors.text_secondary),
-                            ]), key: device.id.clone())
-                            .padding_all(tokens.spacing.m)
-                            .bg(tokens.colors.background)
-                            .border(tokens.colors.border, 1.0)
-                            .border_radius(tokens.radii.medium)
-                            .id(WidgetId::explicit(&device.id))
-                        },
+                        Text(cx.tr("probe.confirmed")),
+                        Text(label.clone()),
                     ])
                 },
+                Text(cx.tr("probe.session")).color(tokens.colors.text_secondary),
             ]))
-            .padding_all(tokens.spacing.l)
-            .bg(tokens.colors.surface)
-            .border(tokens.colors.border, 1.0)
-            .border_radius(tokens.radii.large),
-            Container(Column(gap: tokens.spacing.m, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Text(cx.tr("probe.manual_heading"))
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(cx.tr("probe.manual_explanation"))
-                        .color(tokens.colors.text_secondary),
-                ]),
-                TextInput(
-                    id: Some(WidgetId::explicit("probe-label")),
-                    semantics_identifier: Some("probe-label".into()),
-                    label: Some(cx.tr("probe.label").into()),
-                    placeholder: Some(cx.tr("probe.label_placeholder").into()),
-                    value: state.probe_label.clone(),
-                    required: true,
-                    error_text: state.label_error.then(|| cx.tr("probe.label_required").into()),
-                    on_input: label_action,
-                ),
-                Button(
-                    child: Text(cx.tr("probe.confirm_label")),
-                    key: "confirm-probe-label",
-                    variant: ButtonVariant::Primary,
-                    on_press: confirm_action,
-                ),
-                Text(manual_result),
-            ]))
-            .padding_all(tokens.spacing.l)
-            .bg(tokens.colors.surface)
-            .border(tokens.colors.border, 1.0)
-            .border_radius(tokens.radii.large),
-        ]))
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.background)
-        .width_length(Length::clamp(
-            Length::points(0.0),
-            Length::percent(100.0),
-            Length::points(680.0),
-        )),
+            .padding_all(tokens.spacing.l),
+        ),
     )
 }
 ```
 </TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-mod translations;
 
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    let mut app = WebApp::<app::ProbeCheckState, _>::new(app::ProbeCheckScreen)
-        .with_env(translations::create_env())
-        .with_bluetooth_host(UnsupportedBluetoothHost::default())
-        .with_title("Northbank iOS probe-check preview");
-    app.absorb_registry(app::callback_registry());
-    app.mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-<TabItem label="src/translations.rs">
-<!-- fission:file path="src/translations.rs" -->
+<TabItem label="src/i18n.rs">
+<!-- fission:file path="src/i18n.rs" -->
 ```rust
+use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
 use std::collections::HashMap;
 
@@ -604,7 +263,7 @@ pub fn create_env() -> Env {
         ("es-ES", include_str!("../i18n/es-ES.yaml")),
     ] {
         let messages: HashMap<String, String> =
-            serde_yaml::from_str(source).expect("valid probe-check translations");
+            serde_yaml::from_str(source).expect("valid probe translations");
         env.i18n.add_bundle(TranslationBundle {
             locale: Locale::from(locale),
             messages,
@@ -612,91 +271,171 @@ pub fn create_env() -> Env {
     }
     env
 }
+
+pub fn sync_env(state: &crate::app::ProbeState, env: &mut Env) {
+    env.locale = state.locale.clone();
+}
 ```
 </TabItem>
-</Tabs>
-<!-- fission:preview -->
 
-<!-- fission:checkpoint -->
-The preview installs an unsupported host deliberately; it does not use a memory host that could make the iOS target appear to scan. Press “Try Bluetooth scan” and confirm the unsupported message appears while the manual label field remains usable.
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
-
-<!-- fission:step id="verify-ios" -->
-## Run the fallback on iOS
-
-The generated `src/lib.rs` still points at the starter counter. Replace it with the root setup below so the iOS command opens this screen, loads its translations and registers the asynchronous completion reducers. The app uses the default `UnsupportedBluetoothHost`, so the scan action returns `unsupported` and the same manual path remains available. You do not need a Bluetooth permission description for this example because it does not install a Bluetooth provider or request permission. If you add your own provider, follow its privacy requirements and add the matching Fission capability configuration before shipping.
-
+<TabItem label="src/lib.rs">
 <!-- fission:file path="src/lib.rs" -->
 ```rust
 pub mod app;
-pub mod translations;
+mod i18n;
 
+use app::{ProbeScreen, ProbeState};
 use fission::prelude::*;
-
-#[cfg(target_os = "android")]
-const ANDROID_TEST_CONTROL_PORT: u16 = 48_761;
-
-#[cfg(any(target_os = "android", target_os = "ios"))]
-fn mobile_app() -> MobileApp<app::ProbeCheckState, app::ProbeCheckScreen> {
-    let mut app = MobileApp::<app::ProbeCheckState, _>::new(app::ProbeCheckScreen)
-        .with_env(translations::create_env())
-        .with_bluetooth_host(UnsupportedBluetoothHost::default())
-        .with_title("Northbank iOS probe check");
-    app.absorb_registry(app::callback_registry());
-    #[cfg(target_os = "android")]
-    let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
-    app
-}
-
-#[cfg(target_arch = "wasm32")]
-fn web_app() -> WebApp<app::ProbeCheckState, app::ProbeCheckScreen> {
-    let mut app = WebApp::<app::ProbeCheckState, _>::new(app::ProbeCheckScreen)
-        .with_env(translations::create_env())
-        .with_bluetooth_host(UnsupportedBluetoothHost::default())
-        .with_title("Northbank iOS probe-check preview");
-    app.absorb_registry(app::callback_registry());
-    app
-}
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> anyhow::Result<()> {
-    let mut app = DesktopApp::<app::ProbeCheckState, _>::new(app::ProbeCheckScreen)
-        .with_env(translations::create_env())
-        .with_bluetooth_host(UnsupportedBluetoothHost::default())
-        .with_title("Northbank iOS probe check");
-    app.absorb_registry(app::callback_registry());
-    app.run()
+    DesktopApp::<ProbeState, _>::new(ProbeScreen)
+        .with_env(i18n::create_env())
+        .with_bluetooth_host(UnsupportedBluetoothHost)
+        .with_sync_env(i18n::sync_env)
+        .run()
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub fn run_mobile() -> anyhow::Result<()> {
-    mobile_app().run()
+    MobileApp::<ProbeState, _>::new(ProbeScreen)
+        .with_env(i18n::create_env())
+        .with_bluetooth_host(UnsupportedBluetoothHost)
+        .with_sync_env(i18n::sync_env)
+        .run()
 }
 
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(app_handle: AndroidApp) {
-    let _ = mobile_app().run_with_android_app(app_handle);
+    let _ = MobileApp::<ProbeState, _>::new(ProbeScreen)
+        .with_env(i18n::create_env())
+        .with_bluetooth_host(UnsupportedBluetoothHost)
+        .with_sync_env(i18n::sync_env)
+        .run_with_android_app(app_handle);
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
     console_error_panic_hook::set_once();
-    web_app()
+    WebApp::<ProbeState, _>::new(ProbeScreen)
+        .with_env(i18n::create_env())
+        .with_bluetooth_host(UnsupportedBluetoothHost)
+        .with_sync_env(i18n::sync_env)
         .run()
         .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod i18n;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<app::ProbeState, _>::new(app::ProbeScreen)
+        .with_env(i18n::create_env())
+        .with_bluetooth_host(UnsupportedBluetoothHost)
+        .with_sync_env(i18n::sync_env)
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+probe.heading: "Identify the inspection probe"
+probe.explanation: "This iOS build has no Bluetooth provider. Try the actual unsupported scan path, or use the label printed on the probe."
+probe.scan: "Try Bluetooth probe discovery"
+probe.idle: "No scan has been requested."
+probe.pending: "Waiting for the probe scan…"
+probe.unsupported: "Bluetooth scanning is unsupported by this host. The manual label path is still available."
+probe.failed: "The scan failed or returned no usable result. You can retry or enter the printed label."
+probe.empty: "The installed host completed the scan without matching devices. This is not an unsupported result."
+probe.returned: "The installed host returned devices. Discovery alone does not connect to or read a probe."
+probe.count: "Returned device records: {count}"
+probe.label: "Printed probe label"
+probe.label_help: "Enter the label exactly as printed. This identifies a draft record; it does not measure temperature."
+probe.invalid_label: "Enter a label of up to 64 characters without control characters."
+probe.confirm: "Use this printed label"
+probe.confirmed: "Label selected for the next local step"
+probe.session: "The selection is kept in memory only. No sensor has been read and no inspection has been submitted."
+language.english: "English"
+language.spanish: "Español"
+```
+</TabItem>
+
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+probe.heading: "Identificar la sonda de inspección"
+probe.explanation: "Esta compilación de iOS no tiene un proveedor Bluetooth. Prueba el resultado real no compatible o usa la etiqueta impresa de la sonda."
+probe.scan: "Probar la detección de sondas Bluetooth"
+probe.idle: "No se ha solicitado ningún escaneo."
+probe.pending: "Esperando el escaneo de sondas…"
+probe.unsupported: "Este host no admite el escaneo Bluetooth. La etiqueta manual sigue disponible."
+probe.failed: "El escaneo ha fallado o no devolvió un resultado utilizable. Puedes reintentar o introducir la etiqueta."
+probe.empty: "El proveedor instalado terminó sin dispositivos compatibles. Esto no equivale a una operación no admitida."
+probe.returned: "El proveedor instalado devolvió dispositivos. Detectarlos no conecta con la sonda ni la lee."
+probe.count: "Registros de dispositivos devueltos: {count}"
+probe.label: "Etiqueta impresa de la sonda"
+probe.label_help: "Introduce la etiqueta tal como está impresa. Identifica un borrador; no mide la temperatura."
+probe.invalid_label: "Introduce una etiqueta de hasta 64 caracteres sin caracteres de control."
+probe.confirm: "Usar esta etiqueta impresa"
+probe.confirmed: "Etiqueta seleccionada para el siguiente paso local"
+probe.session: "La selección solo está en memoria. No se ha leído ningún sensor ni enviado una inspección."
+language.english: "Inglés"
+language.spanish: "Español"
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Try the scan and confirm it ends in Unsupported, not an invented device list. Apply an empty label to see the field error, then enter a real printed label and confirm it. Neither operation should claim a sensor reading or a submitted inspection.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="unsupported-result" -->
+## Keep discovery, connection and measurement separate
+
+The reducer requests the typed scan and binds unit completion actions. Each completion decodes its actual `cx.input`. A supported custom host may return devices later, but those records are not a connection handle or a temperature sample.
+
+The request filters for the Environmental Sensing service. It is not a guarantee that every discovered device has the expected measurement format. A complete sensor workflow would still need a real iOS provider, permission handling, connection, characteristic selection, decoding and disconnection.
+
+The normal launchers explicitly install `UnsupportedBluetoothHost` to keep this tutorial's fallback deterministic across targets without simulating success. Do not leave that override in an app which is supposed to use a real installed Bluetooth provider. Replace it as part of the separately qualified integration, not as a silent preview trick.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Enter a label, switch languages, retry the unsupported scan and check the confirmed selection. Invalid replacement input must not erase an earlier valid selection. The native unsupported state and a custom-host successful empty scan must remain distinguishable.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="verify-ios" -->
+## Verify the fallback on iOS before adding a provider
 
 ```sh
+cargo test
 fission doctor ios --project-dir .
 fission devices --project-dir .
 fission run --target ios --project-dir .
 fission test --target ios --project-dir .
-fission build --target ios --project-dir . --release
 ```
 
-`fission run` launches an available iOS Simulator. The unsupported state can be verified there; Bluetooth hardware behavior cannot. If you supply a native provider, test its permissions and scan results on the physical iPhone models you support. `fission build --release` checks packaging, not device signing or hardware behavior.
+Use [the simulator guide](/blog/choose-boot-and-launch-an-ios-simulator-with-fission/) for selection. The included test checks the app-owned label rule; the simulator can check this unsupported flow and the form. It cannot prove radio discovery or sensor accuracy.
+
+Check the field label and error with VoiceOver, both languages and larger text. `FormControl` supplies the visible and semantic validation relationship instead of drawing an error beneath an unrelated input.
+
+If you add an actual Bluetooth host, follow [the iPhone installation guide](/blog/install-a-fission-app-on-a-physical-iphone/) and qualify its permission, no-device, disconnection and device-specific measurement paths. Keep test providers inside test infrastructure. A memory host returning a convincing probe name does not implement that native work.
 <!-- /fission:step -->

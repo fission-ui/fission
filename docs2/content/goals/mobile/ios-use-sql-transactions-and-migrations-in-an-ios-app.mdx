@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Use SQL transactions and migrations in an iOS app
-description: "Build a Rust iOS app that uses SQLite transactions and migrations through Fission's SQL effects."
-goal: Build a local relational workflow and explain how to evolve its schema safely.
+description: Create and rename projects with an atomic audit record, using real SQLite migrations and asynchronous SQL effects.
+goal: Keep a project name and its change record committed together
 path: /blog/use-sql-transactions-and-migrations-in-an-ios-app/
 order: 102
 difficulty: Beginner
@@ -10,309 +10,478 @@ duration: 35 minutes
 run_command: "fission run --target ios --project-dir ."
 app: ios-use-sql-transactions-and-migrations-in-an-ios-app
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the iOS workflow and follow physical-device checks when the task requires them
+  - Apply versioned migrations before reading application tables
+  - Commit a project change and its audit row in one transaction
+  - Keep a failed or uncertain write from being replayed without review
 ---
+
+A project rename changes two facts: the current name and the record explaining
+what changed. If they are written separately, a failure between the writes can
+leave one without the other. A transaction makes that pair the unit of work.
+
+This small project ledger starts empty. Create a project, rename it, and inspect
+the number of recorded changes. Both the browser preview and native app use
+actual SQLite effects. There is no button that toggles a fake transaction result.
 
 ## Create the project and add the target
 
-Create the project and add the target used by this guide. Fission generates the native host; the app and its behaviour stay in shared Rust code.
+Use the [iOS setup guide](/blog/set-up-rust-ios-development-with-fission/) for
+Xcode and Simulator prerequisites.
 
 ```sh
 cargo install cargo-fission
-fission init ios-use-sql-transactions-and-migrations-in-an-ios-app
-cd ios-use-sql-transactions-and-migrations-in-an-ios-app
+fission init project-ledger
+cd project-ledger
+cargo add serde_yaml
 fission add-target ios --project-dir .
 fission add-capability storage --project-dir .
 ```
 
 ## Files created by Fission
 
-This is the starter tree Fission generates. Keep shared app code in `src/`; the generated platform files handle native launch and packaging.
+Keep the generated entrypoint. Add these shared modules:
 
 ```text
-ios-use-sql-transactions-and-migrations-in-an-ios-app/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
-├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
-└── platforms/
-    └── ios/                  # generated iOS host
+src/
+├── main.rs
+├── lib.rs
+├── state.rs
+├── storage.rs
+├── app.rs
+└── translations.rs
+i18n/
+platforms/ios/
 ```
 
-Keep app state, reducers and components in shared Rust. Put direct iOS API calls in the generated host or a typed provider, and split a feature into modules when that boundary helps.
-
 <!-- fission:step id="start-screen" -->
-## Create the app screen
+## Migrate, then load the ledger
+
+Migration 1 creates projects. Migration 2 adds the audit table. Applying them
+before the first query gives both a fresh database and a database at version 1
+a defined path to the current schema. Do not edit a migration already applied
+to users' databases; add another version.
+
+The app disables edits until loading succeeds. A failed query is not an empty
+ledger, and a partial decode is not a successful list. This teaching app checks
+up to 200 projects rather than silently truncating a larger result.
 
 <Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Project { pub id: i64, pub name: String, pub changes: i64 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase { Loading, Ready, Writing, Refreshing, Failed }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LedgerState {
+    pub projects: Vec<Project>,
+    pub draft: String,
+    pub editing: Option<i64>,
+    pub phase: Phase,
+    pub error: Option<String>,
+}
+impl Default for LedgerState {
+    fn default() -> Self {
+        Self { projects: Vec::new(), draft: String::new(), editing: None, phase: Phase::Loading, error: None }
+    }
+}
+impl GlobalState for LedgerState {}
+
+pub fn checked_name(value: &str) -> Option<String> {
+    let value = value.trim();
+    (1..=120).contains(&value.chars().count()).then(|| value.to_owned())
+}
+
+#[fission_reducer(EditProject)]
+pub fn edit_project(state: &mut LedgerState, id: i64) {
+    if state.phase != Phase::Ready { return; }
+    if let Some(project) = state.projects.iter().find(|project| project.id == id) {
+        state.editing = Some(id);
+        state.draft = project.name.clone();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn blank_and_overlong_names_are_not_written() {
+        assert!(checked_name("  ").is_none());
+        assert!(checked_name(&"x".repeat(121)).is_none());
+        assert_eq!(checked_name(" Harbour plan "), Some("Harbour plan".into()));
+    }
+    #[test]
+    fn names_are_user_data_not_translation_keys() {
+        assert_eq!(checked_name("ledger.title"), Some("ledger.title".into()));
+        assert_eq!(checked_name("Planificación"), Some("Planificación".into()));
+    }
+}
+```
+</TabItem>
+<TabItem label="src/storage.rs">
+<!-- fission:file path="src/storage.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::{checked_name, LedgerState, Phase, Project};
+
+fn query(state: &mut LedgerState, cx: &mut ReducerContext<LedgerState>) {
+    let loaded = cx.effects.bind(ProjectsLoaded, reduce!(projects_loaded));
+    let failed = cx.effects.bind(DatabaseFailed, reduce!(database_failed));
+    cx.effects.sql().query(SqlStatement::new(
+        "SELECT p.id, p.name, (SELECT count(*) FROM project_changes a WHERE a.project_id = p.id) AS changes
+         FROM ledger_projects p ORDER BY p.id DESC LIMIT 201"
+    )).on_ok(loaded).on_err(failed);
+    let _ = state;
+}
+
+#[fission_reducer(PrepareLedger)]
+pub fn prepare(state: &mut LedgerState, cx: &mut ReducerContext<LedgerState>) {
+    if matches!(state.phase, Phase::Writing | Phase::Refreshing) { return; }
+    state.phase = Phase::Loading;
+    state.error = None;
+    let mut migrations = SqlMigrations::new();
+    migrations.add(SqlMigration::new(1, "projects",
+        "CREATE TABLE ledger_projects (id INTEGER PRIMARY KEY, name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 120));"
+    )).expect("unique migration version");
+    migrations.add(SqlMigration::new(2, "project change history",
+        "CREATE TABLE project_changes (
+             id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES ledger_projects(id),
+             previous_name TEXT, new_name TEXT NOT NULL, changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+         );"
+    )).expect("unique migration version");
+    let ok = cx.effects.bind(LedgerPrepared, reduce!(ledger_prepared));
+    let err = cx.effects.bind(DatabaseFailed, reduce!(database_failed));
+    cx.effects.sql().migrate(migrations).on_ok(ok).on_err(err);
+}
+
+#[fission_reducer(LedgerPrepared)]
+fn ledger_prepared(state: &mut LedgerState, cx: &mut ReducerContext<LedgerState>) { query(state, cx); }
+
+#[fission_reducer(ProjectsLoaded)]
+fn projects_loaded(state: &mut LedgerState, cx: &mut ReducerContext<LedgerState>) {
+    let decoded = cx.input.sql_rows().ok_or("Missing project result".to_owned()).and_then(|rows| {
+        if rows.rows.len() > 200 { return Err("This example supports at most 200 projects".into()); }
+        rows.rows.into_iter().map(|row| {
+            let project = Project {
+                id: row.get::<i64>("id").map_err(|error| error.to_string())?,
+                name: row.get::<String>("name").map_err(|error| error.to_string())?,
+                changes: row.get::<i64>("changes").map_err(|error| error.to_string())?,
+            };
+            if project.id <= 0 || checked_name(&project.name).is_none() || project.changes < 1 {
+                return Err("Malformed project record".into());
+            }
+            Ok(project)
+        }).collect::<Result<Vec<_>, String>>()
+    });
+    match decoded {
+        Ok(projects) => {
+            if state.phase == Phase::Refreshing {
+                state.draft.clear();
+                state.editing = None;
+            }
+            state.projects = projects;
+            state.phase = Phase::Ready;
+        }
+        Err(error) => { state.phase = Phase::Failed; state.error = Some(error); }
+    }
+}
+
+pub fn save(state: &mut LedgerState, cx: &mut ReducerContext<LedgerState>) {
+    if state.phase != Phase::Ready { return; }
+    let Some(name) = checked_name(&state.draft) else { return; };
+    if state.editing.is_none() && state.projects.len() >= 200 { return; }
+    let mut transaction = SqlTransaction::new();
+    match state.editing {
+        None => {
+            transaction.execute(SqlStatement::new("INSERT INTO ledger_projects (name) VALUES (?1)").bind(name.clone()));
+            transaction.execute(SqlStatement::new(
+                "INSERT INTO project_changes (project_id, previous_name, new_name) VALUES (last_insert_rowid(), NULL, ?1)"
+            ).bind(name));
+        }
+        Some(id) => {
+            transaction.execute(SqlStatement::new(
+                "INSERT INTO project_changes (project_id, previous_name, new_name)
+                 SELECT id, name, ?1 FROM ledger_projects WHERE id = ?2 AND name <> ?1"
+            ).bind(name.clone()).bind(id));
+            transaction.execute(SqlStatement::new(
+                "UPDATE ledger_projects SET name = ?1 WHERE id = ?2 AND name <> ?1"
+            ).bind(name).bind(id));
+        }
+    }
+    state.phase = Phase::Writing;
+    state.error = None;
+    let ok = cx.effects.bind(ProjectWritten, reduce!(project_written));
+    let err = cx.effects.bind(DatabaseFailed, reduce!(database_failed));
+    cx.effects.sql().transaction(transaction).on_ok(ok).on_err(err);
+}
+
+#[fission_reducer(ProjectWritten)]
+fn project_written(state: &mut LedgerState, cx: &mut ReducerContext<LedgerState>) {
+    let valid = cx.input.sql_transaction_result().is_some_and(|result| {
+        result.steps.len() == 2 && result.steps.iter().all(|step| {
+            matches!(step, SqlStepResult::Execute(result) if result.affected_rows == 1)
+        })
+    });
+    if !valid {
+        state.phase = Phase::Failed;
+        state.error = Some("The project changed or the expected transaction result was absent. Reload before another write.".into());
+        return;
+    }
+    state.phase = Phase::Refreshing;
+    query(state, cx);
+}
+
+#[fission_reducer(DatabaseFailed)]
+fn database_failed(state: &mut LedgerState, cx: &mut ReducerContext<LedgerState>) {
+    state.phase = Phase::Failed;
+    state.error = Some(cx.input.sql_error().map(|error| error.to_string())
+        .unwrap_or_else(|| "SQLite operation failed without a typed error".into()));
+}
+```
+</TabItem>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+use crate::{state::{checked_name, EditProject, edit_project, LedgerState, Phase}, storage::{prepare, save, PrepareLedger}};
+
 fission_component! {
-    pub ProjectRenameTransaction<()> {
-        state {
-            preview_applied: bool = false,
-        }
-    }
-    view(project, _state, cx) {
+    pub ProjectLedger<LedgerState> {}
+    view(_ledger, state, cx) {
+        let _startup = cx.bind(PrepareLedger, reduce!(prepare));
         let tokens = &cx.view.env().theme.tokens;
-        let new_name = if project.preview_applied {
-            cx.tr("sql.project.new_name")
-        } else {
-            cx.tr("sql.project.old_name")
-        };
-        let audit_status = if project.preview_applied {
-            cx.tr("sql.audit.written")
-        } else {
-            cx.tr("sql.audit.waiting")
-        };
-        let transaction_status = if project.preview_applied {
-            cx.tr("sql.status.previewed")
-        } else {
-            cx.tr("sql.status.draft")
-        };
+        let ready = state.phase == Phase::Ready;
+        let changed = state.editing.and_then(|id| state.projects.iter().find(|project| project.id == id))
+            .is_none_or(|project| project.name != state.draft.trim());
     } =>
-    SemanticsRegion(
-        identifier: Some("ios-project-rename-transaction".to_string()),
-        label: Some(cx.tr("sql.screen.label")),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Text(cx.tr("sql.app.name"))
-                        .weight(tokens.typography.font_weight_bold),
-                    Text(cx.tr("sql.route"))
-                        .color(tokens.colors.text_secondary),
-                ]),
-                Badge(text: cx.tr("sql.preview.badge")),
-                Divider(),
-                Text(cx.tr("sql.title"))
-                    .size(tokens.typography.heading2_size),
-                Text(cx.tr("sql.summary"))
-                    .color(tokens.colors.text_secondary),
+    SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("ledger.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("ledger.summary")).color(tokens.colors.text_secondary),
+            if matches!(state.phase, Phase::Loading | Phase::Writing | Phase::Refreshing) {
+                Spinner(motion: SpinnerMotion::Default, label: Some(cx.tr("ledger.pending")))
+            },
+            TextInput(
+                label: Some(cx.tr("ledger.name").into()),
+                bind: state.draft,
+                max_length: Some(120),
+                enabled: ready,
+                semantics_identifier: Some("ledger.name".into()),
+            ),
+            Button(
+                child: Text(cx.tr(if state.editing.is_some() { "ledger.rename" } else { "ledger.create" })),
+                key: "write-project",
+                disabled: !ready || checked_name(&state.draft).is_none() || !changed
+                    || (state.editing.is_none() && state.projects.len() >= 200),
+                on_press: reduce { save(state, cx); },
+            ),
+            if let Some(error) = &state.error {
+                Column(gap: tokens.spacing.s, children: [
+                    Alert(kind: AlertKind::Error, title: cx.tr("ledger.failed")),
+                    Code(text: error.clone()),
+                    Text(cx.tr("ledger.uncertain")),
+                    Button(
+                        child: Text(cx.tr("ledger.reload")),
+                        key: "reload-ledger",
+                        on_press: reduce {
+                            state.draft.clear();
+                            state.editing = None;
+                            prepare(state, PrepareLedger, cx);
+                        },
+                    ),
+                ])
+            },
+            if state.projects.is_empty() && ready { EmptyState(title: cx.tr("ledger.empty")) },
+            for project in state.projects.iter() {
                 Container(
                     Column(gap: tokens.spacing.s, children: [
-                        Text(cx.tr("sql.project.label"))
-                            .weight(tokens.typography.font_weight_semibold),
-                        Text(new_name),
-                        Divider(),
-                        Text(cx.tr("sql.audit.label"))
-                            .weight(tokens.typography.font_weight_semibold),
-                        Text(audit_status),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: transaction_status),
-                    Text(cx.tr("sql.status.explanation"))
-                        .color(tokens.colors.text_secondary),
-                ]),
-                Button(
-                    child: Text(cx.tr("sql.action.apply")),
-                    key: "preview-project-rename-transaction",
-                    variant: ButtonVariant::Primary,
-                    disabled: project.preview_applied,
-                    on_press: reduce { project.preview_applied = true; },
-                    semantics: Some(Semantics {
-                        role: Role::Button,
-                        label: Some(cx.tr("sql.action.apply")),
-                        identifier: Some("sql.preview-rename".to_string()),
-                        ..Default::default()
-                    }),
-                ),
-                Button(
-                    child: Text(cx.tr("sql.action.reset")),
-                    key: "reset-transaction-preview",
-                    disabled: !project.preview_applied,
-                    on_press: reduce { project.preview_applied = false; },
-                    semantics: Some(Semantics {
-                        role: Role::Button,
-                        label: Some(cx.tr("sql.action.reset")),
-                        identifier: Some("sql.preview-reset".to_string()),
-                        ..Default::default()
-                    }),
-                ),
-                Text(cx.tr("sql.preview.note"))
-                    .color(tokens.colors.text_secondary),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
+                        Text(project.name.clone()).weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("ledger.changes").replace("{count}", &project.changes.to_string())),
+                        Button(
+                            child: Text(cx.tr("ledger.edit")),
+                            key: "edit-project",
+                            disabled: !ready,
+                            on_press: with_reducer!(cx.build, EditProject(project.id), edit_project),
+                        ),
+                    ]),
+                    key: project.id,
+                ).padding_all(tokens.spacing.m).border(tokens.colors.border, 1.0).border_radius(tokens.radii.medium)
+            },
+        ])
+    ).padding_all(tokens.spacing.l).max_width(720.0)))
 }
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::prelude::*;
+use fission::i18n::{Locale, TranslationBundle};
 
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages: serde_yaml::from_str(source).expect("checked-in translations"),
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod state;
+mod storage;
+mod app;
+mod translations;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::LedgerState, _>::new(app::ProjectLedger)
+        .with_env(translations::create_env()).with_title("Project ledger")
+        .with_startup_action(storage::PrepareLedger).run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<state::LedgerState, app::ProjectLedger> {
+    MobileApp::new(app::ProjectLedger).with_env(translations::create_env())
+        .with_title("Project ledger").with_startup_action(storage::PrepareLedger)
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) { let _ = mobile_app().run_with_android_app(app_handle); }
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    WebApp::<state::LedgerState, _>::new(app::ProjectLedger)
+        .with_env(translations::create_env()).with_title("Project ledger")
+        .with_startup_action(storage::PrepareLedger).run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
+mod state;
+mod storage;
 mod app;
-
+mod translations;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
-
-fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
-    TranslationBundle {
-        locale: Locale::from(locale),
-        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
-    }
-}
-
-fn preview_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    env.i18n
-        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
-    env.i18n
-        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
-    env
-}
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::ProjectRenameTransaction)
-        .with_env(preview_env())
-        .with_title("Project Ledger")
-        .mount("#fission-web-mount")
-        .run()
+    WebApp::<state::LedgerState, _>::new(app::ProjectLedger)
+        .with_env(translations::create_env()).with_title("Project ledger")
+        .with_startup_action(storage::PrepareLedger)
+        .mount("#fission-web-mount").run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
-
 ```
 </TabItem>
 <TabItem label="i18n/en-US.yaml">
-<!-- fission:file path="src/i18n/en-US.yaml" -->
+<!-- fission:file path="i18n/en-US.yaml" -->
 ```yaml
-sql.screen.label: "Project rename and audit transaction preview"
-sql.app.name: "Project Ledger"
-sql.route: "Projects · Rename"
-sql.preview.badge: "Transaction example"
-sql.title: "Rename the project and record the change"
-sql.summary: "The SQL example updates the project row and adds its audit entry in one transaction."
-sql.project.label: "Project record"
-sql.project.old_name: "Harbour plan"
-sql.project.new_name: "Harbour renewal plan"
-sql.audit.label: "Audit log"
-sql.audit.written: "The example includes the matching audit entry"
-sql.audit.waiting: "The example will show the audit entry beside the rename"
-sql.status.previewed: "Transaction outcome previewed"
-sql.status.draft: "Ready to preview the transaction"
-sql.status.explanation: "A real transaction keeps both database writes together."
-sql.action.apply: "Preview both writes together"
-sql.action.reset: "Reset preview"
-sql.preview.note: "Browser-only state: this interaction does not open SQLite or execute SQL."
+ledger.title: "Project change ledger"
+ledger.summary: "A project name and its audit record are committed together."
+ledger.name: "Project name"
+ledger.create: "Create project and record the change"
+ledger.rename: "Rename project and record the change"
+ledger.edit: "Edit this project"
+ledger.changes: "{count} recorded changes"
+ledger.pending: "Waiting for SQLite…"
+ledger.empty: "No projects yet. Enter a name to create the first one."
+ledger.failed: "The database operation could not be confirmed."
+ledger.uncertain: "The draft is still visible. A write may have committed; inspect saved data before repeating it."
+ledger.reload: "Discard this draft and reload saved projects"
 ```
 </TabItem>
 <TabItem label="i18n/es-ES.yaml">
-<!-- fission:file path="src/i18n/es-ES.yaml" -->
+<!-- fission:file path="i18n/es-ES.yaml" -->
 ```yaml
-sql.screen.label: "Vista previa de la transacción de cambio y auditoría"
-sql.app.name: "Registro de proyectos"
-sql.route: "Proyectos · Renombrar"
-sql.preview.badge: "Ejemplo de transacción"
-sql.title: "Cambia el nombre del proyecto y registra el cambio"
-sql.summary: "El ejemplo SQL actualiza la fila del proyecto y añade la entrada de auditoría en una transacción."
-sql.project.label: "Registro del proyecto"
-sql.project.old_name: "Plan del puerto"
-sql.project.new_name: "Plan de renovación del puerto"
-sql.audit.label: "Registro de auditoría"
-sql.audit.written: "El ejemplo incluye la entrada de auditoría correspondiente"
-sql.audit.waiting: "El ejemplo mostrará la entrada de auditoría junto al cambio"
-sql.status.previewed: "Resultado de la transacción mostrado"
-sql.status.draft: "Listo para previsualizar la transacción"
-sql.status.explanation: "Una transacción real mantiene juntas ambas escrituras en la base de datos."
-sql.action.apply: "Previsualizar ambas escrituras juntas"
-sql.action.reset: "Restablecer vista previa"
-sql.preview.note: "Estado solo del navegador: esta interacción no abre SQLite ni ejecuta SQL."
+ledger.title: "Registro de cambios de proyectos"
+ledger.summary: "El nombre del proyecto y su auditoría se guardan juntos."
+ledger.name: "Nombre del proyecto"
+ledger.create: "Crear el proyecto y registrar el cambio"
+ledger.rename: "Renombrar el proyecto y registrar el cambio"
+ledger.edit: "Editar este proyecto"
+ledger.changes: "{count} cambios registrados"
+ledger.pending: "Esperando a SQLite…"
+ledger.empty: "Todavía no hay proyectos. Escribe un nombre para crear el primero."
+ledger.failed: "No se ha podido confirmar la operación."
+ledger.uncertain: "El borrador sigue visible. Puede que se haya guardado; revisa los datos antes de repetirlo."
+ledger.reload: "Descartar el borrador y recargar los proyectos"
 ```
 </TabItem>
 </Tabs>
 <!-- fission:preview -->
+<!-- fission:checkpoint -->
+Create a project, rename it, and confirm the change count advances once.
+Reload the preview: both the current name and its count must come from SQLite.
+<!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
 ## Bind values and commit related writes together
 
-Use named or positional SQL parameters for user data. A transaction keeps the item write and its audit record atomic; if any statement fails, SQLite rolls the whole transaction back:
+New projects use SQLite's generated ID. The second statement reads
+`last_insert_rowid()` on that same transaction connection; it does not infer
+identity from the list length. A rename records the previous database value
+rather than an old UI snapshot. All user-entered text is bound as a parameter.
 
-```rust
-let mut transaction = SqlTransaction::new();
-transaction.execute(
-    SqlStatement::new("UPDATE projects SET name = :name WHERE id = :id")
-        .bind_named(":name", project.name.clone())
-        .bind_named(":id", project.id),
-);
-transaction.execute(
-    SqlStatement::new("INSERT INTO audit(message) VALUES (:message)")
-        .bind_named(":message", "Project renamed".to_string()),
-);
-
-ctx.effects
-    .sql()
-    .transaction(transaction)
-    .on_ok(ActionEnvelope::from(ProjectCommitted))
-    .on_err(ActionEnvelope::from(DatabaseFailed));
-```
-
-Create ordered `SqlMigration` entries for schema changes, apply them with `ctx.effects.sql().migrate(...)`, and test opening both a fresh database and one created by the previous migration. Never concatenate user-entered values into an SQL string.
-
-
+A failed statement rolls the transaction back. A zero-row result is different:
+the statements may have run successfully but found no matching change. The
+completion checks both results before reporting success and then reloads the
+authoritative data. A failed or uncertain completion blocks another write; the
+explicit reload action states that it discards the draft.
 
 <!-- fission:preview -->
-
 <!-- fission:checkpoint -->
-The compiled preview changes browser-local state only; it does not perform this task on the iOS Simulator or an iPhone, inspect your toolchain or access native hardware. Use the commands below to verify the generated project on the target.
+Try a blank and unchanged name. Neither should write an audit row. Use a
+provider-backed test that makes the second statement fail and verify the first
+write is absent afterwards. The two included Rust tests cover validation only;
+they do not prove SQLite rollback.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
 ## Verify saved data on iOS
 
-Save one change, close the app completely, and launch it again. The screen should load the saved value before presenting it as current. Test the empty database and an unreadable or incompatible database separately so loading, default and error states are not confused.
-
-For SQL migrations, open both a fresh database and one created by the previous schema version. For offline workflows, disconnect the network, edit locally, reconnect, and confirm a failed or stale response does not erase the newer local change.
-
-### Run, test and build
-
 ```sh
 cargo test
-fission doctor ios --project-dir .
-fission run --target ios --project-dir .
-fission test --target ios --project-dir .
-fission build --target ios --project-dir . --release
-```
-
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Xcode, simulator SDK or Rust targets, `fission run` launches an iOS Simulator, and `fission test` checks that the generated host can start. A release build checks the simulator package; it does not verify iPhone signing or physical-device behavior.
-
-
-### Simulator and device commands
-
-Fission’s run command discovers iOS simulators. Run these checks from the generated project root:
-
-```sh
 fission doctor ios --project-dir .
 fission devices --project-dir .
 fission run --target ios --project-dir .
 fission test --target ios --project-dir .
 ```
 
+Test a fresh database and one with only migration 1 applied. Create and rename a
+project, terminate the process and reopen it. The name and audit count should
+both survive. Browser SQLite, Simulator and iPhone storage are separate; a
+successful browser reload does not verify native persistence.
+
+Use the [iPhone installation guide](/blog/install-a-fission-app-on-a-physical-iphone/)
+for device signing. Fission's normal iOS run command launches Simulator.
 
 ### Current references
 
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
-- [Storage and SQLite guide](/docs/guides/storage-and-sqlite/)
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
+- [Storage and SQLite](/docs/guides/storage-and-sqlite/)
+- [Offline field notes](/blog/build-an-offline-first-notes-app-for-android-and-ios/)
 <!-- /fission:step -->

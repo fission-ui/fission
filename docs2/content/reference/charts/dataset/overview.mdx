@@ -1,14 +1,12 @@
 ---
 title: Dataset
 sidebar_label: Overview
-description: Fission Charts reference for the Dataset family.
+description: Choose dataset projections and explicit update flows for coherent chart reports.
 ---
 
 # Dataset
 
-This family has 20 chart variants. Pick one that matches your data. Each page has a screenshot, data shape, API notes, and code you can adapt.
-
-Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
+A reporting table and a chart are different representations of the same facts. Keep the typed records as the authority, then choose a projection that answers the user's question. Replacing a projection when new data arrives does not require moving fetching or persistence into the widget.
 
 ![Brush telemetry screenshot](/img/charts/dynamic-brush-telemetry.png)
 
@@ -19,7 +17,7 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 | [Brush telemetry](./dynamic-brush-telemetry) | Point samples with brush selection. | Use it for interactive telemetry exploration. |
 | [Calendar dataset activity](./dataset-calendar-activity) | Date/value rows mapped to a calendar. | Use it when dates are a first-class data field. |
 | [Coverage dataset map](./dataset-map-coverage) | Region/value rows. | Use it when geographic views come from named records. |
-| [Dataset visual heatmap](./dataset-visual-heatmap) | Encoded grid cells with values. | Use it when heatmaps come from generic records. |
+| [Dataset visual heatmap](./dataset-visual-heatmap) | Typed grid cells with values. | Use it when heatmaps come from generic records. |
 | [Filtered composition](./dataset-filtered-pie) | Filtered label/value rows. | Use it when the chart represents a selected dataset slice. |
 | [Flow dataset sankey](./dataset-flow-sankey) | Vertex and edge records. | Use it when flow data is modeled explicitly. |
 | [Live activation funnel](./dynamic-funnel-activation) | Changing stage values. | Use it when pipeline stages update during the session. |
@@ -33,46 +31,21 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 | [Quality dataset parallel](./dataset-parallel-quality) | Rows with several numeric dimensions. | Use it when the same table powers multidimensional analysis. |
 | [Quarter timeline](./dynamic-timeline-quarters) | Period labels switching chart state. | Use it for period-over-period analysis. |
 | [Ranked dataset bars](./dataset-ranked-bars) | Rows sorted into category/value pairs. | Use it when rank comes from data transformation. |
-| [Risk bubbles dataset](./dataset-risk-bubbles) | Rows encoded into x, y, and size. | Use it when one table feeds bubble visualization. |
+| [Risk bubbles dataset](./dataset-risk-bubbles) | Typed rows projected into x, y, and size. | Use it when one table feeds bubble visualization. |
 | [Stacked revenue dataset](./dataset-stacked-revenue) | Multiple encoded measures over one category axis. | Use it when stack series share the same source table. |
-| [Telemetry toolbox](./dynamic-toolbox-telemetry) | Telemetry chart with built-in actions. | Use it when live charts need controlled exploration. |
-
-## Choosing within this family
-
-First decide what the user needs to compare or understand. Pick the simplest chart that shows it; add interaction only when it helps, and use animation only when it explains a change.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
-
-```rust
-use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+| [Telemetry toolbox](./dynamic-toolbox-telemetry) | Telemetry report with application actions. | Use it when live charts need controlled exploration. |
 
 
+## Where the transformations happen
 
-fission_component!
-{
-    pub DatasetChart<()> {
-    }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Dataset")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
-}
-```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
+Use the [products by year](./dataset-products-by-year) example for a complete Compose chart with an actual named-column dataset. The current resolver supports dataset encoding for bar and line series. Other examples deliberately project typed rows into their series' data types; a generic dataset does not automatically bind every chart family.
 
-## Options, accessibility, and diagnostics
+Sorting, filtering and joining belong before rendering. For example, [ranked bars](./dataset-ranked-bars) sort whole records so labels do not become detached from values, whilst the [coverage map](./dataset-map-coverage) joins stable region IDs to supplied geometry. Invalid or missing records need an explicit policy: a numeric fallback to zero is not validation.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## What live means here
+
+A live component receives completed snapshots from application state. Effects obtain external data; reducers accept the current completion and update that state. Keep request generations when a late response could overwrite newer results. The chart itself is not a transport, scheduler or persistence layer.
+
+Choose [brushing](./dynamic-brush-telemetry) for inspecting points, [quarter navigation](./dynamic-timeline-quarters) for selecting a report, and [application commands](./dynamic-toolbox-telemetry) for real export/reset behavior. Visual timeline or toolbox configuration alone does not implement those workflows.
+
+Translate visible titles, series names, units and summaries in the parent. Keep exact values available without relying only on colour, and test the source-to-projection mapping independently from screenshots. Gallery images use separate fixture data; they do not qualify the examples' interactions.

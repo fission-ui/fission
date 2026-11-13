@@ -18,26 +18,36 @@ the choices form a hierarchy or no longer fit comfortably in one row.
 ```rust
 use fission::prelude::*;
 
-let settings_tabs: Widget = Tabs {
-    active_index: view.state().active_settings_tab,
-    items: vec![
-        TabItem {
-            title: "General".into(),
-            content: general_settings_node,
-            on_press: Some(select_general_tab_action),
-            semantics_identifier: Some("settings.general".into()),
-        },
-        TabItem {
-            title: "Security".into(),
-            content: security_settings_node,
-            on_press: Some(select_security_tab_action),
-            semantics_identifier: Some("settings.security".into()),
-        },
-    ],
-    size: ComponentSize::Md,
-    motion: None,
+fission_component! {
+    pub SettingsTabs<()> {
+        props {
+            active_index: usize,
+            general: Widget,
+            security: Widget,
+            select_general: ActionEnvelope,
+            select_security: ActionEnvelope,
+        }
+    }
+
+    view(settings, _state, cx) =>
+        Tabs(
+            active_index: settings.active_index,
+            items: vec![
+                TabItem {
+                    title: cx.tr("settings.general"),
+                    content: settings.general.clone(),
+                    on_press: Some(settings.select_general.clone()),
+                    semantics_identifier: Some("settings.general".into()),
+                },
+                TabItem {
+                    title: cx.tr("settings.security"),
+                    content: settings.security.clone(),
+                    on_press: Some(settings.select_security.clone()),
+                    semantics_identifier: Some("settings.security".into()),
+                },
+            ],
+        )
 }
-.into();
 ```
 
 Focus movement and selection are separate. Arrow keys move roving focus; the
@@ -47,7 +57,9 @@ it.
 ## Anatomy and design-system behavior
 
 The widget contains a horizontal tab list, one trigger per item, and the active
-item's panel beneath it. Only active content is built into the rendered panel.
+item's panel beneath it. Only the active content is lowered into the rendered panel. The compact API
+still receives already-constructed `Widget` values for every item; do not infer
+lazy component conversion or resource registration from panel visibility alone.
 The selected trigger may use a surface, border, shadow, or indicator according
 to the active design system.
 
@@ -58,7 +70,9 @@ padding, dimensions, and shadow layers instead of replacing them with fixed
 widget chrome.
 
 Use the named anatomy when triggers need custom retained presentation or the
-active panel needs an explicit retained boundary:
+active panel needs an explicit retained boundary. This parent-build excerpt
+assumes the enum, registered selection actions, and independently owned panel
+widgets already exist:
 
 ```rust
 use fission::prelude::*;
@@ -92,7 +106,7 @@ let settings_tabs: Widget = TabsLayout::new(
             TabTrigger::new(
                 general_trigger_id,
                 general_panel_id,
-                "General",
+                cx.tr("settings.general"),
             )
             .selected(showing_general)
             .on_press(select_general_tab_action)
@@ -100,7 +114,7 @@ let settings_tabs: Widget = TabsLayout::new(
             TabTrigger::custom(
                 security_trigger_id,
                 security_panel_id,
-                "Security",
+                cx.tr("settings.security"),
                 security_tab_label,
             )
             .selected(!showing_general)
@@ -134,7 +148,7 @@ any retained content widget, so a panel can be wrapped in application-owned
 | `active_index` | `usize` | Controlled selected item index. | An out-of-range index resolves to the first item so trigger, panel, and keyboard entry remain coherent. An empty list still renders no selection or panel. |
 | `items` | `Vec<TabItem>` | Tabs in visual, semantic, and keyboard order. | Empty by default. |
 | `size` | `ComponentSize` | Design-system size slot. | Defaults to `Md`; the default design also defines `Sm`. |
-| `motion` | `Option<TabsMotion>` | Optional indicator and content motion. | Defaults to `None`. Fade, slide, indicator, and composed presets are available. |
+| `motion` | `Option<TabsMotion>` | Optional indicator and content motion. | `None` follows standard widget motion. Fade, slide, indicator, and composed presets are available. |
 
 Each `TabItem` contains a visible `title`, retained `content`, optional
 `on_press`, and optional stable `semantics_identifier`.

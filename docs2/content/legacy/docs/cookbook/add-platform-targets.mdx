@@ -24,20 +24,24 @@ Target generation updates [`fission.toml`](/reference/config/fission-toml/) and 
 From the project root, run:
 
 ```bash
-fission add-target web ios android --project-dir my-app
+fission add-target web ios android --project-dir .
 ```
 
-Run the command from any directory and set `--project-dir` to your app. You can add targets separately too; for example, to add only Web:
+The dot means the current project root. From its parent directory, use
+`--project-dir my-app` instead. You can add targets separately too:
 
 ```bash
-fission add-target web --project-dir my-app
+fission add-target web --project-dir .
 ```
 
 The example adds three targets. If you only need one now, pass just that target.
 
 ## Step 4: inspect what the command-line interface generated
 
-The command does not move your app logic. `src/main.rs` remains the desktop entrypoint, `src/lib.rs` holds shared entry helpers, and `src/app.rs` contains the shared app.
+The command does not move existing app logic. In the standard scaffold,
+`src/main.rs` is the thin desktop entrypoint and `src/lib.rs` exposes the
+shared app. Keep screens, widgets, state, and services in focused shared
+modules rather than assuming adding a target reorganises them for you.
 
 You should now see `platforms/web/`, `platforms/android/`, or `platforms/ios/` for the targets you added. Read their README files before using the helper scripts: Web builds and serves WebAssembly, while Android and iOS use the documented emulator and simulator flows.
 

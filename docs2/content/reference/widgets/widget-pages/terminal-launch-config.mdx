@@ -23,29 +23,35 @@ When Fission starts a terminal session, it is not just rendering text. It is lau
 
 `TerminalLaunchConfig` is the typed way to describe how that process should start.
 
-You do not need deep terminal knowledge to use it. The practical idea is simply: if your app wants to open a shell or run a command inside a terminal panel, this struct describes the startup settings.
+The configuration is a request to launch one local process. It is not a
+portable subprocess API for Web or mobile, and it is not the process's retained
+state after launch.
 
 ## Example
 
 ```rust
 use std::path::PathBuf;
+use std::sync::Arc;
 use fission::prelude::*;
 
-let session = TerminalSession::spawn(TerminalLaunchConfig {
-    cwd: Some(PathBuf::from("/Users/me/projects/my-app")),
-    program: Some("git".into()),
-    args: vec!["status".into()],
-    env: vec![("RUST_LOG".into(), "debug".into())],
-})?;
+// Host-side launch function; run through the app's native lifecycle/service,
+// not directly on a synchronous UI reducer or during component conversion.
+fn repository_status(repository: PathBuf) -> anyhow::Result<Arc<TerminalSession>> {
+    TerminalSession::spawn(TerminalLaunchConfig {
+        cwd: Some(repository),
+        program: Some("git".into()),
+        args: vec!["status".into(), "--short".into()],
+        env: Vec::new(),
+    })
+}
 ```
 
-This example launches the `git status` command in a specific working directory.
-
-Two Rust details are worth translating into plain English.
-
-`cwd: Some(...)` means "use this working directory." `Some` is Rust's way of saying "a value is present." If you used `None` there instead, it would mean "do not set an explicit working directory here."
-
-The `?` at the end of the example means "if starting the terminal session fails, return that error." You can treat it as normal Rust error-handling scaffolding.
+The repository path comes from the user's current workspace. Argument values
+are passed separately, not concatenated into a shell command; do not replace
+this with `sh -c` around untrusted input. The caller owns launch failures and
+the returned live handle. Enable `terminal-widget` on your `fission` dependency
+for this API; `terminal` is the corresponding feature on the underlying
+`fission-widgets` crate. It is unavailable on Web, Android, and iOS.
 
 If you omit `program`, the implementation asks the host for the default shell or default terminal program instead.
 
@@ -68,7 +74,12 @@ Do not treat this struct as long-lived terminal state. Once the terminal session
 
 ## Specific guidance
 
-Create terminal sessions from a reducer, startup action, or another explicit application event. Do not call `TerminalSession::spawn(...)` from `component conversion`. Starting a terminal process is long-lived host work, not a pure user interface description.
+Request terminal creation from an explicit application event, then perform
+process startup in the application's native host lifecycle or service adapter.
+Do not call `TerminalSession::spawn(...)` during component conversion or block
+a synchronous UI reducer on it. A live `Arc<TerminalSession>` is not a
+serializable job result; the native adapter must retain and expose the live
+handle rather than pretending it can cross an ordinary serialized effect boundary.
 
 If the user can choose the starting folder or program, keep those choices in app state and build the `TerminalLaunchConfig` from that state when it is time to launch the session.
 

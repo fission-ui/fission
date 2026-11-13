@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Scan for Wi-Fi networks on Android with Fission
-description: "Use Fission’s Android Wi-Fi capability."
-goal: Request the required permission, scan nearby networks and distinguish a scan result from connecting to a network.
+description: "Check Wi-Fi access and read matching network results for an upload workflow. Treat cached results as observations, not proof of connectivity."
+goal: "Look for the user-supplied site network prefix after checking permission, without claiming a fresh exhaustive scan or joining the network."
 path: /blog/use-fissions-android-wi-fi-capability/
 order: 53
 difficulty: Beginner
@@ -10,14 +10,21 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-use-fissions-android-wi-fi-capability
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - "Keep the expected network prefix separate from provider results"
+  - "Request permission and explicitly recheck after Android's prompt"
+  - "Read matching Wi-Fi results with registered success and failure callbacks"
+  - "Recognise cached scan results and leave connection changes to Android Settings"
 ---
 
-## Create the project and add the target
+## Discovery is not a connection
 
-Create the project and add the target used by this guide. Fission generates the native host; the app and its behaviour stay in shared Rust code.
+An inspection report may be ready to upload whilst the phone is still offline. The useful question at that point is whether the expected site network appears in Android's results, not whether the application can manufacture an upload confirmation.
+
+This screen takes the expected prefix from the user, checks Wi-Fi and permission, then requests matching network results. It never asks for a password. The Android provider does not implement connecting or disconnecting; use Android Settings for those operations. A matching name does not authenticate an access point, and a successful scan does not establish internet access.
+
+## Create the shared app
+
+Complete [SDK/NDK setup](/blog/set-up-rust-android-gui-development-with-fission/), then prepare [an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [a phone](/blog/run-a-fission-app-on-a-physical-android-phone/).
 
 ```sh
 cargo install cargo-fission
@@ -25,507 +32,387 @@ fission init android-use-fissions-android-wi-fi-capability
 cd android-use-fissions-android-wi-fi-capability
 fission add-target android --project-dir .
 fission add-capability wifi --project-dir .
+cargo add serde_yaml
 ```
 
-## Files created by Fission
-
-This is the starter tree Fission generates. Keep shared app code in `src/`; the generated platform files handle native launch and packaging.
-
-```text
-android-use-fissions-android-wi-fi-capability/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
-├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
-└── platforms/
-    └── android/              # generated Android host
-```
-
-Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
-
-<!-- fission:step id="start-screen" -->
-## Build the upload preparation screen
-
-Start with a technician preparing an offline inspection report. The screen identifies the work order and lets the technician draft an observation while the report waits to upload. That draft stays in the screen until a real save action is added. The next step requests permission and scans; Fission's Android provider does not join networks or change the device's connection, so the technician uses Android Settings for that.
-
-<Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
-```rust
-use fission::prelude::*;
-
-fission_component! {
-    pub WorkOrderScreen<()> {
-        state {
-            note_draft: String = String::new(),
-        }
-    }
-    view(screen, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some("work-order-screen".to_string()),
-        label: Some(cx.tr("work.title")),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(cx.tr("work.site"))
-                    .weight(tokens.typography.font_weight_bold),
-                Text(cx.tr("work.title"))
-                    .size(tokens.typography.heading2_size),
-                Text(cx.tr("work.asset"))
-                    .color(tokens.colors.text_secondary),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text(cx.tr("work.context")),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-                TextInput(
-                    label: Some(cx.tr("work.note.label").into()),
-                    placeholder: Some(cx.tr("work.note.placeholder").into()),
-                    helper_text: Some(cx.tr("work.note.help").into()),
-                    bind: screen.note_draft,
-                    multiline: true,
-                    semantics_identifier: "work-order.note-draft".to_string(),
-                ),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
-}
-```
-</TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-
-use std::collections::HashMap;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-fn preview_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    env.i18n.add_bundle(TranslationBundle {
-        locale: Locale::from("en-US"),
-        messages: HashMap::from([
-            ("work.site".into(), "Northbank Food Hub · receiving".into()),
-            ("work.title".into(), "Check for the upload network".into()),
-            ("work.asset".into(), "Expected network name: Northbank-Operations".into()),
-            ("work.pending".into(), "Upload report not confirmed".into()),
-            ("work.complete".into(), "Upload report confirmed".into()),
-            ("work.mark".into(), "Confirm upload report".into()),
-            ("work.recorded".into(), "Report confirmed".into()),
-            ("work.waiting".into(), "Waiting for the Fission host…".into()),
-            ("work.error".into(), "The host could not complete this action".into()),
-            ("work.result".into(), "Host result".into()),
-            ("work.ready".into(), "Ready. This preview uses a deterministic in-memory provider.".into()),
-            ("work.note.label".into(), "Inspection note draft".into()),
-            ("work.note.placeholder".into(), "Describe what you found on site".into()),
-            ("work.note.help".into(), "Draft only; it stays in this screen and is not saved or attached.".into()),
-            ("work.context".into(), "Review this work order before scanning. Nearby network names may reveal location and require permission.".into()),
-            ("work.action".into(), "Record upload check".into())
-        ]),
-    });
-    env.i18n.add_bundle(TranslationBundle {
-        locale: Locale::from("es-ES"),
-        messages: HashMap::from([
-            ("work.site".into(), "Centro de alimentos Northbank · recepción".into()),
-            ("work.title".into(), "Comprobar si aparece la red de carga".into()),
-            ("work.asset".into(), "Nombre esperado de la red: Northbank-Operations".into()),
-            ("work.pending".into(), "Informe de carga sin confirmar".into()),
-            ("work.complete".into(), "Informe de carga confirmado".into()),
-            ("work.mark".into(), "Confirmar el informe de carga".into()),
-            ("work.recorded".into(), "Informe confirmado".into()),
-            ("work.waiting".into(), "Esperando al host de Fission…".into()),
-            ("work.error".into(), "El host no pudo completar esta acción".into()),
-            ("work.result".into(), "Resultado del host".into()),
-            ("work.ready".into(), "Listo. Esta vista previa usa un proveedor en memoria.".into()),
-            ("work.note.label".into(), "Borrador de nota de inspección".into()),
-            ("work.note.placeholder".into(), "Describe lo que observaste en el lugar".into()),
-            ("work.note.help".into(), "Solo borrador; permanece en esta pantalla y no se guarda ni se adjunta.".into()),
-            ("work.context".into(), "Revisa esta orden antes de buscar redes. Los nombres cercanos pueden revelar la ubicación y requieren permiso.".into()),
-            ("work.action".into(), "Registrar comprobación de carga".into())
-        ]),
-    });
-    env
-}
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::WorkOrderScreen)
-        .with_env(preview_env())
-        .with_title("Work-order preview")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-</Tabs>
-<!-- fission:preview -->
-
-<!-- fission:checkpoint -->
-This stage is an app screen with a real state transition, not a device mock. The next stage connects a separate user action to the typed Wifi capability and shows its success or error result.
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
+Keep the generated `src/main.rs`. Shared state owns confirmed provider results; the component owns the editable prefix. The same library runs natively and in Web, using the real target provider rather than a memory host.
 
 <!-- fission:step id="main-flow" -->
-## Run the Wifi operation through Fission
+## Ask, recheck, then scan
 
-Keep host work out of component conversion. The button dispatches a typed action, its reducer queues the capability request, and separate completion reducers update the screen. The Web preview installs `MemoryWifiHost` and sends the same operation through Fission’s typed capability path. Its deterministic response is not a claim about device hardware, OS permission or native platform support.
+Permission requests and permission results are different events. The current Android provider returns a permission snapshot immediately after requesting the OS dialog; it does not wait for the user's answer. Consequently, the screen asks the user to finish that dialog and explicitly check again. It does not chain a scan onto an assumed grant.
 
-The Web preview uses MemoryWifiHost sample networks. It does not scan nearby Wi-Fi or connect to a real network.
+There is a second boundary worth making explicit. The provider calls `startScan` and immediately reads `getScanResults`; it does not wait for a fresh scan broadcast, check whether that request was accepted, or enforce `timeout_ms`. Results can therefore be cached or empty. Present the returned count as precisely that, not as proof that nearby networks were exhaustively searched.
 
 <Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
 ```rust
 use fission::prelude::*;
 
 #[derive(Debug, Default)]
-pub struct WorkOrderState {
+pub struct NetworkCheck {
+    pub availability: Option<WifiAvailability>,
+    pub networks: Option<Vec<WifiNetwork>>,
+    pub scan_prefix: Option<String>,
     pub pending: bool,
-    pub result: Option<String>,
-    pub error: Option<String>,
+    pub issue: Option<&'static str>,
+}
+impl GlobalState for NetworkCheck {}
+
+impl NetworkCheck {
+    pub fn can_scan(&self) -> bool {
+        !self.pending && self.availability.as_ref().is_some_and(|value| {
+            value.enabled && value.permission == WifiPermission::Granted
+        })
+    }
 }
 
-impl GlobalState for WorkOrderState {}
-
-#[fission_reducer(RunCapability)]
-pub fn run_capability(state: &mut WorkOrderState, ctx: &mut ReducerContext<WorkOrderState>) {
+pub fn check_wifi(state: &mut NetworkCheck, ctx: &mut ReducerContext<NetworkCheck>) {
+    if state.pending { return; }
     state.pending = true;
-    state.result = None;
-    state.error = None;
-
-    let ok: ActionEnvelope = WifiPermissionReceived.into();
-    let err: ActionEnvelope = WifiPermissionFailed.into();
-
-    ctx.effects
-        .wifi()
-        .request_permission(WifiPermissionRequest {
-            reason: Some("Scan nearby Wi-Fi networks for the work-site upload connection.".into()),
-        })
-        .on_ok(ok)
-        .on_err(err);
+    state.issue = None;
+    let ok = ctx.effects.bind(WifiChecked, reduce_with!(wifi_checked));
+    let err = ctx.effects.bind(WifiCheckFailed, reduce_with!(wifi_check_failed));
+    ctx.effects.wifi().availability().on_ok(ok).on_err(err);
 }
 
-#[fission_reducer(WifiPermissionReceived)]
-pub fn wifi_permission_received(
-    state: &mut WorkOrderState,
-    ctx: &mut ReducerContext<WorkOrderState>,
-) {
-    match ctx.input.capability_ok(REQUEST_WIFI_PERMISSION) {
-        Some(WifiPermission::Granted) => {
-            state.pending = true;
-            let ok: ActionEnvelope = CapabilitySucceeded.into();
-            let err: ActionEnvelope = CapabilityFailed.into();
-
-            ctx.effects
-                .wifi()
-                .scan_networks(WifiScanRequest {
-                    ssid_prefix: None,
-                    include_hidden: false,
-                    timeout_ms: Some(5_000),
-                })
-                .on_ok(ok)
-                .on_err(err);
-        }
-        Some(_) => {
-            state.pending = false;
-            state.error = Some(
-                "Wi-Fi permission was not granted. Connect in Android Settings, then return to this work order."
-                    .into(),
-            );
-        }
-        None => {
-            state.pending = false;
-            state.error = Some("The host completed without a Wi-Fi permission result.".into());
-        }
+#[fission_reducer(WifiChecked)]
+pub fn wifi_checked(state: &mut NetworkCheck, ctx: &mut ReducerContext<NetworkCheck>) {
+    state.pending = false;
+    match ctx.input.capability_ok(GET_WIFI_AVAILABILITY) {
+        Some(value) => state.availability = Some(value),
+        None => state.issue = Some("wifi.missing"),
     }
 }
-
-#[fission_reducer(WifiPermissionFailed)]
-pub fn wifi_permission_failed(
-    state: &mut WorkOrderState,
-    ctx: &mut ReducerContext<WorkOrderState>,
-) {
+#[fission_reducer(WifiCheckFailed)]
+pub fn wifi_check_failed(state: &mut NetworkCheck, ctx: &mut ReducerContext<NetworkCheck>) {
     state.pending = false;
-    state.result = None;
-    state.error = Some(ctx
-        .input
-        .capability_error(REQUEST_WIFI_PERMISSION)
-        .map(|error| {
-            format!(
-                "{}: {}. Connect in Android Settings, then return here.",
-                error.code, error.message
-            )
-        })
-        .or_else(|| {
-            ctx.input
-                .capability_error_message(REQUEST_WIFI_PERMISSION)
-                .map(str::to_owned)
-        })
-        .unwrap_or_else(|| "Android did not return a Wi-Fi permission result.".into()));
+    state.issue = Some(match ctx.input.capability_error(GET_WIFI_AVAILABILITY) {
+        Some(error) if error.code == "unsupported" => "wifi.unsupported",
+        _ => "wifi.failed",
+    });
 }
 
-#[fission_reducer(CapabilitySucceeded)]
-pub fn capability_succeeded(
-    state: &mut WorkOrderState,
-    ctx: &mut ReducerContext<WorkOrderState>,
+#[fission_reducer(RequestWifiAccess)]
+pub fn request_wifi_access(
+    state: &mut NetworkCheck, reason: String, ctx: &mut ReducerContext<NetworkCheck>,
 ) {
+    if state.pending { return; }
+    state.pending = true;
+    state.issue = None;
+    let ok = ctx.effects.bind(WifiAccessReceived, reduce_with!(wifi_access_received));
+    let err = ctx.effects.bind(WifiAccessFailed, reduce_with!(wifi_access_failed));
+    ctx.effects.wifi().request_permission(WifiPermissionRequest { reason: Some(reason) })
+        .on_ok(ok).on_err(err);
+}
+#[fission_reducer(WifiAccessReceived)]
+pub fn wifi_access_received(state: &mut NetworkCheck, ctx: &mut ReducerContext<NetworkCheck>) {
     state.pending = false;
-    state.error = None;
-    state.result = ctx
-        .input
-        .capability_ok(SCAN_WIFI_NETWORKS)
-        .map(|value| {
-            let names = value
-                .networks
-                .iter()
-                .filter(|network| !network.ssid.is_empty())
-                .map(|network| network.ssid.as_str())
-                .collect::<Vec<_>>();
-            if names.is_empty() {
-                "The scan returned no visible network names.".to_string()
-            } else {
-                format!("Visible network names: {}", names.join(", "))
-            }
+    if ctx.input.capability_ok(REQUEST_WIFI_PERMISSION).is_none() {
+        state.issue = Some("wifi.missing");
+    } else {
+        // Android may still be displaying its prompt. Do not treat this snapshot
+        // as the user's eventual answer; Check Wi-Fi reads permission again.
+        state.availability = None;
+        state.issue = Some("wifi.recheck");
+    }
+}
+#[fission_reducer(WifiAccessFailed)]
+pub fn wifi_access_failed(state: &mut NetworkCheck, ctx: &mut ReducerContext<NetworkCheck>) {
+    state.pending = false;
+    state.issue = Some(match ctx.input.capability_error(REQUEST_WIFI_PERMISSION) {
+        Some(error) if error.code == "unsupported" => "wifi.unsupported",
+        _ => "wifi.failed",
+    });
+}
+
+pub fn scan_wifi(state: &mut NetworkCheck, prefix: String, ctx: &mut ReducerContext<NetworkCheck>) {
+    if !state.can_scan() || prefix.trim().is_empty() { return; }
+    state.pending = true;
+    state.issue = None;
+    state.networks = None;
+    let prefix = prefix.trim().to_owned();
+    state.scan_prefix = Some(prefix.clone());
+    let ok = ctx.effects.bind(WifiScanned, reduce_with!(wifi_scanned));
+    let err = ctx.effects.bind(WifiScanFailed, reduce_with!(wifi_scan_failed));
+    ctx.effects.wifi().scan_networks(WifiScanRequest {
+        ssid_prefix: Some(prefix),
+        include_hidden: false,
+        timeout_ms: Some(5_000),
+    }).on_ok(ok).on_err(err);
+}
+#[fission_reducer(WifiScanned)]
+pub fn wifi_scanned(state: &mut NetworkCheck, ctx: &mut ReducerContext<NetworkCheck>) {
+    state.pending = false;
+    match ctx.input.capability_ok(SCAN_WIFI_NETWORKS) {
+        Some(value) => state.networks = Some(value.networks),
+        None => state.issue = Some("wifi.missing"),
+    }
+}
+#[fission_reducer(WifiScanFailed)]
+pub fn wifi_scan_failed(state: &mut NetworkCheck, ctx: &mut ReducerContext<NetworkCheck>) {
+    state.pending = false;
+    state.issue = Some(match ctx.input.capability_error(SCAN_WIFI_NETWORKS) {
+        Some(error) if error.code == "unsupported" => "wifi.unsupported",
+        Some(error) if error.code == "permission_denied" => {
+            state.availability = None;
+            "wifi.denied"
+        }
+        _ => "wifi.failed",
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn scanning_requires_enabled_wifi_and_a_confirmed_permission() {
+        let mut state = NetworkCheck::default();
+        assert!(!state.can_scan());
+        state.availability = Some(WifiAvailability {
+            enabled: true, permission: WifiPermission::Denied, connected_network: None,
         });
-    if state.result.is_none() {
-        state.error = Some("The host completed without the expected typed result.".into());
+        assert!(!state.can_scan());
+        state.availability.as_mut().unwrap().permission = WifiPermission::Granted;
+        assert!(state.can_scan());
+        state.pending = true;
+        assert!(!state.can_scan());
     }
 }
-
-#[fission_reducer(CapabilityFailed)]
-pub fn capability_failed(
-    state: &mut WorkOrderState,
-    ctx: &mut ReducerContext<WorkOrderState>,
-) {
-    state.pending = false;
-    state.result = None;
-    state.error = Some(ctx
-        .input
-        .capability_error(SCAN_WIFI_NETWORKS)
-        .map(|error| format!("{}: {}", error.code, error.message))
-        .or_else(|| {
-            ctx.input
-                .capability_error_message(SCAN_WIFI_NETWORKS)
-                .map(str::to_owned)
-        })
-        .unwrap_or_else(|| "The host returned an error without details.".into()));
-}
-
-pub fn callback_registry() -> ActionRegistry<WorkOrderState> {
-    let mut registry = ActionRegistry::new();
-    registry.register(reduce_with!(wifi_permission_received));
-    registry.register(reduce_with!(wifi_permission_failed));
-    registry.register(reduce_with!(capability_succeeded));
-    registry.register(reduce_with!(capability_failed));
-    registry
-}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::*;
 
 fission_component! {
-    pub WorkOrderScreen<WorkOrderState> {
-        state {
-            note_draft: String = String::new(),
-        }
+    pub UploadNetworkScreen<NetworkCheck> {
+        state { network_prefix: String = String::new() }
     }
     view(screen, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let action = with_reducer!(cx.build, RunCapability, run_capability);
-        let status = if state.pending {
-            cx.tr("work.waiting")
-        } else if let Some(error) = &state.error {
-            format!("{}: {error}", cx.tr("work.error"))
-        } else if let Some(result) = &state.result {
-            format!("{}: {result}", cx.tr("work.result"))
-        } else {
-            cx.tr("work.ready")
-        };
+        let request = with_reducer!(
+            cx.build, RequestWifiAccess(cx.tr("wifi.reason")), request_wifi_access
+        );
     } =>
-    SemanticsRegion(
-        identifier: Some("work-order-wifi".to_string()),
-        label: Some(cx.tr("work.title")),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(cx.tr("work.site"))
-                    .weight(tokens.typography.font_weight_bold),
-                Text(cx.tr("work.title"))
-                    .size(tokens.typography.heading2_size),
-                Text(cx.tr("work.asset"))
-                    .color(tokens.colors.text_secondary),
-                Text(cx.tr("work.context")),
-                TextInput(
-                    label: Some(cx.tr("work.note.label").into()),
-                    placeholder: Some(cx.tr("work.note.placeholder").into()),
-                    helper_text: Some(cx.tr("work.note.help").into()),
-                    bind: screen.note_draft,
-                    multiline: true,
-                    semantics_identifier: "work-order.note-draft".to_string(),
-                ),
-                Button(
-                    child: Text(cx.tr("work.action")),
-                    key: "run-capability",
-                    variant: ButtonVariant::Primary,
-                    disabled: state.pending,
-                    loading: state.pending,
-                    on_press: action,
-                ),
-                Container(Text(status))
-                    .padding_all(tokens.spacing.m)
-                    .bg(tokens.colors.background)
-                    .border(tokens.colors.border, 1.0)
-                    .border_radius(tokens.radii.medium),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
+    SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("wifi.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("wifi.context")),
+            TextInput(
+                label: Some(cx.tr("wifi.prefix").into()),
+                helper_text: Some(cx.tr("wifi.prefix_help").into()),
+                bind: screen.network_prefix,
+                read_only: state.pending,
+                semantics_identifier: "wifi.prefix".to_owned(),
+            ),
+            Button(
+                child: Text(cx.tr("wifi.check")),
+                key: "wifi.check", disabled: state.pending,
+                on_press: reduce { check_wifi(state, cx); },
+            ),
+            Button(
+                child: Text(cx.tr("wifi.request")),
+                key: "wifi.request", disabled: state.pending,
+                on_press: request,
+            ),
+            if let Some(value) = &state.availability {
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr(if value.enabled { "wifi.enabled" } else { "wifi.disabled" })),
+                    Text(cx.tr(if value.permission == WifiPermission::Granted {
+                        "wifi.granted"
+                    } else { "wifi.not_granted" })),
+                ])
+            },
+            Button(
+                child: Text(cx.tr("wifi.scan")),
+                key: "wifi.scan",
+                disabled: !state.can_scan() || screen.network_prefix.trim().is_empty(),
+                on_press: reduce { scan_wifi(state, screen.network_prefix.clone(), cx); },
+            ),
+            if state.pending {
+                Spinner(motion: Some(SpinnerMotion::Default), label: cx.tr("wifi.pending"))
+            },
+            if let Some(issue) = state.issue {
+                Text(cx.tr(issue)).color(tokens.colors.text_secondary)
+            },
+            if let Some(networks) = &state.networks {
+                Column(gap: tokens.spacing.s, children: [
+                    if let Some(prefix) = &state.scan_prefix {
+                        Text(format!("{}: {}", cx.tr("wifi.results_for"), prefix))
+                    },
+                    Text(format!("{} {}", cx.tr("wifi.returned"), networks.len())),
+                    Text(cx.tr("wifi.cached")),
+                ])
+            },
+            Text(cx.tr("wifi.boundary")),
+        ])
+    ).padding_all(tokens.spacing.l)))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+wifi.title: "Check the upload network"
+wifi.context: "Enter the network prefix supplied by your site administrator. Scanning does not upload a report or connect this phone."
+wifi.prefix: "Expected network prefix"
+wifi.prefix_help: "Network names are not proof of identity. Do not enter a Wi-Fi password."
+wifi.check: "Check Wi-Fi and permission"
+wifi.request: "Request access"
+wifi.reason: "Look for the site's upload network."
+wifi.scan: "Read matching network results"
+wifi.enabled: "Wi-Fi is enabled."
+wifi.disabled: "Enable Wi-Fi in Android Settings, then check again."
+wifi.granted: "The provider currently reports permission granted."
+wifi.not_granted: "Access is not granted. The report can still be prepared without scanning."
+wifi.pending: "Waiting for the Wi-Fi provider…"
+wifi.returned: "Matching results returned:"
+wifi.results_for: "Results returned for prefix"
+wifi.cached: "Android may return cached results; this is not proof the network is reachable now."
+wifi.boundary: "Connect through Android Settings. This app does not join networks, transmit data or verify internet access."
+wifi.recheck: "Finish the Android prompt, then choose Check Wi-Fi and permission."
+wifi.denied: "Access is no longer available. Check permission again; the expected network name is unchanged."
+wifi.unsupported: "This host does not support Wi-Fi discovery. The browser preview does not invent nearby networks."
+wifi.failed: "The provider could not complete this operation. Check Android settings before retrying."
+wifi.missing: "The provider did not return the expected result."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+wifi.title: "Comprobar la red de carga"
+wifi.context: "Introduce el prefijo de red facilitado por el administrador. Buscar redes no carga un informe ni conecta este teléfono."
+wifi.prefix: "Prefijo de red esperado"
+wifi.prefix_help: "El nombre no demuestra la identidad de una red. No introduzcas contraseñas."
+wifi.check: "Comprobar Wi-Fi y permiso"
+wifi.request: "Solicitar acceso"
+wifi.reason: "Buscar la red de carga del centro."
+wifi.scan: "Leer resultados de redes coincidentes"
+wifi.enabled: "Wi-Fi está activado."
+wifi.disabled: "Activa Wi-Fi en Ajustes de Android y vuelve a comprobar."
+wifi.granted: "El proveedor indica que el permiso está concedido."
+wifi.not_granted: "No hay permiso. Puedes preparar el informe sin buscar redes."
+wifi.pending: "Esperando al proveedor Wi-Fi…"
+wifi.returned: "Resultados coincidentes recibidos:"
+wifi.results_for: "Resultados para el prefijo"
+wifi.cached: "Android puede devolver resultados anteriores; no demuestra que la red sea accesible ahora."
+wifi.boundary: "Conecta mediante Ajustes de Android. Esta aplicación no se conecta a redes, transmite datos ni comprueba internet."
+wifi.recheck: "Termina el diálogo de Android y pulsa Comprobar Wi-Fi y permiso."
+wifi.denied: "El acceso ya no está disponible. Comprueba el permiso; el nombre esperado no cambia."
+wifi.unsupported: "Este entorno no admite buscar redes Wi-Fi. La vista del navegador no inventa redes cercanas."
+wifi.failed: "El proveedor no completó la operación. Comprueba Ajustes antes de repetir."
+wifi.missing: "El proveedor no devolvió el resultado esperado."
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+pub mod state;
+mod translations;
+
+use app::UploadNetworkScreen;
+use state::NetworkCheck;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<NetworkCheck, _>::new(UploadNetworkScreen)
+        .with_env(translations::create_env())
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<NetworkCheck, UploadNetworkScreen> {
+    let app = MobileApp::<NetworkCheck, _>::new(UploadNetworkScreen)
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<NetworkCheck, _>::new(UploadNetworkScreen)
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
-mod app;
-
-use std::collections::HashMap;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-fn preview_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    env.i18n.add_bundle(TranslationBundle {
-        locale: Locale::from("en-US"),
-        messages: HashMap::from([
-            ("work.site".into(), "Northbank Food Hub".into()),
-            ("work.title".into(), "Check for the upload network".into()),
-            ("work.asset".into(), "Expected network name: Northbank-Operations".into()),
-            ("work.pending".into(), "No network scan requested".into()),
-            ("work.complete".into(), "Network scan complete".into()),
-            ("work.mark".into(), "Scan nearby networks".into()),
-            ("work.recorded".into(), "Scan again".into()),
-            ("work.waiting".into(), "Waiting for the Fission host…".into()),
-            ("work.error".into(), "The host could not complete this action".into()),
-            ("work.result".into(), "Host result".into()),
-            ("work.ready".into(), "Ready. The browser preview uses sample networks from MemoryWifiHost.".into()),
-            ("work.note.label".into(), "Inspection note draft".into()),
-            ("work.note.placeholder".into(), "Describe what you found on site".into()),
-            ("work.note.help".into(), "Draft only; it stays in this screen and is not saved or attached.".into()),
-            ("work.context".into(), "Fission can list nearby networks on Android, but it does not connect or change Wi-Fi. Use Android Settings to join Northbank-Operations.".into()),
-            ("work.action".into(), "Scan nearby networks".into())
-        ]),
-    });
-    env.i18n.add_bundle(TranslationBundle {
-        locale: Locale::from("es-ES"),
-        messages: HashMap::from([
-            ("work.site".into(), "Centro de alimentos Northbank".into()),
-            ("work.title".into(), "Comprobar si aparece la red de carga".into()),
-            ("work.asset".into(), "Nombre esperado de la red: Northbank-Operations".into()),
-            ("work.pending".into(), "No se ha buscado ninguna red".into()),
-            ("work.complete".into(), "Búsqueda de redes completada".into()),
-            ("work.mark".into(), "Buscar redes cercanas".into()),
-            ("work.recorded".into(), "Buscar de nuevo".into()),
-            ("work.waiting".into(), "Esperando al host de Fission…".into()),
-            ("work.error".into(), "El host no pudo completar esta acción".into()),
-            ("work.result".into(), "Resultado del host".into()),
-            ("work.ready".into(), "Listo. La vista previa del navegador usa redes de ejemplo de MemoryWifiHost.".into()),
-            ("work.note.label".into(), "Borrador de nota de inspección".into()),
-            ("work.note.placeholder".into(), "Describe lo que observaste en el lugar".into()),
-            ("work.note.help".into(), "Solo borrador; permanece en esta pantalla y no se guarda ni se adjunta.".into()),
-            ("work.context".into(), "Fission puede mostrar redes cercanas en Android, pero no se conecta ni cambia la Wi-Fi. Usa Ajustes de Android para unirte a Northbank-Operations.".into()),
-            ("work.action".into(), "Buscar redes cercanas".into())
-        ]),
-    });
-    env
-}
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    let mut app = WebApp::<app::WorkOrderState, _>::new(app::WorkOrderScreen)
-        .with_env(preview_env())
-        .with_wifi_host(MemoryWifiHost::default())
-        .with_title("Android Wifi capability preview");
-    app.absorb_registry(app::callback_registry());
-    app.mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
+include!("../src/lib.rs");
 ```
 </TabItem>
 </Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-The preview exercises the Wifi operation with an in-memory host. On Android, keep the native permission and unsupported/error outcomes visible, then verify the same user action on the supported simulator or a physical device.
+The prefix is user input, the returned count is provider data, and neither changes the phone's connection. Whilst a request is pending, another request cannot replace its result. A denied or unsupported response leaves the prefix intact.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Verify the native request on Android
-
-The website preview cannot exercise the native provider. Build and launch this target on a supported emulator or device, then use the feature action from the component above. Check the result the host actually returns, including denial, cancellation or unsupported hardware where those outcomes apply.
-
-Repeat with the feature unavailable, denied or cancelled, as applicable. Confirm the screen preserves the user’s existing data and offers the right recovery step. Use a physical device when the behavior depends on real hardware or an operating-system prompt.
-
-### Run, test and build
+## Check the Android conditions separately
 
 ```sh
 cargo test
 fission doctor android --project-dir .
-fission run --target android --project-dir .
+adb devices -l
+fission run --target android --device <adb-serial> --project-dir .
 fission test --target android --project-dir .
 fission build --target android --project-dir . --release
 ```
 
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
+On a phone, check with Wi-Fi disabled, with access denied, and after changing permission in Settings. Complete the permission prompt before rechecking. Compare the expected prefix with Android Settings and repeat after waiting; Android can throttle scans, and cached results need not change immediately. An empty result must not erase the editable prefix or claim that no network exists.
 
+The provider's permission predicate accepts nearby-device or location grants depending on Android version. That check is not a guarantee that every OS scanning prerequisite is satisfied: location settings and platform restrictions can still reject the operation. Keep the explicit failure path. Do not collect or log SSIDs and BSSIDs merely to debug the interface.
 
-### Emulator and connected-device commands
+The Web preview exercises the form and its actual unsupported result; it cannot demonstrate native Wi-Fi discovery. Unit tests establish the app's gating rule, not Android's permission behaviour. Build, install, scan freshness and real-device behaviour require their own evidence.
 
-Run these emulator checks from the generated project root:
-
-```sh
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
-```
-
-
-For a real capability check, use an Android phone that has the required hardware and permission. Connect it with USB or Wi-Fi debugging, confirm its serial, then run the app on that device:
-
-```sh
-adb devices -l
-fission run --target android --device <adb-serial> --project-dir .
-```
-
-An emulator can exercise the UI and memory-provider outcomes; it is not evidence that physical hardware or an OS permission flow works.
-
+<!-- fission:checkpoint -->
+A completed Android check records the device/API, permission choice, adapter state and returned outcome. It does not require sharing the network names. Connecting and uploading remain outside this example.
+<!-- /fission:checkpoint -->
 
 ### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
 
 - [Wi-Fi capability guide](/docs/capabilities/wifi/)
 - [Wi-Fi capability reference](/reference/capabilities/wifi/)
 - [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
 - [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
 <!-- /fission:step -->

@@ -8,81 +8,50 @@ description: Fission Charts reference for Rose by radius.
 
 ![Rose by radius screenshot](/img/charts/pie-rose-radius.png)
 
-Slices use radius to make category differences more expressive. Use it for presentation-heavy part-to-whole views. The screenshot is from Fission's chart gallery.
+Radius-style rose rendering deliberately exaggerates category differences compared with a plain pie. The choice should serve the report, not make small changes appear more important than they are. The screenshot is from Fission's chart gallery.
 
 ## What the chart is for
 
-This chart is in the **Radial and polar** family. Use it when a visual makes the pattern easier to spot.
-
-Avoid it for many categories or when small differences need precise comparison; a bar chart is usually clearer for ranking.
+This example compares the number of completed inspections in a few facility areas. A bar chart is clearer for exact ranking; the rose is a compact composition view with the counts available alongside it.
 
 ## Data model
 
-`Label/value pairs plus radius rose mode.` Keep the source values in Rust types. Fission Charts uses typed series and options, not string-based configuration.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `PieSeries` | Holds label/value pairs plus donut and rose settings. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Chart, PieSeries};
-
-let chart = Chart::new()
-    .title("Share")
-    .series(vec![PieSeries::new("Share")
-        .data(vec![("Search", 1048.0), ("Direct", 735.0), ("Email", 580.0), ("Ads", 484.0)])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
+`PieSeries::rose_type("radius")` scales each outer radius linearly relative to the largest value, with a non-zero baseline. The angle also varies with share of the total. Do not read radius or painted area as an independently proportional count.
 
 ## Authoring from a Fission component
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+The parent supplies inspection totals for the same reporting period and localizes the area names. The example explicitly chooses radius mode.
 
 ```rust
 use fission::prelude::*;
 use fission::charts::{Chart, PieSeries};
 
-
-
-fission_component!
-{
-    pub RoseByRadiusChart<()> {
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub InspectionAreaRose<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            inspections_by_area: Vec<(String, f32)>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Share")
-                    .series(vec![PieSeries::new("Share")
-                        .data(vec![("Search", 1048.0), ("Direct", 735.0), ("Email", 580.0), ("Ads", 484.0)])
-                        .into()])
-                    .into()
-    }
+    view(report, _state, _cx) {
+        let values = report.inspections_by_area.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .rose_type("radius")
+            .into()],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+## Testing and accessibility
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Test a dominant area, equal counts and no completed inspections. State whether each inspection has one owning area to avoid double counting. Keep the counts accessible and inspect labels before adding more categories.
 
 Tags: `pie`, `rose`.
 

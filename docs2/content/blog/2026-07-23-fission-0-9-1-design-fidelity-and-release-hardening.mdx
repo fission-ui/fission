@@ -30,6 +30,10 @@ This catches a different class of regression than a unit test: a slider thumb th
 
 The design-fidelity and golden-testing types now have Rust docs and examples, so you can use them in app tests as well as framework regression tests.
 
+A golden comparison detects a change against the reviewed baseline. It does
+not decide that baseline is a good design. Keep the initial visual review and
+inspect a failed diff before approving a replacement image.
+
 ## Desktop tray behavior remains explicit
 
 Fission 0.9.0 introduced a setting for whether a tray app remains in the Dock, taskbar, or app switcher. This release keeps that choice explicit across desktop shells.

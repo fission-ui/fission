@@ -12,15 +12,13 @@ slug: /widgets/responsive
 const PHONE_BREAKPOINT: f32 = 720.0;
 const TABLET_BREAKPOINT: f32 = 1_120.0;
 
-Responsive::new(DesktopLayout)
-    .id(WidgetId::explicit("settings.responsive"))
-    .case(ResponsiveCase::max_width(PHONE_BREAKPOINT, PhoneLayout))
-    .case(ResponsiveCase::between(
+Responsive::new_with_id(WidgetId::explicit("settings.responsive"), || DesktopLayout)
+    .case_max_width_with(PHONE_BREAKPOINT, || PhoneLayout)
+    .case_between_with(
         PHONE_BREAKPOINT,
         TABLET_BREAKPOINT,
-        TabletLayout,
-    ))
-    .into()
+        || TabletLayout,
+    )
 ```
 
 ## Fields
@@ -41,3 +39,9 @@ Responsive::new(DesktopLayout)
 | `ResponsiveCase::between(min, max, child)` | Matches `min <= width < max`. |
 
 Use `.container_query()` when a reusable component should respond to parent constraints instead of the full viewport.
+
+The identity-aware constructors convert each branch beneath a separate
+retained scope. Construct independent component values for each branch; never
+clone one retained `Widget` into several cases. Every branch can be lowered,
+so being hidden is not a guarantee that a component's resources are absent.
+Use `ProtectedRoute` for an access prerequisite rather than a responsive case.

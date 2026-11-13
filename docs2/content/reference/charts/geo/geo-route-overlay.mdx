@@ -1,93 +1,21 @@
 ---
 title: Route overlay map
 sidebar_label: Route overlay map
-description: Fission Charts reference for Route overlay map.
+description: Keep route overlay limitations explicit rather than implying geographic alignment.
 ---
 
 # Route overlay map
 
 ![Route overlay map screenshot](/img/charts/geo-route-overlay.png)
 
-This example uses Fission Charts' typed Rust API. Use it when geography and movement are inseparable. The screenshot is from Fission's chart gallery.
+A route overlay needs one transform from geographic coordinates to screen coordinates. Without it, matching route and polygon coordinates in the input is not sufficient: each renderer may stretch, centre or pad them differently.
 
-## What the chart is for
+That is the boundary here. `MapSeries` fits the supplied geographical features whilst `LinesSeries` fits the route endpoints independently. The public composition does not expose a shared projection, so a correct combined overlay is not established.
 
-This chart is in the **Geo** family. Use it when a visual makes the pattern easier to spot.
+Use [the paired route report](../geo-and-route/geo-route-map) when the product can show a regional map and a schematic dispatch view separately. It preserves the useful information without implying exact route placement. If the requirement is to identify where a road crosses a boundary, this alternative does not satisfy it; a shared projection and actual path data are needed.
 
-Use a table or simpler chart when readers need exact values.
+Keep report generation, region IDs and route IDs together in application state. Request external data through effects, accept a coherent completion in a reducer, then pass concrete descriptions to the Compose report. Translate captions explaining both the units and the schematic nature of the route panel.
 
-## Data model
-
-This example uses `Map and line series together`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
-
-```rust
-use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
-
-
-
-fission_component!
-{
-    pub RouteOverlayMapChart<()> {
-    }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
-    }
-}
-```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
-
-## Options, accessibility, and diagnostics
-
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
-
-Tags: `map`, `overlay`.
+Test the joins and missing-data policy before screenshots. A visually attractive gallery overlay cannot demonstrate geographical correctness, and the curve itself cannot supply distance or turn-by-turn navigation.
 
 [Geo family overview](./overview)

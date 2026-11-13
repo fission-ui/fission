@@ -6,9 +6,9 @@ description: Fission Charts reference for the Relationships and hierarchy family
 
 # Relationships and hierarchy
 
-This family has 9 chart variants. Pick one that matches your data. Each page has a screenshot, data shape, API notes, and code you can adapt.
+Relationships and quantities need different representations. A dependency graph connects records, a tree gives each child one parent, and a treemap or sunburst adds an additive measure to that hierarchy. Choose the relationship before choosing the layout.
 
-Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
+Prepare the model through ordinary Rust and the application's effect/reducer workflow. Components receive the prepared snapshot and localized labels rather than discovering dependencies, scanning storage or fetching report data during conversion.
 
 ![Force graph screenshot](/img/charts/graph-force.png)
 
@@ -18,50 +18,48 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 | --- | --- | --- |
 | [Force graph](./graph-force) | Vertex list plus edge list. | Use it for dependency, social, and topology diagrams. |
 | [Funnel](./funnel-basic) | Ordered label/value pairs. | Use it for conversion stages and pipeline health. |
-| [Parallel coordinates](./parallel-basic) | Vec&lt;Vec&lt;f32&gt;&gt; with one row per observation. | Use it for high-dimensional filtering and comparison. |
-| [Radial tree](./tree-radial) | Nested nodes with optional values. | Use it when the hierarchy is shallow and symmetry matters more than linear reading. |
-| [Sankey](./sankey-basic) | Vertex list plus weighted edges. | Use it for energy, revenue, and conversion flows. |
+| [Parallel coordinates](./parallel-basic) | Vec&lt;Vec&lt;f32&gt;&gt; with one row per observation. | Compare prepared 0–100 dimensions; real filtering needs application controls. |
+| [Radial tree](./tree-radial) | Nested nodes with required numeric values. | Use it when the hierarchy is shallow and symmetry matters more than linear reading. |
+| [Sankey](./sankey-basic) | Vertex list plus unweighted links. | Show two-stage connections; current links do not encode quantitative flow. |
 | [Sunburst](./sunburst-basic) | Nested nodes with values. | Use it when hierarchy depth should remain visible. |
-| [Theme river](./theme-river) | Time, value, and category tuples. | Use it when composition changes continuously over time. |
-| [Tree](./tree-basic) | Nested nodes with optional values. | Use it for navigation structures, ownership trees, and dependency drilldown. |
+| [Theme river](./theme-river) | Time, value, and category tuples. | Compare regular, preaggregated category buckets; labels are spaced evenly. |
+| [Tree](./tree-basic) | Nested nodes with required numeric values. | Use it for navigation structures, ownership trees, and dependency drilldown. |
 | [Treemap](./treemap-basic) | Nested nodes with values. | Use it for storage, budgets, or part-to-whole hierarchy. |
 
 ## Choosing within this family
 
-First decide what the user needs to compare or understand. Pick the simplest chart that shows it; add interaction only when it helps, and use animation only when it explains a change.
+Use a graph when relationships can be shared or cyclic, and a tree when the data has one parent per child. For a part-to-whole hierarchy, define a consistent non-negative measure and reconcile parent totals with their children before using a treemap or sunburst.
+
+The current Sankey links are unweighted and use a two-column layout. Parallel coordinates use a fixed 0–100 scale without automatic named axes or filtering. Theme-river input is lexically ordered and zero-filled; its smooth-looking bands do not establish continuous measurement. Each variant page explains these boundaries.
 
 ## Authoring from a Fission component
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+A prepared budget hierarchy is one small presentation input. Financial arithmetic, aggregation and failure handling stay with the parent report.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{Chart, TreemapSeries, TreemapNode};
 
-
-
-fission_component!
-{
-    pub RelationshipsAndHierarchyChart<()> {
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub BudgetHierarchyOverview<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            budget_gbp: Vec<TreemapNode>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Relationships and hierarchy")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![TreemapSeries::new(&report.series_label)
+            .data(report.budget_gbp.clone())
+            .into()],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+## Checks
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Test node identity, missing link endpoints, repeated names and aggregation separately from rendering. Keep source IDs and exact quantities in the domain model rather than deriving them from a display index or rectangle.
+
+Inspect the actual output for hidden nodes, overlapping labels and unreadable small regions. Provide the same relationships and important quantities in accessible text or a structured list. A chart does not automatically supply navigation, disclosure or domain filtering merely because its subject is a hierarchy.

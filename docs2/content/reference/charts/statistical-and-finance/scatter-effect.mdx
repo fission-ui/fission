@@ -8,81 +8,49 @@ description: Fission Charts reference for Effect scatter.
 
 ![Effect scatter screenshot](/img/charts/scatter-effect.png)
 
-Scatter points with emphasis rings for important observations. Use it to mark active locations, alerts, or selected results. The screenshot is from Fission's chart gallery.
+Emphasis rings can make a prepared set of observations easier to locate. For a maintenance report, flagged sensor readings can be shown at their physical positions without pretending every marked location is equally urgent. The screenshot is from Fission's chart gallery.
 
 ## What the chart is for
 
-This chart is in the **Statistical and finance** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
+Use the emphasis for a state already established by the monitoring policy. The series does not detect alarms, track acknowledgement or run an async effect despite the word “effect” in its name.
 
 ## Data model
 
-`Vec<(f32, f32)> plus emphasis styling.` Keep the source values in Rust types. Fission Charts uses typed series and options, not string-based configuration.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis::value()` | Maps the first point dimension. |
-| `y_axis` | `Axis::value()` | Maps the second point dimension. |
-| `series` | `ScatterSeries / BubbleSeries / EffectScatterSeries` | Chooses fixed points, sized bubbles, or emphasized points. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::Chart;
-
-let chart = Chart::new()
-    .title("Effect scatter")
-    .width(720.0)
-    .height(480.0);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
+`EffectScatterSeries` takes `(x, y)` pairs and draws layered emphasis marks at those positions. Define the coordinate frame and keep sensor IDs, values and alert states in the source model.
 
 ## Authoring from a Fission component
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+The parent supplies flagged sensor positions in one local coordinate system and localized chart/axis labels.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::Chart;
+use fission::charts::{Axis, Chart, EffectScatterSeries};
 
-
-
-fission_component!
-{
-    pub EffectScatterChart<()> {
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub FlaggedSensorPositions<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            axis_label_2: String,
+            observations: Vec<(f32, f32)>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Effect scatter")
-                    .width(720.0)
-                    .height(480.0)
-                    .into()
-    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::value().name(&report.axis_label)),
+        y_axis: Some(Axis::value().name(&report.axis_label_2)),
+        series: vec![EffectScatterSeries::new(&report.series_label)
+            .data(report.observations.clone())
+            .into()],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+## Testing and accessibility
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Test no flagged sensors, overlapping positions and an alert cleared during a refresh. Provide an accessible sensor list with the reason for each flag; a halo is not a complete alarm workflow.
 
 Tags: `scatter`, `effect`.
 

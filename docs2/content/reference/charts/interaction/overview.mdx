@@ -6,7 +6,7 @@ description: Fission Charts reference for the Interaction family.
 
 # Interaction
 
-This family has 20 chart variants. Pick one that matches your data. Each page has a screenshot, data shape, API notes, and code you can adapt.
+Chart interaction should help the user inspect a value, choose a subset or compare a reporting period. Those are different state transitions. A tooltip can remain inside the chart's retained state, whilst opening a record or changing an application filter belongs in a reducer.
 
 Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
 
@@ -39,7 +39,7 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 
 ## Choosing within this family
 
-First decide what the user needs to compare or understand. Pick the simplest chart that shows it; add interaction only when it helps, and use animation only when it explains a change.
+Start with the intended action. Use built-in tooltips, brushing or zoom for chart exploration, and decode typed event input when that exploration affects the app. Timeline labels and toolbox labels are currently drawn indicators, not fully wired controls; the linked recipes show ordinary Compose Buttons for the actual period, export and reset workflows.
 
 ## Authoring from a Fission component
 
@@ -47,22 +47,31 @@ Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or re
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{Axis, Chart, ChartInteraction, ChartTooltipTrigger, LineSeries};
 
-
-
-fission_component!
-{
+// The parent resolves display labels from its translation bundles.
+fission_component! {
     pub InteractionChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            category_labels: Vec<String>,
+            completed_orders: Vec<f32>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Interaction")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
+    view(report, _state, _cx) =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                report.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            interaction: ChartInteraction::tooltips(ChartTooltipTrigger::Axis)
+                .keyboard_focus(true),
+            series: vec![LineSeries::new(&report.series_label)
+                .data(report.completed_orders.clone())
+                .into()],
+        )
 }
 ```
 Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.

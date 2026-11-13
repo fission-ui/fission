@@ -1,93 +1,47 @@
 ---
 title: Toolbox zoom
 sidebar_label: Toolbox zoom
-description: Fission Charts reference for Toolbox zoom.
+description: Enable the real chart data-zoom mechanism instead of a decorative toolbox label.
 ---
 
 # Toolbox zoom
 
 ![Toolbox zoom screenshot](/img/charts/component-toolbox-zoom.png)
 
-Toolbox actions rendered near the chart. Use it for chart utility operations. The screenshot is from Fission's chart gallery.
+The word zoom in a toolbox is not the zoom mechanism. The current toolbox labels are painted decorations; the supported category-window interaction is configured through `DataZoom`.
 
-## What the chart is for
-
-This chart is in the **Components and interaction** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `ChartInteraction toolbox actions`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+For queue history, reuse `ZoomableQueueHistory` from [data zoom long](./component-data-zoom-long), placed in `widgets/zoomable_queue_history.rs`:
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use crate::widgets::zoomable_queue_history::ZoomableQueueHistory;
 
-
-
-fission_component!
-{
-    pub ToolboxZoomChart<()> {
+fission_component! {
+    pub InspectableQueueWindow<()> {
+        props {
+            chart_id: WidgetId,
+            title: String,
+            jobs_label: String,
+            intervals: Vec<String>,
+            waiting_jobs: Vec<u32>,
+            start_percent: f32,
+            end_percent: f32,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
+    view(window, _state, _cx) => ZoomableQueueHistory {
+        chart_id: window.chart_id,
+        title: window.title.clone(),
+        jobs_label: window.jobs_label.clone(),
+        intervals: window.intervals.clone(),
+        waiting_jobs: window.waiting_jobs.clone(),
+        initial_start: window.start_percent,
+        initial_end: window.end_percent,
     }
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Supply a valid initial positional range and aligned observations. Retained zoom state can supersede the initial values after interaction; changing props is not a universal reset command.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
-
-Tags: `toolbox`, `component`.
+Keep chart identity stable and provide an accessible report-range control outside the painted plot. Test continuous slider dragging, release and rebuild behaviour with LiveTest. Do not call a screenshot of the zoom label an interaction test. The gallery image above illustrates the decorative toolbox variant; the component uses the real data-zoom slider instead.
 
 [Components and interaction family overview](./overview)

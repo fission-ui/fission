@@ -66,6 +66,11 @@ Fission scopes the item's automatically identified children under that ID. A
 collection can mix explicit and automatic identities: the explicit item keeps
 its state with the data, while the rest keep their positional identity.
 
+That ownership rule also underlies today's Compose `key:` argument. The
+syntax has become shorter, but a list position still cannot identify a
+reorderable product record. The [current component guide](/compose/) shows
+that authoring form; the snippet above records the 0.13 API.
+
 `#[local_state]` uses the same identity. Local values survive rebuilds, remain
 separate between app roots, and are discarded when their widget disappears.
 

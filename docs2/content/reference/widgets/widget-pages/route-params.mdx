@@ -16,35 +16,34 @@ This is intentionally simple. Route parameters are just text. The router does no
 ```rust
 use fission::prelude::*;
 
-let builder = |params: &RouteParams| {
-    let project_id = params
+fn parse_project_id(params: &RouteParams) -> Option<u64> {
+    params
         .get("id")
-        .and_then(|value| value.parse::<u64>().ok());
-
-    match project_id {
-        Some(id) => ProjectScreen { id },
-        None => ProjectNotFound,
-    }
-};
+        .and_then(|value| value.parse::<u64>().ok())
+}
 ```
 
 `route_component` supplies the same captured map as a build-scoped provider so
 a named component does not have to fall back to an anonymous builder:
 
 ```rust
-fission_component!
-{
-    pub ProjectRoute<()> {
-    }
-    view(_component, _state, _cx) => rust {
+fission_component! {
+    pub ProjectRoute<AppState>
+    view(_route, _state, _cx) {
         let params = fission::build::read::<RouteParams>();
-                ProjectScreen {
-                    id: params.get("id").cloned(),
-                }
-                .into()
+        let project_id = parse_project_id(&params);
+    } =>
+    match project_id {
+        Some(id) => ProjectScreen(id),
+        None => ProjectNotFound(),
     }
 }
 ```
+`ProjectScreen` accepts a validated `u64`; `ProjectNotFound` handles a missing
+or malformed segment. The branches are different components, but Compose
+converts both to `Widget`. The application must still check that the parsed
+project exists and that the current user may open it.
+
 The map exists only during conversion of the matched route. Copy the values a
 component needs into ordinary widget fields or actions; do not retain a
 build-scope handle.

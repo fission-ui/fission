@@ -1,91 +1,76 @@
 ---
 title: 3D surface
 sidebar_label: 3D surface
-description: Fission Charts reference for 3D surface.
+description: Convert a validated regular measurement grid into explicit mesh triangles.
 ---
 
 # 3D surface
 
 ![3D surface screenshot](/img/charts/surface3d-basic.png)
 
-A gridded surface lowered into a native 3D mesh. Use it for terrain, response surfaces, and continuous two-variable functions. The screenshot is from Fission's chart gallery.
+A surface gives measurements a connected shape. For an elevation grid, each cell supplies a height and neighbouring cells supply the triangles between them. This assumes that the grid represents a continuous field; independent or missing observations need a different connectivity policy.
 
-## What the chart is for
+Keep the measurements separate from the mesh. That makes it possible to test the projection without rendering and avoids treating a convenient triangle layout as the authority for the source data.
 
-This chart is in the **3D and GL** family. Use it when a visual makes the pattern easier to spot.
+## Generate a regular grid
 
-Avoid it when a two-dimensional chart answers the question more directly; 3D should clarify spatial data, not decorate ordinary comparisons.
-
-## Data model
-
-`Mesh vertices and triangle indices generated from sampled z values.` Keep the source values in Rust types. Fission Charts uses typed series and options, not string-based configuration.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `scene` | `Scene3D` | Owns retained native 3D primitives for the chart viewport. |
-| `primitive` | `Primitive3D` | Uses cuboids, spheres, or meshes for the chart geometry. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
+This helper accepts a bounded rectangular grid of finite heights and positive spacing in scene units. It rejects unsupported shapes rather than quietly inserting zero heights.
 
 ```rust
-use fission::three_d::{Point3D, Primitive3D, Scene3D};
-use fission::core::op::Color;
+use fission::three_d::Point3D;
 
-let scene = Scene3D::new()
-    .add_primitive(Primitive3D::Sphere {
-        center: Point3D::new(0.0, 0.0, 0.0),
-        radius: 0.4,
-        color: Color { r: 20, g: 184, b: 166, a: 255 },
-    });
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
-
-```rust
-use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
-
-
-
-fission_component!
-{
-    pub Fission3DSurfaceChart<()> {
+pub fn regular_surface(
+    heights: &[Vec<f32>],
+    spacing: f32,
+) -> Result<(Vec<Point3D>, Vec<u32>), &'static str> {
+    let rows = heights.len();
+    let columns = heights.first().map_or(0, Vec::len);
+    if !(2..=256).contains(&rows) || !(2..=256).contains(&columns)
+        || !spacing.is_finite() || spacing <= 0.0
+        || !(spacing * (rows - 1) as f32).is_finite()
+        || !(spacing * (columns - 1) as f32).is_finite()
+    {
+        return Err("invalid surface dimensions or spacing");
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("3D surface")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
+    if heights.iter().any(|row| {
+        row.len() != columns || row.iter().any(|height| !height.is_finite())
+    }) {
+        return Err("surface must be rectangular with finite heights");
     }
+
+    let mut vertices = Vec::with_capacity(rows * columns);
+    for (z, row) in heights.iter().enumerate() {
+        for (x, &height) in row.iter().enumerate() {
+            vertices.push(Point3D::new(x as f32 * spacing, height, z as f32 * spacing));
+        }
+    }
+    let mut indices = Vec::with_capacity((rows - 1) * (columns - 1) * 6);
+    for z in 0..rows - 1 {
+        for x in 0..columns - 1 {
+            let a = (z * columns + x) as u32;
+            let b = a + 1;
+            let c = a + columns as u32;
+            let d = c + 1;
+            indices.extend_from_slice(&[a, c, b, b, c, d]);
+        }
+    }
+    Ok((vertices, indices))
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Place the helper with the measurement projection, for example `models/surface.rs`. Pass the successful vertices and indices to `SurveySurface`, the Compose component defined in [Mesh surface](./mesh-surface), placed in `widgets/survey_surface.rs`. Handle a rejected grid before constructing its view.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Enable the `three-d` feature. The component creates `Primitive3D::Mesh` inside `Scene3D`; no two-dimensional line series or invented camera methods are involved.
+
+## State what continuity means
+
+The helper is deliberately for complete regular grids. If a survey has missing measurements, preserve them and use a mesh generator which leaves appropriate holes or an explicitly justified interpolation. Replacing them with zero invents a surface the survey did not measure.
+
+Explain coordinate units and vertical scaling outside the scene. The legacy primitive API does not generate axes, measurement labels or per-triangle chart events.
+
+## Checks
+
+Test a two-by-two grid with known vertices and triangles, rectangular grids, invalid spacing and rejected missing or non-finite values. Inspect a real rendering for winding and scale mistakes. Provide source values or a useful accessible summary alongside the surface. The screenshot is gallery fixture geometry.
 
 Tags: `3d`, `surface`.
 

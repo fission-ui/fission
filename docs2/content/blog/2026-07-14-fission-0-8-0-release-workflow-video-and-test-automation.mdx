@@ -113,11 +113,17 @@ sudo apt install libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0
 Before publishing, check that the release is ready:
 
 ```sh
-fission readiness release   --target android   --format aab   --provider play-store   --track internal   --locale en-US   --json
+fission readiness release \
+  --target android --format aab \
+  --provider play-store --track internal \
+  --locale en-US --json
 ```
 
 Then publish either from a freshly built artifact or an existing artifact manifest:
 
 ```sh
-fission publish   --provider play-store   --artifact target/fission/release/android/aab/artifact-manifest.json   --track internal   --locale en-US   --yes   --json
+fission publish \
+  --provider play-store \
+  --artifact target/fission/release/android/aab/artifact-manifest.json \
+  --track internal --locale en-US --yes --json
 ```

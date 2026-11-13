@@ -13,6 +13,10 @@ categories:
 
 Fission 0.4.1 is a patch release for the 0.4 authoring API. The `impl From<Component> for Widget` model stays the same. This release fixes and extends the runtime, shells, server and Static site paths, and generated mobile projects.
 
+The version-specific API notes below are release history. For new components,
+[Compose](/compose/) is the current authoring entrypoint; the underlying
+ownership and shell boundaries remain relevant.
+
 The main runtime and shell change is route-aware action dispatch. Version 0.4.0 introduced the lower-level scoped action types: `ActionScopeId`, `ActionScope`, and `ActionInput::ScopedRaw`. Version 0.4.1 adds route-change actions, route-location data, route-handler registration, and router helpers. Together, these let a host associate guest UI actions with the right runtime and route while still using normal application reducers.
 
 ## Scoped route actions for runtime shells

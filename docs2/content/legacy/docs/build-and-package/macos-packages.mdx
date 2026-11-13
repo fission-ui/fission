@@ -38,14 +38,14 @@ team_id = "ABCDE12345"
 minimum_os = "13.0"
 application_category = "public.app-category.developer-tools"
 entitlements = "platforms/macos/AcmeNotes.entitlements"
-provisioning_profile = "profiles/macos/AcmeNotes.provisionprofile"
+provisioning_profile = "/path/to/private/AcmeNotes.provisionprofile"
 signing_identity = "Developer ID Application: Acme Software Ltd (ABCDE12345)"
 installer_identity = "Developer ID Installer: Acme Software Ltd (ABCDE12345)"
 notarize = true
 
 [run.macos]
 entitlements = "platforms/macos/AcmeNotes.dev.entitlements"
-provisioning_profile = "profiles/macos/AcmeNotesDevelopment.provisionprofile"
+provisioning_profile = "/path/to/private/AcmeNotesDevelopment.provisionprofile"
 signing_identity = "Apple Development: Jane Developer (ABCDE12345)"
 ```
 
@@ -66,7 +66,12 @@ The values are deliberately duplicated where the platform needs them:
 | `installer_identity` | The installer signing identity used for `.pkg` output. |
 | `notarize` | Enables the notarization step. Notarization still needs Apple API credentials from environment variables or platform tools. |
 
-Keep private signing material out of `fission.toml`. The file may reference public identity names and project-relative entitlement/profile files, but passwords, App Store Connect keys, and private certificates must come from environment variables, CI secrets, the login keychain, or platform tooling.
+Replace the example profile paths with private inputs available on the signing
+Mac. Keep entitlement source files in the project, but provisioning profiles,
+private certificates, and App Store Connect key files out of the public tree.
+`fission.toml` may name a signing identity or reference a private profile path;
+it must not contain passwords or private key bytes. Use the login keychain,
+platform tooling, or configured secret environment variables for credentials.
 
 ## Development signing versus release signing
 
@@ -95,11 +100,11 @@ scheme = "FileProvider"
 bundle = "FileProvider.appex"
 kind = "app-extension"
 entitlements = "platforms/macos/native/FileProvider.entitlements"
-provisioning_profile = "profiles/macos/FileProvider.provisionprofile"
+provisioning_profile = "/path/to/private/FileProvider.provisionprofile"
 signing_identity = "Developer ID Application: Acme Software Ltd (ABCDE12345)"
 
 [native.modules.macos.products.run]
-provisioning_profile = "profiles/macos/FileProviderDevelopment.provisionprofile"
+provisioning_profile = "/path/to/private/FileProviderDevelopment.provisionprofile"
 signing_identity = "Apple Development: Jane Developer (ABCDE12345)"
 ```
 

@@ -18,22 +18,27 @@ surrounding field anatomy and relates that anatomy to one unambiguous control.
 ```rust
 use fission::prelude::*;
 
-let email_field: Widget = FormControl {
-    id: Some(WidgetId::explicit("account.email-field")),
-    label: Some("Email address".into()),
-    child: TextInput {
-        id: Some(WidgetId::explicit("account.email-input")),
-        value: view.state().email.clone(),
-        on_input: Some(update_email_action),
-        ..Default::default()
-    }
-    .into(),
-    error: view.state().email_error.clone(),
-    helper: Some("Used for receipts and account alerts.".into()),
-    required: true,
+fission_component! {
+    pub AccountEmail<AppState>
+    view(_field, state, cx) =>
+    FormControl(
+        id: Some(WidgetId::explicit("account.email-field")),
+        label: Some(cx.tr("account.email.label")),
+        child: TextInput(
+            id: Some(WidgetId::explicit("account.email-input")),
+            bind: state.email,
+        ),
+        error: state.email_error.clone(),
+        helper: Some(cx.tr("account.email.help")),
+        required: true,
+    )
 }
-.into();
 ```
+
+Here `AppState` owns the editable `email: String` and the current
+`email_error: Option<String>`. The binding updates the value; the form wrapper
+does not perform email validation. Run that validation in the application's
+edit or submission transition and update `email_error` accordingly.
 
 When `error` is present it replaces the helper message, marks the related
 control invalid, and supplies that validation message to accessibility output.

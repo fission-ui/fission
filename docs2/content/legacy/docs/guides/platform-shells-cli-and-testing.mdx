@@ -5,15 +5,15 @@ description: Learn how Fission's shell wrappers and generated host projects fit 
 
 # Platform shells, command-line interface, and testing
 
-Fission supports production work on macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR today. Three separate questions often get mixed together when we talk about that:
+Fission's public target set is macOS, Windows, Linux, Web, Android, iOS,
+Terminal, Static site, and SSR. They share the app model but not every host
+service or testing mechanism. Keep three questions separate: what the runtime
+represents, what the selected shell implements, and what has actually been
+tested on that target.
 
-1. **Can the shared app model support real product work?** Yes. State, actions, reducers, widgets, layout, semantics, and rendering live in one runtime across the supported targets.
-
-2. **Are all shell wrappers and testing tools equally mature?** No. Wrapper methods differ a little, and live-testing support is not identical on every target.
-
-3. **Do you still need to test on the target?** Yes. Browser packaging, mobile safe areas, keyboards, accessibility bridges, terminal cells, static output, SSR caching, and simulator-versus-device behaviour all need host-specific checks.
-
-Keep those answers separate. Tooling gaps don’t mean the app model is unusable, and target-specific testing doesn’t make one platform more real than another. It means the host boundary still matters.
+A shared reducer test proves the same state transition wherever it runs. It
+cannot prove keyboard integration, a device permission prompt, or an HTTP cache
+policy; those behaviours cross the shell boundary and need their own evidence.
 
 ## What a shell is in Fission
 
@@ -116,7 +116,9 @@ configure there.
 
 A good rule is to use the wrapper for host startup concerns and keep product behavior in the shared app.
 
-`with_state_init(...)` is for synchronous state preparation before the first frame. `with_startup_action(...)` is for entering the normal reducer flow as soon as the runtime is ready. `with_sync_env(...)` is for values that belong in `Env`, such as theme, locale, translation bundles, or other read-only context widgets should consume during component conversion.
+`with_state_init(...)` is for synchronous state preparation before the first frame. `with_startup_action(...)` queues an action when the runtime is ready. It does
+not register its reducer: bind that handler unconditionally in the initial tree
+or register it through the shell, not only in a retry/error branch. `with_sync_env(...)` is for values that belong in `Env`, such as theme, locale, translation bundles, or other read-only context widgets should consume during component conversion.
 
 `with_async(...)` is where graphical shells register jobs, services, and
 capabilities that the host may need to run outside pure reducers. Terminal
@@ -158,17 +160,24 @@ On the web, that means building the WebAssembly output, serving it locally, and 
 
 Keep the three questions from the start of this guide in mind:
 
-The production-readiness claim is about the shared runtime and the real host paths across the public target set.
+The public target list describes the delivery paths. Capability support and
+host integration remain specific contracts; consult their matrices before a
+feature becomes a release requirement.
 
 Testing differs by host. Desktop and mobile expose `with_test_control_port(...)`, which opens a loopback shell-control endpoint. Web test builds expose the same LiveTest command contract through a test-only Chromium bridge, without another network listener.
 
 Host-specific details need testing on their target: browser clipboard, drag-and-drop, and input methods; mobile touch, safe areas, keyboards, and lifecycle; terminal layout and interaction; static HTML output; and SSR request, cache, action, worker, and island behaviour.
 
-The shared runtime is ready for real apps. Tooling still needs work in some places, and every target needs the testing its host requires.
+Use the current target/capability contract and the behaviour actually exercised
+by the release. A tool's existence, a rendered screenshot, and complete host
+integration are different evidence.
 
 ## What differs by target in practice
 
-Desktop is convenient for fast iteration: it has native windows, a short run loop, and the richest current live-testing API. That doesn’t make it the only serious target.
+Desktop is convenient for fast iteration because it has native windows and a
+short run loop. Browser LiveTest also controls real page interaction; choose
+the target whose boundary is part of the feature rather than ranking one host
+as the only serious path.
 
 Web runs through the browser shell and WebAssembly, which lets Rust run in the browser. The checked-in shell, browser smoke example, generated target, and Chromium LiveTest path are real host paths. Clipboard, drag-and-drop, trusted input, and input method handling still need browser-specific work.
 

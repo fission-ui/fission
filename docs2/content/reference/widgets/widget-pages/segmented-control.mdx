@@ -15,16 +15,30 @@ modes or filters. For a large or changing set, use a dropdown or select.
 use fission::prelude::*;
 use std::sync::Arc;
 
-let widget: Widget = SegmentedControl {
-options: vec!["All".into(), "Unread".into(), "Flagged".into()],
-selected_index: view.state().filter_mode,
-on_change: Some(Arc::new(move |index| ActionEnvelope {
-    id: set_filter_mode_id,
-    payload: serde_json::to_vec(&SetFilterMode(index)).unwrap(),
-})),
+fission_component! {
+    pub MessageFilter<()> {
+        props {
+            selected_index: usize,
+            choose_filter: Arc<dyn Fn(usize) -> ActionEnvelope + Send + Sync>,
+        }
+    }
+
+    view(filter, _state, cx) =>
+        SegmentedControl(
+            options: vec![
+                cx.tr("message.filter.all"),
+                cx.tr("message.filter.unread"),
+                cx.tr("message.filter.flagged"),
+            ],
+            selected_index: filter.selected_index,
+            on_change: filter.choose_filter.clone(),
+        )
 }
-.into();
 ```
+
+The parent's callback maps these three stable positions to its filter enum and
+creates its registered action. Keep that mapping explicit and validate the index;
+a translated label is not the filter's identity.
 
 Each segment retains radio semantics and keyboard navigation. The selected segment is derived from state on every build.
 
@@ -36,17 +50,16 @@ segmented control without changing shared surface colours used by Cards and
 other components.
 
 ```rust
-let mut env = Env::default();
+// In a custom design-system environment factory, after installing its theme:
+let active_bg = env.theme.tokens.colors.primary;
+let active_text = env.theme.tokens.colors.text_primary;
 let recipe = &mut env.theme.components_mut().segmented_control;
-
-recipe.active_bg = Color {
-    r: 37,
-    g: 99,
-    b: 235,
-    a: 255,
-};
-recipe.active_text = Color::WHITE;
+recipe.active_bg = active_bg;
+recipe.active_text = active_text;
 ```
+
+Choose a tested foreground/background pair in the DSP; this excerpt only shows
+where the recipe lives. Token names alone do not prove sufficient contrast.
 
 Install that environment on the application shell in the same way as any other
 custom design system. The control continues to provide one radio group, one
@@ -73,9 +86,9 @@ Use segmented controls for short, peer-level choices. If labels start wrapping, 
 
 ## Production checklist
 
-- Bind `on_change` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Validate the index against the stable enum mapping when options change.
+- Test radio-group keyboard navigation and long translations.
+- Verify contrast and selected-state meaning in the actual design system.
 
 ## Related
 

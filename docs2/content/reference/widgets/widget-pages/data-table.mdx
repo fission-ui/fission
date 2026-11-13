@@ -17,38 +17,44 @@ card grid.
 use fission::prelude::*;
 use std::sync::Arc;
 
-let widget: Widget = DataTable {
-    id: WidgetId::explicit("build_runs_table"),
-    columns: vec![
-        TableColumn {
-            id: "status".into(),
-            title: "Status".into(),
-            width: 120.0,
-            sortable: false,
-        },
-        TableColumn {
-            id: "branch".into(),
-            title: "Branch".into(),
-            width: 180.0,
-            sortable: true,
-        },
-    ],
-    rows: vec![
-        TableRow {
-            id: "run_42".into(),
-            cells: vec!["Passed".into(), "main".into()],
-        },
-    ],
-    selected_ids: view.state().selected_run_ids.clone(),
-    on_selection_change: Some(Arc::new(move |row_id| ActionEnvelope {
-        id: toggle_row_selection_id,
-        payload: serde_json::to_vec(&ToggleRowSelection(row_id)).unwrap(),
-    })),
-    on_select_all: Some(select_all_action),
-    label: Some("Build runs".into()),
+fission_component! {
+    pub BuildRunsTable<()> {
+        props {
+            rows: Vec<TableRow>,
+            selected: Vec<String>,
+            toggle_run: Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>,
+            select_all: ActionEnvelope,
+        }
+    }
+
+    view(table, _state, cx) =>
+        DataTable(
+            id: WidgetId::explicit("build-runs"),
+            columns: vec![
+                TableColumn {
+                    id: "status".into(),
+                    title: cx.tr("build.status"),
+                    ..Default::default()
+                },
+                TableColumn {
+                    id: "branch".into(),
+                    title: cx.tr("build.branch"),
+                    ..Default::default()
+                },
+            ],
+            rows: table.rows.clone(),
+            selected_ids: table.selected.clone(),
+            on_selection_change: table.toggle_run.clone(),
+            on_select_all: table.select_all.clone(),
+            label: Some(cx.tr("build.runs")),
+        )
 }
-.into();
 ```
+
+The parent formats real build records into `TableRow` values in status/branch
+order and supplies registered selection actions. An empty query produces no rows,
+not a fake passing build. These headers are deliberately not sortable; add an
+`on_sort` action and current sort direction when the parent actually implements sorting.
 
 Here the table is responsible for presentation. The reducer is responsible for which rows are selected and what selection means.
 
@@ -56,9 +62,10 @@ Here the table is responsible for presentation. The reducer is responsible for w
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetId` | Stable identity for the table instance. | Present in the public struct, but the checked-in renderer does not currently consume it internally. |
+| `id` | `WidgetId` | Stable identity for the table instance. | Used by retained interaction; Compose supplies component-relative identity. |
 | `columns` | `Vec<TableColumn>` | Column definitions in display order. | Required. Width comes from the column records. |
 | `rows` | `Vec<TableRow>` | Row data in display order. | Required. Each row's cells are matched to columns by index. |
+| `selection_mode` | `DataTableSelectionMode` | Read-only or multiple controlled selection. | Use `None` to omit selection controls; default is `Multiple`. |
 | `selected_ids` | `Vec<String>` | Currently selected row ids. | Controlled by app state. |
 | `on_selection_change` | `Option<Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>>` | Closure that builds the action for row or checkbox selection. | Called with the row id. |
 | `on_select_all` | `Option<ActionEnvelope>` | Action dispatched by the header checkbox. | The checkbox is disabled when no action is supplied. |
@@ -84,10 +91,9 @@ Keep column counts modest on narrow screens. If comparison is still important on
 
 ## Production checklist
 
-- Bind `on_selection_change` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Verify every row has the same cell count and order as the column definitions.
+- Test select-all against the intended scope: visible page, filtered results, or the full query.
+- Use stable record ids so sorting cannot transfer selection to another build.
 
 ## Related
 

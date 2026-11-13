@@ -7,7 +7,7 @@ description: Scan, connect, read, write, advertise, and disconnect through the h
 
 Bluetooth is permission-sensitive hardware integration. The app should describe the service it needs and let the host map that request to Classic Bluetooth, Bluetooth Low Energy, nearby-device permissions, pairing, and platform scan rules.
 
-This example scans for devices exposing a known service UUID. Keep the scan bounded and let the host handle pairing and platform permissions.
+This example finds heart-rate sensors advertising the standard Heart Rate service UUID. Discovery is only the first step: it does not pair with a sensor, subscribe to measurements, or save health data.
 
 Do not scan indefinitely or expose every nearby device by default. Filter by service UUID when you can and bound scans with a timeout.
 
@@ -16,12 +16,12 @@ Do not scan indefinitely or expose every nearby device by default. Filter by ser
 Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
 
 ```rust
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct BluetoothState {
-    // Add these fields to your existing app state.
     devices: Vec<BluetoothDevice>,
     bluetooth_error: Option<String>,
     scanning_bluetooth: bool,
+    scan_finished: bool,
 }
 
 impl GlobalState for BluetoothState {}
@@ -55,28 +55,47 @@ The scan completes after its starting reducer returns. Handle both the result an
 
 ```rust
 #[fission_reducer(BluetoothDevicesFound)]
-fn on_bluetooth_devices_found(state: &mut BluetoothState, result: BluetoothScanResult) {
+fn on_bluetooth_devices_found(state: &mut BluetoothState, ctx: &mut ReducerContext<BluetoothState>) {
     state.scanning_bluetooth = false;
-    state.devices = result.devices;
-    state.bluetooth_error = None;
+    state.scan_finished = true;
+    match ctx.input.capability_ok(SCAN_BLUETOOTH_DEVICES) {
+        Some(result) => {
+            state.devices = result.devices;
+            state.bluetooth_error = None;
+        }
+        None => state.bluetooth_error = Some("The host returned no discovery result".into()),
+    }
 }
 
 #[fission_reducer(BluetoothScanFailed)]
-fn on_bluetooth_scan_failed(state: &mut BluetoothState, error: BluetoothError) {
+fn on_bluetooth_scan_failed(state: &mut BluetoothState, ctx: &mut ReducerContext<BluetoothState>) {
     state.scanning_bluetooth = false;
-    state.bluetooth_error = Some(error.message);
+    state.scan_finished = true;
+    state.bluetooth_error = Some(
+        ctx.input.capability_error(SCAN_BLUETOOTH_DEVICES)
+            .map(|error| error.message)
+            .unwrap_or_else(|| "The host could not discover Bluetooth devices".into()),
+    );
 }
 ```
 
-Permission denial, unavailable hardware, timeout, and unsupported hosts are expected outcomes. Make them visible and let the user retry when appropriate.
+The completion actions contain no invented device list. Read the host's result from `ctx.input`, and keep an empty successful discovery separate from denial or unsupported hardware. Clear the busy state on both paths so the user can retry.
 
 ## 4. Request the capability from a reducer
 
 Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
 
 ```rust
-state.scanning_bluetooth = true;
-ctx.effects
+#[fission_reducer(ScanBluetoothDevices)]
+fn on_scan_bluetooth_devices(state: &mut BluetoothState, ctx: &mut ReducerContext<BluetoothState>) {
+    if state.scanning_bluetooth { return; }
+    state.scanning_bluetooth = true;
+    state.scan_finished = false;
+    state.devices.clear();
+    state.bluetooth_error = None;
+    let found = ctx.effects.bind(BluetoothDevicesFound, reduce_with!(on_bluetooth_devices_found));
+    let failed = ctx.effects.bind(BluetoothScanFailed, reduce_with!(on_bluetooth_scan_failed));
+    ctx.effects
     .bluetooth()
     .scan_devices(BluetoothScanRequest {
         service_uuids: vec!["0000180d-0000-1000-8000-00805f9b34fb".into()],
@@ -84,14 +103,9 @@ ctx.effects
         include_paired: true,
         allow_duplicates: false,
     })
-    .on_ok(ctx.effects.bind(
-        BluetoothDevicesFound(BluetoothScanResult::default()),
-        reduce_with!(on_bluetooth_devices_found),
-    ))
-    .on_err(ctx.effects.bind(
-        BluetoothScanFailed(BluetoothError::default()),
-        reduce_with!(on_bluetooth_scan_failed),
-    ));
+    .on_ok(found)
+    .on_err(failed);
+}
 ```
 
 The call records a typed request; the host applies platform scan and permission rules.
@@ -101,24 +115,25 @@ The call records a typed request; the host applies platform scan and permission 
 Bind the button to the reducer that starts the scan:
 
 ```rust
-
-
-fission_component!
-{
-    pub ScanBluetoothDevicesButton<BluetoothState> {
+fission_component! {
+    pub FindHeartRateSensorsButton<BluetoothState> {}
+    view(_button, state, cx) {
+        let run = cx.bind(ScanBluetoothDevices, reduce!(on_scan_bluetooth_devices));
     }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<BluetoothState>();
-                let run = with_reducer!(ctx, ScanBluetoothDevices, on_scan_bluetooth_devices);
-
-                Button::new("Scan devices")
-                    .disabled(view.state().scanning_bluetooth)
-                    .on_press(run)
-                    .into()
-    }
+    => Column(children: [
+        Button(child: Text(cx.tr("sensors.find_heart_rate")), disabled: state.scanning_bluetooth, on_press: run),
+        if state.scanning_bluetooth { Spinner(motion: SpinnerMotion::Default, label: cx.tr("sensors.scanning")) },
+        for device in &state.devices {
+            Text(device.name.clone().unwrap_or_else(|| cx.tr("sensors.unnamed")), key: device.id.clone())
+        },
+        if state.scan_finished && state.devices.is_empty() && state.bluetooth_error.is_none() {
+            Text(cx.tr("sensors.none_found"))
+        },
+        if let Some(error) = &state.bluetooth_error { Alert(title: error.clone(), kind: AlertKind::Error) },
+    ])
 }
 ```
-The button dispatches an action, the reducer requests a scan, and a completion reducer updates state.
+Define the `sensors.*` labels in the translation bundles. Device names can be absent; the portable device id identifies a result independently of its position. Adding connection or measurement capture requires separate explicit actions, loading/error states, and a product policy for any health data retained.
 
 ## 6. Provide and test the host behavior
 

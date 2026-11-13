@@ -65,6 +65,10 @@ Scroll {
 
 Give each page wrapper a stable ID, such as `document.page.3`. When the user selects page 3 in the rail or outline, the reducer updates the selected page and emits `ScrollIntoViewRequest`. After layout, Fission updates the offset and schedules another frame so rendering, hit testing, semantics, and test-control output all use the new scroll position.
 
+Here the suffix identifies the page record. If pages can be inserted or
+reordered, use their durable IDs rather than a displayed page number; the
+request must continue to name the same page after its position changes.
+
 You do not need to reorder the rendered pages just to bring the selected page near the top.
 
 ## Runtime behavior

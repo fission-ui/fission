@@ -1,7 +1,7 @@
 ---
 title: fission.toml manifest
-summary: Complete reference for the Fission project manifest, including app metadata, targets, capabilities, static-site settings, package settings, release metadata, distribution providers, signing references, beta testing, and release workflows.
-description: Complete reference for every fission.toml section currently read by the Fission command-line interface and static-site shell.
+summary: Project manifest reference covering app identity, targets, capabilities, site and server settings, packaging, and release workflows.
+description: Fields read by Fission's project, site, server, packaging, and release commands, with examples and ownership boundaries.
 ---
 
 # fission.toml manifest
@@ -35,7 +35,8 @@ app_id = "com.example.my_app"
 
 ## Parsing rules
 
-Fission commands currently read the sections they need instead of requiring one giant schema object. That has a few practical consequences:
+Each command reads the sections it needs. A setting accepted by a TOML parser
+is therefore not necessarily a setting used by the command you are running:
 
 | Rule | Contract |
 | --- | --- |
@@ -147,10 +148,10 @@ scheme = "FileProvider"
 bundle = "FileProvider.appex"
 kind = "app-extension"
 entitlements = "platforms/macos/native/FileProvider.entitlements"
-provisioning_profile = "profiles/FileProvider.provisionprofile"
+provisioning_profile = "/private/signing/FileProvider.provisionprofile"
 
 [native.modules.macos.products.run]
-provisioning_profile = "profiles/FileProviderDevelopment.provisionprofile"
+provisioning_profile = "/private/signing/FileProviderDevelopment.provisionprofile"
 signing_identity = "Apple Development"
 ```
 
@@ -805,7 +806,7 @@ editing configuration between packages.
 [package.macos.variants.app-store]
 application_category = "public.app-category.developer-tools"
 entitlements = "platforms/macos/AppStore.entitlements"
-provisioning_profile = ".fission/signing/macos/AppStore.provisionprofile"
+provisioning_profile = "/private/signing/macos/AppStore.provisionprofile"
 signing_identity = "Apple Distribution: Example Ltd"
 installer_identity = "3rd Party Mac Developer Installer: Example Ltd"
 notarize = false
@@ -819,6 +820,11 @@ The variant accepts the same `application_category`, `entitlements`,
 release overlay.
 Package it with `fission package --target macos --format pkg --release --variant
 app-store`.
+
+Keep provisioning profiles outside the publishable source tree. The profile
+paths in these examples are machine-local placeholders; replace them with real
+private paths. Entitlements describe requested privileges and may be checked in,
+but a provisioning profile is signing material, not release-content source.
 
 ### `[run.macos]`
 
@@ -1376,12 +1382,12 @@ marketing_version = "1.0.0"
 build_number = "1"
 team_id = "ABCDE12345"
 entitlements = "platforms/ios/Entitlements.plist"
-provisioning_profile = "release-content/signing/ios/App.mobileprovision"
+provisioning_profile = "/private/signing/ios/App.mobileprovision"
 
 [package.macos]
 bundle_id = "com.example.app"
-marketing_version = "1.2.3"
-build_number = "42"
+marketing_version = "1.0.0"
+build_number = "1"
 team_id = "ABCDE12345"
 
 [package.macos.release]

@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Build a keyboard-friendly Android reservation form in Rust
-description: "Build a Rust reservation form with Fission TextInput, field errors, and numeric or email keyboards. Keep it usable with the Android keyboard open."
-goal: Let a native plant nursery collect a clear pickup request, catch missing or invalid details, and keep every field reachable while someone types on Android.
+description: "Build a nursery pickup request with useful keyboard modes, field-specific validation and a review step that remains reachable while typing on Android."
+goal: "Collect and review a seedling pickup request without losing entered fields or hiding the next action behind the Android keyboard."
 path: /blog/build-validated-android-forms-that-work-with-the-soft-keyboard/
 order: 30
 difficulty: Beginner
@@ -10,19 +10,19 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-build-validated-android-forms-that-work-with-the-soft-keyboard
 outcomes:
-  - Build a native seedling pickup request with clearly labelled fields
-  - Choose email, name, and number input modes with useful keyboard actions
-  - Validate the request and show an error beside the field that needs attention
-  - Check the focused fields and submit action while the Android keyboard is open
+  - "Choose name, email and numeric input modes with appropriate keyboard actions"
+  - "Keep validation rules in one focused module shared by input and review"
+  - "Show visible and semantic errors beside the fields needing attention"
+  - "Preserve the draft through edit and review without claiming a reservation was submitted"
 ---
 
 ## Build a native seedling pickup request
 
-Meadowline Native Plants receives requests from neighborhood restoration crews. A useful request needs a contact name, a reply address, the seedling species, and the number of plants to prepare. If a quantity is missing or too large for one tray, staff should see what to fix before they plan the pickup.
+A pickup request is only useful if the nursery can act on it. Meadowline Native Plants receives requests from local restoration crews. A useful request needs a contact name, a reply address, the seedling species, and the number of plants to prepare. If a quantity is missing or too large for one tray, staff should see what to fix before they plan the pickup.
 
 In this tutorial, you will build that request form in shared Rust code. The form starts blank; enter details and check the draft to see field validation. The preview does not send a request or hold nursery stock. The Android steps show how to check the real software keyboard, focus order, and window resizing.
 
-The draft belongs to this form while the person is editing. A real accepted request becomes durable nursery data and should be sent to a service through an asynchronous effect. Keeping that boundary clear lets us learn the form behavior without pretending a browser-only example placed an order.
+The distinction matters because a valid draft is not a reservation. The draft belongs to this form whilst the person is editing. A real accepted request becomes durable nursery data and should be sent to a service through an asynchronous effect. Keeping that boundary clear lets us learn the form behavior without pretending a browser-only example placed an order.
 
 ## Create the Android app
 
@@ -54,7 +54,7 @@ meadowline-pickups/
 </TabItem>
 </Tabs>
 
-The Android host starts the shared Rust app. The form and its validation stay in `src/app.rs`, which also means the browser preview and phone exercise the same component.
+The Android host starts the shared Rust app. Keep translations in `src/translations.rs` and validation rules in `src/validation.rs` rather than hiding app setup in the form. The native shell is wired from the first stage, so the browser and phone exercise the same component rather than different scaffold screens.
 
 <!-- fission:step id="reservation-draft" -->
 ## Arrange the fields in the order a nursery needs them
@@ -67,30 +67,7 @@ The form opens blank, just as a new request should. Enter a few details and use 
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
-use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
-use std::collections::HashMap;
-
-pub fn create_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    for (locale, yaml) in [
-        ("en-US", include_str!("../i18n/en-US.yaml")),
-        ("es-ES", include_str!("../i18n/es-ES.yaml")),
-    ] {
-        let messages: HashMap<String, String> =
-            serde_yaml::from_str(yaml).expect("valid Meadowline translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(locale),
-            messages,
-        });
-    }
-    env
-}
-
-#[cfg(test)]
-#[path = "app_tests.rs"]
-mod app_tests;
 
 fission_component! {
     pub SeedlingReservationForm<()> {
@@ -108,7 +85,7 @@ fission_component! {
     SemanticsRegion(
         identifier: Some("seedling-reservation-form".to_string()),
         label: Some(cx.tr("reservation.form.label")),
-        child: Scroll(
+        child: SafeArea(child: Scroll(
             flex_grow: 1.0,
             height: cx.view.viewport_size().height,
             child: Container(
@@ -184,8 +161,74 @@ fission_component! {
             )
             .width_length(Length::percent(100.0))
             .bg(tokens.colors.background),
-        ),
+        )),
     )
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::prelude::*;
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, yaml) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(yaml).expect("valid Meadowline translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod translations;
+
+use app::SeedlingReservationForm;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(SeedlingReservationForm::new())
+        .with_env(translations::create_env())
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), SeedlingReservationForm> {
+    let app = MobileApp::<(), _>::new(SeedlingReservationForm::new())
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(SeedlingReservationForm::new())
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
@@ -193,6 +236,7 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -201,7 +245,7 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     WebApp::<(), _>::new(app::SeedlingReservationForm::new())
-        .with_env(app::create_env())
+        .with_env(translations::create_env())
         .with_title("Meadowline seedling pickup request")
         .mount("#fission-web-mount")
         .run()
@@ -275,7 +319,7 @@ Enter the species and quantity, then review the form. It should remain a local d
 
 A name field benefits from name-aware capitalization; an email field should open an email keyboard; and the quantity field should request a numeric keyboard. Setting the return action to **Next** gives Android a useful way to move through the first fields. The final quantity field uses **Done**, while the optional pickup note allows a new line.
 
-The reservation rules belong in one function so the form and its tests agree. This nursery accepts between one and twenty-four seedlings in a pickup tray. It also needs a non-empty customer name and species, plus an email address with a basic local-part and domain shape. That email check catches common typing mistakes; a production service still needs its own address verification.
+The reservation rules belong in one validation module so field errors, the summary and tests agree. `validate_fields` produces all field results from one pass; the form does not repeat a second set of validation predicates. This nursery accepts between one and twenty-four seedlings in a pickup tray. It also needs a non-empty customer name and species, plus an email address with a basic local-part and domain shape. That email check catches common typing mistakes; a production service still needs its own address verification.
 
 Replace the earlier `src/app.rs` with this version. The error text is attached to the field that needs attention, and the result summary is derived from the current draft, so editing a value after a failed check does not leave a stale message on screen.
 
@@ -283,93 +327,12 @@ Replace the earlier `src/app.rs` with this version. The error text is attached t
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
-use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
-use std::collections::HashMap;
+use crate::validation::{validate_fields, ReservationError};
 
 #[cfg(test)]
 #[path = "app_tests.rs"]
 mod app_tests;
-
-pub fn create_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    for (locale, yaml) in [
-        ("en-US", include_str!("../i18n/en-US.yaml")),
-        ("es-ES", include_str!("../i18n/es-ES.yaml")),
-    ] {
-        let messages: HashMap<String, String> =
-            serde_yaml::from_str(yaml).expect("valid Meadowline translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(locale),
-            messages,
-        });
-    }
-    env
-}
-
-pub fn email_has_basic_shape(value: &str) -> bool {
-    let value = value.trim();
-    let Some((local, domain)) = value.split_once('@') else {
-        return false;
-    };
-
-    !value.chars().any(char::is_whitespace)
-        && !local.is_empty()
-        && !domain.is_empty()
-        && !domain.contains('@')
-        && domain.contains('.')
-        && !domain.starts_with('.')
-        && !domain.ends_with('.')
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReservationError {
-    CustomerNameRequired,
-    EmailInvalid,
-    SpeciesRequired,
-    QuantityInvalid,
-    QuantityOutOfRange,
-}
-
-impl ReservationError {
-    fn translation_key(self) -> &'static str {
-        match self {
-            Self::CustomerNameRequired => "reservation.error.customer_name",
-            Self::EmailInvalid => "reservation.error.email",
-            Self::SpeciesRequired => "reservation.error.species",
-            Self::QuantityInvalid => "reservation.error.quantity_invalid",
-            Self::QuantityOutOfRange => "reservation.error.quantity_range",
-        }
-    }
-}
-
-pub fn validate_reservation(
-    customer_name: &str,
-    reply_email: &str,
-    species: &str,
-    quantity: &str,
-) -> Result<u32, ReservationError> {
-    if customer_name.trim().is_empty() {
-        return Err(ReservationError::CustomerNameRequired);
-    }
-    if !email_has_basic_shape(reply_email) {
-        return Err(ReservationError::EmailInvalid);
-    }
-    if species.trim().is_empty() {
-        return Err(ReservationError::SpeciesRequired);
-    }
-
-    let quantity = quantity
-        .trim()
-        .parse::<u32>()
-        .map_err(|_| ReservationError::QuantityInvalid)?;
-    if !(1..=24).contains(&quantity) {
-        return Err(ReservationError::QuantityOutOfRange);
-    }
-
-    Ok(quantity)
-}
 
 fission_component! {
     pub SeedlingReservationForm<()> {
@@ -384,22 +347,22 @@ fission_component! {
     }
     view(form, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let result = validate_reservation(
+        let validation = validate_fields(
             &form.customer_name,
             &form.reply_email,
             &form.species,
             &form.quantity,
         );
-        let name_invalid = form.validation_requested && form.customer_name.trim().is_empty();
-        let email_invalid = form.validation_requested && !email_has_basic_shape(&form.reply_email);
-        let species_invalid = form.validation_requested && form.species.trim().is_empty();
-        let quantity_value = form.quantity.trim().parse::<u32>().ok();
-        let quantity_invalid = form.validation_requested && !matches!(quantity_value, Some(1..=24));
+        let result = validation.result();
+        let name_invalid = form.validation_requested && validation.name.is_some();
+        let email_invalid = form.validation_requested && validation.email.is_some();
+        let species_invalid = form.validation_requested && validation.species.is_some();
+        let quantity_invalid = form.validation_requested && validation.quantity.is_err();
     } =>
     SemanticsRegion(
         identifier: Some("seedling-reservation-form".to_string()),
         label: Some(cx.tr("reservation.form.label")),
-        child: Scroll(
+        child: SafeArea(child: Scroll(
             flex_grow: 1.0,
             height: cx.view.viewport_size().height,
             child: Container(
@@ -425,6 +388,11 @@ fission_component! {
                                 } else {
                                     None
                                 },
+                                validation_message: if name_invalid {
+                                    Some(cx.tr("reservation.error.customer_name"))
+                                } else {
+                                    None
+                                },
                                 semantics_identifier: "reservation.customer-name".to_string(),
                             ),
                             TextInput(
@@ -436,6 +404,11 @@ fission_component! {
                                 text_input_action: TextInputAction::Next,
                                 error_text: if email_invalid {
                                     Some(cx.tr("reservation.error.email").into())
+                                } else {
+                                    None
+                                },
+                                validation_message: if email_invalid {
+                                    Some(cx.tr("reservation.error.email"))
                                 } else {
                                     None
                                 },
@@ -451,6 +424,11 @@ fission_component! {
                                 } else {
                                     None
                                 },
+                                validation_message: if species_invalid {
+                                    Some(cx.tr("reservation.error.species"))
+                                } else {
+                                    None
+                                },
                                 semantics_identifier: "reservation.species".to_string(),
                             ),
                             TextInput(
@@ -461,11 +439,20 @@ fission_component! {
                                 text_input_action: TextInputAction::Done,
                                 helper_text: Some(cx.tr("reservation.quantity_help").into()),
                                 error_text: if quantity_invalid {
-                                    Some(cx.tr(if quantity_value.is_some() {
+                                    Some(cx.tr(if validation.quantity == Err(ReservationError::QuantityOutOfRange) {
                                         "reservation.error.quantity_range"
                                     } else {
                                         "reservation.error.quantity_invalid"
                                     }).into())
+                                } else {
+                                    None
+                                },
+                                validation_message: if quantity_invalid {
+                                    Some(cx.tr(if validation.quantity == Err(ReservationError::QuantityOutOfRange) {
+                                        "reservation.error.quantity_range"
+                                    } else {
+                                        "reservation.error.quantity_invalid"
+                                    }))
                                 } else {
                                     None
                                 },
@@ -528,7 +515,7 @@ fission_component! {
             )
             .width_length(Length::percent(100.0))
             .bg(tokens.colors.background),
-        ),
+        )),
     )
 }
 ```
@@ -588,7 +575,7 @@ reservation.error.quantity_range: "Cada bandeja admite de 1 a 24 plantas."
 <TabItem label="src/app_tests.rs">
 <!-- fission:file path="src/app_tests.rs" -->
 ```rust
-use super::*;
+use crate::validation::{validate_fields, validate_reservation, ReservationError};
 
 #[test]
 fn accepts_a_complete_pickup_request() {
@@ -622,12 +609,24 @@ fn rejects_missing_contact_details_and_invalid_quantities() {
         Err(ReservationError::QuantityOutOfRange),
     );
 }
+
+#[test]
+fn field_errors_share_the_same_validation_result() {
+    let fields = validate_fields("", "not-an-email", "", "1.5");
+    assert_eq!(fields.name, Some(ReservationError::CustomerNameRequired));
+    assert_eq!(fields.email, Some(ReservationError::EmailInvalid));
+    assert_eq!(fields.species, Some(ReservationError::SpeciesRequired));
+    assert_eq!(fields.quantity, Err(ReservationError::QuantityInvalid));
+    assert_eq!(fields.result(), Err(ReservationError::CustomerNameRequired));
+}
 ```
 </TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod validation;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -636,11 +635,140 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     WebApp::<(), _>::new(app::SeedlingReservationForm::new())
-        .with_env(app::create_env())
+        .with_env(translations::create_env())
         .with_title("Meadowline seedling pickup request")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/validation.rs">
+<!-- fission:file path="src/validation.rs" -->
+```rust
+pub fn email_has_basic_shape(value: &str) -> bool {
+    let value = value.trim();
+    let Some((local, domain)) = value.split_once('@') else {
+        return false;
+    };
+
+    !value.chars().any(char::is_whitespace)
+        && !local.is_empty()
+        && !domain.is_empty()
+        && !domain.contains('@')
+        && domain.contains('.')
+        && !domain.starts_with('.')
+        && !domain.ends_with('.')
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReservationError {
+    CustomerNameRequired,
+    EmailInvalid,
+    SpeciesRequired,
+    QuantityInvalid,
+    QuantityOutOfRange,
+}
+
+impl ReservationError {
+    pub fn translation_key(self) -> &'static str {
+        match self {
+            Self::CustomerNameRequired => "reservation.error.customer_name",
+            Self::EmailInvalid => "reservation.error.email",
+            Self::SpeciesRequired => "reservation.error.species",
+            Self::QuantityInvalid => "reservation.error.quantity_invalid",
+            Self::QuantityOutOfRange => "reservation.error.quantity_range",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReservationValidation {
+    pub name: Option<ReservationError>,
+    pub email: Option<ReservationError>,
+    pub species: Option<ReservationError>,
+    pub quantity: Result<u32, ReservationError>,
+}
+
+impl ReservationValidation {
+    pub fn result(self) -> Result<u32, ReservationError> {
+        if let Some(error) = self.name.or(self.email).or(self.species) {
+            return Err(error);
+        }
+        self.quantity
+    }
+}
+
+pub fn validate_fields(
+    customer_name: &str,
+    reply_email: &str,
+    species: &str,
+    quantity: &str,
+) -> ReservationValidation {
+    ReservationValidation {
+        name: customer_name.trim().is_empty().then_some(ReservationError::CustomerNameRequired),
+        email: (!email_has_basic_shape(reply_email)).then_some(ReservationError::EmailInvalid),
+        species: species.trim().is_empty().then_some(ReservationError::SpeciesRequired),
+        quantity: quantity.trim().parse::<u32>()
+            .map_err(|_| ReservationError::QuantityInvalid)
+            .and_then(|quantity| {
+                if (1..=24).contains(&quantity) { Ok(quantity) }
+                else { Err(ReservationError::QuantityOutOfRange) }
+            }),
+    }
+}
+
+pub fn validate_reservation(
+    customer_name: &str,
+    reply_email: &str,
+    species: &str,
+    quantity: &str,
+) -> Result<u32, ReservationError> {
+    validate_fields(customer_name, reply_email, species, quantity).result()
+}
+
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod validation;
+mod translations;
+
+use app::SeedlingReservationForm;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(SeedlingReservationForm::new())
+        .with_env(translations::create_env())
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), SeedlingReservationForm> {
+    let app = MobileApp::<(), _>::new(SeedlingReservationForm::new())
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(SeedlingReservationForm::new())
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
@@ -662,55 +790,9 @@ Repeat the flow with a long species name and a multi-line pickup note. Rotate th
 
 The sample has no inventory service, so **Check pickup request** validates a local draft. In a production reservation flow, dispatch the validated request through an asynchronous effect, show a pending state while the nursery service responds, and only then report that stock was actually held.
 
-<Tabs>
-<TabItem label="src/lib.rs · Android shell">
-<!-- fission:file path="src/lib.rs" -->
-```rust
-pub mod app;
 
-use app::{create_env, SeedlingReservationForm};
-use fission::prelude::*;
 
-#[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
-pub fn run_desktop() -> anyhow::Result<()> {
-    DesktopApp::<(), _>::new(SeedlingReservationForm::new())
-        .with_title("Meadowline seedling pickup request")
-        .with_env(create_env())
-        .run()
-}
-
-#[cfg(any(target_os = "android", target_os = "ios"))]
-pub fn run_mobile() -> anyhow::Result<()> {
-    MobileApp::<(), _>::new(SeedlingReservationForm::new())
-        .with_title("Meadowline seedling pickup request")
-        .with_env(create_env())
-        .run()
-}
-
-#[cfg(target_os = "android")]
-#[no_mangle]
-fn android_main(app_handle: AndroidApp) {
-    let app = MobileApp::<(), _>::new(SeedlingReservationForm::new())
-        .with_title("Meadowline seedling pickup request")
-        .with_env(create_env());
-    let _ = app.run_with_android_app(app_handle);
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen::prelude::wasm_bindgen(start)]
-pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
-    console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(SeedlingReservationForm::new())
-        .with_title("Meadowline seedling pickup request")
-        .with_env(create_env())
-        .run()
-        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-</Tabs>
-
-Add `src/app_tests.rs` as shown above, then run the form on an Android emulator. The shared component handles the request fields; the generated Android host is what gives the app a real IME, soft keyboard, focus traversal, and window-resize behavior.
+Keep the `src/lib.rs` supplied in step two, including the validation module declaration. Run the shared tests, then run the form on an emulator or [connected Android phone](/blog/run-a-fission-app-on-a-physical-android-phone/). The shared component handles the request fields; the generated Android host is what gives the app a real IME, soft keyboard, focus traversal, and window-resize behavior.
 
 ```sh
 cargo test

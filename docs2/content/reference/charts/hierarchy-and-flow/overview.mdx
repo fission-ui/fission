@@ -6,7 +6,7 @@ description: Fission Charts reference for the Hierarchy and flow family.
 
 # Hierarchy and flow
 
-This family has 14 chart variants. Pick one that matches your data. Each page has a screenshot, data shape, API notes, and code you can adapt.
+Hierarchy and relationship charts answer different questions. A tree preserves parent-child structure; a treemap or sunburst also compares quantities within that structure. A graph represents connections that need not form a tree, whilst a theme river compares contributions over time.
 
 Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
 
@@ -33,7 +33,7 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 
 ## Choosing within this family
 
-First decide what the user needs to compare or understand. Pick the simplest chart that shows it; add interaction only when it helps, and use animation only when it explains a change.
+Choose the data relationship first. An organisation's reporting lines fit a tree, shared service dependencies need a graph, and a budget breakdown needs a part-to-whole measure. The current Sankey implementation has unweighted, equal-width bands, so use its examples for connectivity rather than quantitative flow comparisons.
 
 ## Authoring from a Fission component
 
@@ -41,22 +41,24 @@ Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or re
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{Chart, TreemapNode, TreemapSeries};
 
-
-
-fission_component!
-{
+// The parent resolves display labels from its translation bundles.
+fission_component! {
     pub HierarchyAndFlowChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            allocations: Vec<TreemapNode>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Hierarchy and flow")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
+    view(budget, _state, _cx) =>
+        Chart(
+            title: Some(budget.chart_title.clone()),
+            series: vec![TreemapSeries::new(&budget.series_label)
+                .data(budget.allocations.clone())
+                .into()],
+        )
 }
 ```
 Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.

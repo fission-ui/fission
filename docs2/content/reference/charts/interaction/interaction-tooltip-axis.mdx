@@ -8,85 +8,71 @@ description: Fission Charts reference for Axis tooltip.
 
 ![Axis tooltip screenshot](/img/charts/interaction-tooltip-axis.png)
 
-This example uses Fission Charts' typed Rust API. Use it when the whole axis position is the hover target. The screenshot is from Fission's chart gallery.
+An axis tooltip compares values at the same category position. In an order report, that lets a reader inspect delivery and collection counts for one day without trying to hover over two separate marks. The screenshot is from Fission's chart gallery.
 
 ## What the chart is for
 
-This chart is in the **Interaction** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
+Use the axis trigger when the comparison is across series at a common day. All series must use the same category ordering; otherwise the tooltip would place unrelated values next to one another.
 
 ## Data model
 
-This example uses `Series data with axis-oriented tooltip intent`. Keep the source values in Rust types and map them to the series or component below.
+Each vector contains one count per weekday in the displayed order. ChartInteraction::tooltips(ChartTooltipTrigger::Axis) enables the built-in feedback. The chart tracks hover state; a reducer is only needed if the product also wants to act on those events.
 
 ## Rust API
 
-| Field | Type | Notes |
+| Setting | Type | Meaning |
 | --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
+| `ChartInteraction::tooltips` | `ChartTooltipTrigger` | Chooses item-level or common-axis feedback. |
+| `ChartInteraction::keyboard_focus` | `bool` | Enables focusable chart navigation. |
+| `Chart::interaction` | `ChartInteraction` | Installs the configured behaviour. |
 
 ## Authoring from a Fission component
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+The component receives prepared counts as props. There is no request or state mutation during a build.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{
+    Axis, Chart, ChartInteraction, ChartTooltipTrigger, Legend, LineSeries,
+};
 
-
-
-fission_component!
-{
+// The parent resolves display labels from its translation bundles.
+fission_component! {
     pub AxisTooltipChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            comparison_series_label: String,
+            category_labels: Vec<String>,
+            delivery: Vec<f32>,
+            collection: Vec<f32>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
-    }
+    view(report, _state, _cx) =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                report.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            legend: Some(Legend::top_right()),
+            interaction: ChartInteraction::tooltips(ChartTooltipTrigger::Axis)
+                .keyboard_focus(true),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.delivery.clone())
+                    .into(),
+                LineSeries::new(&report.comparison_series_label)
+                    .data(report.collection.clone())
+                    .into(),
+            ],
+        )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+## Testing and accessibility
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Move between categories and verify that both series report values for the same day. Check keyboard focus and narrow layouts, and keep exact counts available without requiring hover.
 
 Tags: `tooltip`, `axis`.
 

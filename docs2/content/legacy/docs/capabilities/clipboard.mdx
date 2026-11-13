@@ -16,10 +16,10 @@ Avoid background clipboard reads. Users expect clipboard access to be tied to a 
 Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
 
 ```rust
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct ClipboardState {
-    // Add these fields to your existing app state.
     share_url: String,
+    copying: bool,
     copied: bool,
     clipboard_error: Option<String>,
 }
@@ -27,11 +27,14 @@ struct ClipboardState {
 impl GlobalState for ClipboardState {}
 ```
 
-Keep the copied state and any error in app state. Set them from the completion actions.
+Populate `share_url` from the selected record's actual share URL. Keep the
+in-flight flag and outcome separately: requesting a copy is not proof that the
+host accepted it.
 
 ## 2. Configure the target and host
 
-There is no single safe `add-capability` value for this feature because the product owns the route/provider details, or because the default host can expose the feature without generated permission files. You still configure the shell explicitly and review target packaging before release.
+Clipboard needs no `fission add-capability` command. It still depends on the
+active shell's provider and the host's focus, security and user-gesture rules.
 
 Clipboard does not need generated Android or iOS permission entries in the built-in declaration. The default shell can provide a clipboard host on common desktop paths, but custom shells and web targets still need an implementation that respects focus, gesture, and security rules.
 
@@ -50,14 +53,21 @@ The write completes after its starting reducer returns. Handle success and failu
 ```rust
 #[fission_reducer(LinkCopied)]
 fn on_link_copied(state: &mut ClipboardState) {
+    state.copying = false;
     state.copied = true;
     state.clipboard_error = None;
 }
 
 #[fission_reducer(CopyFailed)]
-fn on_copy_failed(state: &mut ClipboardState, error: ClipboardError) {
+fn on_copy_failed(state: &mut ClipboardState, ctx: &mut ReducerContext<ClipboardState>) {
+    state.copying = false;
     state.copied = false;
-    state.clipboard_error = Some(error.message);
+    state.clipboard_error = Some(
+        ctx.input.capability_error(WRITE_CLIPBOARD_TEXT)
+            .map(|error| error.message)
+            .or_else(|| ctx.input.capability_error_message(WRITE_CLIPBOARD_TEXT).map(str::to_owned))
+            .unwrap_or_else(|| "Clipboard write failed".into()),
+    );
 }
 ```
 
@@ -68,22 +78,28 @@ Focus restrictions, unavailable providers, and denied access are expected outcom
 Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
 
 ```rust
-ctx.effects
-    .clipboard()
-    .write_text(ClipboardWriteTextRequest {
-        text: state.share_url.clone(),
-    })
-    .on_ok(ctx.effects.bind(
-        LinkCopied,
-        reduce_with!(on_link_copied),
-    ))
-    .on_err(ctx.effects.bind(
-        CopyFailed(ClipboardError::default()),
-        reduce_with!(on_copy_failed),
-    ));
+#[fission_reducer(CopyShareLink)]
+fn on_copy_share_link(state: &mut ClipboardState, ctx: &mut ReducerContext<ClipboardState>) {
+    if state.copying || state.share_url.is_empty() {
+        return;
+    }
+    state.copying = true;
+    state.copied = false;
+    state.clipboard_error = None;
+
+    let copied = ctx.effects.bind(LinkCopied, reduce_with!(on_link_copied));
+    let failed = ctx.effects.bind(CopyFailed, reduce_with!(on_copy_failed));
+    ctx.effects
+        .clipboard()
+        .write_text(ClipboardWriteTextRequest { text: state.share_url.clone() })
+        .on_ok(copied)
+        .on_err(failed);
+}
 ```
 
-The call records a typed request; the host applies browser gesture and platform security rules.
+Bind callbacks before borrowing the effect builder. The failure reducer reads
+the actual host result through `ctx.input`; a default error in an action payload
+would only describe the value authored earlier, not what the host returned.
 
 ## 5. Trigger the reducer from the UI
 
@@ -92,19 +108,23 @@ Bind the button to the reducer that starts the copy:
 ```rust
 
 
-fission_component!
-{
-    pub CopyShareLinkButton<ClipboardState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<ClipboardState>();
-                let run = with_reducer!(ctx, CopyShareLink, on_copy_share_link);
-
-                Button::new("Copy link")
-                    .disabled(false)
-                    .on_press(run)
-                    .into()
-    }
+fission_component! {
+    pub CopyShareLinkButton<ClipboardState>
+    view(_button, state, cx) {
+        let run = cx.bind(CopyShareLink, reduce!(on_copy_share_link));
+    } =>
+    Column(children: [
+        Button(
+            child: Text(cx.tr("share.copy_link")),
+            disabled: state.copying || state.share_url.is_empty(),
+            on_press: run,
+        ),
+        if state.copying { Spinner(motion: SpinnerMotion::Default, label: cx.tr("share.copying")) },
+        if state.copied { Text(cx.tr("share.link_copied")) },
+        if let Some(error) = &state.clipboard_error {
+            Alert(kind: AlertKind::Error, title: error.clone())
+        },
+    ])
 }
 ```
 The button dispatches an action, a reducer requests the clipboard write, and a completion reducer updates the screen.
@@ -127,7 +147,7 @@ A complete `Clipboard` integration has all of these pieces in place:
 
 | Piece | What should exist |
 | --- | --- |
-| Configuration | `fission.toml` declares the capability and generated platform files contain the permission text, manifest entry, entitlement, domain, or protocol metadata the target needs. |
+| Configuration | No generated clipboard permission declaration; verify the actual provider, secure context and focus/gesture requirements. |
 | State | App state records the in-flight flag, the successful value, and the user-facing error separately. |
 | Reducers | One reducer starts the host request, one handles success, and one handles denial, unsupported hosts, cancellation, or provider errors. |
 | Provider | The shell registers a real provider for production and a memory provider for tests. |

@@ -32,22 +32,35 @@ Do not use it just because a team already has some HTML lying around. If the scr
 This example shows a help panel that opens product documentation inside the app while keeping the chosen page in app state.
 
 ```rust
-use fission::WidgetId;
 use fission::prelude::*;
 
-let help_panel = WebView {
-    id: WidgetId::explicit("help_docs"),
-    label: Some("Help documentation".into()),
-    url: view.state().help_url.clone(),
-    user_agent: None,
-    width: Some(480.0),
-    height: Some(320.0),
+fission_component! {
+    pub HelpDocument<()> {
+        props {
+            url: String,
+            width: f32,
+            height: f32,
+        }
+    }
+
+    view(help, _state, cx) =>
+        WebView(
+            id: WidgetId::explicit("help.document"),
+            label: Some(cx.tr("help.documentation")),
+            url: help.url.clone(),
+            width: help.width,
+            height: help.height,
+        )
 }
-.into();
 ```
 
-`view.state().help_url` is app state, so reducers decide which page to show.
-`WebView` passes that URL to the runtime, and the host browser loads it.
+The parent owns a validated help URL and real panel bounds. This does not turn
+untrusted HTML into native UI or prove a target has a real browser backend.
+Keep an explicit `Open in browser` action available when embedding is unsupported.
+
+The requested URL comes from parent state, so navigation intent stays explicit.
+On a supported host the embedded browser loads it; registration alone does not
+create a browser engine on other targets.
 
 ## Field reference
 
@@ -55,6 +68,7 @@ let help_panel = WebView {
 | --- | --- | --- | --- |
 | `id` | `WidgetId` | Stable identity for the embedded browser node. | Required. The runtime uses it as the key in `runtime web state store`. |
 | `url` | `String` | The page the embedded surface should load. | Required. When the runtime sees this value change, it updates the registered web state and marks it as loading. |
+| `label` | `Option<String>` | Accessible document name. | Prefer a translated purpose over an opaque URL. |
 | `user_agent` | `Option<String>` | Optional custom user-agent string for the embedded surface. | Defaults to `None`. The runtime stores the requested value with the registration. |
 | `width` | `Option<f32>` | Requested layout width for the embedded surface. | Use `Some(...)` for a fixed-size panel. Use `None` when the parent layout should decide the width. |
 | `height` | `Option<f32>` | Requested layout height for the embedded surface. | Use `Some(...)` for a fixed-height panel. Use `None` when the parent layout should decide the height. |
@@ -76,8 +90,9 @@ Those boundaries bring trade-offs. `WebView` is useful when embedding web conten
 `WebView` has a runtime registration and state contract, but embedded browser
 support is partial in the current shells. The conversion path registers the
 surface through `BuildCtxHandle::register_web_view(...)`; the runtime tracks
-the requested URL and related metadata. The shell-side browser surface and
-control loop are not implemented across all targets yet. Check the target you
+the requested URL and related metadata. The native winit path has a macOS WKWebView backend; its non-macOS fallback
+is a no-op mock, not an embedded browser. Browser navigation metadata and
+control integration are not implemented across all targets. Check the target you
 plan to ship before making embedded browsing a required part of the product.
 
 ## Specific guidance
@@ -92,11 +107,10 @@ shells do not yet provide the complete browser-control path.
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Prefer parent layout and design-system sizing first; use explicit size or spacing fields when the product layout requires that constraint on this widget specifically.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Verify a real host browser surface, not only the registration state, on the shipped target.
+- Restrict untrusted URL/navigation origins according to the product's security policy.
+- Test focus and authentication/cookie behaviour in the actual embedded engine.
+- Offer a normal external-browser path when embedding is unavailable.
 
 ## Related
 

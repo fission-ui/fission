@@ -5,92 +5,122 @@ description: Use design-system tokens, packaged fonts, typed paint, shadows, fil
 
 # Visual fidelity
 
-Fission's visual model is intentionally explicit. A widget tree can describe layout, colors, fills, text metrics, shadows, filters, and packaged fonts in a way that the runtime and tests can inspect.
+Layout, paint, and text metrics need to agree before an interface looks right.
+Fission describes them as typed values, so the same design can be lowered by
+each target and inspected in tests. That does not mean one screenshot proves
+every target renders identically.
 
-Put shared design decisions in the generated design system and typed layout and
-paint primitives. That keeps colors, spacing, typography, and effects consistent
-across the app and gives the runtime something it can inspect and test.
+Keep shared visual decisions in the generated design system. A component reads
+the active theme instead of creating a second palette or typography scale.
 
 ## Use tokens before literals
 
 ```rust
+use fission::prelude::*;
+
 const HERO_HORIZONTAL_PADDING_MIN: f32 = 20.0;
 const HERO_HORIZONTAL_PADDING_MAX: f32 = 64.0;
 
-fission_component!
-{
-    pub HeroCard<AppState> {
-    }
-    view(_component, _state, _cx) => rust {
-        let (_ctx, view) = fission::build::current::<AppState>();
-                let tokens = &view.env().theme.tokens;
-
-                Container::new(Text::new(TextContent::Key("home.hero.title".into())))
-                    .padding_lengths(Length::symmetric(
-                        Length::clamp(
-                            Length::points(HERO_HORIZONTAL_PADDING_MIN),
-                            Length::vw(5.0),
-                            Length::points(HERO_HORIZONTAL_PADDING_MAX),
-                        ),
-                        Length::points(tokens.spacing.xl),
-                    ))
-                    .bg(tokens.colors.surface)
-                    .border(tokens.colors.border, 1.0)
-                    .border_radius(tokens.radii.large)
-                    .into()
-    }
+fission_component! {
+    pub HeroCard<()> {}
+    view(_hero, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let padding = Length::symmetric(
+            Length::clamp(
+                Length::points(HERO_HORIZONTAL_PADDING_MIN),
+                Length::vw(5.0),
+                Length::points(HERO_HORIZONTAL_PADDING_MAX),
+            ),
+            Length::points(tokens.spacing.xl),
+        );
+    } =>
+    Container(
+        Text(TextContent::Key("home.hero.title".into())),
+        background_color: tokens.colors.surface,
+        border_color: tokens.colors.border,
+        border_width: 1.0,
+        border_radius: tokens.radii.large,
+    ).padding_lengths(padding)
 }
 ```
-Raw colors and font sizes are still available, but app code should treat them as exceptions. Product UI should normally read colors, spacing, typography, radius, elevation, motion, and component styling from the active theme.
+
+The horizontal clamp constrains this hero's geometry. Shared colours, spacing,
+and radius still come from the theme. If several screens need the same clamp,
+move that decision into the design system too. Raw colours and font sizes
+remain available; repeating them throughout the app distributes the same
+design decisions across unrelated components again.
 
 ## Typed paint and effects
 
-Fission supports solid colors, fills, gradients, strokes, shadows, and backdrop filters as typed data rather than shell-specific CSS strings.
+Fission represents gradients, strokes, shadows, and backdrop filters as typed
+data rather than target-specific CSS. For example, this custom glass surface
+uses the active surface colour and elevation:
 
 ```rust
-Container::new(Text::new("Glass panel"))
-    .bg_fill(Fill::LinearGradient {
-        start: (0.0, 0.0),
-        end: (1.0, 1.0),
-        stops: vec![
-            (0.0, Color { r: 255, g: 255, b: 255, a: 160 }),
-            (1.0, Color { r: 255, g: 255, b: 255, a: 72 }),
-        ],
-    })
-    .backdrop_blur(18.0)
-    .shadows(vec![BoxShadow {
-        offset: (0.0, 18.0),
-        blur_radius: 42.0,
-        spread_radius: -12.0,
-        color: Color { r: 15, g: 23, b: 42, a: 70 },
-        inset: false,
-    }])
-    .into()
+fission_component! {
+    pub GlassPanel<()> {
+        props { content: Widget }
+    }
+    view(panel, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let mut leading = tokens.colors.surface;
+        leading.a = 160;
+        let mut trailing = tokens.colors.surface;
+        trailing.a = 72;
+    } =>
+    Container(
+        child: panel.content.clone(),
+        background_fill: Fill::LinearGradient {
+            start: (0.0, 0.0),
+            end: (1.0, 1.0),
+            stops: vec![(0.0, leading), (1.0, trailing)],
+        },
+        border_radius: tokens.radii.large,
+        shadow: tokens.elevations.level2.clone(),
+    ).backdrop_blur(18.0)
+}
 ```
 
-Use these APIs for reusable components and design-system-backed examples. Target shells lower the typed primitives to the best available host representation.
+The opacity and blur are this material's custom treatment. For a shared
+material, put those choices in its design recipe; for an ordinary grouped
+surface, use `Card` instead. The parent passes the content through
+`GlassPanel(content)`, which calls the generated constructor.
+
+Each target lowers the supported primitives to its host representation.
+Inspect compositing and text contrast on the intended background instead of
+assuming a blurred surface is readable because it uses theme colours.
 
 ## Fonts are assets
 
-Design-system codegen packages declared font files with the generated type. Native shells can register those fonts through `DesignSystem::font_faces()`. Static site and SSR output do not add packaged fonts to CSS by default. Set `[web].font_delivery` in `fission.toml` when you want a different behavior:
+Design-system codegen packages declared font files with the generated type.
+Native shells register them through `DesignSystem::font_faces()`. Static site
+and SSR do not add packaged fonts to CSS by default. Choose delivery explicitly
+in `fission.toml`:
 
 ```toml
 [web]
-font_delivery = "none" # default; use "external" or "inline" to opt in
+font_delivery = "none" # default; "external" or "inline" opts in
 ```
 
-`external` writes cacheable font files and references them from CSS. `inline` embeds the bytes as CSS data URLs, which makes the output self-contained but increases the CSS size. This setting applies to Static site and SSR documents; it does not configure the canvas-rendered Web SPA, which registers packaged font data with its renderer. See the [`[web]` configuration](/reference/config/fission-toml/#web) for details.
+`external` emits separately cacheable font assets referenced by CSS. `inline`
+embeds their bytes as data URLs and increases the CSS payload. These options
+apply to Static site and SSR documents. A canvas-rendered Web SPA registers
+packaged font data with its renderer instead; the setting does not change that
+into browser CSS. See the [Web configuration](/reference/config/fission-toml/#web).
 
-Use the generated typography tokens instead of assuming that a user's machine has the same fonts installed. Choose browser font delivery deliberately for the deployment you are building.
+Use typography tokens and the intended packaged faces. A matching family name
+does not establish that another machine has the same font, weight, or glyphs.
 
 ## Verify with golden tests
 
-Visual fidelity is not complete until it is testable. Use LiveTest screenshots for real shell output, then compare against golden images with thresholds appropriate to the target.
+Capture a real target at a known size, theme, locale, and data state. First
+assert the product state, then compare its rendering:
 
 ```rust
 client.simulate_resize(390, 844)?;
 client.wait_for_idle(2_000, false)?;
-let report = client.compare_golden(
+client.wait_for_text("Your projects", 5_000)?;
+client.compare_golden(
     "goldens/home-phone.png",
     Some(".artifacts/diffs/home-phone.png"),
     GoldenOptions {
@@ -98,5 +128,10 @@ let report = client.compare_golden(
         max_changed_percent: 0.2,
     },
 )?;
-assert!(report.changed_percent <= 0.2);
 ```
+
+The English text assertion belongs to this test's English scenario, not to a
+reusable component. `0.2` is a 0.2% changed-pixel budget. Review the diff when it
+fails; increasing the budget until it passes can hide a missing control as
+easily as harmless rasterisation noise. Golden tests complement interaction and
+accessibility checks rather than replacing them.

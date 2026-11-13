@@ -1,63 +1,86 @@
 ---
 title: Transition
-description: Animate one common visual property toward a new value when state changes.
+description: Animate state changes with the current Motion and Presence APIs.
 slug: /widgets/transition
 ---
+
 # Transition
 
-`Transition` animates one visual property on one child. Use it when a state
-change should fade, translate, scale, or rotate instead of changing at once.
-Give it a stable id, the target value, the property, and timing information; the
-runtime animates from the current value to the new one.
+This route is retained for existing links, but `Transition` and
+`AnimationPropertyId` are not current public widgets/types. Use `Motion` for
+property tracks and `Presence` when a child needs to remain mounted while
+its exit animation finishes.
 
-Keep the target in app state. A reducer changes that state, the next build
-supplies the new target, and `Transition` asks the runtime to animate it.
+The distinction matters for a save confirmation: changing opacity alone
+does not define whether its content remains in layout or accepts input.
+`Presence` owns that lifecycle explicitly.
 
 ## Example
 
 ```rust
 use fission::prelude::*;
+use fission::motion::{fade, reverse_tracks_for_exit, Presence};
 
-let banner = Transition {
-    id: WidgetId::explicit("save_banner"),
-    property: AnimationPropertyId::Opacity,
-    value: if view.state().show_saved_banner { 1.0 } else { 0.0 },
-    duration: 250,
-    delay: 0,
-    child: saved_banner.into(),
+fission_component! {
+    pub SavedNotice<()> {
+        props { visible: bool }
+    }
+    view(notice, _state, cx) =>
+    Presence(
+        visible: notice.visible,
+        enter: fade(),
+        exit: reverse_tracks_for_exit(&fade()),
+        child: Text(cx.tr("documents.saved")),
+    )
 }
-.into();
 ```
+
+The parent sets `visible` only after a confirmed save, and clears it when the
+draft changes. It does not infer save completion from the animation ending.
+Compose supplies a stable retained identity; use a durable record key when
+the notice belongs to a dynamic document instance.
 
 ## Field table
 
-| Field | Type | Meaning | Notes / default behavior |
-| --- | --- | --- | --- |
-| `id` | `WidgetId` | Stable animation target identity. | Required. Reuse the same id across reconversions so the runtime can animate from the current visual state. |
-| `value` | `f32` | Target value for the chosen property. | Defaults to `0.0`. Interpret it according to `property`. |
-| `property` | `AnimationPropertyId` | Which visual property to animate. | Defaults to `Opacity`. |
-| `duration` | `u64` | Animation duration in milliseconds. | Defaults to `300`. |
-| `delay` | `u64` | Delay before the animation starts, in milliseconds. | Defaults to `0`. |
-| `child` | `Widget` | Content that should visually transition. | Required. The widget wraps it in a repaint boundary for the built-in properties. |
+The example uses these current `Presence` fields:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable identity, supplied by Compose or explicitly in ordinary Rust. |
+| `visible` | Logical visibility supplied by the app. |
+| `enter` / `exit` | `Vec<MotionTrack>` declaring the two transitions. |
+| `child` | Retained content controlled by the wrapper. |
+| `keep_rendered` | Whether content remains rendered after exit. Defaults false. |
+| `inert_while_exiting` | Whether exiting content stops accepting interaction. Defaults true. |
+| `clip_to_bounds` | Whether visual overflow is clipped. |
+| `repaint_boundary` | Whether the wrapper requests a repaint/composite boundary. |
 
 ## When to use it and when not to
 
-`Transition` is the right tool when you want one straightforward, state-driven animation on a subtree. It is not the right tool for choreographed multi-element sequences, physics-driven motion, or route-to-route shared element behavior. Those cases usually want a more intentional animation structure such as [`Hero`](/reference/widgets/hero), nested transitions, or a custom runtime animation strategy.
+Use the built-in widget's own preset when it already owns the lifecycle.
+For a custom property transition, build a `MotionTrack` with
+`MotionPropertyId`, `MotionStartValue`, and `MotionTransition` and place it on
+`Motion`. Use `Presence` for enter/exit, not a timer that removes the child
+after a guessed duration.
 
 ## Specific advice
 
-Keep the `id` stable and meaningful. If you generate a new id every reconvert, the runtime has no previous visual state to animate from.
+Keep state decisions in reducers and transient progress in the runtime.
+`MotionPreference::Reduced` makes declared transitions immediate and suppresses
+decorative ripples; it does not change the underlying saved/not-saved state.
 
-Also know the current limits of this helper. The built-in widget applies compositor-friendly wrappers for `Opacity`, `TranslateX`, `TranslateY`, `Scale`, and `Rotation`. If you pass `AnimationPropertyId::Custom(_)`, the current implementation leaves the child visually unchanged, so use a lower-level path for truly custom animated properties.
+A custom motion property still needs a consumer that understands it. Naming
+one does not teach the renderer how to paint an application-specific effect.
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+Test repeated show/hide transitions, reduced motion, and the end of exit.
+A disappearing control must not remain keyboard-activatable or block the
+content underneath. Inspect a real target as well as deterministic motion
+tests when the result depends on host composition.
 
 ## Related
 
-[`Hero`](/reference/widgets/hero), [`Composite`](/reference/widgets/composite), and [`Rendering pipeline`](/reference/core/rendering-pipeline).
+[Animations, portals, and media](/reference/core/animations-portals-media/),
+[Hero](/reference/widgets/hero/), and
+[Rendering pipeline](/reference/core/rendering-pipeline/).

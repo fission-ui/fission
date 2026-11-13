@@ -1,90 +1,53 @@
 ---
 title: Basic bar
 sidebar_label: Basic bar
-description: Fission Charts reference for Basic bar.
+description: Project product stock counts into a basic Compose bar chart.
 ---
 
 # Basic bar
 
 ![Basic bar screenshot](/img/charts/bar-basic.png)
 
-A category comparison using rectangular bars. Use it when individual values need easy comparison. The screenshot is from Fission's chart gallery.
+Use bars when the question is how individual categories compare. A stock overview, for example, can show units available for each product without implying that there is a continuous path between the products.
 
-## What the chart is for
-
-This chart is in the **Cartesian** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-`Vec<f32> aligned to category labels.` Keep the source values in Rust types. Fission Charts uses typed series and options, not string-based configuration.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis / y_axis` | `Axis` | Vertical bars use category x/value y; horizontal bars use value x/category y. |
-| `series` | `BarSeries` | Holds values plus stack, orientation, radius, background, and color styling. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, BarSeries, Chart};
-
-let chart = Chart::new()
-    .title("Category comparison")
-    .x_axis(Axis::category(vec!["A", "B", "C", "D"]))
-    .y_axis(Axis::value())
-    .series(vec![BarSeries::new("Orders").data(vec![120.0, 200.0, 150.0, 80.0]).into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Keep each label with its value until the final projection. Sorting the values independently would create plausible bars attached to the wrong products.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, BarSeries, Chart};
+use fission::charts::{Axis, BarSeries, Chart, Series};
 
+#[derive(Clone)]
+pub struct ProductStock {
+    pub label: String,
+    pub available_units: u32,
+}
 
-
-fission_component!
-{
-    pub BasicBarChart<()> {
+fission_component! {
+    pub ProductStockBars<()> {
+        props {
+            title: String,
+            units_label: String,
+            products: Vec<ProductStock>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Category comparison")
-                    .x_axis(Axis::category(vec!["A", "B", "C", "D"]))
-                    .y_axis(Axis::value())
-                    .series(vec![BarSeries::new("Orders").data(vec![120.0, 200.0, 150.0, 80.0]).into()])
-                    .into()
-    }
+    view(stock, _state, _cx) {
+        let labels = stock.products.iter().map(|product| product.label.as_str()).collect();
+        let values = stock.products.iter().map(|product| product.available_units as f32).collect();
+    } => Chart(
+        title: Some(stock.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        series: vec![Series::Bar(
+            BarSeries::new(&stock.units_label).data(values),
+        )],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Enable Fission's `charts` feature. The parent supplies translated labels and a stock snapshot from application state; loading happens through effects and reducers rather than during the view.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+`Chart.series` is a `Vec<Series>`, not a single `BarSeries`; the explicit variant makes the conversion clear. Axes and title are optional chart fields, supplied here because the comparison needs them.
 
-Tags: `bar`, `category`.
+Test stock-to-category alignment and an empty result. Distinguish unavailable stock from zero units, and provide exact counts alongside the chart. The gallery screenshot illustrates the geometry with different data.
 
 [Cartesian family overview](./overview)

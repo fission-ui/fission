@@ -7,7 +7,9 @@ description: Play tactile feedback for impact, notification, selection, and shor
 
 Haptics are tactile cues. They should reinforce meaningful interactions, not replace visual text, screen-reader output, or error messages. Unsupported hosts return errors because many machines have no haptic hardware.
 
-This example plays a short success pattern only after the save succeeds. Keep haptics tied to a user action; they should reinforce the result, not carry the message on their own.
+This example provides an explicit feedback-test control. In a save workflow,
+request the same feedback only after the save succeeds. The haptic result
+must never decide whether an already successful save counts as a success.
 
 Do not vibrate continuously or use haptics as the only signal. Keep patterns short, user-driven, and tied to an action the user understands.
 
@@ -16,9 +18,9 @@ Do not vibrate continuously or use haptics as the only signal. Keep patterns sho
 Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
 
 ```rust
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct HapticsState {
-    // Add these fields to your existing app state.
+    feedback_pending: bool,
     haptic_error: Option<String>,
 }
 
@@ -53,8 +55,20 @@ The haptics request completes after the reducer returns. Handle any provider err
 
 ```rust
 #[fission_reducer(HapticFailed)]
-fn on_haptic_failed(state: &mut HapticsState, error: HapticError) {
-    state.haptic_error = Some(error.message);
+fn on_haptic_failed(state: &mut HapticsState, ctx: &mut ReducerContext<HapticsState>) {
+    state.feedback_pending = false;
+    state.haptic_error = Some(
+        ctx.input.capability_error(HAPTIC_NOTIFICATION)
+            .map(|error| error.message)
+            .or_else(|| ctx.input.capability_error_message(HAPTIC_NOTIFICATION).map(str::to_owned))
+            .unwrap_or_else(|| "Haptic feedback unavailable".into()),
+    );
+}
+
+#[fission_reducer(HapticPlayed)]
+fn on_haptic_played(state: &mut HapticsState) {
+    state.feedback_pending = false;
+    state.haptic_error = None;
 }
 ```
 
@@ -65,39 +79,49 @@ Unsupported hardware is a normal outcome. Do not make product success depend on 
 Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
 
 ```rust
-ctx.effects
-    .haptics()
-    .notification(HapticNotificationRequest {
-        kind: HapticNotificationKind::Success,
-    })
-    .on_err(ctx.effects.bind(
-        HapticFailed(HapticError::default()),
-        reduce_with!(on_haptic_failed),
-    ));
+#[fission_reducer(PlaySuccessHaptic)]
+fn on_play_success_haptic(state: &mut HapticsState, ctx: &mut ReducerContext<HapticsState>) {
+    if state.feedback_pending { return; }
+    state.feedback_pending = true;
+    state.haptic_error = None;
+    let played = ctx.effects.bind(HapticPlayed, reduce_with!(on_haptic_played));
+    let failed = ctx.effects.bind(HapticFailed, reduce_with!(on_haptic_failed));
+    ctx.effects
+        .haptics()
+        .notification(HapticNotificationRequest { kind: HapticNotificationKind::Success })
+        .on_ok(played)
+        .on_err(failed);
+}
 ```
 
-The call records a typed host request; the provider decides whether the target can play it.
+The request queues host work and returns. Bind its callbacks first so the
+effect builder does not overlap another mutable borrow of `ctx.effects`.
+The error reducer reads the actual capability input, not a default error
+placed in a callback's authored payload.
 
 ## 5. Trigger the reducer from the UI
 
-Bind the button to the reducer that handles Save:
+Bind a feedback-test button to that reducer:
 
 ```rust
 
 
-fission_component!
-{
-    pub PlayHapticFeedbackButton<HapticsState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<HapticsState>();
-                let run = with_reducer!(ctx, PlaySuccessHaptic, on_play_success_haptic);
-
-                Button::new("Play feedback")
-                    .disabled(false)
-                    .on_press(run)
-                    .into()
-    }
+fission_component! {
+    pub PlayHapticFeedbackButton<HapticsState>
+    view(_button, state, cx) {
+        let run = cx.bind(PlaySuccessHaptic, reduce!(on_play_success_haptic));
+    } =>
+    Column(children: [
+        Button(
+            child: Text(cx.tr("feedback.test")),
+            disabled: state.feedback_pending,
+            on_press: run,
+        ),
+        if state.feedback_pending { Spinner(motion: SpinnerMotion::Default, label: cx.tr("feedback.pending")) },
+        if let Some(error) = &state.haptic_error {
+            Alert(kind: AlertKind::Warning, title: error.clone())
+        },
+    ])
 }
 ```
 Dispatch haptics only after the save reducer accepts the result. A failed save should not play success feedback.

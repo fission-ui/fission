@@ -15,11 +15,14 @@ should show that it can be sorted.
 ```rust
 use fission::prelude::*;
 
+// In view setup: sort_updated is a bound action for this column.
 let column = TableColumn {
     id: "updated_at".into(),
-    title: "Updated".into(),
+    title: cx.tr("invoices.updated"),
     width: 140.0,
     sortable: true,
+    on_sort: Some(sort_updated),
+    sorted_ascending: Some(state.sort_ascending),
 };
 ```
 
@@ -30,7 +33,9 @@ let column = TableColumn {
 | `id` | `String` | Stable application-level column identifier. | Required. Useful for your own sort and visibility logic. |
 | `title` | `String` | Header label shown at the top of the column. | Required. |
 | `width` | `f32` | Display width for the column. | Required. Choose widths deliberately for the data shape. |
-| `sortable` | `bool` | Whether the header should show a sort affordance. | The checked-in table uses this only as a visual indicator. |
+| `sortable` | `bool` | Whether the header exposes sorting affordance. | A sortable column with no action is disabled, not a working sort. |
+| `on_sort` | `Option<ActionEnvelope>` | Action dispatched when a sortable header is activated. | The app sorts its authoritative typed records. |
+| `sorted_ascending` | `Option<bool>` | Current active sort direction. | `None` means this column is not the active sort. |
 
 ## Specific advice
 

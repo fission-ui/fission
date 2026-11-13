@@ -19,35 +19,27 @@ it.
 ```rust
 use fission::prelude::*;
 
-let dialog = Modal {
-    id: WidgetId::explicit("save_confirm"),
-    title: "Save these changes?".into(),
-    content: Text::new("Everyone on the project will see the updated values.").into(),
-    is_open: view.state().show_save_dialog,
-    on_dismiss: Some(close_dialog.clone()),
-    actions: vec![
-        ModalAction {
-            label: "Cancel".into(),
-            on_press: Some(close_dialog),
-            is_primary: false,
-            semantics_identifier: Some("save-dialog.cancel".into()),
-        },
-        ModalAction {
-            label: "Save".into(),
-            on_press: Some(confirm_save),
-            is_primary: true,
-            semantics_identifier: Some("save-dialog.save".into()),
-        },
-    ],
-    width: None,
-    motion: None,
-    backdrop_semantics_identifier: None,
-    close_semantics_identifier: None,
-    surface_semantics_identifier: None,
-};
+// In the dialog parent's view setup. The two actions are already bound.
+let actions = vec![
+    ModalAction {
+        label: cx.tr("common.cancel"),
+        on_press: Some(close_dialog),
+        is_primary: false,
+        semantics_identifier: Some("save-dialog.cancel".into()),
+    },
+    ModalAction {
+        label: cx.tr("document.save"),
+        on_press: Some(confirm_save),
+        is_primary: true,
+        semantics_identifier: Some("save-dialog.save".into()),
+    },
+];
 ```
 
-In that example, the modal does not close itself. Your reducers decide whether `close_dialog` or `confirm_save` should change the state.
+Pass `actions` to the compact `Modal` in the parent Compose tree. These are
+configuration records, not standalone widgets. The registered reducers decide
+whether `close_dialog` or `confirm_save` closes the dialog; a failed save should
+leave the draft and failure visible.
 
 ## Field table
 
@@ -72,7 +64,7 @@ retained footer model:
 
 ```rust
 let footer = ModalFooter::new(vec![ModalFooterAction {
-    label: "Delete".into(),
+    label: cx.tr("record.delete"),
     on_press: Some(confirm_delete),
     variant: ButtonVariant::Destructive,
     semantics_identifier: Some("delete-dialog.delete".into()),
@@ -104,9 +96,9 @@ applies to an explicit `ModalFooterAction::variant`.
 
 ## Production checklist
 
-- Bind `on_press` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Verify failed saves keep the dialog/draft visible and duplicate submit cannot race.
+- Check action order at the narrow-stack breakpoint with long translations.
+- Treat destructive tone as presentation, not an authorisation or confirmation policy.
 
 ## Related
 

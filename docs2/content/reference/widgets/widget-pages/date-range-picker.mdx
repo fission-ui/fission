@@ -11,29 +11,61 @@ ranges, booking windows, and date filters.
 
 ## Example
 
+Both ends of the range use `chrono::NaiveDate`. Declare that dependency in the
+app rather than relying on Fission's transitive dependency:
+
+```bash
+cargo add chrono
+```
+
 ```rust
 use chrono::NaiveDate;
 use fission::prelude::*;
 use std::sync::Arc;
 
-let widget: Widget = DateRangePicker {
-id_start: WidgetId::explicit("range_start"),
-id_end: WidgetId::explicit("range_end"),
-start: view.state().range_start,
-end: view.state().range_end,
-is_start_open: view.state().range_start_open,
-is_end_open: view.state().range_end_open,
-on_change: Some(Arc::new(move |start: Option<NaiveDate>, end: Option<NaiveDate>| ActionEnvelope {
-    id: set_range_id,
-    payload: serde_json::to_vec(&SetDateRange { start, end }).unwrap(),
-})),
-on_toggle_start: Some(toggle_start_action),
-on_toggle_end: Some(toggle_end_action),
-on_close_start: Some(close_start_action),
-on_close_end: Some(close_end_action),
+type ChangeRange =
+    Arc<dyn Fn(Option<NaiveDate>, Option<NaiveDate>) -> ActionEnvelope + Send + Sync>;
+
+fission_component! {
+    pub ReportingRange<()> {
+        props {
+            start: Option<NaiveDate>,
+            end: Option<NaiveDate>,
+            start_open: bool,
+            end_open: bool,
+            change_range: ChangeRange,
+            toggle_start: ActionEnvelope,
+            toggle_end: ActionEnvelope,
+            close_start: ActionEnvelope,
+            close_end: ActionEnvelope,
+        }
+    }
+
+    view(range, _state, cx) =>
+        Column(
+            children: [
+                Text(cx.tr("report.date_range")),
+                DateRangePicker(
+                    id_start: WidgetId::explicit("report.start"),
+                    id_end: WidgetId::explicit("report.end"),
+                    start: range.start,
+                    end: range.end,
+                    is_start_open: range.start_open,
+                    is_end_open: range.end_open,
+                    on_change: range.change_range.clone(),
+                    on_toggle_start: range.toggle_start.clone(),
+                    on_toggle_end: range.toggle_end.clone(),
+                    on_close_start: range.close_start.clone(),
+                    on_close_end: range.close_end.clone(),
+                ),
+            ],
+        )
 }
-.into();
 ```
+
+The parent supplies registered action factories, not serialization code inside
+the view. The range reducer receives both dates and owns their validation.
+Closing one popup should not accidentally open the other.
 
 This keeps the whole interaction inside the normal state loop: each side has explicit open state, and the reducer stays responsible for validating the final range.
 
@@ -69,9 +101,9 @@ Keep the real range in state as dates, not formatted strings. Also think about w
 
 ## Production checklist
 
-- Bind `on_change`, `on_toggle_start` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test each incomplete range and end-before-start without issuing an invalid query.
+- Check both popups, outside dismissal, and narrow layouts.
+- Distinguish calendar dates from timezone-aware report boundaries.
 
 ## Related
 

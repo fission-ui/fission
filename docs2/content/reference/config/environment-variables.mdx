@@ -16,7 +16,10 @@ The moment at which a variable is read is part of its contract:
 | Command | On the `fission`, `cargo fission`, or provider command invocation. |
 | Generated input | Fission sets it for a configured script. Application developers should read it, not set it manually. |
 
-Unless a row explicitly says otherwise, an invalid value is ignored and the documented default is used. Variables described as internal diagnostics are useful for investigation but are not stable application configuration APIs.
+Parsing and failure behaviour belong to each variable. A numeric diagnostic
+override may fall back to a default; missing or invalid signing credentials do
+not make a publish operation valid. Variables described as internal diagnostics
+are useful for investigation but are not stable application configuration APIs.
 
 ## Live testing and browser testing
 
@@ -42,7 +45,8 @@ Unless a row explicitly says otherwise, an invalid value is ignored and the docu
 | `FISSION_WEB_MAX_INPUT_LATENCY_MS` | Generated browser test | Milliseconds; `180` | Sets the average-input-latency failure threshold in generated smoke tests. |
 | `FISSION_ALLOW_WEBGPU_FALLBACK` | Generated browser test | `1` or unset | Allows a Canvas2D result on a WebGPU-capable browser without making the generated renderer smoke test fail. It does not change renderer fallback behavior. |
 
-For a manually built Web target, the complete order is:
+For the browser conformance test in this repository, build with the bridge
+enabled, serve the output, then pass its URL to the test:
 
 ```bash
 FISSION_WEB_TEST_CONTROL=1 ./platforms/web/build-wasm.sh
@@ -50,6 +54,10 @@ FISSION_WEB_TEST_CONTROL=1 ./platforms/web/build-wasm.sh
 FISSION_WEB_SMOKE_URL=http://127.0.0.1:8123/platforms/web/ \
   cargo test -p web-smoke --test text_input_browser
 ```
+
+`web-smoke` is a package in the Fission checkout, not a package created in every
+application. Generated apps normally use `fission test --target web`; application
+integration tests can launch the browser through `LiveTestClient`.
 
 ## Rendering, layout, text, and input
 

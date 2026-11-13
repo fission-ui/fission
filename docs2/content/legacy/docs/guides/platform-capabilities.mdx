@@ -56,15 +56,19 @@ Readiness does not replace reviewing the generated files. It tells you what is m
 Do not store optimistic success. Store the request state, the returned result, and the error you need to explain to the user.
 
 ```rust
-#[derive(Default)]
+use fission::prelude::*;
+
+#[derive(Debug, Default)]
 struct ProfileState {
-    photo_stream: Option<DataStreamId>,
+    photo: Option<CameraCapture>,
     camera_error: Option<String>,
     capturing_photo: bool,
 }
+
+impl GlobalState for ProfileState {}
 ```
 
-`capturing_photo` lets the UI disable the button while the host owns the camera flow. `photo_stream` stores the returned stream handle. A job or service can consume that stream if the app needs to decode, upload, or preview the image. `camera_error` gives the UI something specific to show when permission is denied, no camera exists, or the host is unsupported.
+`capturing_photo` prevents overlapping camera flows. `photo` retains the actual capture, including its stream and content metadata. That handle belongs to the current runtime; a job or service must consume it to decode, upload, or save the image. Storing its id does not make the image durable. `camera_error` records a separate failure rather than disguising denial as an empty photo.
 
 ## 5. Add callback reducers
 
@@ -74,77 +78,81 @@ Capability requests finish after the starting reducer returns. The runtime dispa
 use fission::prelude::*;
 
 #[fission_reducer(PhotoCaptured)]
-fn on_photo_captured(state: &mut ProfileState, capture: CameraCapture) {
+fn on_photo_captured(state: &mut ProfileState, ctx: &mut ReducerContext<ProfileState>) {
     state.capturing_photo = false;
-    state.photo_stream = Some(capture.stream);
-    state.camera_error = None;
+    match ctx.input.capability_ok(CAPTURE_PHOTO) {
+        Some(capture) => {
+            state.photo = Some(capture);
+            state.camera_error = None;
+        }
+        None => state.camera_error = Some("The host returned no photo".into()),
+    }
 }
 
 #[fission_reducer(PhotoCaptureFailed)]
-fn on_photo_capture_failed(state: &mut ProfileState, error: CameraError) {
+fn on_photo_capture_failed(state: &mut ProfileState, ctx: &mut ReducerContext<ProfileState>) {
     state.capturing_photo = false;
-    state.camera_error = Some(error.message);
+    state.camera_error = Some(
+        ctx.input.capability_error(CAPTURE_PHOTO)
+            .map(|error| error.message)
+            .or_else(|| ctx.input.capability_error_message(CAPTURE_PHOTO).map(str::to_owned))
+            .unwrap_or_else(|| "The host could not capture a photo".into()),
+    );
 }
 ```
 
-Handle the error path with the same seriousness as the success path. Capability errors are often normal outcomes: the user denied permission, the host has no device, the current browser blocks the operation, or the app package is missing a required entitlement.
+These are unit actions; the result is in `ctx.input`, not in a default value passed to the callback action. A denied permission, unavailable camera, blocked browser operation, or missing entitlement all need a visible failure state. The fallback message also covers a response whose typed error could not be decoded.
 
 ## 6. Start the host request from the user action
 
-Create a reducer for the user's intent. This reducer sets local state, queues the capability request, and binds the result actions.
+Create a reducer for the user's intent. It updates app state and queues the host request; it does not take a photo synchronously.
 
 ```rust
 #[fission_reducer(CaptureProfilePhoto)]
 fn on_capture_profile_photo(state: &mut ProfileState, ctx: &mut ReducerContext<ProfileState>) {
+    if state.capturing_photo { return; }
     state.capturing_photo = true;
+    state.photo = None;
     state.camera_error = None;
+    let captured = ctx.effects.bind(PhotoCaptured, reduce_with!(on_photo_captured));
+    let failed = ctx.effects.bind(PhotoCaptureFailed, reduce_with!(on_photo_capture_failed));
 
     ctx.effects
         .camera()
         .capture_photo(CameraCaptureRequest {
-            facing: CameraFacing::Back,
+            facing: CameraFacing::Front,
             resolution: Some(CameraResolution { width: 1280, height: 720 }),
             format: CameraImageFormat::Jpeg,
-            flash: CameraFlashMode::Auto,
+            flash: CameraFlashMode::Off,
             quality: Some(90),
             ..Default::default()
         })
-        .on_ok(ctx.effects.bind(
-            PhotoCaptured(CameraCapture::default()),
-            reduce_with!(on_photo_captured),
-        ))
-        .on_err(ctx.effects.bind(
-            PhotoCaptureFailed(CameraError::default()),
-            reduce_with!(on_photo_capture_failed),
-        ));
+        .on_ok(captured)
+        .on_err(failed);
 }
 ```
 
-The reducer records a typed request. The active shell handles it after the reducer returns.
+The front camera and disabled flash fit a profile-photo flow. Bind the callbacks before creating the capability builder: both need mutable access to `ctx.effects`. The active shell handles the request after this reducer returns.
 
 ## 7. Wire the UI to the reducer
 
 Bind the button to the reducer that starts capture:
 
 ```rust
-
-
-fission_component!
-{
-    pub CapturePhotoButton<ProfileState> {
+fission_component! {
+    pub CapturePhotoButton<ProfileState> {}
+    view(_button, state, cx) {
+        let capture = cx.bind(CaptureProfilePhoto, reduce!(on_capture_profile_photo));
     }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<ProfileState>();
-                let capture = with_reducer!(ctx, CaptureProfilePhoto, on_capture_profile_photo);
-
-                Button::new(if view.state().capturing_photo { "Capturing..." } else { "Take photo" })
-                    .disabled(view.state().capturing_photo)
-                    .on_press(capture)
-                    .into()
-    }
+    => Column(children: [
+        Button(child: Text(cx.tr("profile.take_photo")), disabled: state.capturing_photo, on_press: capture),
+        if state.capturing_photo { Spinner(motion: SpinnerMotion::Default, label: cx.tr("profile.capturing_photo")) },
+        if state.photo.is_some() { Text(cx.tr("profile.photo_captured")) },
+        if let Some(error) = &state.camera_error { Alert(title: error.clone(), kind: AlertKind::Error) },
+    ])
 }
 ```
-The widget describes the user action, the reducer decides what to request, and the provider calls the host API.
+Define the `profile.*` labels in the app's translation bundles. The captured status does not claim the photo was uploaded or saved. Those are separate operations with their own results; the widget does not start them during rendering.
 
 ## 8. Register a provider when the default host is not enough
 
@@ -170,19 +178,33 @@ Start with reducer and memory-host tests. Prove that the reducer requests the op
 ```rust
 #[test]
 fn photo_failure_is_visible_to_the_ui() {
-    let mut state = ProfileState::default();
+    use fission::core::{ActionInput, ActionRegistry, Runtime};
 
-    on_photo_capture_failed(
-        &mut state,
-        CameraError::new("permission_denied", "The user denied camera access"),
-    );
-
+    let mut runtime = Runtime::default();
+    runtime.add_app_state(Box::new(ProfileState {
+        capturing_photo: true,
+        ..Default::default()
+    })).unwrap();
+    let mut registry = ActionRegistry::<ProfileState>::new();
+    registry.register(reduce!(on_photo_capture_failed));
+    runtime.absorb_persistent_registry(registry);
+    runtime.dispatch_with_input(
+        PhotoCaptureFailed.into(),
+        WidgetId::from_u128(0),
+        &ActionInput::CapabilityErr {
+            capability: CAPTURE_PHOTO.name.to_owned(),
+            req_id: 1,
+            payload: None,
+            message: Some("The user denied camera access".into()),
+        },
+    ).unwrap();
+    let state = runtime.get_app_state::<ProfileState>().unwrap();
     assert!(!state.capturing_photo);
     assert_eq!(state.camera_error.as_deref(), Some("The user denied camera access"));
 }
 ```
 
-After reducer tests pass, add a runtime or shell smoke test for the target. Device tests should cover the real permission prompt, denied permission, no-device hardware, cancellation, and the successful path.
+This exercises the real action registry and completion input, but does not prove camera access. Add a shell test with a memory host, then device tests for the real permission prompt, denial, missing hardware, cancellation, and successful capture. Keep those claims separate: a reducer passing on Linux does not qualify the iOS camera provider.
 
 ## Built-in capability guide map
 

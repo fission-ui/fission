@@ -47,39 +47,26 @@ This state does not try to store platform picker internals. It stores what your 
 
 ## Step 2: define the actions in app language
 
-A good action list tells the story of the feature.
-
-```rust
-#[fission_action]
-pub struct ImportPressed;
-
-#[fission_action]
-pub struct FilesPicked;
-
-#[fission_action]
-pub struct FilePickFailed;
-
-#[fission_action]
-pub struct ImportParsed;
-
-#[fission_action]
-pub struct ImportParseFailed;
-```
-
-The important habit is that the actions describe product events, not widget implementation details. That keeps the reducer easy to read later.
+The events are ImportPressed, FilesPicked, FilePickFailed, ImportParsed, and
+ImportParseFailed. Their reducers below use `#[fission_reducer(...)]` to generate
+the unit actions and registration shape. Separate handwritten action structs
+would repeat that declaration without adding product meaning.
 
 ## Step 3: use a capability for the host-owned step
 
 When the user presses **Import**, the first thing you need is a native picker. That belongs to the host, so the reducer requests a capability.
 
 ```rust
+#[fission_reducer(ImportPressed)]
 fn on_import_pressed(
     state: &mut ImportState,
-    _action: ImportPressed,
     ctx: &mut ReducerContext<ImportState>,
 ) {
+    if state.importing { return; }
     state.importing = true;
     state.error_message = None;
+    let picked = ctx.effects.bind(FilesPicked, reduce!(on_files_picked));
+    let failed = ctx.effects.bind(FilePickFailed, reduce!(on_file_pick_failed));
 
     ctx.effects
         .capability(
@@ -91,14 +78,8 @@ fn on_import_pressed(
                 preferred_chunk_bytes: None,
             },
         )
-        .on_ok(ctx.effects.bind(
-            FilesPicked,
-            reduce_with!(on_files_picked),
-        ))
-        .on_err(ctx.effects.bind(
-            FilePickFailed,
-            reduce_with!(on_file_pick_failed),
-        ));
+        .on_ok(picked)
+        .on_err(failed);
 }
 ```
 
@@ -111,16 +92,25 @@ The reducer stays synchronous and deterministic; the host operation runs after i
 When the picker completes, the reducer receives the callback action together with typed input in `ctx.input`.
 
 ```rust
-struct ParseImportedText;
+pub struct ParseImportedText;
+
+impl JobSpec for ParseImportedText {
+    type Request = ParseImportedTextRequest;
+    type Ok = String;
+    type Err = String;
+    const NAME: &'static str = "notes::parse-imported-text";
+}
+
+pub const PARSE_IMPORTED_TEXT_JOB: JobRef<ParseImportedText> = JobRef::new(ParseImportedText::NAME);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ParseImportedTextRequest {
+pub struct ParseImportedTextRequest {
     stream: DataStreamId,
 }
 
+#[fission_reducer(FilesPicked)]
 fn on_files_picked(
     state: &mut ImportState,
-    _action: FilesPicked,
     ctx: &mut ReducerContext<ImportState>,
 ) {
     let Some(files) = ctx.input.capability_ok(PICK_OPEN_FILES) else {
@@ -129,22 +119,27 @@ fn on_files_picked(
         return;
     };
 
-    let Some(file) = files.into_iter().next() else {
+    let Some(file) = files.files.into_iter().next() else {
         state.importing = false;
-        state.error_message = Some("You did not choose a file.".into());
+        // A dismissed picker is not a failed import; keep the previous note.
         return;
     };
 
+    let parsed = ctx.effects.bind(ImportParsed, reduce!(on_import_parsed));
+    let failed = ctx.effects.bind(ImportParseFailed, reduce!(on_import_parse_failed));
     ctx.effects
         .app(PARSE_IMPORTED_TEXT_JOB, ParseImportedTextRequest { stream: file.stream })
-        .on_ok(ctx.effects.bind(
-            ImportParsed,
-            reduce_with!(on_import_parsed),
-        ))
-        .on_err(ctx.effects.bind(
-            ImportParseFailed,
-            reduce_with!(on_import_parse_failed),
-        ));
+        .on_ok(parsed)
+        .on_err(failed);
+}
+
+#[fission_reducer(FilePickFailed)]
+fn on_file_pick_failed(state: &mut ImportState, ctx: &mut ReducerContext<ImportState>) {
+    state.importing = false;
+    state.error_message = Some(ctx.input.capability_error(PICK_OPEN_FILES)
+        .map(|error| error.message)
+        .or_else(|| ctx.input.capability_error_message(PICK_OPEN_FILES).map(str::to_owned))
+        .unwrap_or_else(|| "The host could not open the file picker".into()));
 }
 ```
 
@@ -152,7 +147,38 @@ This step is where the distinction between capability and job becomes useful.
 
 The file picker was host-owned, so it was a capability.
 
-Parsing the returned stream is ordinary app work, so it becomes a job. The job can call `JobCtx::open_data_stream(request.stream)` and consume the `FissionDataStream` asynchronously while the reducer stays synchronous.
+Parsing the stream is app work, so it becomes a job. This notes app accepts at
+most 256 KiB of UTF-8 text; the worker checks the bytes actually read, including
+when the host did not know a file length. Add `futures-util` for `StreamExt` and
+register this job on the shell:
+
+```rust
+use futures_util::StreamExt;
+
+const MAX_IMPORT_BYTES: usize = 256 * 1024;
+
+async fn parse_imported_text(request: ParseImportedTextRequest, ctx: JobCtx) -> Result<String, String> {
+    let mut stream = ctx.open_data_stream(request.stream).map_err(|error| error.to_string())?;
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| error.to_string())?;
+        if chunk.len() > MAX_IMPORT_BYTES.saturating_sub(bytes.len()) {
+            return Err("This note exceeds the 256 KiB import limit".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    String::from_utf8(bytes).map_err(|error| error.to_string())
+}
+
+// App is the app-owned Compose root containing ImportScreen.
+DesktopApp::<ImportState, _>::new(App)
+    .with_async(|asyncs| { asyncs.register_job(PARSE_IMPORTED_TEXT_JOB, parse_imported_text); })
+    .run()?;
+```
+
+The buffer is deliberately bounded because a text editor needs a complete
+string. A large upload should stream onward instead; see
+[File uploads](/docs/guides/file-uploads/) for that different boundary.
 
 Why not keep using a capability here? Because the host is no longer the right owner. Once the host has granted a stream handle, parsing belongs to your application logic.
 
@@ -161,20 +187,21 @@ Why not keep using a capability here? Because the host is no longer the right ow
 When the parse job succeeds or fails, update state in one obvious place.
 
 ```rust
+#[fission_reducer(ImportParsed)]
 fn on_import_parsed(
     state: &mut ImportState,
-    _action: ImportParsed,
     ctx: &mut ReducerContext<ImportState>,
 ) {
-    if let Some(text) = ctx.input.job_ok(PARSE_IMPORTED_TEXT_JOB) {
-        state.imported_text = Some(text);
-        state.importing = false;
+    state.importing = false;
+    match ctx.input.job_ok(PARSE_IMPORTED_TEXT_JOB) {
+        Some(text) => state.imported_text = Some(text),
+        None => state.error_message = Some("The import job returned no text result".into()),
     }
 }
 
+#[fission_reducer(ImportParseFailed)]
 fn on_import_parse_failed(
     state: &mut ImportState,
-    _action: ImportParseFailed,
     ctx: &mut ReducerContext<ImportState>,
 ) {
     state.importing = false;
@@ -193,40 +220,35 @@ These reducers are plain state updates again. That is the architectural payoff. 
 The widget does not need special platform logic. It only binds actions and renders from state.
 
 ```rust
-fission_component!
-{
-    pub ImportScreen<ImportState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<ImportState>();
-                let import = ctx.bind(
-                    ImportPressed,
-                    reduce_with!(on_import_pressed),
-                );
-
-                Column {
-                    gap: Some(12.0),
-                    children: vec![
-                        Button {
-                            on_press: Some(import),
-                            child: Some(Text::new("Import file").into()),
-                            ..Default::default()
-                        }
-                        .into(),
-                        Text::new(if view.state().importing {
-                            "Importing..."
-                        } else {
-                            "Choose a text file to import."
-                        })
-                        .into(),
-                    ],
-                    ..Default::default()
-                }
-                .into()
-    }
+fission_component! {
+    pub ImportScreen<ImportState> {}
+    view(_screen, state, cx) {
+        let import = cx.bind(ImportPressed, reduce!(on_import_pressed));
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.m, children: [
+        Button(
+            child: Text(cx.tr("notes.import_text")),
+            disabled: state.importing,
+            on_press: import,
+        ),
+        if state.importing { Spinner(motion: SpinnerMotion::Default, label: cx.tr("notes.importing")) },
+        if let Some(error) = &state.error_message { Alert(title: error.clone(), kind: AlertKind::Error) },
+        if let Some(text) = &state.imported_text {
+            Scroll(semantic_label: cx.tr("notes.imported_content"), child: Text(text.clone(), selectable: true))
+        } else {
+            EmptyState(title: cx.tr("notes.choose_text_file"))
+        },
+    ])
 }
 ```
 This is worth noticing. The widget tree stays simple because host work is not hidden inside it. The screen shows current state. The reducer owns transitions. The shell performs platform operations.
+
+Define the `notes.*` messages in the translation bundles. Imported content is
+displayed as plain selectable text, not trusted HTML. Test with non-private
+fixture files when capturing screenshots or publishing QA artifacts; a stream
+handle keeps bytes out of actions, but showing a note still exposes it in the
+rendered screen.
 
 ## When to choose a capability, a job, or a resource
 

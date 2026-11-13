@@ -36,10 +36,10 @@ Reducers can navigate through the normal effect pipeline:
 #[fission_reducer(OpenProject)]
 fn open_project(
     _state: &mut AppState,
-    action: OpenProject,
+    project_id: String,
     ctx: &mut ReducerContext<AppState>,
 ) {
-    ctx.effects.navigate(format!("/projects/{}", action.id));
+    ctx.effects.navigate(format!("/projects/{project_id}"));
 }
 ```
 
@@ -94,7 +94,8 @@ transaction.execute(
         .bind(project_id),
 );
 append_audit(&mut transaction, "Project renamed".into());
-ctx.effects.sql().transaction(transaction);
+// committed and failed are bound application completion envelopes.
+ctx.effects.sql().transaction(transaction).on_ok(committed).on_err(failed);
 ```
 
 Desktop, mobile, and Terminal use bundled SQLite in an application-data
@@ -117,7 +118,7 @@ control can provide the complete value:
 
 ```rust
 TextInput {
-    editing_value: Some(TextEditingValue::from_text("hello")),
+    editing_value: Some(state.document.clone()),
     on_input: Some(update_document),
     ..Default::default()
 }
@@ -128,6 +129,11 @@ keep the action payload you bound. Repeated and schema-generated forms can
 therefore retain their field context. Public controllers cover editing,
 scrolling, shared read-only selection, and forms. Validation and autofill
 metadata reach native accessibility and semantic HTML.
+
+Here `state.document` is the app-owned `TextEditingValue`, initially created
+with `TextEditingValue::from_text(...)` and updated from editing events. Do
+not reconstruct the same literal value on every build and expect it to retain
+the user's edits.
 
 Paragraph measurement now keeps the final lines, Unicode clusters, caret stops,
 selection rectangles, inline placements, constraints, and measured size. Painting,
@@ -171,3 +177,10 @@ Existing route handlers and string-controlled text fields still work. Enable
 SQLite only in apps that use storage, with the CLI command above or the
 `store-sqlite-native` and `store-sqlite-web` Cargo features in a manually managed
 project.
+
+For current Web projects, keep the `storage` capability declaration even when
+managing Cargo features manually. The CLI validates and installs the worker,
+bridge, and SQLite assets too; a feature-only edit is not the complete setup.
+The [current storage guide](/docs/guides/storage-and-sqlite/) documents that
+contract. New UI code should use [Compose](/compose/); the struct snippets
+above explain this release's input and storage changes.

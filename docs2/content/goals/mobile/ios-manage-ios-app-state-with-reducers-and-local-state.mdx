@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Manage iOS app state with reducers and local state
-description: Learn when iOS app data belongs in Fission GlobalState and when a screen choice belongs in component-local state by building a working library returns desk in Rust.
-goal: Record returned books once, keep loan totals in sync, and filter completed loans without changing library data.
+description: "Create library loans, record each return once and filter the desk without changing the underlying records."
+goal: "Keep loan records authoritative whilst draft entry, filtering and disclosure remain local presentation choices."
 path: /blog/manage-ios-app-state-with-reducers-and-local-state/
 order: 73
 difficulty: Beginner
@@ -10,22 +10,19 @@ duration: 35 minutes
 run_command: "fission run --target ios --project-dir ."
 app: ios-manage-ios-app-state-with-reducers-and-local-state
 outcomes:
-  - Model library loans as shared app data
-  - Use a typed reducer to return a book and update the desk message
-  - Keep the returned-loan filter as retained state in its owning component
-  - Run and check the same Rust screen in an iOS Simulator
+  - Enter actual book and borrower data instead of seeding preview-only loans
+  - Apply an idempotent return transition and derive totals from records
+  - Keep stable row identities without promising that unmounted local state survives
 ---
 
-At Riverside Community Library, one volunteer checks books in while another helps members. They both need to see the same return status. The returns screen also needs a way to hide completed loans while the volunteer works through the active pile.
+Returning a book changes a library record. Hiding returned books changes only what one desk displays. Both operations can make a row disappear, but they do not mean the same thing. If we put them in the same state bucket, a harmless display choice can become an accidental change to the library's data.
 
-We’ll build the desk around four preview loans. A typed reducer marks a loan returned, and the totals read from that same data. The “include returned loans” choice belongs only to this screen; changing the filter must not change a loan. The browser preview seeds its fixtures separately; a real app starts with no loaded loans and reads current records from its service.
+We will build a returns desk that starts empty and lets you enter loans yourself. A loan's return status belongs to application state because the list, totals and confirmation all describe that same fact. The unfinished entry form and the desk's filter belong to this component's retained UI state.
 
-## Create an iOS project
+## Create the app
 
-Create the app and add its iOS target. The [iOS development setup guide](/blog/set-up-rust-ios-development-with-fission/) walks through Xcode, Rust targets, and the Simulator if you need those installed.
+Complete [iOS setup](/blog/set-up-rust-ios-development-with-fission/) if needed, then generate the shared project.
 
-<Tabs>
-<TabItem label="Create the app">
 ```sh
 cargo install cargo-fission
 fission init riverside-library
@@ -33,718 +30,446 @@ cd riverside-library
 fission add-target ios --project-dir .
 cargo add serde_yaml
 ```
-</TabItem>
-<TabItem label="Files for this task">
-```text
-riverside-library/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity and target configuration
-├── src/
-│   ├── main.rs                # generated target entry point
-│   ├── lib.rs                 # app shell setup
-│   └── app.rs                 # loan state, reducer, and components
-├── preview/
-│   ├── lib.rs                 # browser preview entry point
-│   └── fixtures.rs            # preview-only loan records
-└── platforms/
-    └── ios/                   # generated iOS host and packaging
-```
-</TabItem>
-</Tabs>
 
-The loan is app data. The desk, a member screen, and a report should all see the same return status, so keep the record in app state. The filter only affects this desk’s presentation, so it belongs in the component that owns the screen. Preview fixtures are injected by the preview shell, not created during component conversion.
+Keep the generated `src/main.rs`. The files below provide normal native and Web launchers from the outset; the browser does not inject records which the iOS app never receives.
 
 <!-- fission:step id="start-screen" -->
-## Lay out the returns desk
+## Give each fact one owner
 
-A volunteer should be able to identify a loan without opening it. Each row shows the book, borrower, due time, and current status. The totals come from the same four records, so the read-only screen is already useful rather than just a blank scaffold.
+`LibraryState.loans` is the authority for the session's records. The summary derives counts from it instead of keeping a second pair of mutable counters. This matters because a return cannot update the row and leave a separately stored total behind.
 
-Add the loan type, shared state, and two components to `src/app.rs`. `LoanCard` presents one loan; `LibraryLoanDesk` arranges the cards and summary from `GlobalState`. The scroll region uses the app’s viewport height so every loan remains reachable on a phone. Its accessible name tells VoiceOver what the region contains. The preview seeds example loans through `with_state_init`.
-
-<Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
-```rust
-use fission::i18n::{Locale, TranslationBundle};
-use fission::prelude::*;
-use std::collections::HashMap;
-
-pub fn create_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    for (locale, yaml) in [
-        ("en-US", include_str!("../i18n/en-US.yaml")),
-        ("es-ES", include_str!("../i18n/es-ES.yaml")),
-    ] {
-        let messages: HashMap<String, String> =
-            serde_yaml::from_str(yaml).expect("valid Riverside Library translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(locale),
-            messages,
-        });
-    }
-    env
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LoanStatus {
-    CheckedOut,
-    Returned,
-}
-
-impl LoanStatus {
-    pub fn translation_key(self) -> &'static str {
-        match self {
-            Self::CheckedOut => "library.status.on_loan",
-            Self::Returned => "library.status.returned",
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Loan {
-    pub id: u32,
-    pub title: &'static str,
-    pub borrower: &'static str,
-    pub due: &'static str,
-    pub status: LoanStatus,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct LibraryState {
-    pub loans: Vec<Loan>,
-}
-
-impl GlobalState for LibraryState {}
-
-fission_component! {
-    pub LoanCard<()> { loan: Loan }
-    view(card, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some(format!("library-loan-{}", card.loan.id)),
-        label: Some(cx.tr("library.card.a11y")
-            .replace("{title}", card.loan.title)
-            .replace("{borrower}", card.loan.borrower)),
-        child: Container(
-            Column(gap: tokens.spacing.xs, align_items: ir_op::AlignItems::Start, children: [
-                Text(card.loan.title.to_string())
-                    .weight(tokens.typography.font_weight_semibold),
-                Text(cx.tr("library.borrowed_by").replace("{borrower}", card.loan.borrower))
-                    .color(tokens.colors.text_secondary),
-                Text(cx.tr("library.due").replace("{due}", card.loan.due))
-                    .color(tokens.colors.text_secondary),
-                Text(cx.tr(card.loan.status.translation_key()))
-                    .color(tokens.colors.text_secondary),
-            ]),
-        )
-        .padding_all(tokens.spacing.m)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.medium)
-        .width_length(Length::percent(100.0)),
-    )
-}
-
-fission_component! {
-    pub LibraryLoanDesk<LibraryState> {}
-    view(_desk, library, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let loans = &library.loans;
-        let checked_out = loans.iter()
-            .filter(|loan| loan.status == LoanStatus::CheckedOut)
-            .count();
-        let returned = loans.iter()
-            .filter(|loan| loan.status == LoanStatus::Returned)
-            .count();
-    } =>
-    SemanticsRegion(
-        identifier: Some("riverside-library-returns-desk".to_string()),
-        label: Some(cx.tr("library.desk.a11y")),
-        child: Scroll(
-            flex_grow: 1.0,
-            height: cx.view.viewport_size().height,
-            semantic_label: Some(cx.tr("library.loans.a11y")),
-            child: Container(
-                Column(align_items: ir_op::AlignItems::Center, children: [
-                    Container(
-                        Column(gap: tokens.spacing.l, children: [
-                            Column(gap: tokens.spacing.xs, children: [
-                                Text(cx.tr("library.name"))
-                                    .weight(tokens.typography.font_weight_bold),
-                                Text(cx.tr("library.returns_desk"))
-                                    .color(tokens.colors.text_secondary),
-                            ]),
-                            Column(gap: tokens.spacing.xs, children: [
-                                Text(cx.tr("library.summary.on_loan").replace("{count}", &checked_out.to_string())),
-                                Text(cx.tr("library.summary.returned").replace("{count}", &returned.to_string()))
-                                    .color(tokens.colors.text_secondary),
-                            ]),
-                            if loans.is_empty() {
-                                EmptyState(
-                                    title: cx.tr("library.empty.title"),
-                                    description: Some(cx.tr("library.empty.help")),
-                                )
-                            } else {
-                                Column(gap: tokens.spacing.s, children: [
-                                    for loan in loans.iter() {
-                                        LoanCard(loan.clone(), key: loan.id)
-                                            .id(WidgetId::explicit(&format!("riverside.loan.{}", loan.id)))
-                                    },
-                                ])
-                            },
-                        ]),
-                    )
-                    .padding_all(tokens.spacing.l)
-                    .bg(tokens.colors.background)
-                    .width_length(Length::clamp(
-                        Length::points(0.0),
-                        Length::percent(100.0),
-                        Length::points(760.0),
-                    )),
-                ]),
-            )
-            .width_length(Length::percent(100.0))
-            .bg(tokens.colors.background),
-        ),
-    )
-}
-```
-</TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-#[path = "../preview/fixtures.rs"]
-mod fixtures;
-
-use app::LibraryState;
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    WebApp::<LibraryState, _>::new(app::LibraryLoanDesk::new())
-        .with_state_init(|state| state.loans = fixtures::sample_loans())
-        .with_env(app::create_env())
-        .with_title("Riverside Community Library returns desk")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-<TabItem label="preview/fixtures.rs">
-<!-- fission:file path="preview/fixtures.rs" -->
-```rust
-use crate::app::{Loan, LoanStatus};
-
-pub fn sample_loans() -> Vec<Loan> {
-    vec![
-        Loan { id: 4102, title: "The Rust Programming Language", borrower: "Ada", due: "Today, 4:30 pm", status: LoanStatus::CheckedOut },
-        Loan { id: 4103, title: "The Left Hand of Darkness", borrower: "Mateo", due: "Yesterday", status: LoanStatus::CheckedOut },
-        Loan { id: 4104, title: "A Field Guide to Trees", borrower: "Priya", due: "Returned at 11:10 am", status: LoanStatus::Returned },
-        Loan { id: 4105, title: "Programming Rust", borrower: "Noah", due: "Tomorrow", status: LoanStatus::CheckedOut },
-    ]
-}
-```
-</TabItem>
-</Tabs>
-
-The screen already loads its labels from translation bundles, so add the initial English and Spanish strings before building the first preview. The next step extends both bundles with the return and filter messages.
-
-<Tabs>
-<TabItem label="i18n/en-US.yaml">
-<!-- fission:file path="i18n/en-US.yaml" -->
-```yaml
-library.desk.a11y: "Riverside Community Library returns desk"
-library.empty.title: "No loans are loaded."
-library.empty.help: "Load the current loan list from the library service to see active returns here."
-library.loans.a11y: "Library loan list"
-library.summary.a11y: "Library loan totals"
-library.name: "Riverside Community Library"
-library.returns_desk: "Returns desk · Tuesday afternoon"
-library.summary.on_loan: "On loan · {count}"
-library.summary.returned: "Returned today · {count}"
-library.card.a11y: "{title} loan for {borrower}"
-library.borrowed_by: "Borrowed by {borrower}"
-library.due: "Due: {due}"
-library.status.on_loan: "On loan"
-library.status.returned: "Returned"
-```
-</TabItem>
-<TabItem label="i18n/es-ES.yaml">
-<!-- fission:file path="i18n/es-ES.yaml" -->
-```yaml
-library.desk.a11y: "Mostrador de devoluciones de la Biblioteca Comunitaria Riverside"
-library.empty.title: "No hay préstamos cargados."
-library.empty.help: "Carga la lista actual de préstamos del servicio de la biblioteca para ver las devoluciones activas."
-library.loans.a11y: "Lista de préstamos de la biblioteca"
-library.summary.a11y: "Resumen de préstamos de la biblioteca"
-library.name: "Biblioteca Comunitaria Riverside"
-library.returns_desk: "Mostrador de devoluciones · martes por la tarde"
-library.summary.on_loan: "Prestados · {count}"
-library.summary.returned: "Devueltos hoy · {count}"
-library.card.a11y: "Préstamo de {title} para {borrower}"
-library.borrowed_by: "Prestado a {borrower}"
-library.due: "Devolución: {due}"
-library.status.on_loan: "Prestado"
-library.status.returned: "Devuelto"
-```
-</TabItem>
-</Tabs>
-
-<!-- fission:preview -->
-
-<!-- fission:checkpoint -->
-Find Ada’s copy of `The Rust Programming Language` and confirm that it is still on loan. Then scroll down to Noah’s `Programming Rust` loan; on a phone it should be reachable inside the preview without widening the page.
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
-
-<!-- fission:step id="return-a-book" -->
-## Update the loan record with a reducer
-
-When a book comes back, every part of the app that reads the loan should see the return. Put the list in `LibraryState` (`GlobalState`) and make **Mark returned** a typed action. Its reducer finds a loan by stable ID, updates its status, and records a confirmation for the desk.
-
-The filter has a different lifetime. A volunteer may show returns, then hide them to focus on books still out. It doesn’t belong in `LibraryState`, because another screen should not inherit this desk’s display choice. `LibraryLoanDesk` retains the filter locally; its button only changes which rows are visible.
-
-Replace the read-only `src/app.rs` with the version below. `LoanSummary` reads shared records, `LoanCard` dispatches the return action, and `LibraryLoanDesk` owns the local filter. Each card is keyed by loan ID, so filtering the list won’t give one book another book’s widget identity.
+The reducer block calls `mark_returned`, an ordinary synchronous Rust function. It selects by record ID, ignores an unknown ID and leaves an already returned loan unchanged. The function can therefore be tested without constructing a widget or inventing a second action format.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
-use fission::i18n::{Locale, TranslationBundle};
+mod loan_card;
+mod screen;
+pub mod state;
+mod summary;
+pub use screen::LibraryLoanDesk;
+pub use state::LibraryState;
+```
+</TabItem>
+
+<TabItem label="src/app/state.rs">
+<!-- fission:file path="src/app/state.rs" -->
+```rust
 use fission::prelude::*;
-use std::collections::HashMap;
-
-pub fn create_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    for (locale, yaml) in [
-        ("en-US", include_str!("../i18n/en-US.yaml")),
-        ("es-ES", include_str!("../i18n/es-ES.yaml")),
-    ] {
-        let messages: HashMap<String, String> =
-            serde_yaml::from_str(yaml).expect("valid Riverside Library translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(locale),
-            messages,
-        });
-    }
-    env
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LoanStatus {
-    CheckedOut,
-    Returned,
-}
-
-impl LoanStatus {
-    pub fn translation_key(self) -> &'static str {
-        match self {
-            Self::CheckedOut => "library.status.on_loan",
-            Self::Returned => "library.status.returned",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LoanNotice {
-    Returned(&'static str),
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Loan {
-    pub id: u32,
-    pub title: &'static str,
-    pub borrower: &'static str,
-    pub due: &'static str,
-    pub status: LoanStatus,
+    pub id: u64,
+    pub title: String,
+    pub borrower: String,
+    pub returned: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LibraryState {
     pub loans: Vec<Loan>,
-    pub notice: Option<LoanNotice>,
+    pub next_id: u64,
+    pub last_returned_title: Option<String>,
+    pub locale: Locale,
 }
 
 impl Default for LibraryState {
     fn default() -> Self {
         Self {
             loans: Vec::new(),
-            notice: None,
+            next_id: 1,
+            last_returned_title: None,
+            locale: Locale::from("en-US"),
         }
     }
 }
 
 impl GlobalState for LibraryState {}
 
-#[fission_reducer(MarkLoanReturned)]
-pub fn on_mark_loan_returned(state: &mut LibraryState, loan_id: u32) {
-    let notice = state
-        .loans
-        .iter_mut()
-        .find(|loan| loan.id == loan_id)
-        .and_then(|loan| {
-            if loan.status == LoanStatus::Returned {
-                return None;
-            }
-            loan.status = LoanStatus::Returned;
-            Some(LoanNotice::Returned(loan.title))
-        });
-
-    if let Some(notice) = notice {
-        state.notice = Some(notice);
+pub fn add_loan(state: &mut LibraryState, title: &str, borrower: &str) -> bool {
+    let (title, borrower) = (title.trim(), borrower.trim());
+    if title.is_empty() || borrower.is_empty() {
+        return false;
     }
+    let Some(next_id) = state.next_id.checked_add(1) else {
+        return false;
+    };
+    state.loans.push(Loan {
+        id: state.next_id,
+        title: title.to_owned(),
+        borrower: borrower.to_owned(),
+        returned: false,
+    });
+    state.next_id = next_id;
+    true
 }
 
-fission_component! {
-    pub LoanSummary<LibraryState> {}
-    view(_summary, library, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let checked_out = library.loans.iter()
-            .filter(|loan| loan.status == LoanStatus::CheckedOut)
-            .count();
-        let returned = library.loans.iter()
-            .filter(|loan| loan.status == LoanStatus::Returned)
-            .count();
-    } =>
-    SemanticsRegion(
-        identifier: Some("library-loan-summary".to_string()),
-        label: Some(cx.tr("library.summary.a11y")),
-        child: Column(gap: tokens.spacing.xs, children: [
-            Text(cx.tr("library.summary.on_loan").replace("{count}", &checked_out.to_string())),
-            Text(cx.tr("library.summary.returned").replace("{count}", &returned.to_string()))
-                .color(tokens.colors.text_secondary),
-        ]),
-    )
-}
-
-fission_component! {
-    pub LoanCard<LibraryState> { loan: Loan }
-    view(card, _library, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let label = cx.tr("library.card.a11y")
-            .replace("{title}", card.loan.title)
-            .replace("{borrower}", card.loan.borrower);
-    } =>
-    SemanticsRegion(
-        identifier: Some(format!("library-loan-{}", card.loan.id)),
-        label: Some(label),
-        child: Container(
-            Column(gap: tokens.spacing.xs, align_items: ir_op::AlignItems::Start, children: [
-                Text(card.loan.title.to_string())
-                    .weight(tokens.typography.font_weight_semibold),
-                Text(cx.tr("library.borrowed_by").replace("{borrower}", card.loan.borrower))
-                    .color(tokens.colors.text_secondary),
-                Text(cx.tr("library.due").replace("{due}", card.loan.due))
-                    .color(tokens.colors.text_secondary),
-                Text(cx.tr(card.loan.status.translation_key()))
-                    .color(tokens.colors.text_secondary),
-                if card.loan.status == LoanStatus::CheckedOut {
-                    Button(
-                        child: Text(cx.tr("library.mark_returned")),
-                        key: "mark-loan-returned",
-                        variant: ButtonVariant::Primary,
-                        on_press: with_reducer!(
-                            cx.build,
-                            MarkLoanReturned(card.loan.id),
-                            on_mark_loan_returned,
-                        ),
-                    )
-                    .semantics_identifier(format!("library-loan.return.{}", card.loan.id))
-                } else {
-                    Text(cx.tr("library.returned_to_shelf"))
-                        .color(tokens.colors.text_secondary)
-                },
-            ]),
-        )
-        .padding_all(tokens.spacing.m)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.medium)
-        .width_length(Length::percent(100.0)),
-    )
-}
-
-fission_component! {
-    pub LibraryLoanDesk<LibraryState> {
-        state {
-            show_returned: bool = false,
-        }
+pub fn mark_returned(state: &mut LibraryState, loan_id: u64) {
+    let Some(loan) = state.loans.iter_mut().find(|loan| loan.id == loan_id) else {
+        return;
+    };
+    if loan.returned {
+        return;
     }
-    view(desk, library, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let visible_loans: Vec<Loan> = library.loans.iter()
-            .filter(|loan| desk.show_returned || loan.status != LoanStatus::Returned)
-            .cloned()
-            .collect();
-    } =>
-    SemanticsRegion(
-        identifier: Some("riverside-library-returns-desk".to_string()),
-        label: Some(cx.tr("library.desk.a11y")),
-        child: Scroll(
-            flex_grow: 1.0,
-            height: cx.view.viewport_size().height,
-            semantic_label: Some(cx.tr("library.loans.a11y")),
-            child: Container(
-                Column(align_items: ir_op::AlignItems::Center, children: [
-                    Container(
-                        Column(gap: tokens.spacing.l, children: [
-                            Column(gap: tokens.spacing.xs, children: [
-                                Text(cx.tr("library.name"))
-                                    .weight(tokens.typography.font_weight_bold),
-                                Text(cx.tr("library.returns_desk"))
-                                    .color(tokens.colors.text_secondary),
-                            ]),
-                            LoanSummary(),
-                            Button(
-                                child: Text(if desk.show_returned {
-                                    cx.tr("library.filter.active")
-                                } else {
-                                    cx.tr("library.filter.all")
-                                }),
-                                key: "toggle-returned-loans",
-                                variant: ButtonVariant::Outline,
-                                on_press: reduce {
-                                    desk.show_returned = !desk.show_returned;
-                                },
-                            )
-                            .semantics_identifier("library-loans.toggle-returned"),
-                            if visible_loans.is_empty() {
-                                Text(cx.tr("library.empty.active"))
-                            } else {
-                                Column(gap: tokens.spacing.s, children: [
-                                    for loan in visible_loans.iter() {
-                                        LoanCard(loan.clone(), key: loan.id)
-                                            .id(WidgetId::explicit(&format!("riverside.loan.{}", loan.id)))
-                                    },
-                                ])
-                            },
-                            if let Some(LoanNotice::Returned(title)) = library.notice {
-                                Text(cx.tr("library.notice.returned").replace("{title}", title))
-                                    .color(tokens.colors.text_secondary)
-                            },
-                        ]),
-                    )
-                    .padding_all(tokens.spacing.l)
-                    .bg(tokens.colors.background)
-                    .width_length(Length::clamp(
-                        Length::points(0.0),
-                        Length::percent(100.0),
-                        Length::points(760.0),
-                    )),
-                ]),
-            )
-            .width_length(Length::percent(100.0))
-            .bg(tokens.colors.background),
-        ),
-    )
+    loan.returned = true;
+    state.last_returned_title = Some(loan.title.clone());
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn sample_loans() -> Vec<Loan> {
-        vec![
-            Loan { id: 4102, title: "The Rust Programming Language", borrower: "Ada", due: "Today, 4:30 pm", status: LoanStatus::CheckedOut },
-            Loan { id: 4103, title: "The Left Hand of Darkness", borrower: "Mateo", due: "Yesterday", status: LoanStatus::CheckedOut },
-            Loan { id: 4104, title: "A Field Guide to Trees", borrower: "Priya", due: "Returned at 11:10 am", status: LoanStatus::Returned },
-            Loan { id: 4105, title: "Programming Rust", borrower: "Noah", due: "Tomorrow", status: LoanStatus::CheckedOut },
-        ]
+    #[test]
+    fn returning_updates_one_record_and_is_idempotent() {
+        let mut state = LibraryState::default();
+        assert!(add_loan(&mut state, "Book A", "Reader A"));
+        assert!(add_loan(&mut state, "Book B", "Reader B"));
+        mark_returned(&mut state, 2);
+        assert!(!state.loans[0].returned);
+        assert!(state.loans[1].returned);
+        let expected = state.clone();
+        mark_returned(&mut state, 2);
+        mark_returned(&mut state, 999);
+        assert_eq!(state, expected);
     }
 
     #[test]
-    fn returning_a_loan_updates_the_shared_record() {
+    fn invalid_input_does_not_allocate_an_id() {
         let mut state = LibraryState::default();
-        state.loans = sample_loans();
-
-        on_mark_loan_returned(&mut state, 4105);
-
-        let loan = state.loans.iter().find(|loan| loan.id == 4105).unwrap();
-        assert_eq!(loan.status, LoanStatus::Returned);
-        assert_eq!(state.notice, Some(LoanNotice::Returned("Programming Rust")));
-    }
-
-    #[test]
-    fn returning_an_unknown_loan_changes_nothing() {
-        let mut state = LibraryState::default();
-        let original = state.clone();
-
-        on_mark_loan_returned(&mut state, 9999);
-
-        assert_eq!(state, original);
+        assert!(!add_loan(&mut state, " ", "Reader"));
+        assert_eq!(state.next_id, 1);
+        assert!(state.loans.is_empty());
     }
 }
 ```
 </TabItem>
-<TabItem label="i18n/en-US.yaml">
-<!-- fission:file path="i18n/en-US.yaml" -->
-```yaml
-library.desk.a11y: "Riverside Community Library returns desk"
-library.empty.title: "No loans are loaded."
-library.empty.help: "Load the current loan list from the library service to see active returns here."
-library.loans.a11y: "Library loan list"
-library.summary.a11y: "Library loan totals"
-library.name: "Riverside Community Library"
-library.returns_desk: "Returns desk · Tuesday afternoon"
-library.summary.on_loan: "On loan · {count}"
-library.summary.returned: "Returned today · {count}"
-library.card.a11y: "{title} loan for {borrower}"
-library.borrowed_by: "Borrowed by {borrower}"
-library.due: "Due: {due}"
-library.status.on_loan: "On loan"
-library.status.returned: "Returned"
-library.mark_returned: "Mark returned"
-library.returned_to_shelf: "Returned to the shelf."
-library.filter.active: "Show active loans only"
-library.filter.all: "Include returned loans"
-library.empty.active: "No active loans remain. Include returned loans to review the completed records."
-library.notice.returned: "{title} is back on the shelf."
-```
-</TabItem>
-<TabItem label="i18n/es-ES.yaml">
-<!-- fission:file path="i18n/es-ES.yaml" -->
-```yaml
-library.desk.a11y: "Mostrador de devoluciones de la Biblioteca Comunitaria Riverside"
-library.empty.title: "No hay préstamos cargados."
-library.empty.help: "Carga la lista actual de préstamos del servicio de la biblioteca para ver las devoluciones activas."
-library.loans.a11y: "Lista de préstamos de la biblioteca"
-library.summary.a11y: "Resumen de préstamos de la biblioteca"
-library.name: "Biblioteca Comunitaria Riverside"
-library.returns_desk: "Mostrador de devoluciones · martes por la tarde"
-library.summary.on_loan: "Prestados · {count}"
-library.summary.returned: "Devueltos hoy · {count}"
-library.card.a11y: "Préstamo de {title} para {borrower}"
-library.borrowed_by: "Prestado a {borrower}"
-library.due: "Devolución: {due}"
-library.status.on_loan: "Prestado"
-library.status.returned: "Devuelto"
-library.mark_returned: "Registrar devolución"
-library.returned_to_shelf: "El libro ha vuelto al estante."
-library.filter.active: "Mostrar solo préstamos activos"
-library.filter.all: "Incluir libros devueltos"
-library.empty.active: "No quedan préstamos activos. Incluye los libros devueltos para revisar el historial."
-library.notice.returned: "{title} ha vuelto al estante."
-```
-</TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
+
+<TabItem label="src/app/loan_card.rs">
+<!-- fission:file path="src/app/loan_card.rs" -->
 ```rust
-mod app;
-#[path = "../preview/fixtures.rs"]
-mod fixtures;
-
-use app::LibraryState;
+use super::state::{mark_returned, LibraryState};
 use fission::prelude::*;
-use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    WebApp::<LibraryState, _>::new(app::LibraryLoanDesk::new())
-        .with_state_init(|state| state.loans = fixtures::sample_loans())
-        .with_env(app::create_env())
-        .with_title("Riverside Community Library returns desk")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
+fission_component! {
+    pub LoanCard<LibraryState> {
+        props { loan_id: u64 }
+    }
+    view(card, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let loan = state.loans.iter().find(|loan| loan.id == card.loan_id);
+    } => if let Some(loan) = loan {
+      SemanticsRegion(
+        identifier: Some(format!("library.loan.{}", card.loan_id)),
+        child: Container(
+        Column(gap: tokens.spacing.s, children: [
+            Text(loan.title.clone()).weight(tokens.typography.font_weight_semibold),
+            Text(cx.tr("library.borrower").replace("{name}", &loan.borrower)),
+            Text(if loan.returned { cx.tr("library.returned") } else { cx.tr("library.on_loan") }),
+            Button(
+                child: Text(cx.tr("library.return")), key: "return-loan",
+                disabled: loan.returned,
+                on_press: reduce { mark_returned(state, card.loan_id); },
+            ),
+        ]),
+    )
+    .padding_all(tokens.spacing.m)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium),
+      )
+    } else {
+        Spacer()
+    }
 }
 ```
 </TabItem>
-</Tabs>
 
-<!-- fission:preview -->
+<TabItem label="src/app/summary.rs">
+<!-- fission:file path="src/app/summary.rs" -->
+```rust
+use super::state::LibraryState;
+use fission::prelude::*;
 
-<!-- fission:checkpoint -->
-Mark Noah’s `Programming Rust` loan as returned. The “On loan” total should drop from three to two, the returned total should rise from one to two, and the status message should name the book. Choose `Include returned loans` to reveal Priya’s earlier return; choose `Show active loans only` to hide completed rows again. Hiding a returned row must not put the book back on loan.
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
+fission_component! {
+    pub LoanSummary<LibraryState> {}
+    view(_summary, state, cx) {
+        let returned = state.loans.iter().filter(|loan| loan.returned).count();
+        let active = state.loans.len() - returned;
+        let tokens = &cx.view.env().theme.tokens;
+    } => Column(gap: tokens.spacing.s, children: [
+        Text(cx.tr("library.active_total").replace("{count}", &active.to_string())),
+        Text(cx.tr("library.returned_total").replace("{count}", &returned.to_string())),
+    ])
+}
+```
+</TabItem>
 
-<!-- fission:step id="run-on-ios" -->
-## Run and verify the returns desk on iOS
+<TabItem label="src/app/screen.rs">
+<!-- fission:file path="src/app/screen.rs" -->
+```rust
+use super::{
+    loan_card::LoanCard,
+    state::{add_loan, LibraryState},
+    summary::LoanSummary,
+};
+use fission::prelude::*;
 
-The browser and native iOS shell use the same `LibraryLoanDesk`; there is no second screen to write in Swift. The host starts the Rust app and supplies the device window. Replace the generated `CounterApp` references in `src/lib.rs` with the desk and shared state. Leave `src/main.rs` to call `run_mobile` for iOS.
+fission_component! {
+    pub LibraryLoanDesk<LibraryState> {
+        state {
+            title: String = String::new(),
+            borrower: String = String::new(),
+            show_returned: bool = false,
+        }
+    }
+    view(desk, library, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let visible: Vec<_> = library.loans.iter()
+            .filter(|loan| desk.show_returned || !loan.returned).collect();
+    } => SafeArea(
+        child: Scroll(
+            child: Container(Column(gap: tokens.spacing.m, children: [
+                Text(cx.tr("library.heading")).size(tokens.typography.heading2_size),
+                Text(cx.tr("library.session")),
+                Row(gap: tokens.spacing.s, children: [
+                    Button(
+                        child: Text(cx.tr("language.english")), key: "english",
+                        on_press: reduce { library.locale = Locale::from("en-US"); },
+                    ),
+                    Button(
+                        child: Text(cx.tr("language.spanish")), key: "spanish",
+                        on_press: reduce { library.locale = Locale::from("es-ES"); },
+                    ),
+                ]),
+                FormControl(
+                    label: Some(cx.tr("library.title")),
+                    required: true,
+                    child: TextInput(
+                        value: desk.title.clone(),
+                        bind(on_input): to(desk.title),
+                    ),
+                ),
+                FormControl(
+                    label: Some(cx.tr("library.reader")),
+                    required: true,
+                    child: TextInput(
+                        value: desk.borrower.clone(),
+                        bind(on_input): to(desk.borrower),
+                    ),
+                ),
+                Button(
+                    child: Text(cx.tr("library.add")), key: "add-loan",
+                    disabled: desk.title.trim().is_empty() || desk.borrower.trim().is_empty()
+                        || library.next_id == u64::MAX,
+                    on_press: reduce {
+                        if add_loan(library, &desk.title, &desk.borrower) {
+                            desk.title.clear();
+                            desk.borrower.clear();
+                        }
+                    },
+                ),
+                LoanSummary,
+                Button(
+                    child: Text(if desk.show_returned { cx.tr("library.hide_returns") } else { cx.tr("library.show_returns") }),
+                    key: "toggle-returns",
+                    on_press: reduce { desk.show_returned = !desk.show_returned; },
+                ),
+                if visible.is_empty() { Text(cx.tr("library.empty")) },
+                for loan in visible {
+                    LoanCard(loan.id, key: loan.id)
+                },
+                if let Some(title) = &library.last_returned_title {
+                    Text(cx.tr("library.confirmation").replace("{title}", title))
+                },
+            ]))
+            .padding_all(tokens.spacing.l),
+        ),
+    )
+}
+```
+</TabItem>
 
-<Tabs>
+<TabItem label="src/i18n.rs">
+<!-- fission:file path="src/i18n.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid library translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+
+pub fn sync_env(state: &crate::app::LibraryState, env: &mut Env) {
+    env.locale = state.locale.clone();
+}
+```
+</TabItem>
+
 <TabItem label="src/lib.rs">
 <!-- fission:file path="src/lib.rs" -->
 ```rust
 pub mod app;
+mod i18n;
 
-use crate::app::{LibraryLoanDesk, LibraryState};
+use app::{LibraryLoanDesk, LibraryState};
 use fission::prelude::*;
-
-#[cfg(any(target_os = "ios", target_os = "android"))]
-fn mobile_app() -> MobileApp<LibraryState, LibraryLoanDesk> {
-    MobileApp::<LibraryState, _>::new(LibraryLoanDesk::new())
-        .with_title("Riverside Community Library returns desk")
-        .with_env(crate::app::create_env())
-}
-
-#[cfg(target_arch = "wasm32")]
-fn web_app() -> WebApp<LibraryState, LibraryLoanDesk> {
-    WebApp::<LibraryState, _>::new(LibraryLoanDesk::new())
-        .with_title("Riverside Community Library returns desk")
-        .with_env(crate::app::create_env())
-}
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> anyhow::Result<()> {
-    DesktopApp::<LibraryState, _>::new(LibraryLoanDesk::new())
-        .with_env(crate::app::create_env())
+    DesktopApp::<LibraryState, _>::new(LibraryLoanDesk)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
         .run()
 }
 
-#[cfg(any(target_os = "ios", target_os = "android"))]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 pub fn run_mobile() -> anyhow::Result<()> {
-    mobile_app().run()
+    MobileApp::<LibraryState, _>::new(LibraryLoanDesk)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
 }
 
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(app_handle: AndroidApp) {
-    let _ = mobile_app().run_with_android_app(app_handle);
+    let _ = MobileApp::<LibraryState, _>::new(LibraryLoanDesk)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run_with_android_app(app_handle);
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
     console_error_panic_hook::set_once();
-    web_app()
+    WebApp::<LibraryState, _>::new(LibraryLoanDesk)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
         .run()
         .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
-<TabItem label="Build and launch">
+
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod i18n;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<app::LibraryState, _>::new(app::LibraryLoanDesk)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+library.heading: "Library returns desk"
+library.session: "Record loans and returns for this session. No library service is connected and reloading clears the records."
+library.title: "Book title"
+library.reader: "Borrower's name"
+library.add: "Record loan"
+library.borrower: "Borrowed by {name}"
+library.returned: "Returned"
+library.on_loan: "On loan"
+library.return: "Mark returned"
+library.active_total: "On loan: {count}"
+library.returned_total: "Recorded returns: {count}"
+library.hide_returns: "Hide returned loans"
+library.show_returns: "Include returned loans"
+library.empty: "No loans match this view. Record a loan or include returned loans."
+library.confirmation: "Return recorded: {title}"
+language.english: "English"
+language.spanish: "Español"
+```
+</TabItem>
+
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+library.heading: "Mostrador de devoluciones"
+library.session: "Registra préstamos y devoluciones para esta sesión. No hay un servicio conectado y recargar borra los registros."
+library.title: "Título del libro"
+library.reader: "Nombre del lector"
+library.add: "Registrar préstamo"
+library.borrower: "Prestado a {name}"
+library.returned: "Devuelto"
+library.on_loan: "Prestado"
+library.return: "Registrar devolución"
+library.active_total: "Préstamos activos: {count}"
+library.returned_total: "Devoluciones registradas: {count}"
+library.hide_returns: "Ocultar préstamos devueltos"
+library.show_returns: "Incluir préstamos devueltos"
+library.empty: "No hay préstamos en esta vista. Registra uno o incluye los devueltos."
+library.confirmation: "Devolución registrada: {title}"
+language.english: "Inglés"
+language.spanish: "Español"
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Enter two different loans and mark one returned. The active total must fall by one and the return total rise by one. Include returned loans to find the record again. Duplicate book titles are valid: each loan has its own ID, so one title must not select every matching record.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="return-a-book" -->
+## Keep presentation state from becoming domain data
+
+Compose's `state` section creates retained local state; it is not an ordinary mutable field on a freshly constructed widget. Here it remembers the unfinished title, borrower and filter while this desk remains mounted. None of those values claims that a loan has been recorded.
+
+`props` has a different role. `LoanCard` receives its loan ID from the parent and reads the current record from shared state. Its action captures that small identifier rather than a second copy of the loan. The row does not keep a local `returned` flag which could disagree with the summary.
+
+The stable key associates a card with its loan during reordering. It does not promise to retain local state after a widget is removed. Completion is safe when the filter hides a row because it belongs to `LibraryState`, not because the key secretly persists an unmounted card.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Hide returns, record another loan, then include returns again. The original return must remain recorded. Change the filter while there is text in the entry form: the filter should not create a loan or clear the draft.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="run-on-ios" -->
+## Test the transition and then the interface
+
 ```sh
 cargo test
 fission doctor ios --project-dir .
 fission devices --project-dir .
 fission run --target ios --project-dir .
 fission test --target ios --project-dir .
-fission build --target ios --project-dir . --release
 ```
-</TabItem>
-<TabItem label="iOS Simulator or iPhone">
-```sh
-fission devices --project-dir .
-fission run --target ios --device <device-id> --project-dir .
-```
-</TabItem>
-</Tabs>
 
-Run `cargo test` first. The reducer tests check the record change and confirm that an unknown loan ID changes nothing. Then run the desk in an iOS Simulator: return Noah’s book, check the updated summary, and hide returned loans. Rotate the Simulator or shrink its window to verify that every row remains reachable. A physical iPhone release also needs the signing setup in the [iOS deployment guide](/blog/package-and-prepare-a-fission-ios-app-for-testflight/).
+The included tests check that a return changes the intended record once and that invalid entry does not consume an ID. Run them before driving the actual screen. They do not prove the action is connected to the right row, so repeat the add, return and filter sequence in the simulator too.
 
-## Continue learning
+Use [the simulator guide](/blog/choose-boot-and-launch-an-ios-simulator-with-fission/) for selection. Check long titles and both languages on a narrow phone; every action must remain reachable. The generated host test establishes launch, not these state transitions or the visual result.
 
-- [Build your first Rust iOS app with Fission](/blog/build-your-first-rust-ios-gui-app-with-fission/)
-- [Compose an iOS app from reusable Fission components](/blog/compose-an-ios-app-from-reusable-fission-widgets/)
-- [Use effects for asynchronous work](/docs/guides/state-handles-and-providers/)
+Application state is shared, not automatically durable. This example is explicitly session-scoped and has no library server or disk persistence. A production library would obtain records from its service and enforce authorization there; [Fission Store](/blog/persist-ios-app-state-with-fission-store-and-sqlite/) is available when local data must survive restart.
 <!-- /fission:step -->

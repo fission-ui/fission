@@ -16,40 +16,37 @@ use fission::prelude::*;
 
 
 
-fission_component!
-{
+fission_component! {
     pub OnboardingSpotlight<AppState> {
         props {
             anchor: WidgetId,
         }
     }
-    view(spotlight, _state, _cx) => rust {
-        let (_ctx, view) = fission::build::current::<AppState>();
-                let tokens = &view.env().theme.tokens;
-                let shade = tokens.colors.background.with_alpha(220);
-
-                Spotlight {
-                    anchor: spotlight.anchor,
-                    padding: tokens.spacing.s,
-                    children: [
-                        Container::new(Spacer::default()).bg(shade).into(),
-                        Container::new(Spacer::default()).bg(shade).into(),
-                        Container::new(Spacer::default()).bg(shade).into(),
-                        Container::new(Spacer::default()).bg(shade).into(),
-                        Container::new(Spacer::default())
-                            .border(
-                                tokens.colors.focus_ring,
-                                tokens.spacing.xs / 2.0,
-                            )
-                            .border_radius(tokens.radii.medium)
-                            .into(),
-                    ],
-                }
-                .into()
+    view(spotlight, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let shade = tokens.colors.background.with_alpha(220);
+    } =>
+    Spotlight {
+        anchor: spotlight.anchor,
+        padding: tokens.spacing.s,
+        children: [
+            Container::new(Spacer::default()).bg(shade).into(),
+            Container::new(Spacer::default()).bg(shade).into(),
+            Container::new(Spacer::default()).bg(shade).into(),
+            Container::new(Spacer::default()).bg(shade).into(),
+            Container::new(Spacer::default())
+                .border(tokens.colors.focus_ring, tokens.spacing.xs / 2.0)
+                .border_radius(tokens.radii.medium)
+                .into(),
+        ],
     }
 }
 ```
-Register the resulting widget in an overlay portal whose bounds cover the viewport. Give the real anchor a stable explicit `WidgetId`, then pass the lowered anchor node id in the same way as other anchored overlays.
+This low-level widget deliberately requires all five regions and has no
+`Default` implementation, so the view uses an ordinary Rust struct expression.
+Compose accepts that expression directly; a `rust { ... }` escape is not needed.
+
+Register the resulting widget in an overlay portal whose bounds cover the viewport. Give the real anchor a stable explicit `WidgetId`, then pass that same widget identity to `anchor`.
 
 ## Field table
 

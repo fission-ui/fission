@@ -1,93 +1,51 @@
 ---
 title: Mark point component
 sidebar_label: Mark point component
-description: Fission Charts reference for Mark point component.
+description: Attach a named annotation to an actual numeric observation with MarkPoint.
 ---
 
 # Mark point component
 
 ![Mark point component screenshot](/img/charts/component-mark-point.png)
 
-Line chart with named event points. Use it for incidents and milestones. The screenshot is from Fission's chart gallery.
+A mark point identifies an observation worth explaining. For a service report, it might identify a request measured during an incident, using payload size on x and response time on y.
 
-## What the chart is for
-
-This chart is in the **Components and interaction** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `MarkPoint plus LineSeries`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Choose the observation in the reporting layer. A visual marker does not establish that it is the maximum, an outlier or the cause of an incident.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::core::op::Color;
+use fission::charts::{Axis, Chart, MarkPoint, ScatterSeries, Series};
 
-
-
-fission_component!
-{
-    pub MarkPointComponentChart<()> {
+fission_component! {
+    pub AnnotatedServiceObservation<()> {
+        props {
+            title: String,
+            requests_label: String,
+            payload_label: String,
+            response_label: String,
+            incident_label: String,
+            samples: Vec<(f32, f32)>,
+            incident_sample: (f32, f32),
+            marker_colour: Color,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
-    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.title.clone()),
+        x_axis: Some(Axis::value().name(report.payload_label.clone())),
+        y_axis: Some(Axis::value().name(report.response_label.clone())),
+        series: vec![Series::Scatter(
+            ScatterSeries::new(&report.requests_label).data(report.samples.clone()),
+        )],
+        mark_points: vec![MarkPoint::xy(
+            report.incident_label.clone(), report.incident_sample.0, report.incident_sample.1,
+        ).color(report.marker_colour)],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+The numeric coordinate pair refers to the same units as the scatter data. Require finite values and an incident sample present in the displayed snapshot. If annotating a category line instead, x is a category index, not an arbitrary timestamp.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
-
-Tags: `markPoint`, `component`.
+Supply translated names and a design-system colour, and keep the incident's durable identifier in the source model rather than replacing it with a data index. Test that filtering does not leave an annotation on an absent observation, and show the explanation outside the plot. The gallery image is illustrative.
 
 [Components and interaction family overview](./overview)

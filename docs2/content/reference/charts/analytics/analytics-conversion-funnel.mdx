@@ -1,95 +1,56 @@
 ---
 title: Conversion funnel
 sidebar_label: Conversion funnel
-description: Fission Charts reference for Conversion funnel.
+description: Render ordered checkout stages without confusing event totals with a conversion cohort.
 ---
 
 # Conversion funnel
 
 ![Conversion funnel screenshot](/img/charts/analytics-conversion-funnel.png)
 
-This example uses Fission Charts' typed Rust API. Use it for product funnel analysis. The screenshot is from Fission's chart gallery.
+A conversion funnel asks how many members of the same starting group reach each successive stage. It is not a collection of unrelated event totals.
 
-## What the chart is for
+For a checkout, the stages might be started, delivery details entered, payment authorised and order placed. Keep them in process order. Sorting by the largest value would destroy the sequence the reader is trying to understand.
 
-This chart is in the **Analytics** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Ordered conversion stage values`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+## Compose example
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{Chart, FunnelSeries, Series};
 
+#[derive(Clone)]
+pub struct CheckoutStage {
+    pub label: String,
+    pub reached: u32,
+}
 
-
-fission_component!
-{
-    pub ConversionFunnelChart<()> {
+fission_component! {
+    pub CheckoutFunnel<()> {
+        props {
+            title: String,
+            cohort_label: String,
+            stages: Vec<CheckoutStage>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
-    }
+    view(funnel, _state, _cx) {
+        let values = funnel.stages.iter()
+            .map(|stage| (stage.label.as_str(), stage.reached as f32))
+            .collect();
+    } => Chart(
+        title: Some(funnel.title.clone()),
+        series: vec![Series::Funnel(
+            FunnelSeries::new(&funnel.cohort_label).data(values),
+        )],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+The parent supplies translated stage names and one completed cohort snapshot. No Cartesian axes are needed: the sequence and widths are carried by the funnel itself.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## Establish the counting rules
 
-Tags: `analytics`, `funnel`.
+Count a checkout once at each stage even if it retries a payment. Decide whether the report follows checkouts started in a period or events observed in a period; only the former directly supports this cohort interpretation.
+
+Verify that later stages do not exceed earlier ones under the chosen rule. If a product allows skipping stages, explain that branch or use a journey graph instead. Display stage counts and conversion rates in nearby text or a table; the shape cannot replace those values. The screenshot above is a gallery fixture.
 
 [Analytics family overview](./overview)

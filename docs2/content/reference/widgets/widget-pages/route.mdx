@@ -15,15 +15,17 @@ The current implementation keeps route syntax intentionally small and predictabl
 - named parameters such as `/users/:id`
 - exact segment counts only
 
-There is no built-in wildcard matching, query-string parsing, or browser-history integration here.
+`Route` itself does not parse a query or drive browser history. The shell's
+navigation API owns path/query/fragment and history; pass the current path into
+`Router` and use `RouteLocation` for full location data.
 
 ## Example
 
 ```rust
 use fission::prelude::*;
 
-let selected_project_id = "42".to_owned();
-let project_route = Route {
+// Routing-table excerpt. AppState and ProjectDetail are application types.
+let project_route = Route::<AppState> {
     path: "/projects/:id".into(),
     builder: std::sync::Arc::new(|_ctx, _view, params| {
         ProjectDetail {
@@ -33,6 +35,11 @@ let project_route = Route {
     }),
 };
 ```
+
+`Route` is a routing record, not a visible widget with a `Default` contract.
+The thin builder converts the application's named Compose screen using its
+fully specified props. The declared pattern guarantees an `id` entry; the
+screen must still validate whether it is a legitimate project identifier.
 
 If a route needs data from route parameters, use the `params` value passed to the builder. Keep the closure thin and hand the values into a named screen component.
 

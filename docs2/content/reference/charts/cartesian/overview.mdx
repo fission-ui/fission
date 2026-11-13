@@ -1,14 +1,14 @@
 ---
 title: Cartesian
 sidebar_label: Overview
-description: Fission Charts reference for the Cartesian family.
+description: Choose Cartesian bar and line mechanisms from the data and comparison they need to express.
 ---
 
 # Cartesian
 
-This family has 13 chart variants. Pick one that matches your data. Each page has a screenshot, data shape, API notes, and code you can adapt.
+Cartesian charts position values against x and y axes. The thirteen examples here use that common structure for different questions: category comparisons, ordered trends, cumulative contributions and changes that happen in discrete steps.
 
-Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
+The choice follows from the data. Independent product categories do not imply a continuous path; equal sampling intervals do. A filled area needs a meaningful baseline, and a stack needs values that can genuinely be added.
 
 ![Area line screenshot](/img/charts/line-area.png)
 
@@ -19,53 +19,31 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 | [Area line](./line-area) | Vec&lt;f32&gt; plus area style. | Use it when total volume is as important as the outline. |
 | [Bar with background](./bar-background) | BarSeries values plus background and border-radius styling. | Use it for progress-like category comparisons where the maximum should remain visible. |
 | [Basic bar](./bar-basic) | Vec&lt;f32&gt; aligned to category labels. | Use it when individual values need easy comparison. |
-| [Basic line](./line-basic) | Vec&lt;f32&gt; on a category, value, or time axis. | Use it when the shape of change matters more than individual bars. |
+| [Basic line](./line-basic) | Ordered values at equally spaced category positions. | Use it when the shape of change matters more than individual bars. |
 | [Grouped bar](./bar-grouped) | Multiple bar series sharing the same category axis. | Use it to compare related measures within each group. |
 | [Horizontal bar](./bar-horizontal) | BarSeries values with a category y-axis and value x-axis. | Use it when category labels are long or ranking order is more important than time order. |
 | [Large line](./line-large) | A longer Vec&lt;f32&gt; aligned to ordered category samples. | Use it for telemetry, monitoring, and sampled metrics where the trend matters more than every label. |
-| [Pictorial bar](./pictorial-bar) | Numeric values plus symbol choice. | Use it when the chart should feel branded without giving up scale. |
+| [Pictorial bar](./pictorial-bar) | Numeric values plus symbol choice. | Use cautiously with the current symbol-count convention and exact values. |
 | [Positive and negative bar](./bar-negative) | BarSeries values that may be positive or negative. | Use it for deltas, profit/loss, variance, and month-over-month movement. |
-| [Smooth line](./line-smooth) | Vec&lt;f32&gt; with smooth interpolation enabled. | Use it for dashboards where the series is sampled often enough to justify interpolation. |
+| [Smooth line](./line-smooth) | Vec&lt;f32&gt; with smooth interpolation enabled. | Use it when interpolation is explicitly acceptable, not as new measured data. |
 | [Stacked area](./line-stacked-area) | Several line series sharing one stack key. | Use it to show composition over time without losing the total. |
 | [Stacked bar](./bar-stacked) | Multiple bar series sharing one stack key. | Use it to show composition and total at the same time. |
 | [Step line](./line-step) | Vec&lt;f32&gt; with start, middle, or end step behavior. | Use it for counters, states, quotas, and event-driven changes. |
 
-## Choosing within this family
+## Compose is the widget boundary
 
-First decide what the user needs to compare or understand. Pick the simplest chart that shows it; add interaction only when it helps, and use animation only when it explains a change.
+Enable Fission's `charts` feature. Each example constructs a `Chart(...)` in a named component, with `Vec<Series>` supplied from ordinary Rust series values. `title` is `Option<String>`; axes are `Option<Axis>`; fixed width and height are optional rather than required.
 
-## Authoring from a Fission component
+Pass translated labels and a ready data snapshot from the parent. Keep authoritative money, inventory and reporting calculations outside the chart and convert only the final display projection to `f32`. Requests and persistence belong in effects and reducers, not component conversion.
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+## The details affect the meaning
 
-```rust
-use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+Category positions are equally spaced. A `Vec<f32>` line does not acquire irregular timestamp positions simply because an axis is labelled as time. Missing observations need an explicit policy rather than an invented zero or an unexplained connection across a gap.
 
+Smoothing interpolates geometry; it does not add observations. A background track spans the numeric plot range; it is not automatically a target. The current pictorial renderer also uses a fixed shape-count rule rather than arbitrary custom paths or one symbol per item. The relevant pages show those mechanisms directly.
 
+## Checks worth keeping
 
-fission_component!
-{
-    pub CartesianChart<()> {
-    }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Cartesian")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
-}
-```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
+Test label/value alignment, shared reporting intervals, stack reconciliation and boundary cases before looking at a screenshot. Inspect long translated labels and the actual narrow layout with LiveTest. Provide exact values, units and important conclusions in text or tables so colour, shape and hover are not the only way to understand the report.
 
-## Options, accessibility, and diagnostics
-
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+The images above and on the variant pages are gallery fixtures. They help identify a presentation, but do not establish correctness or performance for application data.

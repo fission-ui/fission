@@ -15,9 +15,11 @@ outcomes:
   - Keep account data out of pending and denied route trees
 ---
 
-This tutorial focuses on one job: routing from a session state your application has already resolved. It shows a public page, a sign-in placeholder, and an account route with pending, signed-out, allowed, and unavailable branches. It does not implement sign-in, session validation, or server authorization.
+An account page needs more than a condition around its final output. Constructing a private component can register resources and reducers before anything becomes visible. If access is still unresolved, hiding that component afterwards is already too late for the construction boundary.
 
-The preview buttons set sample state so you can inspect each route branch; they do not authenticate anyone. In a real app, connect `SessionState` to your own authentication flow. A protected UI route is not a security boundary: the server or service that reads private data must authenticate and authorize every request. See [Server security](/docs/guides/server-site-security/) for the server-side contract.
+Here, one selector maps the application's session state to a route decision, and `ProtectedRoute` constructs only the selected branch. Pending access builds the loading screen; signed-out access redirects to sign-in; allowed access constructs the account component. This tutorial teaches that boundary, not credential verification or session creation.
+
+The preview buttons set sample state so you can inspect each route branch; they do not authenticate anyone. In a real app, connect `SessionState` to your own authentication flow. A protected UI route is not server authorisation: the server or service that reads private data must authenticate and authorise every request. See [Server security](/docs/guides/server-site-security/) for the server-side contract.
 
 Install the Fission CLI and scaffold a Web project for the interactive preview:
 
@@ -36,9 +38,12 @@ harbour-account/
 ├── Cargo.toml                 # generated dependencies
 ├── fission.toml               # app identity, targets and capabilities
 ├── src/
-│   ├── main.rs                # generated Web entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # the Fission components shown in this tutorial
+│   ├── main.rs                # generated native entrypoint
+│   ├── lib.rs                 # thin target launchers
+│   ├── app.rs                 # native Router composition
+│   ├── state.rs               # session state and one route selector
+│   ├── translations.rs        # embedded locale bundles
+│   └── screens/               # named route components
 ├── i18n/
 │   ├── en-US.yaml
 │   └── es-ES.yaml
@@ -47,6 +52,8 @@ harbour-account/
 ```
 
 `fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs`, and `src/app.rs`. Add the feature modules as you build it. Keep data shared across routes in `GlobalState`; keep a view-only choice or draft in the component that owns it. If your app resolves access asynchronously, start that work through a reducer effect, job, or service—not while the component view is being built.
+
+Replace the generated `src/lib.rs` at each stage so a normal launch runs the tutorial app. Its initial session is explicitly signed out because this example has no session resolver. In a connected app, remove that initialisation and hydrate the session through a startup action, leaving it `Loading` until the effect completes. Do not fabricate an authenticated user to make the account route appear to work.
 
 `preview/lib.rs` is the documentation harness. It compiles the same component into WebAssembly so you can try the UI while reading. Its buttons set synthetic session states so you can inspect each route branch; they do not authenticate a visitor or load a real session.
 
@@ -61,8 +68,13 @@ Start with a public entry screen. It can explain what the account area contains,
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+pub use crate::screens::PublicAccountEntry;
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
 use std::collections::HashMap;
-
 use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
 
@@ -82,7 +94,19 @@ pub fn create_env(locale: &str) -> Env {
     }
     env
 }
-
+```
+</TabItem>
+<TabItem label="src/screens/mod.rs">
+<!-- fission:file path="src/screens/mod.rs" -->
+```rust
+mod public_account_entry;
+pub use public_account_entry::PublicAccountEntry;
+```
+</TabItem>
+<TabItem label="src/screens/public_account_entry.rs">
+<!-- fission:file path="src/screens/public_account_entry.rs" -->
+```rust
+use fission::prelude::*;
 
 fission_component! {
     pub PublicAccountEntry<()>
@@ -108,6 +132,34 @@ fission_component! {
             .border(tokens.colors.border, 1.0)
             .border_radius(tokens.radii.large),
     )
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod screens;
+mod translations;
+
+use fission::prelude::*;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(app::PublicAccountEntry)
+        .with_env(translations::create_env("en-US"))
+        .run()
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::PublicAccountEntry)
+        .with_env(translations::create_env("en-US"))
+        .with_title("Harbour account")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
@@ -169,6 +221,8 @@ preview.unavailable: "Vista previa: sesión no disponible"
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod screens;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -177,7 +231,7 @@ use wasm_bindgen::prelude::*;
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     WebApp::<(), _>::new(app::PublicAccountEntry)
-        .with_env(app::create_env("en-US"))
+        .with_env(translations::create_env("en-US"))
         .with_title("Build protected routes in Rust")
         .mount("#fission-web-mount")
         .run()
@@ -201,29 +255,34 @@ Keep the session status in `GlobalState` and derive one route decision from it. 
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
-use std::collections::HashMap;
-
-use fission::i18n::{Locale, TranslationBundle};
+use crate::state::*;
+use crate::screens::*;
 use fission::prelude::*;
 
-pub fn create_env(locale: &str) -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from(locale);
-    for (bundle_locale, source) in [
-        ("en-US", include_str!("../i18n/en-US.yaml")),
-        ("es-ES", include_str!("../i18n/es-ES.yaml")),
-    ] {
-        let messages: HashMap<String, String> =
-            serde_yaml::from_str(source).expect("valid account-route translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(bundle_locale),
-            messages,
-        });
-    }
-    env
+fission_component! {
+    pub App<AppState>
+    view(_app, state, cx) {
+        let account_access = account_route_decision(state, &cx.view.env().current_route);
+    } =>
+    Router::<AppState>::new()
+        .with_path(state.current_path.clone())
+        .route_component(
+            "/",
+            PublicAccountEntry,
+        )
+        .route_component(
+            "/account",
+            ProtectedRoute::new(account_access, AccountRoute)
+                .pending(SessionLoadingRoute),
+        )
+        .route_component("/sign-in", SignInRoute)
 }
-
-
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionState {
@@ -269,6 +328,51 @@ pub fn route_changed(
 ) {
     state.current_path = action.location.pathname;
 }
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+pub fn create_env(locale: &str) -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from(locale);
+    for (bundle_locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid account-route translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(bundle_locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="src/screens/mod.rs">
+<!-- fission:file path="src/screens/mod.rs" -->
+```rust
+mod public_account_entry;
+pub use public_account_entry::PublicAccountEntry;
+mod sign_in_route;
+pub use sign_in_route::SignInRoute;
+mod session_loading_route;
+pub use session_loading_route::SessionLoadingRoute;
+mod account_route;
+pub use account_route::AccountRoute;
+```
+</TabItem>
+<TabItem label="src/screens/public_account_entry.rs">
+<!-- fission:file path="src/screens/public_account_entry.rs" -->
+```rust
+use crate::state::*;
+use fission::prelude::*;
 
 fission_component! {
     pub PublicAccountEntry<AppState>
@@ -292,6 +396,13 @@ fission_component! {
             .border_radius(tokens.radii.large),
     )
 }
+```
+</TabItem>
+<TabItem label="src/screens/sign_in_route.rs">
+<!-- fission:file path="src/screens/sign_in_route.rs" -->
+```rust
+use crate::state::*;
+use fission::prelude::*;
 
 fission_component! {
     pub SignInRoute<AppState>
@@ -311,6 +422,13 @@ fission_component! {
         .border(tokens.colors.border, 1.0)
         .border_radius(tokens.radii.large)
 }
+```
+</TabItem>
+<TabItem label="src/screens/session_loading_route.rs">
+<!-- fission:file path="src/screens/session_loading_route.rs" -->
+```rust
+use crate::state::*;
+use fission::prelude::*;
 
 fission_component! {
     pub SessionLoadingRoute<AppState>
@@ -321,11 +439,18 @@ fission_component! {
         identifier: Some("account-session-loading".to_string()),
         label: Some(cx.tr("account.loading.label")),
         child: Column(gap: tokens.spacing.m, children: [
-            Spinner(),
+            Spinner(motion: Some(SpinnerMotion::Default), label: Some(cx.tr("account.loading.label"))),
             Text(cx.tr("account.loading.body")),
         ]),
     )
 }
+```
+</TabItem>
+<TabItem label="src/screens/account_route.rs">
+<!-- fission:file path="src/screens/account_route.rs" -->
+```rust
+use crate::state::*;
+use fission::prelude::*;
 
 fission_component! {
     pub AccountRoute<AppState>
@@ -352,24 +477,38 @@ fission_component! {
             .border_radius(tokens.radii.large),
     )
 }
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod screens;
+mod translations;
+mod state;
 
-fission_component! {
-    pub App<AppState>
-    view(_app, state, cx) {
-        let account_access = account_route_decision(state, &cx.view.env().current_route);
-    } =>
-    Router::<AppState>::new()
-        .with_path(state.current_path.clone())
-        .route_component(
-            "/",
-            PublicAccountEntry,
-        )
-        .route_component(
-            "/account",
-            ProtectedRoute::new(account_access, AccountRoute)
-                .pending(SessionLoadingRoute),
-        )
-        .route_component("/sign-in", SignInRoute)
+use fission::prelude::*;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::AppState, _>::new(app::App)
+        .with_env(translations::create_env("en-US"))
+        .with_state_init(|state| state.session = state::SessionState::SignedOut)
+        .with_route_handler(state::route_changed)
+        .run()
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::AppState, _>::new(app::App)
+        .with_env(translations::create_env("en-US"))
+        .with_state_init(|state| state.session = state::SessionState::SignedOut)
+        .with_route_handler(state::route_changed)
+        .with_title("Harbour account")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
@@ -377,12 +516,15 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod screens;
+mod translations;
+mod state;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
 fission_component! {
-    pub ProtectedRoutesPreview<app::AppState>
+    pub ProtectedRoutesPreview<state::AppState>
     view(_preview, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
@@ -395,7 +537,7 @@ fission_component! {
                     child: Text(cx.tr("preview.allow")),
                     key: "preview-allow",
                     on_press: reduce {
-                        state.session = app::SessionState::Authenticated {
+                        state.session = state::SessionState::Authenticated {
                             display_name: "Morgan Lee".to_string(),
                         };
                         cx.effects.navigate("/account");
@@ -405,7 +547,7 @@ fission_component! {
                     child: Text(cx.tr("preview.signed_out")),
                     key: "preview-signed-out",
                     on_press: reduce {
-                        state.session = app::SessionState::SignedOut;
+                        state.session = state::SessionState::SignedOut;
                         cx.effects.navigate("/account");
                     },
                 ).semantics_identifier("protected-routes.preview-signed-out".to_string()),
@@ -420,9 +562,9 @@ fission_component! {
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<app::AppState, _>::new(ProtectedRoutesPreview)
-        .with_env(app::create_env("en-US"))
-        .with_route_handler(app::route_changed)
+    WebApp::<state::AppState, _>::new(ProtectedRoutesPreview)
+        .with_env(translations::create_env("en-US"))
+        .with_route_handler(state::route_changed)
         .with_title("Build protected routes in Rust")
         .mount("#fission-web-mount")
         .run()
@@ -443,32 +585,37 @@ Select **Preview signed-out session**. The browser should leave the protected br
 
 When your application cannot resolve access, map that result to a denied route instead of falling back to the account screen. `ProtectedRoute` builds the denied branch and does not construct the protected component. This example models that route decision; it does not determine whether a session is expired or valid.
 
-The preview adds an unavailable state so you can inspect that branch. It still does not authenticate anyone. Route protection only controls the UI tree. Every server request that reads or changes account data must authenticate and authorize its caller independently. See [Server security](/docs/guides/server-site-security/) for the server-side requirements.
+The preview adds an unavailable state so you can inspect that branch. It still does not authenticate anyone. Route protection only controls the UI tree. Every server request that reads or changes account data must authenticate and authorise its caller independently. See [Server security](/docs/guides/server-site-security/) for the server-side requirements.
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
-use std::collections::HashMap;
-
-use fission::i18n::{Locale, TranslationBundle};
+use crate::state::*;
+use crate::screens::*;
 use fission::prelude::*;
 
-pub fn create_env(locale: &str) -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from(locale);
-    for (bundle_locale, source) in [
-        ("en-US", include_str!("../i18n/en-US.yaml")),
-        ("es-ES", include_str!("../i18n/es-ES.yaml")),
-    ] {
-        let messages: HashMap<String, String> =
-            serde_yaml::from_str(source).expect("valid account-route translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(bundle_locale),
-            messages,
-        });
-    }
-    env
+fission_component! {
+    pub App<AppState>
+    view(_app, state, cx) {
+        let account_access = account_route_decision(state, &cx.view.env().current_route);
+    } =>
+    Router::<AppState>::new()
+        .with_path(state.current_path.clone())
+        .route_component("/", PublicAccountEntry)
+        .route_component(
+            "/account",
+            ProtectedRoute::new(account_access, AccountRoute)
+                .pending(SessionLoadingRoute)
+                .denied(SessionUnavailableRoute),
+        )
+        .route_component("/sign-in", SignInRoute)
 }
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionState {
@@ -517,6 +664,78 @@ pub fn route_changed(
     state.current_path = action.location.pathname;
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fission::core::env::RouteLocation;
+    #[test]
+    fn pending_and_unavailable_sessions_never_allow_the_account() {
+        let location = RouteLocation::new("/account");
+        let mut state = AppState::default();
+        assert_eq!(account_route_decision(&state, &location), RouteDecision::Pending);
+        state.session = SessionState::Unavailable;
+        assert_eq!(account_route_decision(&state, &location), RouteDecision::Deny);
+    }
+    #[test]
+    fn signed_out_redirect_preserves_only_the_logical_return_route() {
+        let location = RouteLocation::from_route("/account?tab=requests#open");
+        let state = AppState { session: SessionState::SignedOut, ..AppState::default() };
+        let RouteDecision::Redirect(redirect) = account_route_decision(&state, &location) else {
+            panic!("signed-out access must redirect");
+        };
+        assert_eq!(redirect.history, RouteRedirectHistory::Replace);
+        assert_eq!(redirect.destination,
+            "/sign-in?return_to=%2Faccount%3Ftab%3Drequests%23open");
+    }
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+pub fn create_env(locale: &str) -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from(locale);
+    for (bundle_locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid account-route translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(bundle_locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="src/screens/mod.rs">
+<!-- fission:file path="src/screens/mod.rs" -->
+```rust
+mod public_account_entry;
+pub use public_account_entry::PublicAccountEntry;
+mod sign_in_route;
+pub use sign_in_route::SignInRoute;
+mod session_loading_route;
+pub use session_loading_route::SessionLoadingRoute;
+mod session_unavailable_route;
+pub use session_unavailable_route::SessionUnavailableRoute;
+mod account_route;
+pub use account_route::AccountRoute;
+```
+</TabItem>
+<TabItem label="src/screens/public_account_entry.rs">
+<!-- fission:file path="src/screens/public_account_entry.rs" -->
+```rust
+use crate::state::*;
+use fission::prelude::*;
+
 fission_component! {
     pub PublicAccountEntry<AppState>
     view(_entry, _state, cx) {
@@ -539,6 +758,13 @@ fission_component! {
             .border_radius(tokens.radii.large),
     )
 }
+```
+</TabItem>
+<TabItem label="src/screens/sign_in_route.rs">
+<!-- fission:file path="src/screens/sign_in_route.rs" -->
+```rust
+use crate::state::*;
+use fission::prelude::*;
 
 fission_component! {
     pub SignInRoute<AppState>
@@ -558,6 +784,13 @@ fission_component! {
         .border(tokens.colors.border, 1.0)
         .border_radius(tokens.radii.large)
 }
+```
+</TabItem>
+<TabItem label="src/screens/session_loading_route.rs">
+<!-- fission:file path="src/screens/session_loading_route.rs" -->
+```rust
+use crate::state::*;
+use fission::prelude::*;
 
 fission_component! {
     pub SessionLoadingRoute<AppState>
@@ -568,11 +801,18 @@ fission_component! {
         identifier: Some("account-session-loading".to_string()),
         label: Some(cx.tr("account.loading.label")),
         child: Column(gap: tokens.spacing.m, children: [
-            Spinner(),
+            Spinner(motion: Some(SpinnerMotion::Default), label: Some(cx.tr("account.loading.label"))),
             Text(cx.tr("account.loading.body")),
         ]),
     )
 }
+```
+</TabItem>
+<TabItem label="src/screens/session_unavailable_route.rs">
+<!-- fission:file path="src/screens/session_unavailable_route.rs" -->
+```rust
+use crate::state::*;
+use fission::prelude::*;
 
 fission_component! {
     pub SessionUnavailableRoute<AppState>
@@ -595,6 +835,13 @@ fission_component! {
             .border_radius(tokens.radii.large),
     )
 }
+```
+</TabItem>
+<TabItem label="src/screens/account_route.rs">
+<!-- fission:file path="src/screens/account_route.rs" -->
+```rust
+use crate::state::*;
+use fission::prelude::*;
 
 fission_component! {
     pub AccountRoute<AppState>
@@ -621,22 +868,38 @@ fission_component! {
             .border_radius(tokens.radii.large),
     )
 }
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod screens;
+mod translations;
+mod state;
 
-fission_component! {
-    pub App<AppState>
-    view(_app, state, cx) {
-        let account_access = account_route_decision(state, &cx.view.env().current_route);
-    } =>
-    Router::<AppState>::new()
-        .with_path(state.current_path.clone())
-        .route_component("/", PublicAccountEntry)
-        .route_component(
-            "/account",
-            ProtectedRoute::new(account_access, AccountRoute)
-                .pending(SessionLoadingRoute)
-                .denied(SessionUnavailableRoute),
-        )
-        .route_component("/sign-in", SignInRoute)
+use fission::prelude::*;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::AppState, _>::new(app::App)
+        .with_env(translations::create_env("en-US"))
+        .with_state_init(|state| state.session = state::SessionState::SignedOut)
+        .with_route_handler(state::route_changed)
+        .run()
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::AppState, _>::new(app::App)
+        .with_env(translations::create_env("en-US"))
+        .with_state_init(|state| state.session = state::SessionState::SignedOut)
+        .with_route_handler(state::route_changed)
+        .with_title("Harbour account")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
@@ -644,12 +907,15 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod screens;
+mod translations;
+mod state;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
 fission_component! {
-    pub ProtectedRoutesPreview<app::AppState>
+    pub ProtectedRoutesPreview<state::AppState>
     view(_preview, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
@@ -662,7 +928,7 @@ fission_component! {
                     child: Text(cx.tr("preview.allow")),
                     key: "preview-allow",
                     on_press: reduce {
-                        state.session = app::SessionState::Authenticated {
+                        state.session = state::SessionState::Authenticated {
                             display_name: "Morgan Lee".to_string(),
                         };
                         cx.effects.navigate("/account");
@@ -672,7 +938,7 @@ fission_component! {
                     child: Text(cx.tr("preview.signed_out")),
                     key: "preview-signed-out",
                     on_press: reduce {
-                        state.session = app::SessionState::SignedOut;
+                        state.session = state::SessionState::SignedOut;
                         cx.effects.navigate("/account");
                     },
                 ).semantics_identifier("protected-routes.preview-signed-out".to_string()),
@@ -680,7 +946,7 @@ fission_component! {
                     child: Text(cx.tr("preview.unavailable")),
                     key: "preview-unavailable",
                     on_press: reduce {
-                        state.session = app::SessionState::Unavailable;
+                        state.session = state::SessionState::Unavailable;
                         cx.effects.navigate("/account");
                     },
                 ).semantics_identifier("protected-routes.preview-unavailable".to_string()),
@@ -695,9 +961,9 @@ fission_component! {
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<app::AppState, _>::new(ProtectedRoutesPreview)
-        .with_env(app::create_env("en-US"))
-        .with_route_handler(app::route_changed)
+    WebApp::<state::AppState, _>::new(ProtectedRoutesPreview)
+        .with_env(translations::create_env("en-US"))
+        .with_route_handler(state::route_changed)
         .with_title("Build protected routes in Rust")
         .mount("#fission-web-mount")
         .run()

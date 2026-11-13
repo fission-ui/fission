@@ -17,16 +17,30 @@ Most application authors should start with normal widgets such as [`Container`](
 
 ```rust
 use fission::prelude::*;
+use fission::authoring::IrBuilder;
+use fission::op::Op;
 
-let surface: Widget = canvas(Some(120.0), Some(24.0), |_cx| {
-    // Emit paint or layout IR ids here and return them.
-    // Library code that uses this path normally works directly with
-    // fission_core::internal lowering helpers.
-    Vec::new()
-});
+fn vector_marker(fill: Fill) -> Widget {
+    canvas(Some(16.0), Some(16.0), move |cx| {
+        let marker = IrBuilder::new(
+            cx.next_node_id(),
+            Op::Paint(PaintOp::DrawPath {
+                path: "M 2 2 L 14 8 L 2 14 Z".into(),
+                fill: Some(fill.clone()),
+                stroke: None,
+                view_box: Some([16.0, 16.0]),
+            }),
+        )
+        .build(cx);
+        vec![marker]
+    })
+}
 ```
 
-This is intentionally an advanced shape. The public app-authoring path is a named component defined with `fission_component!`; `canvas(...)` is a low-level drawing helper used from that component when ordinary widgets cannot express the drawing.
+This emits a triangular marker and takes its fill from the caller. For an
+ordinary symbol use `Icon`; this small example isolates the IR hook. Product
+components still use `fission_component!`, calling a low-level drawing helper
+only when normal widget composition cannot express the required surface.
 
 ## Field table
 
@@ -46,10 +60,10 @@ Treat `canvas(...)` as an advanced library escape hatch. It should not appear in
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Prefer parent layout and design-system sizing first; use explicit size or spacing fields when the product layout requires that constraint on this widget specifically.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Verify the painter emits deterministic nodes and returns their built IDs.
+- Supply theme-derived paint; do not hide another palette inside the helper.
+- Add surrounding semantics when the surface communicates meaning, and use a
+  specific input widget when it must respond to interaction.
 
 ## Related
 

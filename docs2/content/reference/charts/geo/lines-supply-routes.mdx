@@ -1,93 +1,42 @@
 ---
 title: Supply routes
 sidebar_label: Supply routes
-description: Fission Charts reference for Supply routes.
+description: Compare measured shipment quantities without mixing incompatible units.
 ---
 
 # Supply routes
 
 ![Supply routes screenshot](/img/charts/lines-supply-routes.png)
 
-This example uses Fission Charts' typed Rust API. Use it for route and movement diagrams. The screenshot is from Fission's chart gallery.
+A supply network needs an explicit quantity before line widths can mean anything. Counting one shipment of parcels as equal to one shipment of bulk material can obscure the actual transport load.
 
-## What the chart is for
-
-This chart is in the **Geo** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Coordinate pairs representing routes`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
+The following model uses kilograms for every route. It projects into `ServiceConnection` from [lines](../geographic-and-route/lines-basic), placed in `widgets/service_connections.rs`:
 
 ```rust
-use fission::charts::{Axis, Chart, LineSeries};
+use crate::widgets::service_connections::ServiceConnection;
 
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
+pub struct SupplyRoute {
+    pub id: String,
+    pub origin: (f32, f32),
+    pub destination: (f32, f32),
+    pub delivered_kilograms: f32,
+}
 
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
-
-```rust
-use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
-
-
-
-fission_component!
-{
-    pub SupplyRoutesChart<()> {
+pub fn shipment_connection(route: &SupplyRoute) -> Option<ServiceConnection> {
+    if !route.delivered_kilograms.is_finite() || route.delivered_kilograms <= 0.0 {
+        return None;
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
-    }
+    Some(ServiceConnection {
+        id: route.id.clone(),
+        from: route.origin,
+        to: route.destination,
+        traffic: route.delivered_kilograms,
+    })
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Treat rejected negative/non-finite quantities as data errors; confirmed zero shipments may be omitted deliberately. Pass valid rows into the Compose component with translated captions stating the unit and reporting period. Keep the original shipment records for exact totals and audit.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
-
-Tags: `lines`, `route`.
+This is a directed schematic, not a road network or a route optimisation result. Line width is relative within the report and distance is not measured. Test reverse flows, invalid units and routes with missing endpoints. The gallery is separate.
 
 [Geo family overview](./overview)

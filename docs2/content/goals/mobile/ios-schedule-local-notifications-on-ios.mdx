@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Schedule local notifications on iOS
-description: "Schedule local notifications on iOS using Fission."
-goal: Request permission at an appropriate moment, schedule and cancel notifications, and handle the user’s response.
+description: Request a shift reminder through real notification effects, keep scheduling receipts separate from delivery, and identify the current iOS permission, cancellation and response gaps.
+goal: Exercise a real reminder request without presenting incomplete iOS provider support as a verified notification workflow
 path: /blog/schedule-local-notifications-on-ios/
 order: 86
 difficulty: Beginner
@@ -10,10 +10,24 @@ duration: 35 minutes
 run_command: "fission run --target ios --project-dir ."
 app: ios-schedule-local-notifications-on-ios
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the iOS workflow and follow physical-device checks when the task requires them
+  - Queue permission and a fifteen-minute schedule from explicit user actions
+  - Preserve a prior scheduling receipt when cancellation fails
+  - Separate returned host values from unverified OS permission and delivery
+  - Identify the iOS provider fixes required before the complete workflow can ship
 ---
+
+A reminder should be requested after the person has chosen it, not when a screen
+builds. The request, scheduling receipt and actual delivery are different
+observations. Keep that distinction visible when a host denies access or cannot
+perform the operation.
+
+There are current iOS provider gaps: permission settings are inferred rather
+than read back from the operating system, cancellation returns Unsupported,
+and response forwarding is not established by this tutorial. The native path
+also reports a scheduling receipt without an OS completion callback. This page
+can demonstrate the real effect boundary, but the complete permission,
+cancellation and response workflow remains blocked until those provider gaps
+are fixed and qualified. A memory provider cannot supply that evidence.
 
 ## Create the project and add the target
 
@@ -25,6 +39,7 @@ fission init ios-schedule-local-notifications-on-ios
 cd ios-schedule-local-notifications-on-ios
 fission add-target ios --project-dir .
 fission add-capability notifications --project-dir .
+cargo add serde_yaml
 ```
 
 ## Files created by Fission
@@ -117,6 +132,53 @@ fission_component! {
 }
 ```
 </TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod translations;
+use fission::prelude::*;
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<app::ShiftReminderState, _>::new(app::ShiftReminderScreen)
+        .with_env(translations::create_env()).with_title("Shift reminder").run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    MobileApp::<app::ShiftReminderState, _>::new(app::ShiftReminderScreen)
+        .with_env(translations::create_env()).with_title("Shift reminder").run()
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    WebApp::<app::ShiftReminderState, _>::new(app::ShiftReminderScreen)
+        .with_env(translations::create_env()).with_title("Shift reminder").run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::prelude::*;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid shift reminder tutorial translations"),
+    }
+}
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("../i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("../i18n/es-ES.yaml")));
+    env
+}
+
+
+```
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
@@ -168,6 +230,7 @@ reminder.error: "The reminder could not be scheduled. The work order is still av
 reminder.scheduled: "The host accepted the reminder schedule."
 reminder.unscheduled: "The host did not schedule the reminder."
 reminder.ready: "No notification has been scheduled."
+reminder.cancel: "Request cancellation"
 reminder.action: "Schedule this reminder"
 reminder.notification_title: "Compressor recheck"
 reminder.notification_body: "Recheck compressor CMP-7A-2219 before the shift ends."
@@ -190,6 +253,7 @@ reminder.error: "No se pudo programar el recordatorio. La orden sigue disponible
 reminder.scheduled: "El host aceptó la programación del recordatorio."
 reminder.unscheduled: "El host no programó el recordatorio."
 reminder.ready: "No se ha programado ninguna notificación."
+reminder.cancel: "Solicitar cancelación"
 reminder.action: "Programar este recordatorio"
 reminder.notification_title: "Revisión del compresor"
 reminder.notification_body: "Revisa el compresor CMP-7A-2219 antes de que termine el turno."
@@ -207,73 +271,110 @@ This stage is an app screen with a real state transition, not a device mock. The
 <!-- fission:step id="main-flow" -->
 ## Run the Notification operation through Fission
 
-Keep host work out of component conversion. The button dispatches a typed action, its reducer queues the capability request, and separate completion reducers update the screen. The Web preview installs `MemoryNotificationHost` and sends the same operation through Fission’s typed capability path. Its deterministic response is not a claim about device hardware, OS permission or native platform support.
+A visible action requests permission and then schedules the chosen reminder
+through the host's real capability path. Completion actions are bound by the
+requesting reducer; they read returned values from `cx.input`. The request
+snapshot is owned data, so a later rebuild cannot change its title or body.
 
-The Web preview's MemoryNotificationHost returns a deterministic receipt. It does not display or schedule a browser or iOS notification.
+The browser preview installs no replacement provider. It may report Unsupported;
+that is the actual host outcome, not permission to display a fake success.
+The configured delay is 15 minutes (900,000 milliseconds), matching the label.
 
 <Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
 ```rust
 use fission::prelude::*;
-
 #[derive(Debug, Default)]
 pub struct ShiftReminderState {
     pub pending: bool,
     pub scheduled: Option<bool>,
     pub failed: bool,
+    pub request: Option<NotificationRequest>,
 }
-
 impl GlobalState for ShiftReminderState {}
+```
+</TabItem>
+<TabItem label="src/reducers.rs">
+<!-- fission:file path="src/reducers.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::ShiftReminderState;
 
 #[fission_reducer(RunCapability)]
-pub fn run_capability(
-    state: &mut ShiftReminderState,
-    request: NotificationRequest,
-    ctx: &mut ReducerContext<ShiftReminderState>,
-) {
+pub fn run_capability(state: &mut ShiftReminderState, request: NotificationRequest, cx: &mut ReducerContext<ShiftReminderState>) {
+    if state.pending { return; }
     state.pending = true;
-    state.scheduled = None;
     state.failed = false;
+    state.request = Some(request);
+    let ok = cx.effects.bind(PermissionChecked, reduce!(permission_checked));
+    let err = cx.effects.bind(CapabilityFailed, reduce!(capability_failed));
+    cx.effects.notifications().request_permission(NotificationPermissionRequest {
+        alerts: true, badge: false, sound: true, provisional: false,
+    }).on_ok(ok).on_err(err);
+}
 
-    let ok: ActionEnvelope = CapabilitySucceeded.into();
-    let err: ActionEnvelope = CapabilityFailed.into();
-
-    ctx.effects
-        .notifications().schedule(request)
-        .on_ok(ok)
-        .on_err(err);
+#[fission_reducer(PermissionChecked)]
+fn permission_checked(state: &mut ShiftReminderState, cx: &mut ReducerContext<ShiftReminderState>) {
+    let permitted = cx.input.capability_ok(REQUEST_NOTIFICATION_PERMISSION)
+        .is_some_and(|settings| matches!(settings.permission, NotificationPermission::Granted | NotificationPermission::Provisional) && settings.scheduling);
+    if !permitted {
+        state.pending = false;
+        state.failed = true;
+        state.request = None;
+        return;
+    }
+    let Some(request) = state.request.take() else {
+        state.pending = false;
+        state.failed = true;
+        return;
+    };
+    let ok = cx.effects.bind(CapabilitySucceeded, reduce!(capability_succeeded));
+    let err = cx.effects.bind(CapabilityFailed, reduce!(capability_failed));
+    cx.effects.notifications().schedule(request).on_ok(ok).on_err(err);
 }
 
 #[fission_reducer(CapabilitySucceeded)]
-pub fn capability_succeeded(
-    state: &mut ShiftReminderState,
-    ctx: &mut ReducerContext<ShiftReminderState>,
-) {
+fn capability_succeeded(state: &mut ShiftReminderState, cx: &mut ReducerContext<ShiftReminderState>) {
     state.pending = false;
-    state.scheduled = ctx
-        .input
-        .capability_ok(SCHEDULE_NOTIFICATION)
-        .map(|value| value.scheduled);
-    state.failed = state.scheduled.is_none();
+    state.scheduled = cx.input.capability_ok(SCHEDULE_NOTIFICATION).map(|receipt| receipt.scheduled);
+    state.failed = state.scheduled != Some(true);
+}
+
+pub fn cancel_reminder(state: &mut ShiftReminderState, cx: &mut ReducerContext<ShiftReminderState>) {
+    if state.pending || state.scheduled != Some(true) { return; }
+    state.pending = true;
+    state.failed = false;
+    let ok = cx.effects.bind(ReminderCancelled, reduce!(reminder_cancelled));
+    let err = cx.effects.bind(CapabilityFailed, reduce!(capability_failed));
+    cx.effects.notifications().cancel(CancelNotificationRequest {
+        id: NotificationId::new("WO-1048-reminder"),
+    }).on_ok(ok).on_err(err);
+}
+
+#[fission_reducer(ReminderCancelled)]
+fn reminder_cancelled(state: &mut ShiftReminderState, cx: &mut ReducerContext<ShiftReminderState>) {
+    state.pending = false;
+    if cx.input.capability_ok(CANCEL_NOTIFICATION).is_some() {
+        state.scheduled = Some(false);
+        state.failed = false;
+    } else { state.failed = true; }
 }
 
 #[fission_reducer(CapabilityFailed)]
-pub fn capability_failed(
-    state: &mut ShiftReminderState,
-) {
+fn capability_failed(state: &mut ShiftReminderState) {
     state.pending = false;
-    state.scheduled = None;
+    state.request = None;
     state.failed = true;
+    // Keep a prior scheduling receipt: failed cancellation does not prove cancellation.
 }
-
-pub fn callback_registry() -> ActionRegistry<ShiftReminderState> {
-    let mut registry = ActionRegistry::new();
-    registry.register(reduce_with!(capability_succeeded));
-    registry.register(reduce_with!(capability_failed));
-    registry
-}
-
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{state::ShiftReminderState, reducers::{RunCapability, run_capability, cancel_reminder}};
 fission_component! {
     pub ShiftReminderScreen<ShiftReminderState> {}
     view(_screen, state, cx) {
@@ -287,7 +388,7 @@ fission_component! {
             sound: NotificationSound::Default,
             deep_link: Some("field-inspector://work-orders/WO-1048".into()),
             actions: Vec::new(),
-            schedule: NotificationSchedule::AfterMillis(60_000),
+            schedule: NotificationSchedule::AfterMillis(900_000),
         };
         let action = with_reducer!(cx.build, RunCapability(request), run_capability);
         let status = if state.pending {
@@ -318,10 +419,15 @@ fission_component! {
                     child: Text(cx.tr("reminder.action")),
                     key: "run-capability",
                     variant: ButtonVariant::Primary,
-                    disabled: state.pending,
+                    disabled: state.pending || state.scheduled == Some(true),
                     loading: state.pending,
                     on_press: action,
                 ),
+                if state.pending { Spinner(motion: SpinnerMotion::Default, label: Some(cx.tr("reminder.waiting"))) },
+                if state.scheduled == Some(true) {
+                    Button(child: Text(cx.tr("reminder.cancel")), key: "cancel-reminder", disabled: state.pending,
+                        on_press: reduce { cancel_reminder(state, cx); })
+                },
                 Container(Text(status))
                     .padding_all(tokens.spacing.m)
                     .bg(tokens.colors.background)
@@ -337,10 +443,61 @@ fission_component! {
 }
 ```
 </TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod translations;
+mod state;
+mod reducers;
+use fission::prelude::*;
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::ShiftReminderState, _>::new(app::ShiftReminderScreen)
+        .with_env(translations::create_env()).with_title("Shift reminder").run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    MobileApp::<state::ShiftReminderState, _>::new(app::ShiftReminderScreen)
+        .with_env(translations::create_env()).with_title("Shift reminder").run()
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    WebApp::<state::ShiftReminderState, _>::new(app::ShiftReminderScreen)
+        .with_env(translations::create_env()).with_title("Shift reminder").run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::prelude::*;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid shift reminder tutorial translations"),
+    }
+}
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(load_bundle("en-US", include_str!("../i18n/en-US.yaml")));
+    env.i18n.add_bundle(load_bundle("es-ES", include_str!("../i18n/es-ES.yaml")));
+    env
+}
+
+
+```
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod state;
+mod reducers;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -363,12 +520,10 @@ fn preview_env() -> Env {
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let mut app = WebApp::<app::ShiftReminderState, _>::new(app::ShiftReminderScreen)
+    WebApp::<state::ShiftReminderState, _>::new(app::ShiftReminderScreen)
         .with_env(preview_env())
-        .with_notification_host(MemoryNotificationHost::default())
-        .with_title("iOS shift reminder preview");
-    app.absorb_registry(app::callback_registry());
-    app.mount("#fission-web-mount")
+        .with_title("iOS shift reminder")
+        .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
@@ -380,7 +535,7 @@ pub fn run() -> Result<(), JsValue> {
 reminder.site: "Northbank Receiving · evening shift"
 reminder.title: "Compressor recheck reminder"
 reminder.schedule: "WO-1048 · in 15 minutes"
-reminder.context: "The Web preview uses MemoryNotificationHost and does not display or schedule a browser or iOS notification."
+reminder.context: "Request the real host operation. A receipt is not proof of delivery; unsupported and denied outcomes remain visible."
 reminder.preview_enabled: "Reminder preview is on. No notification has been scheduled."
 reminder.preview_disabled: "No reminder is selected."
 reminder.enable_preview: "Preview the reminder choice"
@@ -390,6 +545,7 @@ reminder.error: "The reminder could not be scheduled. The work order is still av
 reminder.scheduled: "The host accepted the reminder schedule."
 reminder.unscheduled: "The host did not schedule the reminder."
 reminder.ready: "No notification has been scheduled."
+reminder.cancel: "Request cancellation"
 reminder.action: "Schedule this reminder"
 reminder.notification_title: "Compressor recheck"
 reminder.notification_body: "Recheck compressor CMP-7A-2219 before the shift ends."
@@ -402,7 +558,7 @@ reminder.notification_subtitle: "Northbank Receiving · WO-1048"
 reminder.site: "Recepción Northbank · turno de tarde"
 reminder.title: "Recordatorio para revisar el compresor"
 reminder.schedule: "OT-1048 · en 15 minutos"
-reminder.context: "La vista previa web usa MemoryNotificationHost y no muestra ni programa notificaciones web o de iOS."
+reminder.context: "Solicita la operación real al host. Un recibo no demuestra la entrega; se muestran los resultados no admitidos o denegados."
 reminder.preview_enabled: "La vista previa del recordatorio está activada. No se ha programado ninguna notificación."
 reminder.preview_disabled: "No se ha elegido ningún recordatorio."
 reminder.enable_preview: "Previsualizar la opción de recordatorio"
@@ -412,6 +568,7 @@ reminder.error: "No se pudo programar el recordatorio. La orden sigue disponible
 reminder.scheduled: "El host aceptó la programación del recordatorio."
 reminder.unscheduled: "El host no programó el recordatorio."
 reminder.ready: "No se ha programado ninguna notificación."
+reminder.cancel: "Solicitar cancelación"
 reminder.action: "Programar este recordatorio"
 reminder.notification_title: "Revisión del compresor"
 reminder.notification_body: "Revisa el compresor CMP-7A-2219 antes de que termine el turno."
@@ -422,16 +579,16 @@ reminder.notification_subtitle: "Recepción Northbank · OT-1048"
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-The preview exercises the Notification operation with an in-memory host. On iOS, keep the native permission and unsupported/error outcomes visible, then verify the same user action on the supported simulator or a physical device.
+The preview uses the configured host, not a memory implementation. An unsupported result must remain an error. On iOS, a scheduling receipt is not evidence of permission, actual delivery or working cancellation.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
 ## Verify the native request on iOS
 
-The website preview cannot exercise the native provider. Build and launch this target on a supported emulator or device, then use the feature action from the component above. Check the result the host actually returns, including denial, cancellation or unsupported hardware where those outcomes apply.
+The website preview cannot exercise the iOS provider. On an actual target, record separately whether the OS prompted, whether scheduling returned a receipt, and whether the notification appeared at the requested time. The current provider's inferred permission and Unsupported cancellation mean the complete workflow cannot yet be called verified.
 
-Repeat with the feature unavailable, denied or cancelled, as applicable. Confirm the screen preserves the user’s existing data and offers the right recovery step. Use a physical device when the behavior depends on real hardware or an operating-system prompt.
+Try denied OS notification settings and cancellation after scheduling. Do not clear the local receipt when cancellation fails; the host may still have a pending reminder. Response actions also need real native forwarding before a tap can be used to navigate. Keep these missing guarantees as upstream work, not an app-level success flag.
 
 ### Run, test and build
 
@@ -458,7 +615,7 @@ fission test --target ios --project-dir .
 ```
 
 
-To verify a hardware-dependent path on an iPhone, configure development signing and Developer Mode, create a signed release IPA, then install it through Xcode Devices and Simulators:
+For a physical iPhone, use a development or Ad Hoc signing path that permits installation on that device. An App Store Connect distribution IPA is not a direct-install package. Follow the [iPhone installation guide](/blog/install-a-fission-app-on-a-physical-iphone/) and the [iOS packaging guide](/docs/build-and-package/ios-packages/) for the selected distribution method:
 
 ```sh
 fission package --project-dir . --target ios --format ipa --release

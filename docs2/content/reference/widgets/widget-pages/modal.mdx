@@ -25,41 +25,52 @@ panel.
 ```rust
 use fission::prelude::*;
 
-let confirm_modal: Widget = Modal {
-    id: WidgetId::explicit("publish-modal"),
-    title: "Publish this release?".into(),
-    content: Text::new(
-        "Everyone on your team will see this version immediately.",
-    )
-    .into(),
-    is_open: view.state().show_publish_modal,
-    on_dismiss: Some(close_publish_modal.clone()),
-    backdrop_semantics_identifier: Some("publish-modal.backdrop".into()),
-    close_semantics_identifier: Some("publish-modal.close".into()),
-    surface_semantics_identifier: Some("publish-modal.surface".into()),
-    actions: vec![
-        ModalAction {
-            label: "Cancel".into(),
-            on_press: Some(close_publish_modal),
-            is_primary: false,
-            semantics_identifier: Some("publish-modal.cancel".into()),
-        },
-        ModalAction {
-            label: "Publish".into(),
-            on_press: Some(confirm_publish),
-            is_primary: true,
-            semantics_identifier: Some("publish-modal.publish".into()),
-        },
-    ],
-    width: None,
-    motion: Some(ModalMotion::Default),
+fission_component! {
+    pub PublishConfirmation<()> {
+        props {
+            open: bool,
+            dismiss: ActionEnvelope,
+            publish: ActionEnvelope,
+        }
+    }
+
+    view(dialog, _state, cx) =>
+        Modal(
+            id: WidgetId::explicit("release.publish"),
+            title: cx.tr("release.confirm_publish"),
+            content: Text(cx.tr("release.publish_visibility")),
+            is_open: dialog.open,
+            on_dismiss: dialog.dismiss.clone(),
+            backdrop_semantics_identifier: Some("release.publish-backdrop".into()),
+            close_semantics_identifier: Some("release.publish-close".into()),
+            surface_semantics_identifier: Some("release.publish-dialog".into()),
+            actions: vec![
+                ModalAction {
+                    label: cx.tr("common.cancel"),
+                    on_press: Some(dialog.dismiss.clone()),
+                    is_primary: false,
+                    semantics_identifier: Some("release.cancel".into()),
+                },
+                ModalAction {
+                    label: cx.tr("release.publish"),
+                    on_press: Some(dialog.publish.clone()),
+                    is_primary: true,
+                    semantics_identifier: Some("release.publish".into()),
+                },
+            ],
+        )
 }
-.into();
 ```
 
 The ordinary dismissal paths share one action, while each footer action remains
 a separate application intent. A reducer decides whether any of those intents
 actually closes the modal.
+
+The parent binds these actions to the actual release and verifies permission
+and current release state in its reducer/backend. A primary button does not
+make publication succeed. The following anatomy snippets are configuration
+excerpts inside the parent build scope; action envelopes and owned body/header
+widgets come from that parent.
 
 ## Named anatomy
 
@@ -67,13 +78,13 @@ actually closes the modal.
 use fission::prelude::*;
 
 let cancel_action = ModalFooterAction {
-    label: "Cancel".into(),
+    label: cx.tr("common.cancel"),
     on_press: Some(close_invite_modal.clone()),
     variant: ButtonVariant::SecondaryGray,
     semantics_identifier: Some("invite-modal.cancel".into()),
 };
 let invite_action = ModalFooterAction {
-    label: "Send invitation".into(),
+    label: cx.tr("invitation.send"),
     on_press: Some(send_invitation),
     variant: ButtonVariant::Primary,
     semantics_identifier: Some("invite-modal.send".into()),
@@ -81,8 +92,8 @@ let invite_action = ModalFooterAction {
 
 let invite_modal: Widget = ModalLayout {
     id: WidgetId::explicit("invite-modal"),
-    header: ModalHeader::new("Invite a teammate")
-        .description("They will receive an invitation by email."),
+    header: ModalHeader::new(cx.tr("invitation.title"))
+        .description(cx.tr("invitation.description")),
     content: ModalContent::new(invite_form),
     footer: Some(ModalFooter::new(vec![cancel_action, invite_action])),
     is_open: view.state().show_invite_modal,
@@ -115,7 +126,7 @@ let header = ModalHeader {
     .semantics_identifier("review-modal.title"),
     description: Some(
         ModalDescription::custom(
-            "Check the affected records before continuing.",
+            cx.tr("review.description"),
             supporting_copy,
         )
         .semantics_identifier("review-modal.description"),
@@ -195,7 +206,7 @@ constraint.
 | `surface_semantics_identifier` | `Option<String>` | Stable identifier for the dialog semantic node. | Falls back to the compatibility identifier `fission-modal-surface`. |
 | `actions` | `Vec<ModalAction>` | Footer actions in logical display order. | An empty vector omits the footer. |
 | `width` | `Option<f32>` | Preferred logical width. | Falls back to the modal recipe and is clamped to the design system's viewport margin, 16 points in the default package. |
-| `motion` | `Option<ModalMotion>` | Optional scrim and surface entrance/exit motion. | Defaults to `None`; presets include fade, scale, and directional entrances and can be composed. |
+| `motion` | `Option<ModalMotion>` | Optional scrim and surface entrance/exit motion. | `None` follows the standard widget-motion policy; use `Some(ModalMotion::None)` to opt out. |
 
 `ModalLayout` replaces `title`, `content`, and `actions` with `header:
 ModalHeader`, `content: ModalContent`, and `footer: Option<ModalFooter>`. It

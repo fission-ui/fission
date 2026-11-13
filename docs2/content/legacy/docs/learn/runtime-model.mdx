@@ -5,203 +5,228 @@ description: "Learn the core mental model of a Fission app: state, actions, redu
 
 # Runtime model
 
-A Fission app follows the same loop on every target: state holds the app’s data, actions describe user intent, reducers update state, and widgets describe the interface from the current inputs. The runtime turns that description into layout, semantics, and output for the platform shell.
+A Fission app separates the current facts, the transitions that change them,
+and work outside the interface. State holds those facts, reducers apply
+transitions, and effects return their results through later reducer calls.
+Widgets describe what the user can see and do from the current inputs.
 
-We’ll use a small note editor to make each part concrete. It has a draft, a Save button, and a save result.
+A note editor makes the distinction useful: typing changes its draft now,
+while saving takes an owned snapshot and waits for a server response. The two
+operations should not acquire different state-mutation paths.
 
 ## Start with `GlobalState`, `Action`, and the reducer
 
-`GlobalState` holds the product data that needs to survive UI reconstruction. In this example, that is the draft, whether a save is running, and any save error.
-
 ```rust
 use fission::prelude::*;
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default)]
 pub struct NoteState {
     pub draft: String,
+    pub last_saved_draft: Option<String>,
     pub saving: bool,
     pub save_error: Option<String>,
 }
 
 impl GlobalState for NoteState {}
-```
 
-`NoteState` is the data model. The derive attributes provide common Rust traits; `GlobalState` marks it as the app’s state type. `Option<String>` represents an error that may not exist yet.
-
-Put a value here when it changes what the product means or shows. Keep transient interaction details, such as animation progress and text selection, in the runtime instead.
-
-An `Action` is a typed message about what happened: the draft changed, Save was pressed, or the save completed. A reducer handles that action and applies the state transition. `#[fission_reducer]` generates the action type and reducer wrapper from one function; use `#[fission_action]` when you need to define an action separately.
-
-```rust
-#[fission_reducer(UpdateDraft)]
-fn on_update_draft(state: &mut NoteState, ctx: &mut ReducerContext<NoteState>) {
-    let Some(change) = ctx.input.text_change() else {
-        return;
-    };
-    state.draft = change.new_text.clone();
-    state.save_error = None;
-}
-
-#[fission_reducer(SaveSucceeded)]
-fn on_save_succeeded(state: &mut NoteState) {
-    state.saving = false;
-}
-
-#[fission_reducer(SaveFailed)]
-fn on_save_failed(state: &mut NoteState) {
-    state.saving = false;
-    state.save_error = Some("Could not save the note".into());
+#[fission_reducer(ClearDraft)]
+fn clear_draft(state: &mut NoteState) {
+    if !state.saving {
+        state.draft.clear();
+        state.save_error = None;
+    }
 }
 ```
 
-The first reducer handles `UpdateDraft`. It reads the text edit from `ctx.input`, replaces the draft, and clears an old error. Reducers are the place for state transitions; widgets and platform callbacks dispatch actions instead of mutating app state from separate paths.
+`GlobalState` gives this editor's draft an app-owned lifetime across rebuilds.
+It does not make the draft persistent. `last_saved_draft` is a separate snapshot
+because a successful save might finish after the user has typed more.
+
+An action is a typed event. `#[fission_reducer(ClearDraft)]` generates the action
+and its handler wrapper from one function. Compose can generate component-only
+transitions inline; use a named reducer when another control or entrypoint
+needs that transition too. Use `#[fission_action]` when an action deliberately
+has its own public data shape.
 
 ## Then define a Compose component
 
-A `Widget` can be a screen, toolbar, dialog, or small control. A named `fission_component!` declares the state the component reads and returns the widget tree for the current inputs:
+The native save operation below expects a trusted endpoint accepting PUT text
+and reporting success with a successful HTTP status. It uses ordinary Rust
+HTTP handling, not UI state borrowed across an await:
 
 ```rust
+#[fission_effect]
+async fn save_note(endpoint: String, contents: String) -> Result<String, String> {
+    reqwest::Client::new()
+        .put(endpoint)
+        .body(contents.clone())
+        .send().await.map_err(|error| error.to_string())?
+        .error_for_status().map_err(|error| error.to_string())?;
+    Ok(contents)
+}
+
 fission_component! {
     pub NoteEditor<NoteState> {
-        props {}
+        props { endpoint: String }
     }
     view(editor, state, cx) {
-        let save = cx.bind(SavePressed, reduce!(on_save_pressed));
-        let update = cx.bind(UpdateDraft, reduce!(on_update_draft));
+        let vm = cx.view.select_with::<EditorVM>();
+        let clear = cx.bind(ClearDraft, reduce!(clear_draft));
+        let tokens = &cx.view.env().theme.tokens;
     } =>
-    Column(children: [
-        Text("Draft note"),
+    Column(gap: tokens.spacing.m, children: [
+        Text(vm.title),
         TextInput(
             value: state.draft.clone(),
-            placeholder: Some("Write something...".into()),
-            on_input: update,
+            label: cx.tr("notes.draft"),
+            multiline: true,
+            bind(on_input): to(state.draft),
         ),
-        Button(child: Text("Save"), key: "save-note", on_press: save),
+        Button(
+            child: Text(cx.tr("notes.save")),
+            key: "save-note",
+            disabled: !vm.can_save,
+            on_press: effect save_note(editor.endpoint.clone(), state.draft.clone()) {
+                on_start {
+                    state.saving = true;
+                    state.save_error = None;
+                }
+                on_ok(saved_contents) {
+                    state.last_saved_draft = Some(saved_contents);
+                    state.saving = false;
+                }
+                on_err(error) {
+                    state.save_error = Some(error);
+                    state.saving = false;
+                }
+            },
+        ),
+        Button(child: Text(cx.tr("notes.clear")), disabled: state.saving, on_press: clear),
+        if state.saving { Spinner(motion: SpinnerMotion::Default, label: cx.tr("notes.saving")) },
+        if let Some(error) = &state.save_error { Alert(title: error.clone(), kind: AlertKind::Error) },
+        if vm.is_saved { Text(cx.tr("notes.saved")) },
     ])
 }
 ```
 
-`NoteEditor` reads `NoteState`. The view passes the current draft to `TextInput` and binds input and button events to reducers. The view describes the interface and its wiring; the reducers change state.
+The parent calls `NoteEditor(endpoint)` through its generated required-prop
+constructor. Add `reqwest` to this native app and define the `notes.*` messages
+in its translation bundles. This is not a Web HTTP implementation: Fission's
+current app-effect future must be `Send`, whereas browser `reqwest` uses a
+non-`Send` fetch future. A browser app needs a supported host/service adapter
+for its request rather than copying this native function unchanged. The API
+server must authenticate and authorise writes; a disabled button is not a
+server policy.
+
+The input binding generates its text-update reducer. The effect's arguments
+are owned values captured when Save is activated. Its lifecycle blocks are
+reducers with fresh access to current state, so the asynchronous operation
+does not retain `editor`, `state`, or `cx`. Both completion paths clear the
+pending flag; only the successful server response records a saved snapshot.
 
 ### What it means for `component conversion` to be pure
 
-Component conversion must be pure: it reads its inputs and returns a widget tree. It must not:
+Conversion reads the current inputs and describes a tree plus runtime wiring.
+It must not issue HTTP calls, write files, mutate app state, or open host
+prompts while deciding what to render.
 
-- fetch data or start background work;
-- mutate global state or write files;
-- call platform APIs while deciding what to render.
+The runtime may rebuild after input, resize, animation, or state changes. If
+rendering performed outside work, those unrelated events could repeat it.
+The effect above runs because its action was activated, not because the
+component appeared again.
 
-Fission can convert a component repeatedly after input, resize, animation, or state changes. Keeping conversion pure means those rebuilds and tests do not accidentally repeat outside work. Describe the screen here; request state changes and effects through reducers.
+Resource declarations are a deliberate exception to the shorthand “no work
+during build”: they describe work the runtime reconciles afterwards. They do
+not perform that work inside conversion.
 
 ## `ViewHandle` is the read-only input to component conversion
 
-`ViewHandle` is the read-only input to one component conversion. `view.state()` reads `GlobalState`; the handle also exposes runtime data, environment values, and prior layout information such as animation values, theme, locale, viewport size, and geometry. These inputs are explicit and can be supplied in tests, rather than fetched from a global or operating-system API.
+`cx.view` reads current app state and presentation context: theme, locale,
+runtime input state, viewport, and prior layout information. These are
+build-scope inputs, not handles to retain in services or async tasks.
+
+Use `state` for the selected app state and `cx.view.env()` for shared
+presentation values. A component does not need another global theme or locale.
 
 ## `BuildCtxHandle` is the write-only wiring helper for component conversion
 
-`BuildCtxHandle` records runtime wiring during component conversion. `cx.bind(...)` connects a widget event to an action and reducer. It can also register runtime-managed behavior such as animations, portals, media, web views, and resources. It records what the runtime should do; it does not perform outside work during conversion.
+`cx.build`, also available through Compose's build helpers, records action
+bindings, resources, portals, media, and related runtime declarations.
+`cx.bind(...)` connects a reusable action to a handler; inline `reduce` and
+`effect` syntax generate that wiring where possible.
 
-Use `ViewHandle` to read current inputs. Use `BuildCtxHandle` to declare runtime wiring. Use reducers to change state and request effects.
+Recording a declaration is different from executing a host call. Do not
+capture the build handle in something that outlives its conversion scope.
 
 ## `ReducerContext` is for the reducer phase, not the conversion phase
 
-`ReducerContext` is available while a reducer runs. Use it to inspect dispatch input and request work outside the reducer. A reducer can decide that a save should start, but the runtime performs the file, network, or host operation after the reducer returns.
+Named reducers receive `&mut ReducerContext<AppState>` as their final optional
+argument. It exposes the dispatch's typed `input` and the `effects` builder.
+The latter queues jobs, capabilities, service operations, and other outside
+work; it does not make the reducer asynchronous.
 
-```rust
-#[fission_reducer(SavePressed)]
-fn on_save_pressed(state: &mut NoteState, ctx: &mut ReducerContext<NoteState>) {
-    if state.saving {
-        return;
-    }
+Compose effect lifecycle blocks receive this reducer-phase context under the
+chosen `cx` name. The view's similarly named build context is a different
+phase. Neither one may cross an asynchronous boundary: select the required
+owned data instead.
 
-    state.saving = true;
-    state.save_error = None;
-
-    // Simplified teaching example: ask the runtime to do the save after
-    // this reducer returns, then route the result back as an action.
-    ctx.effects
-        .app(SAVE_NOTE_JOB, state.draft.clone())
-        .on_ok(ctx.effects.bind(
-            SaveSucceeded,
-            reduce_with!(on_save_succeeded),
-        ))
-        .on_err(ctx.effects.bind(
-            SaveFailed,
-            reduce_with!(on_save_failed),
-        ));
-}
-```
-
-Here `ctx.effects.app(...)` requests the save job. `on_ok` and `on_err` bind the completion actions. The job runs after the reducer returns, and its result comes back through a new reducer call. `ctx.input` also carries event or effect data for the current dispatch, such as returned bytes, pointer coordinates, or dropped file paths. The context exists only for that reducer call; do not store it.
+A returned result can be stale even though each reducer is synchronous.
+This single-editor example blocks another save while one is pending. A
+multi-document editor also needs document and operation identity in its
+results, so an old completion cannot mark a newer document version saved.
 
 ## `Selector` keeps large apps from turning into a pile of raw state reads
 
-For derived display values, use a `Selector`. It takes a `ViewHandle` and returns the values a widget needs, such as a formatted title, button-enabled flag, grouped list, or small view model.
-
-For the note editor, the screen might want a title, a status line, a save button label, and a `can_save` flag. Those are not separate pieces of stored state. They are values derived from the current inputs.
+A selector derives a view model without creating another stored authority.
+The editor's title and whether its current draft is saved can both be computed:
 
 ```rust
-struct EditorVM {
-    title: String,
-    status_line: String,
-    save_label: String,
-    can_save: bool,
+pub struct EditorVM {
+    pub title: String,
+    pub can_save: bool,
+    pub is_saved: bool,
 }
 
 impl Selector<NoteState> for EditorVM {
     type Output = EditorVM;
 
     fn select(view: ViewHandle<NoteState>) -> Self::Output {
-        let first_line = view
-            .state()
-            .draft
-            .lines()
-            .next()
-            .unwrap_or("")
-            .trim()
-            .to_string();
-
-        let title = if first_line.is_empty() {
-            "Untitled note".to_string()
-        } else {
-            first_line
-        };
-
-        let character_count = view.state().draft.chars().count();
-
+        let state = view.state();
+        let first_line = state.draft.lines().next().unwrap_or("").trim();
+        let is_saved = state.last_saved_draft.as_deref() == Some(state.draft.as_str());
         EditorVM {
-            title,
-            status_line: format!("{character_count} characters"),
-            save_label: if view.state().saving {
-                "Saving...".to_string()
+            title: if first_line.is_empty() {
+                view.tr("notes.untitled")
             } else {
-                "Save".to_string()
+                first_line.to_owned()
             },
-            can_save: !view.state().saving && !view.state().draft.trim().is_empty(),
+            can_save: !state.saving && !is_saved && !state.draft.trim().is_empty(),
+            is_saved,
         }
     }
 }
 ```
 
-The widget reads the selector output instead of mixing formatting and derived conditions into its layout:
-
-```rust
-let vm = view.select_with::<EditorVM>();
-```
-
-Selectors keep view-specific formatting and derived values out of large widget trees. Test them independently, and keep them read-only: they can read `view.runtime` and `view.env`, but they do not mutate state or perform effects.
+The view uses `cx.view.select_with::<EditorVM>()`. If the user types while a
+save is pending, the completion records the submitted text, not the newer
+draft; `is_saved` remains false until those values agree. Test that case rather
+than making Saved a boolean switched on after any successful request.
 
 ## The whole model in one pass
 
-For the note editor, typing dispatches `UpdateDraft` and its reducer changes `NoteState`. Pressing Save sets the loading state and requests a job through `ReducerContext`; the completion dispatches another action. The component reads current inputs and binds events, while the selector prepares display values. Product behavior stays in this shared flow across targets.
+Typing updates the draft through a generated binding. Save captures a
+snapshot, marks pending state, and queues outside work. Success or failure
+returns through a fresh reducer scope. The component rebuilds from current
+inputs, and the selector derives the visible state.
+
+The shell changes between targets; that ownership and transition model does
+not. Persistence, routing, host permissions, and server authorisation still
+need their own explicit policies.
 
 ## Read next
 
-Read [State, handles, and providers](/docs/guides/state-handles-and-providers/) for practical rules on `GlobalState`, local widget state, provider scopes, handles, and stable `WidgetId` values.
-
-Read [Rendering pipeline](/docs/learn/rendering-pipeline/) for what happens after component conversion returns the widget tree.
-
-Read [Resources and async](/docs/guides/resources-and-async/) for effects, resources, and runtime-managed work.
-
-For environment data, input, and text, continue to [Environment, input, and text](/docs/guides/input-events-text-and-env/).
+Read [State, handles, and providers](/docs/guides/state-handles-and-providers/)
+for ownership, build scopes, and retained identity;
+[Rendering pipeline](/docs/learn/rendering-pipeline/) for what follows
+conversion; and [Resources and async](/docs/guides/resources-and-async/) for
+work with a runtime-managed lifetime.

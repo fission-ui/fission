@@ -8,89 +8,81 @@ description: Fission Charts reference for Daily retention calendar.
 
 ![Daily retention calendar screenshot](/img/charts/calendar-retention-daily.png)
 
-This example uses Fission Charts' typed Rust API. Use it to scan day-level consistency. The screenshot is from Fission's chart gallery.
+A retention calendar can show when existing users return to an app. The useful distinction is between returning users and all active users: a busy acquisition day can increase activity without showing that anyone came back. The screenshot is from Fission's chart gallery.
 
 ## What the chart is for
 
-This chart is in the **Heatmap** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
+This example counts distinct users active on the day who had also used the app before that day. It is not a cohort-retention percentage. Use a cohort chart if the question is how many people return a fixed number of days after signing up.
 
 ## Data model
 
-This example uses `Date/value pairs for retention events`. Keep the source values in Rust types and map them to the series or component below.
+Each sample is an ISO date and a returning-user count. Deduplicate users within each day and use one timezone for both previous activity and the displayed day. Keep the return definition in the aggregation layer rather than hiding it in chart construction.
 
 ## Rust API
 
-| Field | Type | Notes |
+| Setting | Type | Meaning |
 | --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
+| `CalendarHeatmapSeries::data` | `Vec<(&str, f32)>` | Converts date/value pairs into the series' owned `Vec<(String, f32)>`. |
+| `CalendarHeatmapSeries::range` | `&str, &str` | Sets the displayed start and end dates. |
+| `Chart::visual_map` | `VisualMap` | Sets the numeric colour range. |
+| `Chart::series` | `Vec<Series>` | Adds the calendar series; Cartesian axes are not required. |
 
 ## Example
 
 ```rust
-use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+use fission::charts::{CalendarHeatmapSeries, Chart, VisualMap};
 
 let chart = Chart::new()
-    .title("Load")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed"]))
-    .y_axis(Axis::category(vec!["AM", "PM"]))
-    .visual_map(VisualMap::new().min(0.0).max(10.0))
-    .series(vec![HeatmapSeries::new("Load")
-        .data(vec![(0, 0, 3.0), (1, 0, 8.0), (2, 1, 5.0)])
+    .title("Returning users per day")
+    .visual_map(VisualMap::new().min(0.0).max(200.0))
+    .series(vec![CalendarHeatmapSeries::new("Returning users")
+        .range("2026-10-01", "2026-10-31")
+        .data(vec![
+            ("2026-10-01", 127.0),
+            ("2026-10-02", 142.0),
+            ("2026-10-03", 133.0),
+        ])
         .into()]);
 ```
 
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
 ## Authoring from a Fission component
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+The parent supplies the daily values. This component presents them; it does not start a request during the build.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+use fission::charts::{CalendarHeatmapSeries, Chart, Series, VisualMap};
 
-
-
-fission_component!
-{
+// The parent resolves display labels from its translation bundles.
+fission_component! {
     pub DailyRetentionCalendarChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            daily_values: Vec<(String, f32)>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Load")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed"]))
-                    .y_axis(Axis::category(vec!["AM", "PM"]))
-                    .visual_map(VisualMap::new().min(0.0).max(10.0))
-                    .series(vec![HeatmapSeries::new("Load")
-                        .data(vec![(0, 0, 3.0), (1, 0, 8.0), (2, 1, 5.0)])
-                        .into()])
-                    .into()
-    }
+    view(calendar, _state, _cx) =>
+        Chart(
+            title: Some(calendar.chart_title.clone()),
+            visual_map: Some(VisualMap::new().min(0.0).max(200.0)),
+            series: vec![Series::CalendarHeatmap(CalendarHeatmapSeries {
+                name: calendar.series_label.clone(),
+                data: calendar.daily_values.clone(),
+                start: Some("2026-10-01".into()),
+                end: Some("2026-10-31".into()),
+            })],
+        )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+## Interaction and accessibility
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Selecting a day can filter the underlying aggregate report through a reducer. Explain the returning-user definition beside the chart; colour and a date alone cannot distinguish this count from daily active users.
+
+## Testing guidance
+
+Check a user's first day, several visits on one day, and a return on a later day. Repeated visits must not increase a distinct-user count. Missing activity data also needs its own state rather than being recorded as no returning users. Check the rendered calendar at the dashboard's actual width as well as testing the aggregate values.
 
 Tags: `calendar`, `retention`.
 

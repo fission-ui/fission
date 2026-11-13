@@ -19,15 +19,16 @@ tone. Both APIs lower through the same retained menu recipe.
 ```rust
 use fission::prelude::*;
 
+// In a parent's build scope. Both actions are already registered for this file.
 let items = vec![
     MenuItem {
-        label: "Rename".into(),
+        label: cx.tr("file.rename"),
         icon: None,
         on_select: Some(rename_action),
         semantics_identifier: Some("file.rename".into()),
     },
     MenuItem {
-        label: "Duplicate".into(),
+        label: cx.tr("file.duplicate"),
         icon: None,
         on_select: Some(duplicate_action),
         semantics_identifier: Some("file.duplicate".into()),
@@ -68,9 +69,9 @@ activation, semantics, and the design-system state agree.
 
 ## Production checklist
 
-- Bind `on_select` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Register each payload for the record it actually changes.
+- Use explicit disabled MenuActionItem state for unavailable commands.
+- Verify stable identifiers when translated labels or duplicate command names change.
 
 ## Related
 

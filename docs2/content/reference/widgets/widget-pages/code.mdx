@@ -13,10 +13,10 @@ snippet, or key. It is not a syntax highlighter or code editor.
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Code {
-    text: "fission run".into(),
+fission_component! {
+    pub RunCommand<()>
+    view(_command, _state, _cx) => Code(text: "fission run")
 }
-.into();
 ```
 
 This works well inside help panels, alerts, and setup instructions.
@@ -29,7 +29,10 @@ This works well inside help panels, alerts, and setup instructions.
 
 ## What it is and what it is not
 
-The checked-in `Code` widget is a styled text chip. It gives you a subtle background and compact padding, but it does not provide syntax coloring, line numbering, or an enforced monospace font family.
+`Code` is a styled text chip. Its recipe supplies compact padding, a subtle
+surface and code typography. The font family comes from the component recipe
+or the active monospace token. It does not provide syntax colouring, line
+numbering or editing.
 
 If you need editable source text, use [`TextInput`](/reference/widgets/text-input) or a dedicated editor surface. If you need multi-style or annotated code display, [`RichText`](/reference/widgets/rich-text) gives you more control.
 
@@ -39,9 +42,11 @@ Keep `Code` short. Once the content becomes multi-line or structurally significa
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Verify the configured monospace family and text contrast in both theme modes.
+- Test the longest command token at narrow widths; use a proper block layout
+  when the content is no longer an inline fragment.
+- Keep executable command text literal; translate the surrounding explanation
+  rather than change the command with the locale.
 
 ## Related
 

@@ -8,17 +8,15 @@ description: Fission Charts reference for Small matrix heatmap.
 
 ![Small matrix heatmap screenshot](/img/charts/heatmap-small-matrix.png)
 
-Compact heatmap for a small matrix. Use it for dashboards with limited space. The screenshot is from Fission's chart gallery.
+A small heatmap compares the same measure across two sets of categories. Here, the categories are days and shifts; the measure is the number of jobs waiting. This makes a busy shift visible without giving each shift its own chart. The screenshot is from Fission's chart gallery.
 
 ## What the chart is for
 
-This chart is in the **Heatmap and calendar** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
+The useful property of a matrix is that a cell has a fixed meaning: one day, one shift, one queue size. Keep that meaning consistent across the matrix. If a user needs to read every queue size rather than locate the busy shifts, use a table instead.
 
 ## Data model
 
-This example uses `Matrix value triples`. Keep the source values in Rust types and map them to the series or component below.
+`HeatmapSeries` takes `(x_index, y_index, value)` triples. The indices refer to the category lists, not to the labels themselves. For example, `(1, 0, 8.0)` means eight queued jobs on Tuesday's morning shift. An omitted cell is not an explicit zero; include a zero-valued sample when that is what the source records.
 
 ## Rust API
 
@@ -26,7 +24,7 @@ This example uses `Matrix value triples`. Keep the source values in Rust types a
 | --- | --- | --- |
 | `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
 | `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
+| `y_axis` | `Axis` | Uses shift categories here; the third value in each triple supplies the cell intensity. |
 | `series` | `Series` | Provides the typed data model for this chart family. |
 | `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
 
@@ -36,12 +34,16 @@ This example uses `Matrix value triples`. Keep the source values in Rust types a
 use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
 
 let chart = Chart::new()
-    .title("Load")
+    .title("Queued jobs by day and shift")
     .x_axis(Axis::category(vec!["Mon", "Tue", "Wed"]))
     .y_axis(Axis::category(vec!["AM", "PM"]))
     .visual_map(VisualMap::new().min(0.0).max(10.0))
-    .series(vec![HeatmapSeries::new("Load")
-        .data(vec![(0, 0, 3.0), (1, 0, 8.0), (2, 1, 5.0)])
+    .series(vec![HeatmapSeries::new("Queued jobs")
+        .data(vec![
+            (0, 0, 3.0),
+            (1, 0, 8.0),
+            (2, 1, 5.0),
+        ])
         .into()]);
 ```
 
@@ -51,7 +53,7 @@ Only add interaction when it helps the user. Fission emits typed `ChartInteracti
 
 ## Testing guidance
 
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
+Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `docs2/site/assets/img/charts` before the static-site build.
 
 ## Authoring from a Fission component
 
@@ -61,23 +63,31 @@ Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or re
 use fission::prelude::*;
 use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
 
-
-
-fission_component!
-{
+// The parent resolves display labels from its translation bundles.
+fission_component! {
     pub SmallMatrixHeatmapChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            column_labels: Vec<String>,
+            row_labels: Vec<String>,
+            queued_jobs: Vec<(usize, usize, f32)>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Load")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed"]))
-                    .y_axis(Axis::category(vec!["AM", "PM"]))
-                    .visual_map(VisualMap::new().min(0.0).max(10.0))
-                    .series(vec![HeatmapSeries::new("Load")
-                        .data(vec![(0, 0, 3.0), (1, 0, 8.0), (2, 1, 5.0)])
-                        .into()])
-                    .into()
-    }
+    view(chart, _state, _cx) =>
+        Chart(
+            title: Some(chart.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                chart.column_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::category(
+                chart.row_labels.iter().map(String::as_str).collect(),
+            )),
+            visual_map: Some(VisualMap::new().min(0.0).max(10.0)),
+            series: vec![HeatmapSeries::new(&chart.series_label)
+                .data(chart.queued_jobs.clone())
+                .into()],
+        )
 }
 ```
 Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.

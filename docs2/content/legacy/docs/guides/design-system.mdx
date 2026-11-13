@@ -1,7 +1,7 @@
 ---
 title: Design system
 sidebar_label: Design system
-description: Use a Design System Package JSON file to generate typed Fission themes at conversion time.
+description: Generate typed Fission themes from a Design System Package at build time and use them through the shared environment.
 ---
 
 # Design system
@@ -10,7 +10,10 @@ Your design system is what makes the app feel like one product: colour, type, sp
 
 Fission reads Design System Package JSON at build time. Your app doesn’t parse JSON at runtime. A build script reads `dsp.json` and `tokens.json`, resolves references, and generates normal Rust code. Your app chooses a generated theme and puts it in `Env`.
 
-That keeps rendering simple. Widgets read typed Rust values from `view.env.theme`; they don’t search JSON or look up token names while drawing a frame.
+That keeps rendering simple. Widgets read typed Rust values from
+`cx.view.env().theme` in a Compose view; they do not search JSON or look up
+token names while drawing a frame. Code generation happens during the Cargo
+build, not during component conversion.
 
 ## What gets generated
 
@@ -52,6 +55,8 @@ Then generate the Rust theme from your app’s package:
 use std::path::PathBuf;
 
 fn main() {
+    println!("cargo:rerun-if-changed=design/dsp.json");
+    println!("cargo:rerun-if-changed=design/tokens.json");
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let dsp_path = manifest_dir.join("design/dsp.json");
 
@@ -106,10 +111,10 @@ Add the generator as a build dependency:
 
 ```toml title="Cargo.toml"
 [dependencies]
-fission = { version = "0.15.1", default-features = false, features = ["desktop"] }
+fission = { version = "0.16.0", default-features = false, features = ["desktop"] }
 
 [build-dependencies]
-fission-design-system-codegen = "0.15.1"
+fission-design-system-codegen = "0.16.0"
 ```
 
 Generated code uses Fission’s public theme API. Import Fission as usual:
@@ -144,7 +149,7 @@ Buttons consume hierarchy styles such as `primary`, `secondary_color`, `secondar
 
 Inputs, badges, tabs, cards, modals, tooltips, and progress bars follow the same model. They read generated component styles for background fills, text colors, borders, radius, padding, font sizes, font weights, line heights, shadows, and state-specific overrides. Charts read the generated data-visualization palette from the theme instead of inventing a separate chart palette.
 
-The key rule is that JSON stops at conversion time. Runtime code sees Rust values.
+The key rule is that JSON stops at build time. Runtime code sees Rust values.
 
 ### Colour pairs
 
@@ -153,8 +158,16 @@ Every component fill has a matching colour for its text and icons. Ask for the p
 ```rust
 use fission::theme::ColorRole;
 
-let card = tokens.colors.pair(ColorRole::Card);
-Container::new(Text::new("Invoice").color(card.on)).bg(card.fill)
+fission_component! {
+    pub InvoiceHeading<()> {}
+
+    view(_heading, _state, cx) {
+        let pair = cx.view.env().theme.tokens.colors.pair(ColorRole::Card);
+    } =>
+        Container(
+            child: Text(cx.tr("invoice.title")).color(pair.on),
+        ).bg(pair.fill)
+}
 ```
 
 | Role | Fill | Content on it | Falls back to |
@@ -171,7 +184,12 @@ Container::new(Text::new("Invoice").color(card.on)).bg(card.fill)
 
 `input`, the border of text fields, falls back to `border`.
 
-These newer roles are optional. If the DSP leaves one out, Fission uses the fallback in the last column, so `{color.light.card}` still works even when `tokens.json` has no `card` value. Declare the role under `color.light` and `color.dark` to give it its own value. Each bundled theme keeps every pair at WCAG AA contrast (4.5:1).
+These newer roles are optional. If the DSP leaves one out, Fission uses the
+fallback in the last column, so `{color.light.card}` still works when
+`tokens.json` has no `card` value. Declare the role under `color.light` and
+`color.dark` to give it its own value. Validate foreground/background contrast
+in both modes; pairing token names does not prove accessibility after custom
+colours, opacity, imagery, or glass effects are applied.
 
 ## Start from a bundled system when it fits
 
@@ -238,7 +256,12 @@ cargo run -p todo-design-system
 
 ## Packaged fonts and design fidelity
 
-Design-system packages can declare font files in `assets.fonts`. Codegen checks them at build time and emits font faces through `DesignSystem::font_faces()`. The shell registers those fonts before rendering, so widgets can use the generated typography without relying on system-installed fonts.
+Design-system packages can declare font files in `assets.fonts`. Codegen checks
+them at build time and exposes them through `DesignSystem::font_faces()`.
+Native shells register the faces for rendering. HTML delivery is a separate
+policy: Web, Static site, and SSR default to `WebFontDelivery::None`; choose
+`External` or `Inline` explicitly when browser CSS should load those fonts.
+Declaring a face does not silently add base64 font bytes to every page's CSS.
 
 Use typed layout and paint primitives with your design tokens: `Length` for responsive dimensions, `Fill` for gradients, `BoxShadow` for elevation, and `BackdropFilter` for glass or blur. This keeps visual fidelity inspectable and testable instead of hiding it in target-specific code.
 

@@ -5,41 +5,59 @@ description: Build a custom accessible control with Pressable, semantic identifi
 
 # Custom pressable control
 
-Use `Pressable` when you need a custom interaction surface but still want button/link/menu-item semantics, focus behavior, pointer state, and test automation support.
+A document preview can contain a thumbnail, title, and page count while acting
+as one control. `Pressable` supplies that boundary without imposing a standard
+button's visual layout. It still owns focus, activation, and button semantics;
+a `Container` with a pointer handler would not provide the same contract.
+
+Use `Button` for an ordinary action, including icon-and-label buttons.
+Choose `Pressable` because the surface itself needs custom composition, not
+merely to avoid the standard widget.
 
 ```rust
-let (_ctx, view) = fission::build::current::<ApprovalState>();
-let tokens = &view.env().theme.tokens;
-let approve_label = view
-    .env()
-    .i18n
-    .get(&view.env().locale, "approval.approve")
-    .unwrap_or("approval.approve")
-    .to_string();
+use fission::prelude::*;
+use fission::op::Fill;
 
-Pressable::new(Row {
-    gap: Some(tokens.spacing.s),
-    children: widgets![
-        Icon::svg(material::action::check_circle::regular()),
-        Text::new(TextContent::Key("approval.approve".into())),
-    ],
-    ..Default::default()
-})
-.id(WidgetId::explicit("approval.approve"))
-.semantics_identifier("approval.approve")
-.label(approve_label)
-.role(PressableRole::Button)
-.on_press(approve)
-.layout(BoxStyle::default().padding_symmetric(
-    Length::points(tokens.spacing.m),
-    Length::points(tokens.spacing.s),
-))
-.style(PressableStyle {
-    background: Some(Fill::Solid(tokens.colors.primary)),
-    corner_radius: Some(tokens.radii.medium),
-    ..Default::default()
-})
-.into()
+fission_component! {
+    pub DocumentPreview<()> {
+        props {
+            content: Widget,
+            open_label: String,
+            open_document: ActionEnvelope,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Pressable(
+        child: preview.content.clone(),
+        label: preview.open_label.clone(),
+        on_press: preview.open_document.clone(),
+        role: PressableRole::Button,
+        layout: BoxStyle::default().padding_symmetric(
+            Length::points(tokens.spacing.m),
+            Length::points(tokens.spacing.s),
+        ),
+        style: PressableStyle {
+            background: Some(Fill::Solid(tokens.colors.surface)),
+            corner_radius: Some(tokens.radii.medium),
+            ..Default::default()
+        },
+        hover_style: PressableStyle {
+            background: Some(Fill::Solid(tokens.colors.primary_subtle)),
+            ..Default::default()
+        },
+    )
+}
 ```
 
-Do not use a plain `Container` plus gesture handlers when the result is conceptually a button or link.
+The parent constructs the content, resolves `open_label` from translations,
+and binds `open_document` to the document's durable ID. It creates
+`DocumentPreview(content, label, action, key: document.id.clone())`.
+Content inside the surface should not contain another independently
+activatable button: those would be two competing controls in the same target.
+
+Keep focus styling visible, test keyboard activation as well as pointer
+activation, and use a stable semantic identifier when automation needs to find
+a particular product control. The [Pressable reference](/reference/widgets/pressable/)
+lists the available interaction and style fields.

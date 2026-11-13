@@ -14,16 +14,21 @@ product name in otherwise plain text needs more than one run.
 
 ```rust
 use fission::prelude::*;
-let widget: Widget = RichText::new(vec![
-    RichTextRun::new("Status: "),
-    RichTextRun::new("Failed")
-        .weight(700)
-        .color(view.env.theme.tokens.colors.error),
-])
-.into();
+// In view setup: keep a translated message whole rather than concatenating
+// English fragments whose order may not work in another language.
+let tokens = &cx.view.env().theme.tokens;
+let failed = RichTextRun::new(cx.tr("sync.failed"))
+    .weight(tokens.typography.font_weight_bold)
+    .color(tokens.colors.error);
+
+// In the Compose view:
+RichText(runs: vec![failed])
 ```
 
-This keeps the style change local to the important word without forcing the entire line to share the same emphasis.
+Other runs can carry differently styled text without creating separate
+layout boxes. For a translated sentence containing emphasis, obtain ordered
+segments from the app's message formatting layer; do not assume English
+fragment order is a universal template.
 
 ## Field table
 
@@ -41,9 +46,9 @@ Use flat runs when you only need straightforward styling differences across one 
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- Use `semantics` when visible content alone is not enough for assistive technology, especially for icon-only controls or custom surfaces.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+Check fallback fonts, line wrapping, translated segment order, and the spoken
+text. A colour difference is not a substitute for the message saying what
+failed. A run is not an action control; use the span model for subrange actions.
 
 ## Related
 

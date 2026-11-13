@@ -1,93 +1,42 @@
 ---
 title: Geo network
 sidebar_label: Geo network
-description: Fission Charts reference for Geo network.
+description: Keep regional measurements and connection topology readable without a false overlay.
 ---
 
 # Geo network
 
 ![Geo network screenshot](/img/charts/geo-network.png)
 
-Map with network-like route overlays. Use it for network coverage and paths. The screenshot is from Fission's chart gallery.
+A network operations report has two different questions: which regions need attention, and which sites are connected? Putting both in one picture only helps if their coordinates agree.
 
-## What the chart is for
+The current map and route renderers fit their bounds independently. Adding `MapSeries` and `LinesSeries` to the same chart therefore does not guarantee a correctly aligned geographical overlay. Until a shared projection is available, use two explicitly labelled views.
 
-This chart is in the **Geo and route** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `GeoJSON plus lines`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Put [RegionalReportMap](../geographic-and-route/map-choropleth) in `widgets/regional_report_map.rs` and [ServiceConnections](../geographic-and-route/lines-basic) in `widgets/service_connections.rs`. This composition accepts their complete presentation inputs:
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use crate::widgets::regional_report_map::RegionalReportMap;
+use crate::widgets::service_connections::ServiceConnections;
 
-
-
-fission_component!
-{
-    pub GeoNetworkChart<()> {
+fission_component! {
+    pub NetworkRegionReport<()> {
+        props {
+            heading: TextContent,
+            regions: RegionalReportMap,
+            connections: ServiceConnections,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
-    }
+    view(report, _state, _cx) => Column(children: [
+        Text(report.heading.clone()),
+        report.regions.clone(),
+        report.connections.clone(),
+    ])
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+These are concrete component descriptions, not already-retained `Widget` clones shared between responsive branches. Build a separate description for each retained branch if adapting the layout. Supply translated captions explaining that the route panel is schematic.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
-
-Tags: `map`, `network`.
+Join both reports through durable site and region IDs, not their fitted screen positions. A line crossing a coloured polygon in the gallery is not evidence of a correct geographical join. Test region values and network endpoints independently, retain an accessible exact-value list, and do not claim this report supplies routing or navigation.
 
 [Geo and route family overview](./overview)

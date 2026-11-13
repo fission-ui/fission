@@ -13,10 +13,14 @@ is not always enough to tell someone what an action does.
 
 ```rust
 use fission::prelude::*;
-let widget: Widget = Icon::svg(material::navigation::chevron_right::regular())
-    .size(18.0)
-    .color(view.env.theme.tokens.colors.text_secondary)
-    .into();
+// In view setup; the icon is decorative inside an already-labelled control.
+let tokens = &cx.view.env().theme.tokens;
+let chevron = Icon::svg_directional(
+    material::navigation::chevron_left::regular(),
+    material::navigation::chevron_right::regular(),
+)
+    .size(tokens.sizing.icon_sm)
+    .color(tokens.colors.text_secondary);
 ```
 
 ## Field table
@@ -28,6 +32,7 @@ let widget: Widget = Icon::svg(material::navigation::chevron_right::regular())
 | `color` | `Option<Color>` | Fill color override. | Defaults to the theme's primary text color. |
 | `size` | `Option<f32>` | Square layout size in points. | Defaults to `24.0`. |
 | `stroke` | `Option<Stroke>` | Optional stroke style. | When present, fill is suppressed in the checked-in renderer. |
+| `semantic_label` | `Option<String>` | Accessible name for an independently meaningful icon. | Leave absent for decoration or inside a control already carrying the name. |
 
 ## Source choices
 
@@ -37,7 +42,12 @@ That last option is convenient in desktop tooling, but it is less portable than 
 
 ## Accessibility and responsive notes
 
-The widget is purely visual. If the icon carries meaning, pair it with text or add semantics at the parent level. Also keep size intentional: tiny icons inside dense tables are fine, but touch targets on mobile usually need a larger surrounding button or container.
+Use `semantic_label` when the icon carries meaning on its own. An icon inside
+an already-labelled button should remain decorative; naming both can make
+the screen reader announce the action twice. The directional helper chooses
+the reading-order-appropriate glyph, rather than hard-coding a right chevron
+for every locale. Icon size is not touch-target size: the surrounding control
+still needs sufficient hit area.
 
 
 ## Related

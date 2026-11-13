@@ -1,93 +1,47 @@
 ---
 title: Timeline years
 sidebar_label: Timeline years
-description: Fission Charts reference for Timeline years.
+description: Browse comparable annual report snapshots with real controls and a shared selection authority.
 ---
 
 # Timeline years
 
 ![Timeline years screenshot](/img/charts/component-timeline-year.png)
 
-Timeline component selecting a year. Use it for step-based snapshots. The screenshot is from Fission's chart gallery.
+A year selector should change the report, not just its highlighted label. Keep one selection authority and derive both the series and the timeline indicator from it.
 
-## What the chart is for
-
-This chart is in the **Components and interaction** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `ChartTimeline plus series`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+The [release timeline example](./component-timeline-release) defines `ReportSnapshot` and `SnapshotBrowser`. Put them in `widgets/snapshot_browser.rs` and reuse the same mechanism for annual snapshots:
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use crate::widgets::snapshot_browser::{ReportSnapshot, SnapshotBrowser};
 
-
-
-fission_component!
-{
-    pub TimelineYearsChart<()> {
+fission_component! {
+    pub AnnualOrdersBrowser<()> {
+        props {
+            heading: TextContent,
+            previous_year_label: TextContent,
+            next_year_label: TextContent,
+            empty_label: TextContent,
+            orders_label: String,
+            years: Vec<ReportSnapshot>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
+    view(annual, _state, _cx) => SnapshotBrowser {
+        heading: annual.heading.clone(),
+        previous_label: annual.previous_year_label.clone(),
+        next_label: annual.next_year_label.clone(),
+        empty_label: annual.empty_label.clone(),
+        measure_label: annual.orders_label.clone(),
+        snapshots: annual.years.clone(),
     }
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Build the snapshots in chronological order with translated month labels and year titles. The year label is display text, not an identifier or an implicit query instruction.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Decide whether the current year is complete enough to compare with previous years. Use the same order-counting rule and expose partial reporting periods. For direct visual magnitude comparisons, also choose a shared numeric range rather than independently scaling every selected report.
 
-Tags: `timeline`, `component`.
+`ChartTimeline` remains a visual indicator; its labels do not provide working year selection or timed playback. Test the actual buttons and data changes, including no available years and a changed year list. Keep exact annual values accessible outside the chart. The screenshot is a gallery fixture.
 
 [Components and interaction family overview](./overview)

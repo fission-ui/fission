@@ -1,93 +1,41 @@
 ---
 title: Route map overlay
 sidebar_label: Route map overlay
-description: Fission Charts reference for Route map overlay.
+description: Separate route relationships from region geometry until a shared projection exists.
 ---
 
 # Route map overlay
 
 ![Route map overlay screenshot](/img/charts/geo-route-map.png)
 
-Routes drawn over geographic regions. Use it when geography and movement combine. The screenshot is from Fission's chart gallery.
+A delivery report may need a service-area map and a view of transfers between depots. The first represents area; the second represents relationships. Merely drawing them in one chart does not establish that their coordinates align.
 
-## What the chart is for
+Use [NetworkRegionReport](./geo-network) as a Compose boundary, with the regional map carrying coverage or demand and its connection panel carrying dispatch totals. The complete descriptions should be constructed with ordinary Rust struct literals so every required input is supplied.
 
-This chart is in the **Geo and route** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `GeoJSON regions plus route segments`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
+For example, the connection records can be projected from dispatch data:
 
 ```rust
-use fission::charts::{Axis, Chart, LineSeries};
+use crate::widgets::service_connections::ServiceConnection;
 
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
+pub struct DepotDispatch {
+    pub id: String,
+    pub origin: (f32, f32),
+    pub destination: (f32, f32),
+    pub delivered_parcels: u32,
+}
 
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
-
-```rust
-use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
-
-
-
-fission_component!
-{
-    pub RouteMapOverlayChart<()> {
-    }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
-    }
+pub fn delivered_routes(rows: &[DepotDispatch]) -> Vec<ServiceConnection> {
+    rows.iter().filter(|row| row.delivered_parcels > 0).map(|row| ServiceConnection {
+        id: row.id.clone(),
+        from: row.origin,
+        to: row.destination,
+        traffic: row.delivered_parcels as f32,
+    }).collect()
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+The row type and projection belong in the report's data module; the reusable connection component is defined in [lines](../geographic-and-route/lines-basic) at `widgets/service_connections.rs`. Translate panel titles and explain the reporting window. Retain exact parcel counts and stable dispatch IDs.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
-
-Tags: `map`, `routes`.
+This is a paired map and schematic, not a verified route overlay. `MapSeries` and `LinesSeries` currently use different fitting rules; the gallery does not remove that limitation. It is also not a road route or travel-time calculation. Test missing depots, reversed directions and no completed dispatches.
 
 [Geo and route family overview](./overview)

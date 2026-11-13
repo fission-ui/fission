@@ -5,7 +5,11 @@ description: Create the Apple identifiers, certificates, profiles, API keys, and
 
 # Set up Apple signing for a Fission app
 
-Set up the signing identities and release configuration once for your Apple Developer team. Then reuse them for [direct macOS distribution](/docs/cookbook/notarise-macos-direct-distribution/) or the [Mac App Store](/docs/cookbook/macos-app-store-distribution/). You don't need to have shipped a signed app before; we'll check each piece as we go.
+Set up signing around the distribution route, not around whichever certificate
+happens to be installed. [Direct macOS distribution](/docs/cookbook/notarise-macos-direct-distribution/)
+and the [Mac App Store](/docs/cookbook/macos-app-store-distribution/) use
+different trust chains. Keeping their inputs separate prevents a successful
+development build from being mistaken for a releasable package.
 
 ## The two release routes
 
@@ -28,7 +32,11 @@ The app can keep the same bundle identifier in both routes. The signing identity
 
 ## 1. Confirm the Apple team
 
-You need an Apple Developer Program membership, an organisation team, and an Apple Developer role that can manage certificates and identifiers. Record:
+You need an Apple Developer Program membership, as an individual or organisation,
+and the appropriate certificate/identifier permissions. An individual account's
+holder owns its distribution certificates; organisation teams can delegate the
+supported roles. See [Apple's certificate roles](https://developer.apple.com/help/account/certificates/certificates-overview/).
+Record:
 
 - Team ID, for example `A1B2C3D4E5`.
 - Organisation name as it appears in certificates.
@@ -41,7 +49,7 @@ Do not confuse the Team ID with the numeric App Store Connect app ID. The Team I
 
 In [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list), choose **Identifiers**, add an **App IDs** entry, select **App**, and register the exact identifier used by `CFBundleIdentifier`.
 
-Use an explicit identifier, not a wildcard. Enable only capabilities required by the current release. For a scanner-only macOS app this commonly includes:
+Use an explicit identifier, not a wildcard. Enable only capabilities required by the current release. For a desktop app with an optional native extension, relevant capabilities may include:
 
 - App Groups, if the app and an extension share state.
 - Keychain Sharing, if the application uses an access group.
@@ -51,7 +59,7 @@ Do not enable Endpoint Security or register an Endpoint Security extension until
 
 ## 3. Create the App Store Connect app record
 
-In [App Store Connect](https://appstoreconnect.apple.com/), open **My Apps**, select **+**, choose **New App**, and select **macOS**. Select the Bundle ID you just registered. The record cannot be created through the API.
+In [App Store Connect](https://appstoreconnect.apple.com/), open **My Apps**, select **+**, choose **New App**, and select **macOS**. Select the Bundle ID you just registered. Create the record before upload, following [Apple's app-record workflow](https://developer.apple.com/help/app-store-connect/create-an-app-record/add-a-new-app).
 
 Fill the store metadata before upload:
 
@@ -60,7 +68,7 @@ Fill the store metadata before upload:
 - Keywords, support URL, marketing URL, and privacy policy URL.
 - Support contact email and review contact information.
 - Category, age rating, copyright, and export-compliance answers.
-- Review notes explaining what the scanner does and how the reviewer can exercise it.
+- Review notes explaining the actual feature and how the reviewer can exercise it.
 
 Keep the app name and bundle identifier stable. The version and build number are changed for each upload; Apple rejects a reused build number.
 
@@ -86,21 +94,17 @@ Create the certificates under **Certificates** in the Apple Developer portal. Th
 | Developer ID Application | Signing the `.app` for downloads outside the Store | Yes for direct distribution |
 | Developer ID Installer | Signing the direct-distribution `.pkg` | Yes for direct distribution |
 | Mac App Distribution / Apple Distribution | Signing the Store app | Yes for the Store |
-| Mac Installer Distribution / Mac Installer Distribution | Signing the Store installer package | Usually yes for a packaged Store submission |
+| Mac Installer Distribution | Signing the Store installer package | Usually yes for a packaged Store submission |
 
 Download each issued `.cer` file and open it in Keychain Access. Verify it appears with its private key. For CI, select the certificate and its private key together and export a password-protected `.p12` file:
 
 ```bash
 security find-identity -v -p codesigning
-security export \
-  -k "$HOME/Library/Keychains/login.keychain-db" \
-  -t identities \
-  -f pkcs12 \
-  -P "$P12_PASSWORD" \
-  -o developer-id-application.p12
 ```
 
-If `security export` is unavailable on your macOS version, use Keychain Access: select the certificate and private key, choose **Export Items**, select `.p12`, and set a strong export password.
+In Keychain Access select only the intended certificate and its private key,
+choose **Export Items**, select `.p12`, and use a strong export password. Do not
+export every identity in the login keychain for one application's CI job.
 
 Never commit a `.p12`, private key, provisioning profile containing sensitive data, or `.p8` file to the repository.
 
@@ -117,9 +121,9 @@ In **Profiles**, choose the matching profile type, select the explicit Bundle ID
 Inspect a profile before putting it in CI:
 
 ```bash
-security cms -D -i DeveloperDefenceMacAppStore.provisionprofile \
-  -o /tmp/profile.plist
-plutil -p /tmp/profile.plist
+# Run in the private signing workspace, not the public source checkout.
+security cms -D -i AppMacStore.provisionprofile -o profile.plist
+plutil -p profile.plist
 ```
 
 The profile must match the bundle ID and team used by the package. A valid certificate with a mismatched profile still produces a signing failure.
@@ -149,11 +153,14 @@ For CI, the project may additionally need base64-encoded certificates, profiles,
 
 - `MACOS_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64` and its password.
 - `MACOS_DEVELOPER_ID_INSTALLER_CERTIFICATE_BASE64` and its password.
-- `MACOS_SCANNER_PROVISIONING_PROFILE_BASE64`.
+- an application-defined provisioning-profile secret, imported by the CI setup.
 - `APP_STORE_CONNECT_API_KEY_BASE64` or a CI-created file from the `.p8` secret.
 - The Team ID, Issuer ID, and Key ID as protected variables.
 
-Application-specific release signing keys, embedded intelligence roots, or other product secrets belong in that application's secret store, not in generic Fission documentation or `fission.toml`.
+The certificate/profile environment names above are CI conventions, not a claim
+that Fission imports each secret automatically. The CI setup must decode and
+import the selected certificate into its private keychain and point the package
+at the matching private profile. Keep that setup specific to the release job.
 
 ## 9. Add GitHub Actions secrets with the CLI
 

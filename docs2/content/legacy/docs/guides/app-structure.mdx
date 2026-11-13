@@ -5,7 +5,11 @@ description: Organize a Fission app around typed state, explicit reducers, reusa
 
 # App structure
 
-Keep each file focused and the app is easier to change. State says what the product knows, reducers say how that changes, and widgets describe what the user sees. Shell entrypoints start that same shared app on macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR.
+A second target should not require a second implementation of the product.
+Keep state, transitions and reusable widgets in shared Rust modules; let each
+shell entrypoint configure how that app is hosted. This separation is what
+allows the same product model to serve macOS, Windows, Linux, Web, Android,
+iOS, Terminal, Static site and SSR without putting platform setup in every view.
 
 This guide shows where the first screen, actions, and reducers belong, when to split a widget into its own module, and what to keep out of `main.rs`.
 
@@ -44,7 +48,7 @@ The main rule is simple: product behaviour belongs in shared Rust modules, not g
 Begin with one state struct. Add fields because the UI needs to render them or a reducer needs to update them.
 
 ```rust
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct TodoState {
     pub draft: String,
     pub items: Vec<TodoItem>,
@@ -72,14 +76,11 @@ src/
     widgets.rs
 ```
 
-A compact reducer uses `#[fission_reducer]`:
+For a setter used by one input, Compose's `bind: state.draft` generates the
+update wiring. Use an inline `reduce` for a component-specific transition. A
+transition shared by several controls can have its own typed reducer:
 
 ```rust
-#[fission_reducer(SetDraft)]
-fn on_set_draft(state: &mut TodoState, draft: String) {
-    state.draft = draft;
-}
-
 #[fission_reducer(AddTodo)]
 fn on_add_todo(state: &mut TodoState) {
     let text = state.draft.trim();
@@ -92,7 +93,9 @@ fn on_add_todo(state: &mut TodoState) {
 }
 ```
 
-Use `#[fission_action]` when an action is part of a public API, shared across modules, or needs a documented data shape. For the common case, `#[fission_reducer]` lets one reducer own its action.
+Use `#[fission_action]` when an action needs its own public/documented data
+shape or several reducers share it. Ordinary component events should not gain
+another action struct and function merely to assign a field.
 
 ## 4. Build screens from real widget structs
 
@@ -101,25 +104,24 @@ Prefer reusable widget structs to large helper functions that return `Widget`. T
 ```rust
 
 
-fission_component!
-{
-    pub TodoScreen<TodoState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<TodoState>();
-                let add = with_reducer!(ctx, AddTodo, on_add_todo);
-
-                Column {
-                    children: vec![
-                        TodoComposer { on_submit: add }.into(),
-                        TodoList::new(view.state().visible_items()).into(),
-                    ],
-                    ..Default::default()
-                }
-                .into()
-    }
+fission_component! {
+    pub TodoScreen<TodoState>
+    view(_screen, state, cx) {
+        let add = cx.bind(AddTodo, reduce!(on_add_todo));
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(
+        gap: tokens.spacing.m,
+        children: [
+            TodoComposer(add),
+            TodoList(visible_todos(state)),
+        ],
+    )
 }
 ```
+Here `TodoComposer` and `TodoList` are app components with typed `on_submit` and
+`items` props. The composer binds the draft field; the shared add transition
+can also be used by a keyboard shortcut without duplicating its validation.
 Small helpers are still useful for formatting and repeated values. Just don’t let them turn into a second component system beside `Widget` conversions.
 
 ## 5. Use selectors for derived view data
@@ -127,7 +129,9 @@ Small helpers are still useful for formatting and repeated values. Just don’t 
 A selector turns product state into data the view can use. It keeps component conversion readable without mutating state during the build.
 
 ```rust
+#[derive(Clone, Debug)]
 pub struct TodoListItemVm {
+    pub id: u64,
     pub title: String,
     pub completed: bool,
 }
@@ -137,6 +141,7 @@ fn visible_todos(state: &TodoState) -> Vec<TodoListItemVm> {
         .iter()
         .filter(|item| state.filter.allows(item))
         .map(|item| TodoListItemVm {
+            id: item.id,
             title: item.title.clone(),
             completed: item.completed,
         })
@@ -144,7 +149,10 @@ fn visible_todos(state: &TodoState) -> Vec<TodoListItemVm> {
 }
 ```
 
-Use selectors for formatted strings, filtered lists, disabled-state decisions, empty states, and responsive view models. Don’t use them for host work, state changes, or dispatching actions.
+Keep durable IDs in view models used for repeated rows. Filtering changes
+positions; it should not change which task owns retained state or receives an
+event. Use selectors for formatted strings, filtered lists, disabled-state
+decisions and empty states, not host work, mutation or dispatch.
 
 ## 6. Keep entrypoints small
 
@@ -152,14 +160,20 @@ Keep `src/main.rs` thin: start the shell, then hand control to the shared app.
 
 ```rust
 use fission::prelude::*;
-use my_app::App;
+use my_app::{create_env, TodoScreen, TodoState};
 
 fn main() -> anyhow::Result<()> {
-    DesktopApp::new(App).run()
+    DesktopApp::<TodoState, _>::new(TodoScreen)
+        .with_env(create_env()?)
+        .run()
 }
 ```
 
 Generated host entrypoints should do the same as you add targets. They call the shared app instead of copying screens and reducers, so every target runs the same product behaviour.
+
+`create_env` is the shared translation/theme setup described in
+[Theming and i18n](/docs/guides/theming-and-i18n/). Put it beside the shared app
+configuration, not in a separate per-target copy.
 
 ## 7. Add target-specific code only at the host boundary
 

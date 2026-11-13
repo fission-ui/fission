@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Make a Fission Android app accessible with TalkBack
-description: "Make a Fission Android app accessible with TalkBack."
-goal: Add meaningful semantic roles, labels, focus order, comfortable touch targets and disabled or error semantics.
+description: "Build a labelled pickup form with validation and review state. Trace its semantics and identify the partial Android bridge that still limits TalkBack qualification."
+goal: "Author meaningful form and review semantics, then distinguish those working shared contracts from the unfinished native Android accessibility bridge."
 path: /blog/make-a-fission-android-app-accessible-with-talkback/
 order: 33
 difficulty: Beginner
@@ -10,44 +10,38 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-make-a-fission-android-app-accessible-with-talkback
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - "Use FormControl to keep label, help text, required state and validation together"
+  - "Preserve entered pickup details when moving between edit and review"
+  - "Keep disabled controls and named review state meaningful without colour alone"
+  - "Identify the native bridge gap rather than claim a complete TalkBack flow from shared semantics"
 ---
 
-## Create the project and add the target
+A visible label is useful, but accessibility also depends on the relationship between that label and the control, the control's current state and what happens after an action. A red border alone does not tell someone which input needs attention. A button called “Save” is also misleading if it only toggles a Boolean and saves nothing.
 
-Create the project and add the target used by this guide. Fission generates the native host; the app and its behaviour stay in shared Rust code.
+Here, we prepare pickup details for a local review. The form has a required name, an explicit validation message and, in the second step, optional instructions and an assistance choice. It uses the built-in controls which already own those roles and interactions instead of building lookalike controls from generic boxes.
+
+The Android shell uses AccessKit's Android adapter, but Fission's native TalkBack support is currently incomplete. This page improves authored semantics and supplies a concrete check sequence; it cannot promise a complete TalkBack experience until the native bridge supports and passes that flow.
+
+## Create the Android project
+
+Complete [Android SDK/NDK setup](/blog/set-up-rust-android-gui-development-with-fission/), then start [an emulator](/blog/create-and-launch-a-fission-android-emulator/) or connect [a phone](/blog/run-a-fission-app-on-a-physical-android-phone/).
 
 ```sh
 cargo install cargo-fission
 fission init android-make-a-fission-android-app-accessible-with-talkback
 cd android-make-a-fission-android-app-accessible-with-talkback
 fission add-target android --project-dir .
+cargo add serde_yaml
 ```
 
-## Files created by Fission
-
-This is the starter tree Fission generates. Keep shared app code in `src/`; the generated platform files handle native launch and packaging.
-
-```text
-android-make-a-fission-android-app-accessible-with-talkback/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
-├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
-└── platforms/
-    └── android/              # generated Android host
-```
-
-Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
+Keep the generated `src/main.rs`. Both native and Web entrypoints below launch this form rather than leaving the starter counter installed on Android.
 
 <!-- fission:step id="start-screen" -->
-## Create the app screen
+## Give the control a label and the error a relationship
 
-Start with the task screen. As we add controls, give each one a useful label and role, then check touch targets and focus order with TalkBack.
+`FormControl` supplies the name, helper, required flag and error context to its descendant input. That is different from placing an unrelated text label above a bare field. Keep one authority for those messages: the input does not declare a second label or a conflicting error.
+
+The visible and semantic error comes from the same validation result. Preparing an empty name leaves the form editable; preparing a valid name makes it read-only for review. Nothing is persisted or submitted, so the result says exactly that.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -56,45 +50,167 @@ Start with the task screen. As we add controls, give each one a useful label and
 use fission::prelude::*;
 
 fission_component! {
-    pub AndroidAccessibilityTalkback<()> {
+    pub PickupDetails<()> {
         state {
-            saved: bool = false,
+            name: String = String::new(),
+            attempted: bool = false,
+            reviewing: bool = false,
         }
     }
-    view(screen, _state, cx) {
+    view(draft, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let invalid_name = draft.attempted && draft.name.trim().chars().count() < 2;
     } =>
-    SemanticsRegion(
-        identifier: Some("accessible-settings".to_string()),
-        label: Some(cx.tr("accessibility.title")),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(cx.tr("accessibility.title"))
-                    .weight(tokens.typography.font_weight_bold),
-                Text(cx.tr("accessibility.description")),
-                Button(
-                    child: Text(if screen.saved {
-                        cx.tr("accessibility.saved")
-                    } else {
-                        cx.tr("accessibility.save")
-                    }),
-                    key: "save-settings",
-                    on_press: reduce { screen.saved = !screen.saved; },
-                )
-                .semantics_identifier("settings.save"),
-                Text(if screen.saved {
-                    cx.tr("accessibility.status.saved")
-                } else {
-                    cx.tr("accessibility.status.ready")
-                })
-                    .color(tokens.colors.text_secondary),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+    SafeArea(
+        child: Scroll(
+            child: Container(
+                child: SemanticsRegion(
+                    identifier: Some("pickup-details".to_string()),
+                    label: Some(cx.tr("pickup.title")),
+                    child: Column(gap: tokens.spacing.m, children: [
+                        Text(cx.tr("pickup.title")).size(tokens.typography.heading2_size),
+                        Text(cx.tr("pickup.context")),
+                        FormControl(
+                            label: Some(cx.tr("pickup.name")),
+                            helper: Some(cx.tr("pickup.name_help")),
+                            error: if invalid_name {
+                                Some(cx.tr("pickup.invalid_name"))
+                            } else { None },
+                            required: true,
+                            child: TextInput(
+                                read_only: draft.reviewing,
+                                bind: draft.name,
+                                semantics_identifier: "pickup.name".to_string(),
+                            ),
+                        ),
+                        Button(
+                            child: Text(cx.tr("pickup.prepare")),
+                            key: "prepare-pickup",
+                            disabled: draft.reviewing,
+                            on_press: reduce {
+                                draft.attempted = true;
+                                if draft.name.trim().chars().count() >= 2 {
+                                    draft.reviewing = true;
+                                }
+                            },
+                        ).semantics_identifier("pickup.prepare"),
+                        if draft.reviewing {
+                            Column(gap: tokens.spacing.s, children: [
+                                SemanticsRegion(
+                                    identifier: Some("pickup.review-status".to_string()),
+                                    label: Some(cx.tr("pickup.status_label")),
+                                    value: Some(cx.tr("pickup.prepared")),
+                                    child: Text(cx.tr("pickup.prepared")),
+                                ),
+                                Button(
+                                    child: Text(cx.tr("pickup.edit")),
+                                    key: "edit-pickup",
+                                    on_press: reduce { draft.reviewing = false; },
+                                ).semantics_identifier("pickup.edit"),
+                            ])
+                        },
+                    ]),
+                ),
+            ).padding_all(tokens.spacing.l),
+        ),
     )
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+pickup.title: "Prepare pickup details"
+pickup.context: "Prepare a local pickup note for review. Nothing is booked, saved or sent by this example."
+pickup.name: "Name for pickup"
+pickup.name_help: "Use the name the pickup team should ask for."
+pickup.invalid_name: "Enter a pickup name of at least 2 characters."
+pickup.instructions: "Pickup instructions"
+pickup.instructions_help: "Optional. Add only the access details needed for this pickup; avoid sensitive health information."
+pickup.assistance: "I would like assistance at pickup."
+pickup.prepare: "Prepare details for review"
+pickup.status_label: "Pickup review status"
+pickup.prepared: "Details are ready for your review. They have not been submitted."
+pickup.edit: "Edit pickup details"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+pickup.title: "Preparar los datos de recogida"
+pickup.context: "Prepara una nota local para revisarla. Este ejemplo no reserva, guarda ni envía nada."
+pickup.name: "Nombre para la recogida"
+pickup.name_help: "Usa el nombre por el que debe preguntar el equipo."
+pickup.invalid_name: "Escribe un nombre para la recogida de al menos 2 caracteres."
+pickup.instructions: "Instrucciones de recogida"
+pickup.instructions_help: "Opcional. Añade solo los detalles de acceso necesarios; evita información médica sensible."
+pickup.assistance: "Me gustaría recibir ayuda en la recogida."
+pickup.prepare: "Preparar los datos para revisarlos"
+pickup.status_label: "Estado de la revisión"
+pickup.prepared: "Los datos están listos para que los revises. No se han enviado."
+pickup.edit: "Editar los datos de recogida"
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod translations;
+
+use app::PickupDetails;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(PickupDetails::new())
+        .with_env(translations::create_env())
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), PickupDetails> {
+    let app = MobileApp::<(), _>::new(PickupDetails::new())
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(PickupDetails::new())
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
@@ -102,219 +218,162 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
-    TranslationBundle {
-        locale: Locale::from(locale),
-        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
-    }
-}
-
-fn preview_env() -> Env {
-    let mut env = Env::default();
-    env.i18n.add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
-    env.i18n.add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
-    env
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::AndroidAccessibilityTalkback)
-        .with_env(preview_env())
-        .with_title("android make a fission android app accessible with talkback")
+    WebApp::<(), _>::new(app::PickupDetails::new())
+        .with_env(translations::create_env())
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
-<TabItem label="i18n/en-US.yaml">
-<!-- fission:file path="src/i18n/en-US.yaml" -->
-```yaml
-accessibility.title: "Inspection notifications"
-accessibility.description: "Choose whether Northbank should remind you about an assigned service visit."
-accessibility.save: "Toggle reminder setting in this preview"
-accessibility.saved: "Reminder setting selected in this preview only"
-accessibility.status.ready: "The action has a visible label and a stable test identifier."
-accessibility.status.saved: "Selected in this screen only. This preview does not write to storage."
-```
-</TabItem>
-<TabItem label="i18n/es-ES.yaml">
-<!-- fission:file path="src/i18n/es-ES.yaml" -->
-```yaml
-accessibility.title: "Avisos de inspección"
-accessibility.description: "Elige si Northbank debe recordarte una visita de servicio asignada."
-accessibility.save: "Cambiar el ajuste de avisos en esta vista previa"
-accessibility.saved: "Ajuste seleccionado solo en esta vista previa"
-accessibility.status.ready: "La acción tiene una etiqueta visible y un identificador de prueba estable."
-accessibility.status.saved: "Seleccionado solo en esta pantalla. Esta vista previa no guarda datos."
-```
-</TabItem>
 </Tabs>
 <!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Prepare an empty form and check the visible validation message. Enter a name, prepare again and confirm the input is read-only, the Prepare action is disabled and Edit remains available. Edit must return to the same draft rather than clear it.
+
+The semantic identifiers are stable automation targets, not spoken labels. A name such as `pickup.name` helps LiveTest locate the field; it is not a substitute for the translated label a person hears.
+<!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Make a Fission Android app accessible with TalkBack
+## Expose choice, disabled state and review status
 
-Give each icon-only control a useful semantic label and expose selected, disabled, checked and value state through the Fission widget or `SemanticsRegion` metadata. Keep focus order aligned with reading order and never use colour alone to explain an error. Check the component semantics with LiveTest, then use TalkBack on an Android target to find gaps in the native bridge. The [accessibility reference](/reference/platform/accessibility/) documents the current limits; a successful app launch does not prove that TalkBack can navigate the complete screen.
+The assistance choice is a real `Checkbox`, not a coloured circle with a click handler. It supplies checked and disabled state through Fission's normal semantics. The optional instructions remain a labelled multiline input.
 
-The component below is a browser-safe version of this screen. It uses Fission's retained component state and widgets to make the task visible; it does not call a native provider or operating-system API.
+The declared order is also the task order: name, instructions, assistance, prepare and review. Do not visually move controls into a different order and then expect an accessibility adapter to infer the intended sequence.
 
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 
 fission_component! {
-    pub AndroidAccessibilityTalkback<()> {
+    pub PickupDetails<()> {
         state {
-            saved: bool = false,
+            name: String = String::new(),
+            attempted: bool = false,
+            reviewing: bool = false,
+            instructions: String = String::new(),
+            assistance: bool = false,
         }
     }
-    view(screen, _state, cx) {
+    view(draft, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let invalid_name = draft.attempted && draft.name.trim().chars().count() < 2;
     } =>
-    SemanticsRegion(
-        identifier: Some("accessible-settings".to_string()),
-        label: Some(cx.tr("accessibility.title")),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(cx.tr("accessibility.title"))
-                    .weight(tokens.typography.font_weight_bold),
-                Text(cx.tr("accessibility.description")),
-                Button(
-                    child: Text(if screen.saved {
-                        cx.tr("accessibility.saved")
-                    } else {
-                        cx.tr("accessibility.save")
-                    }),
-                    key: "save-settings",
-                    on_press: reduce { screen.saved = !screen.saved; },
-                )
-                .semantics_identifier("settings.save"),
-                Text(if screen.saved {
-                    cx.tr("accessibility.status.saved")
-                } else {
-                    cx.tr("accessibility.status.ready")
-                })
-                    .color(tokens.colors.text_secondary),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+    SafeArea(
+        child: Scroll(
+            child: Container(
+                child: SemanticsRegion(
+                    identifier: Some("pickup-details".to_string()),
+                    label: Some(cx.tr("pickup.title")),
+                    child: Column(gap: tokens.spacing.m, children: [
+                        Text(cx.tr("pickup.title")).size(tokens.typography.heading2_size),
+                        Text(cx.tr("pickup.context")),
+                        FormControl(
+                            label: Some(cx.tr("pickup.name")),
+                            helper: Some(cx.tr("pickup.name_help")),
+                            error: if invalid_name {
+                                Some(cx.tr("pickup.invalid_name"))
+                            } else { None },
+                            required: true,
+                            child: TextInput(
+                                read_only: draft.reviewing,
+                                bind: draft.name,
+                                semantics_identifier: "pickup.name".to_string(),
+                            ),
+                        ),
+                        TextInput(
+                            label: Some(cx.tr("pickup.instructions").into()),
+                            helper_text: Some(cx.tr("pickup.instructions_help").into()),
+                            multiline: true,
+                            read_only: draft.reviewing,
+                            bind: draft.instructions,
+                            semantics_identifier: "pickup.instructions".to_string(),
+                        ),
+                        Checkbox(
+                            label: Some(cx.tr("pickup.assistance")),
+                            checked: draft.assistance,
+                            disabled: draft.reviewing,
+                            bind(on_toggle): to(draft.assistance),
+                            semantics_identifier: "pickup.assistance".to_string(),
+                        ),
+                        Button(
+                            child: Text(cx.tr("pickup.prepare")),
+                            key: "prepare-pickup",
+                            disabled: draft.reviewing,
+                            on_press: reduce {
+                                draft.attempted = true;
+                                if draft.name.trim().chars().count() >= 2 {
+                                    draft.reviewing = true;
+                                }
+                            },
+                        ).semantics_identifier("pickup.prepare"),
+                        if draft.reviewing {
+                            Column(gap: tokens.spacing.s, children: [
+                                SemanticsRegion(
+                                    identifier: Some("pickup.review-status".to_string()),
+                                    label: Some(cx.tr("pickup.status_label")),
+                                    value: Some(cx.tr("pickup.prepared")),
+                                    child: Text(cx.tr("pickup.prepared")),
+                                ),
+                                Button(
+                                    child: Text(cx.tr("pickup.edit")),
+                                    key: "edit-pickup",
+                                    on_press: reduce { draft.reviewing = false; },
+                                ).semantics_identifier("pickup.edit"),
+                            ])
+                        },
+                    ]),
+                ),
+            ).padding_all(tokens.spacing.l),
+        ),
     )
 }
 ```
-
-<!-- fission:preview -->
-
-
-<Tabs>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
-    TranslationBundle {
-        locale: Locale::from(locale),
-        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
-    }
-}
-
-fn preview_env() -> Env {
-    let mut env = Env::default();
-    env.i18n.add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
-    env.i18n.add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
-    env
-}
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::AndroidAccessibilityTalkback)
-        .with_env(preview_env())
-        .with_title("Northbank Field Service · Android")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-<TabItem label="src/i18n/en-US.yaml">
-<!-- fission:file path="src/i18n/en-US.yaml" -->
-```yaml
-accessibility.title: "Inspection notifications"
-accessibility.description: "Choose whether Northbank should remind you about an assigned service visit."
-accessibility.save: "Save reminder setting"
-accessibility.saved: "Reminder setting saved"
-accessibility.status.ready: "The action has a visible label and a stable test identifier."
-accessibility.status.saved: "Setting saved. The status is now visible to assistive technology."
-```
-</TabItem>
-<TabItem label="src/i18n/es-ES.yaml">
-<!-- fission:file path="src/i18n/es-ES.yaml" -->
-```yaml
-accessibility.title: "Avisos de inspección"
-accessibility.description: "Elige si Northbank debe recordarte una visita de servicio asignada."
-accessibility.save: "Guardar ajuste de avisos"
-accessibility.saved: "Ajuste de avisos guardado"
-accessibility.status.ready: "La acción tiene una etiqueta visible y un identificador de prueba estable."
-accessibility.status.saved: "Ajuste guardado. La tecnología de asistencia puede leer el estado."
-```
 </TabItem>
 </Tabs>
+<!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Press Save settings and read the resulting status. The button label and stable semantics identifier are part of the component example.
+Enter a name and instructions, select assistance and prepare the details. The checkbox should retain its checked state whilst becoming disabled for review; Edit should restore interaction without changing the values.
+
+The status region carries a label and value for inspection. This example does not claim that changing generic text automatically causes a live announcement. Confirm what the actual native screen reader exposes rather than treating a visible status as proof.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Check screen-reader behavior on Android
-
-The browser preview can show the labels in the component, but it cannot prove the native TalkBack bridge. On a target with TalkBack enabled, move through the task without looking at the screen and listen for each control’s purpose, value and state.
-
-Check that focus follows the visual reading order, errors are announced when they appear, and disabled or selected controls are described correctly. If an icon-only action has no useful spoken name, fix its semantic label before release.
-
-### Run, test and build
+## Inspect semantics, then test the actual TalkBack path
 
 ```sh
-cargo test
 fission doctor android --project-dir .
 fission run --target android --project-dir .
 fission test --target android --project-dir .
 fission build --target android --project-dir . --release
 ```
 
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
+Use LiveTest to inspect the named region, input, checkbox and actions. Check that roles, labels, checked state, read-only state and validation messages agree with the visible screen. That catches authored errors; it does not qualify the Android bridge.
 
+On a phone with TalkBack enabled, navigate without looking at the screen. Find the name field, submit the invalid form, correct it, enter instructions, select assistance, prepare and return to editing. Listen for each purpose, value and state, and record any control that cannot be reached or activated. Include the largest usable text size and long Spanish labels; the scroll view must keep the next action reachable.
 
-### Emulator and connected-device commands
+Native touch and focus also need direct checks. Keep the standard button and checkbox target policies and test the actual hit areas rather than shrinking them to fit a screenshot.
 
-Run these emulator checks from the generated project root:
+The [accessibility reference](/reference/platform/accessibility/) records the current Android bridge gap. A Web canvas preview does not expose a complete browser document accessibility tree either, so it cannot substitute for the TalkBack check. If a required native action fails, the accessibility goal remains blocked even when the authored semantics are correct.
 
-```sh
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
-```
-
-
-The current accessibility reference identifies a gap in Android TalkBack control. This tutorial teaches you to author useful Fission semantics and check them with LiveTest; verify the current native bridge support before promising a complete TalkBack experience. Keep visible labels and keyboard interaction useful regardless of that bridge limitation.
+<!-- fission:checkpoint -->
+The form now has meaningful labels, associated errors, real checked/disabled state and honest review copy. Completion of the full Android screen-reader goal still requires a working native bridge and a qualified TalkBack interaction sequence.
 
 ### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
 
 - [Accessibility](/docs/learn/accessibility/)
 - [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)

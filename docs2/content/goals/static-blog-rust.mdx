@@ -1,7 +1,7 @@
 ---
 layout: goal
 title: Build a static blog in Rust with Fission
-description: Build a searchable Rust blog with authored Markdown, SEO metadata, category pages, pagination, full article reading and a hand-maintained RSS feed.
+description: Build a Rust blog from actual Markdown files, with search, category archives, paginated routes and an explicitly maintained RSS feed.
 goal: Help readers find a useful article and continue to related writing
 path: /blog/build-a-static-blog-in-rust/
 order: 4
@@ -11,22 +11,16 @@ run_command: "fission site serve --project-dir ."
 app: static-blog-rust
 outcomes:
   - Publish authored Markdown at stable article URLs
-  - Search stories by title, topic, category or author
-  - Filter the journal and move through paginated results
+  - Search generated article content and follow category or tag archives
+  - Follow real paginated archive routes
   - Read a complete article and continue to the next story
 ---
 
-We will build **Field Journal**, a small publication about Rust, product craft, and making software easier to use. Readers can find a story, see what it covers, browse a topic, read the full article, and move on to another one.
+An article index, its search results and the article itself should not disagree about what was published. Keeping one copy of a post in Markdown and another in a Rust preview record makes that disagreement likely.
 
-Article content lives in dated Markdown files. Fission generates the article, category, and tag routes. The journal interface uses named `fission_component!` components, so search, filters, pagination, and article navigation work in the lesson preview. Those sample stories stay in memory; the production content route renders the authored files into crawlable pages.
+We will build Field Journal from authored Markdown files. The Static site shell generates the articles, archives and taxonomy routes from those same files. Compose supplies the custom homepage; the existing blog template supplies the reading interface. Every preview below is the actual generated site, including its navigation.
 
-<!-- fission:step id="journal-index" -->
-## Create the site project and show the journal
-
-Start with the website template and keep each part in a small module. The compiled app under `preview/` is only a browser harness for the lesson. Copy the `src/` files into the generated project, but keep its generated site entry point and `fission.toml` as the production shell.
-
-<Tabs>
-<TabItem label="Create Field Journal">
+## Create the project
 
 ```sh
 cargo install cargo-fission
@@ -35,46 +29,92 @@ cd field-journal
 cargo add serde_yaml
 ```
 
-</TabItem>
-<TabItem label="Project layout">
+Keep the generated launcher, which calls `field_journal::build_site()`, and replace the modules and configuration shown below. Use your real origin before publishing: the example.com address is deliberately not a live publication.
 
-```text
-field-journal/
-├── Cargo.toml
-├── fission.toml
-├── src/
-│   ├── main.rs
-│   ├── lib.rs
-│   ├── app.rs
-│   ├── models.rs
-│   ├── state.rs
-│   ├── translations.rs
-│   └── components/
-│       ├── mod.rs
-│       ├── article_reader.rs
-│       ├── featured_story.rs
-│       └── story_card.rs
-├── assets/
-│   └── feed.xml
-├── i18n/
-│   ├── en-US.yaml
-│   └── es-ES.yaml
-├── content/
-│   └── blog/
-│       └── 2026-09-18-markdown-to-pages.mdx
-└── preview/
-    └── lib.rs                 # compiled browser lesson harness
+<!-- fission:step id="journal-index" -->
+## Publish the writing before adding an archive interface
+
+Each content file owns a title, search description, taxonomy and complete body. The dated filename supplies its initial route. The examples are authored sample articles, not an in-memory fixture substituted for the published content.
+
+The shell's current front-matter parser does not consume an authors field. Put a byline in the Markdown body if needed; do not promise an author filter that the template does not implement. The translation bundles below cover the custom homepage only, not a translated edition of every article.
+
+<Tabs>
+<TabItem label="fission.toml">
+<!-- fission:file path="fission.toml" -->
+```toml
+targets = ["static-site"]
+
+[app]
+name = "field-journal"
+app_id = "rs.example.field.journal"
+
+[site]
+entry = "crate::site_app"
+title = "Field Journal"
+description = "Practical notes about building and maintaining small software projects."
+base_url = "https://field-journal.example.com"
+out_dir = "dist/site"
+default_locale = "en-US"
+locales = ["en-US", "es-ES"]
+generate_sitemap = true
+generate_robots = true
+
+[site.code_highlighting]
+enabled = true
+
+[[site.nav]]
+title = "Journal"
+href = "/blog/"
+
+[[site.routes]]
+path = "/blog"
+source = "content/blog"
+template = "fission::site::blog"
 ```
-
 </TabItem>
-<TabItem label="translations.rs and i18n/*.yaml">
+
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod home;
+mod translations;
+pub fn site_app() -> fission::site::FissionSite {
+    fission::site::FissionSite::new().with_env(translations::create_env())
+        .route_widget::<(), _>("/", "Field Journal",
+            Some("Practical notes about building and maintaining small software projects.".into()),
+            home::JournalHome::new())
+}
+pub fn build_site() -> anyhow::Result<()> {
+    fission::site::build_from_cli(site_app())
+}
+```
+</TabItem>
+
+<TabItem label="src/home.rs">
+<!-- fission:file path="src/home.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub JournalHome<()> {}
+    view(_home, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.l, children: [
+        SemanticsRegion(identifier: Some("site-heading-1:field-journal".into()), child:
+            Text(cx.tr("home.title")).size(tokens.typography.heading1_size)),
+        Text(cx.tr("home.description")),
+        Link::to(cx.tr("home.read"), "blog/"),
+    ])).padding_all(tokens.spacing.l).bg(tokens.colors.background)
+}
+```
+</TabItem>
+
+<TabItem label="src/translations.rs">
 <!-- fission:file path="src/translations.rs" -->
 ```rust
-use std::collections::HashMap;
-
 use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
-
+use std::collections::HashMap;
 pub fn create_env() -> Env {
     let mut env = Env::default();
     env.locale = Locale::from("en-US");
@@ -83,1164 +123,370 @@ pub fn create_env() -> Env {
         ("es-ES", include_str!("../i18n/es-ES.yaml")),
     ] {
         let messages: HashMap<String, String> =
-            serde_yaml::from_str(source).expect("valid Field Journal translations");
-        env.i18n.add_bundle(TranslationBundle {
-            locale: Locale::from(locale),
-            messages,
-        });
+            serde_yaml::from_str(source).expect("checked-in translations must be valid YAML");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
     }
     env
 }
 ```
+</TabItem>
+
+<TabItem label="i18n/en-US.yaml">
 <!-- fission:file path="i18n/en-US.yaml" -->
 ```yaml
-journal.semantic_label: "Field Journal stories and articles"
-journal.title: "Field Journal"
-journal.subtitle: "Practical notes for people who build."
-journal.issue: "VOL. 01 · WEEKLY"
-journal.hero.eyebrow: "A JOURNAL FOR PEOPLE WHO BUILD"
-journal.hero.title: "Good work starts with a better question."
-journal.hero.description: "Field Journal shares practical notes on Rust, product craft and the small decisions that make software easier to use."
-journal.editor.detail: "Editor · Updated weekly"
-journal.feature.eyebrow: "EDITOR’S PICK"
-journal.feature.read: "Read the editor’s pick →"
-journal.section.eyebrow: "FROM THE JOURNAL"
-journal.section.latest: "Latest stories"
-journal.story_count: "stories"
-journal.reading_minutes: "min read"
-journal.story.read: "Read story →"
-journal.category.all: "All stories"
-journal.category.rust_guides: "Rust guides"
-journal.category.product_design: "Product design"
-journal.category.field_notes: "Field notes"
-journal.search.label: "Search stories"
-journal.search.placeholder: "Search titles, topics and authors"
-journal.search.empty.title: "No stories match that search"
-journal.search.empty.description: "Try another phrase or clear your filters to return to the full journal."
-journal.search.clear: "Show all stories"
-journal.page.previous: "← Previous page"
-journal.page.next: "Next page →"
-journal.page.label: "Page"
-journal.page.of: "of"
-journal.article.back: "← All stories"
-journal.article.next_story: "Next story"
-journal.article.latest: "You’re at the latest story in this journal."
-journal.by: "By"
-journal.empty.title: "No articles are loaded"
-journal.empty.description: "Published posts will appear here when the blog collection is available."
-journal.footer: "Field Journal · Practical ideas for thoughtful software."
+home.title: "Field Journal"
+home.description: "Practical notes about building, explaining and maintaining small software projects."
+home.read: "Read the journal"
 ```
+</TabItem>
+
+<TabItem label="i18n/es-ES.yaml">
 <!-- fission:file path="i18n/es-ES.yaml" -->
 ```yaml
-journal.semantic_label: "Artículos y relatos de Field Journal"
-journal.title: "Field Journal"
-journal.subtitle: "Notas prácticas para quienes crean software."
-journal.issue: "NÚM. 01 · SEMANAL"
-journal.hero.eyebrow: "UNA REVISTA PARA QUIENES CREAN SOFTWARE"
-journal.hero.title: "El buen trabajo empieza con una pregunta mejor."
-journal.hero.description: "Field Journal comparte ideas prácticas sobre Rust, diseño de producto y las pequeñas decisiones que hacen más fácil usar el software."
-journal.editor.detail: "Editor · Actualizado cada semana"
-journal.feature.eyebrow: "SELECCIÓN DEL EDITOR"
-journal.feature.reading_time: "MIN DE LECTURA"
-journal.feature.read: "Leer la selección del editor →"
-journal.section.eyebrow: "DE LA REVISTA"
-journal.section.latest: "Últimos artículos"
-journal.story_count: "artículos"
-journal.reading_minutes: "min de lectura"
-journal.story.read: "Leer artículo →"
-journal.category.all: "Todos los artículos"
-journal.category.rust_guides: "Guías de Rust"
-journal.category.product_design: "Diseño de producto"
-journal.category.field_notes: "Notas de campo"
-journal.search.label: "Buscar artículos"
-journal.search.placeholder: "Buscar títulos, temas y autores"
-journal.search.empty.title: "No hay artículos que coincidan con la búsqueda"
-journal.search.empty.description: "Prueba otra frase o limpia los filtros para volver a toda la revista."
-journal.search.clear: "Mostrar todos los artículos"
-journal.page.previous: "← Página anterior"
-journal.page.next: "Página siguiente →"
-journal.page.label: "Página"
-journal.page.of: "de"
-journal.article.back: "← Todos los artículos"
-journal.article.next_story: "Siguiente artículo"
-journal.article.latest: "Este es el artículo más reciente de la revista."
-journal.by: "Por"
-journal.empty.title: "No hay artículos cargados"
-journal.empty.description: "Los artículos publicados aparecerán aquí cuando esté disponible la colección."
-journal.footer: "Field Journal · Ideas prácticas para crear software con propósito."
+home.title: "Field Journal"
+home.description: "Notas prácticas sobre crear, explicar y mantener pequeños proyectos de software."
+home.read: "Leer la revista"
 ```
 </TabItem>
+
+<TabItem label="content/blog/2026-09-18-markdown-to-pages.mdx">
+<!-- fission:file path="content/blog/2026-09-18-markdown-to-pages.mdx" -->
+````md
+---
+title: Keep an article at a stable address
+description: How source files, metadata and links identify the same article.
+categories: [Rust guides]
+tags: [markdown, static sites]
+show_adjacent_posts: true
+---
+
+# Keep an article at a stable address
+
+An article can be reached through a shared link, a search result or its archive. Those routes should identify the same piece of writing. A title copied into a separate Rust record becomes another value an editor has to remember to change.
+
+## Keep content together
+Put the title, description and body in one Markdown file. Use the description to state the question the article answers, not a second unrelated marketing claim. Its public URL then gives another writer a stable place to link.
+
+## Change the structure carefully
+A filename-based route can change when the file is renamed. Before reorganising a published archive, record the old URL and arrange an explicit redirect. A fresh sitemap is useful discovery information, but it does not repair someone else's saved link.
+
+[The revision note](../2026-09-11-corrections/) explains what to record when the advice itself changes.
+````
+</TabItem>
+
+<TabItem label="content/blog/2026-09-15-useful-search.mdx">
+<!-- fission:file path="content/blog/2026-09-15-useful-search.mdx" -->
+````md
+---
+title: Search the words a reader can remember
+description: Why a search index needs meaningful article content and an honest no-result path.
+categories: [Product design]
+tags: [search, navigation]
+show_adjacent_posts: true
+---
+
+# Search the words a reader can remember
+
+A reader may remember a problem without remembering its headline. Search needs enough meaningful content to connect that question to the article. Filling descriptions with repeated terms makes the result harder to judge.
+
+## Try more than the headline
+Search for a term from the explanation, then one from a heading. Open the returned route and check that it contains the answer, rather than merely repeating the query.
+
+## Keep the article reachable
+Search is one way into the archive. Category links, article links and direct URLs should remain usable when the search script cannot run. That separates the reading path from an optional discovery enhancement.
+````
+</TabItem>
+
+<TabItem label="content/blog/2026-09-11-corrections.mdx">
+<!-- fission:file path="content/blog/2026-09-11-corrections.mdx" -->
+````md
+---
+title: Record what changed in a correction
+description: Keep original publication facts distinct from a later review.
+categories: [Field notes]
+tags: [maintenance, publishing]
+show_adjacent_posts: true
+---
+
+# Record what changed in a correction
+
+Publication starts an article's maintenance period. Dependencies change and an example that once worked can become misleading. Replacing the text without an explanation leaves a returning reader unable to distinguish a correction from their own mistake.
+
+## State the correction
+Name the behaviour that was wrong, what now happens and whether readers need to act. Keep the original publication date distinct from a later review date.
+
+## Preserve the route
+A correction is normally still the same article. Keep its address and link to a replacement when advice has been retired. [Stable article addresses](../2026-09-18-markdown-to-pages/) explain the navigation consequence.
+````
+</TabItem>
+
 </Tabs>
-
-The Static site shell generates routes and page metadata; the components in `src/` build the journal experience. Keep those jobs separate. An editor can then change an article without touching its card layout, and the same metadata can drive the index, category pages, tag pages, and sitemap.
-
-### Mount the blog collection
-
-Add these settings to the template's `[site]` table. `base_url` gives Fission the full URL for sitemap entries; `asset_dirs` copies the feed into the built site. The blog route creates the index, paginated archives, category and tag pages, and article URLs from `content/blog/`.
-
-<Tabs>
-<TabItem label="Site settings and route">
-
-```toml
-[site]
-title = "Field Journal"
-description = "Practical notes on Rust, product craft and thoughtful software."
-base_url = "https://journal.example.com"
-out_dir = "dist/site"
-asset_dirs = ["assets"]
-generate_sitemap = true
-generate_robots = true
-
-[[site.routes]]
-kind = "content"
-path = "/blog"
-source = "content/blog"
-template = "fission::site::blog"
-```
-
-</TabItem>
-<TabItem label="What Fission generates">
-
-```text
-/blog/                         # paginated article index
-/blog/page/2/                  # next index page
-/blog/categories/rust-guides/  # category archive
-/blog/tags/static-sites/       # tag archive
-/blog/2026-09-18-markdown-to-pages/  # full article
-/sitemap.xml                   # generated from the configured base URL
-/robots.txt                    # generated site policy
-/feed.xml                      # copied from assets/feed.xml
-```
-
-</TabItem>
-</Tabs>
-
-Fission's blog template handles static pagination and category and tag routes. The component below adds live search and category controls to the preview. The RSS feed is still yours to maintain: Fission copies it, but does not create or update its entries.
-
-### Give the journal a real front page
-
-Show readers what they need to choose a story: the publication name, a featured article, and a list with enough information to judge each result. Field Journal has six stories about Rust, product design, and field notes. Each card shows the title, category, summary, author, date, and reading time. “Read story” opens that article.
-
-The `JournalStory` record keeps each article's fields together. `JournalState` stores the selected article ID because both the card and reader need it. Search and filter settings belong to the page component: they are temporary choices for this view, not article data.
-
-<Tabs>
-<TabItem label="Content and app state">
-
-**`src/models.rs`**
-
-<!-- fission:file path="src/models.rs" -->
-```rust
-#[derive(Clone, Debug, PartialEq)]
-pub struct JournalStory {
-    pub id: u32,
-    pub title: &'static str,
-    pub category: &'static str,
-    pub published: &'static str,
-    pub author: &'static str,
-    pub reading_minutes: u8,
-    pub summary: &'static str,
-    pub tags: &'static [&'static str],
-    pub paragraphs: Vec<&'static str>,
-}
-
-pub fn journal_stories() -> Vec<JournalStory> {
-    vec![
-        JournalStory {
-            id: 101,
-            title: "From Markdown to pages readers can find",
-            category: "rust_guides",
-            published: "18 Sep 2026",
-            author: "Alex Morgan",
-            reading_minutes: 8,
-            summary: "Turn an authored post into a clean reading experience with useful metadata, stable URLs and room for the next article.",
-            tags: &["markdown", "static sites", "content"],
-            paragraphs: vec![
-                "A blog post starts as more than a block of Markdown. Readers arrive from a search result, a shared link or the index, and each path should bring them to the same clearly titled article. That means the title, summary, publication date and canonical URL need to be part of the content record rather than scattered through page code.",
-                "Keep the writing in a dated content file and let the static site builder render it into a stable route. The summary should tell a reader what they will learn, while the body answers that promise with a beginning, a worked example and a useful next step. A feed and sitemap then point back to those same canonical routes.",
-                "This small separation makes publishing easier to review. An editor can improve a paragraph without changing the layout, and a developer can adjust the article template without rewriting every post. The URL, metadata and article body stay together as one source of truth.",
-            ],
-        },
-        JournalStory {
-            id: 102,
-            title: "Search should help readers keep exploring",
-            category: "product_design",
-            published: "15 Sep 2026",
-            author: "Mina Patel",
-            reading_minutes: 6,
-            summary: "A useful article search checks titles, topics and authors, then gives people a clear way back when nothing matches.",
-            tags: &["search", "navigation", "usability"],
-            paragraphs: vec![
-                "Search is part of the reading path, not a separate destination. A reader who remembers the idea but not the headline should still be able to find the right article by trying a topic or author name.",
-                "Start with the fields your readers already understand: title, category, summary and author. Normalize the query and those fields to the same case, and keep the result count visible so the reader knows whether the search has narrowed the list.",
-                "The empty state should explain the result and offer one immediate recovery action. Keeping the query visible lets people correct it; a separate clear action restores the full list without making them reload the page.",
-            ],
-        },
-        JournalStory {
-            id: 103,
-            title: "A post has a lifecycle, not just a publish date",
-            category: "field_notes",
-            published: "11 Sep 2026",
-            author: "Eli Turner",
-            reading_minutes: 5,
-            summary: "Plan drafts, corrections and retirement so readers can trust the date and status of the advice they found.",
-            tags: &["editorial", "maintenance", "publishing"],
-            paragraphs: vec![
-                "Publishing a post starts its public life. Examples age, links move and product behavior changes, so an editorial workflow needs a way to mark a post for review without silently changing its original publication date.",
-                "Keep publication and update dates separate. The first tells a reader when the advice appeared; the second signals that someone checked it again. If the article is retired, preserve a useful replacement route instead of leaving a dead end.",
-                "A small status field in the content record helps editors see what needs attention. The public template can then display honest dates and avoid presenting an old recommendation as if it were new.",
-            ],
-        },
-        JournalStory {
-            id: 104,
-            title: "Give a Rust tutorial a useful reading path",
-            category: "rust_guides",
-            published: "08 Sep 2026",
-            author: "Alex Morgan",
-            reading_minutes: 10,
-            summary: "Connect a tutorial's goal, steps, code and working result so a junior developer can follow the reasoning.",
-            tags: &["rust", "tutorials", "teaching"],
-            paragraphs: vec![
-                "A good tutorial begins by naming the thing the reader will build and the decision they need to make. Each section should answer the next natural question, not merely introduce another API in isolation.",
-                "For each code change, explain what the existing screen does, why it needs to change and how the new state affects the result. Keep a complete working example available, but let the reader open it when they are ready to compare the implementation.",
-                "Finish by checking the behavior a user can observe. A list of widgets is not a product outcome; a working search, a clear empty state or a saved edit is.",
-            ],
-        },
-        JournalStory {
-            id: 105,
-            title: "A product decision record your team can reuse",
-            category: "product_design",
-            published: "04 Sep 2026",
-            author: "Mina Patel",
-            reading_minutes: 7,
-            summary: "Record the problem, options and reason for a choice so future teammates do not have to rediscover the context.",
-            tags: &["decisions", "teams", "product"],
-            paragraphs: vec![
-                "A decision record is useful when it preserves the context that made a choice reasonable. Start with the user problem, then write down the real options the team considered and the tradeoff each one carried.",
-                "Record the decision and who will revisit it if its assumptions stop being true. That gives a new teammate a way to understand the choice without treating an old document as an unchangeable rule.",
-                "Keep the record short enough to review, but specific enough to connect the choice to a measurable outcome. A sentence such as “we chose this because it is simpler” is not enough unless the simplicity helps a named user do something better.",
-            ],
-        },
-        JournalStory {
-            id: 106,
-            title: "Write release notes for people upgrading",
-            category: "field_notes",
-            published: "01 Sep 2026",
-            author: "Eli Turner",
-            reading_minutes: 6,
-            summary: "Separate breaking changes, improvements and fixes, then tell users what action an upgrade requires.",
-            tags: &["releases", "maintenance", "communication"],
-            paragraphs: vec![
-                "Release notes help someone decide when and how to upgrade. Lead with the changes that affect their work, especially renamed APIs, changed defaults or new setup steps.",
-                "Group the rest by outcome. A fix should explain the behavior that changed, and an improvement should say who benefits. Avoid a raw commit list that requires users to reconstruct the product story themselves.",
-                "When a release needs action, show the command or migration path next to the change. A clear note reduces surprises and gives users a reason to trust the next release.",
-            ],
-        },
-    ]
-}
-```
-
-**`src/state.rs`**
-
-<!-- fission:file path="src/state.rs" -->
-```rust
-use fission::prelude::*;
-use crate::models::JournalStory;
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct JournalState {
-    pub stories: Vec<JournalStory>,
-    pub selected_story: Option<u32>,
-}
-
-impl Default for JournalState {
-    fn default() -> Self {
-        Self {
-            stories: Vec::new(),
-            selected_story: None,
-        }
-    }
-}
-
-impl GlobalState for JournalState {}
-
-#[fission_reducer(SelectJournalStory)]
-pub fn on_select_journal_story(state: &mut JournalState, story_id: Option<u32>) {
-    state.selected_story = story_id;
-}
-```
-
-</TabItem>
-<TabItem label="Reusable story components">
-
-**`src/components/mod.rs`**
-
-<!-- fission:file path="src/components/mod.rs" -->
-```rust
-pub mod article_reader;
-pub mod featured_story;
-pub mod story_card;
-
-pub use article_reader::JournalArticle;
-pub use featured_story::FeaturedStory;
-pub use story_card::JournalStoryCard;
-```
-
-**`src/components/story_card.rs`**
-
-<!-- fission:file path="src/components/story_card.rs" -->
-```rust
-use crate::models::JournalStory;
-use crate::state::{on_select_journal_story, JournalState, SelectJournalStory};
-use fission::prelude::*;
-
-fission_component! {
-    pub JournalStoryCard<JournalState> { props { story: JournalStory } }
-    view(card, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    Container(
-        Column(gap: tokens.spacing.m, children: [
-            Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                Container(Text(format!("{:02}", card.story.id - 100))
-                    .weight(tokens.typography.font_weight_bold))
-                    .padding_all(tokens.spacing.s)
-                    .bg(tokens.colors.primary_subtle)
-                    .border_radius(tokens.radii.small),
-                Text(cx.tr(&format!("journal.category.{}", card.story.category)))
-                    .color(tokens.colors.text_secondary)
-                    .weight(tokens.typography.font_weight_semibold),
-            ]),
-            Text(card.story.title)
-                .size(tokens.typography.heading2_size)
-                .weight(tokens.typography.font_weight_bold),
-            Text(card.story.summary).color(tokens.colors.text_secondary),
-            Text(format!("{} · {} · {} {}",
-                card.story.published, card.story.author, card.story.reading_minutes,
-                cx.tr("journal.reading_minutes")))
-                .color(tokens.colors.text_secondary),
-            Button(
-                child: Text(cx.tr("journal.story.read")),
-                key: format!("read-story-{}", card.story.id),
-                variant: ButtonVariant::LinkColor,
-                on_press: with_reducer!(
-                    cx.build,
-                    SelectJournalStory(Some(card.story.id)),
-                    on_select_journal_story,
-                ),
-            )
-            .semantics_identifier(format!("journal.read-story.{}", card.story.id)),
-        ]),
-    )
-    .width_length(Length::percent(100.0))
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
-}
-```
-
-**`src/components/featured_story.rs`**
-
-<!-- fission:file path="src/components/featured_story.rs" -->
-```rust
-use crate::models::JournalStory;
-use crate::state::{on_select_journal_story, JournalState, SelectJournalStory};
-use fission::prelude::*;
-
-fission_component! {
-    pub FeaturedStory<JournalState> { props { story: JournalStory } }
-    view(feature, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    Container(
-        Column(gap: tokens.spacing.m, children: [
-            Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                Text(cx.tr("journal.feature.eyebrow")).weight(tokens.typography.font_weight_bold),
-                Text(format!("{} {}", feature.story.reading_minutes, cx.tr("journal.reading_minutes")))
-                    .color(tokens.colors.text_secondary),
-            ]),
-            Container(
-                Column(gap: tokens.spacing.xs, children: [
-                    Text(cx.tr("journal.title"))
-                        .size(tokens.typography.heading2_size)
-                        .weight(tokens.typography.font_weight_bold)
-                        .color(tokens.colors.primary),
-                    Text(cx.tr("journal.subtitle"))
-                        .color(tokens.colors.text_secondary),
-                ]),
-            )
-            .padding_all(tokens.spacing.m)
-            .bg(tokens.colors.surface)
-            .border(tokens.colors.border, 1.0)
-            .border_radius(tokens.radii.medium),
-            Text(cx.tr(&format!("journal.category.{}", feature.story.category)))
-                .color(tokens.colors.text_secondary)
-                .weight(tokens.typography.font_weight_semibold),
-            Text(feature.story.title)
-                .size(tokens.typography.heading2_size)
-                .weight(tokens.typography.font_weight_bold),
-            Text(feature.story.summary).color(tokens.colors.text_secondary),
-            Button(
-                child: Text(cx.tr("journal.feature.read")),
-                key: "read-feature-story",
-                variant: ButtonVariant::Primary,
-                on_press: with_reducer!(
-                    cx.build,
-                    SelectJournalStory(Some(feature.story.id)),
-                    on_select_journal_story,
-                ),
-            )
-            .semantics_identifier("journal.read-feature".to_string()),
-        ]),
-    )
-    .width_length(Length::percent(100.0))
-    .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.primary_subtle)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
-}
-```
-
-</TabItem>
-<TabItem label="Article reader and page">
-
-**`src/components/article_reader.rs`**
-
-<!-- fission:file path="src/components/article_reader.rs" -->
-```rust
-use crate::models::JournalStory;
-use crate::state::{on_select_journal_story, JournalState, SelectJournalStory};
-use fission::prelude::*;
-
-fission_component! {
-    pub JournalArticle<JournalState> { props { story: JournalStory } }
-    view(article, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    Column(gap: tokens.spacing.l, children: [
-        Button(
-            child: Text(cx.tr("journal.article.back")),
-            key: "return-to-journal",
-            variant: ButtonVariant::Ghost,
-            on_press: with_reducer!(cx.build, SelectJournalStory(None), on_select_journal_story),
-        )
-        .semantics_identifier("journal.return-to-index".to_string()),
-        Container(Column(gap: tokens.spacing.m, children: [
-            Text(cx.tr(&format!("journal.category.{}", article.story.category)))
-                .color(tokens.colors.primary)
-                .weight(tokens.typography.font_weight_bold),
-            Text(article.story.title)
-                .size(tokens.typography.heading_size)
-                .weight(tokens.typography.font_weight_bold),
-            Text(article.story.summary).color(tokens.colors.text_secondary),
-            Text(format!("{} {} · {} · {} {}",
-                cx.tr("journal.by"), article.story.author, article.story.published,
-                article.story.reading_minutes, cx.tr("journal.reading_minutes")))
-                .color(tokens.colors.text_secondary),
-            for paragraph in article.story.paragraphs.iter() {
-                Text(*paragraph, key: (article.story.id, *paragraph))
-                    .color(tokens.colors.text_secondary)
-            },
-        ]))
-        .width_length(Length::percent(100.0))
-        .max_width(760.0)
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    ])
-}
-```
-
-**`src/app.rs`**
-
-<!-- fission:file path="src/app.rs" -->
-```rust
-use crate::components::{FeaturedStory, JournalArticle, JournalStoryCard};
-use crate::state::JournalState;
-use fission::prelude::*;
-
-fission_component! {
-    pub FieldJournal<JournalState> {}
-    view(_journal, state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let stories = &state.stories;
-        let feature = stories.first().cloned();
-        let selected_story = state.selected_story
-            .and_then(|id| stories.iter().find(|story| story.id == id).cloned());
-    } =>
-    Scroll(
-        height: cx.view.viewport_size().height,
-        semantic_label: Some(cx.tr("journal.semantic_label")),
-        child: Container(
-            Column(gap: tokens.spacing.l, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                        Container(Text("F").weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.on_primary))
-                            .padding_all(tokens.spacing.s)
-                            .bg(tokens.colors.primary)
-                            .border_radius(tokens.radii.medium),
-                        Column(gap: tokens.spacing.xs, children: [
-                            Text(cx.tr("journal.title")).weight(tokens.typography.font_weight_bold),
-                            Text(cx.tr("journal.subtitle"))
-                                .color(tokens.colors.text_secondary),
-                        ]),
-                    ]),
-                    Text(cx.tr("journal.issue")).color(tokens.colors.text_secondary),
-                ]),
-                if let Some(story) = selected_story {
-                    JournalArticle(story)
-                } else if let Some(feature) = feature {
-                    Column(gap: tokens.spacing.l, children: [
-                        Grid(
-                            columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-                                GridTrack::Points(240.0), GridTrack::Fr(1.0)
-                            ))],
-                            rows: vec![GridTrack::Auto],
-                            column_gap: tokens.spacing.l,
-                            row_gap: tokens.spacing.l,
-                            children: [
-                                Column(gap: tokens.spacing.m, children: [
-                                    Text(cx.tr("journal.hero.eyebrow"))
-                                        .color(tokens.colors.primary)
-                                        .weight(tokens.typography.font_weight_bold),
-                                    Text(cx.tr("journal.hero.title"))
-                                        .size(tokens.typography.heading_size)
-                                        .weight(tokens.typography.font_weight_bold),
-                                    Text(cx.tr("journal.hero.description"))
-                                        .color(tokens.colors.text_secondary),
-                                    Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                                        Container(Text("AM").weight(tokens.typography.font_weight_bold))
-                                            .padding_all(tokens.spacing.s)
-                                            .bg(tokens.colors.primary_subtle)
-                                            .border_radius(tokens.radii.large),
-                                        Column(gap: tokens.spacing.xs, children: [
-                                            Text("Alex Morgan").weight(tokens.typography.font_weight_semibold),
-                                            Text(cx.tr("journal.editor.detail"))
-                                                .color(tokens.colors.text_secondary),
-                                        ]),
-                                    ]),
-                                ]),
-                                FeaturedStory(feature),
-                            ],
-                        ),
-                        Column(gap: tokens.spacing.m, children: [
-                            Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                                Column(gap: tokens.spacing.xs, children: [
-                                    Text(cx.tr("journal.section.eyebrow"))
-                                        .color(tokens.colors.primary)
-                                        .weight(tokens.typography.font_weight_bold),
-                                    Text(cx.tr("journal.section.latest"))
-                                        .size(tokens.typography.heading2_size)
-                                        .weight(tokens.typography.font_weight_bold),
-                                ]),
-                                Spacer(flex_grow: 1.0),
-                                Text(format!("{} {}", stories.len(), cx.tr("journal.story_count")))
-                                    .color(tokens.colors.text_secondary),
-                            ]),
-                            Grid(
-                                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-                                    GridTrack::Points(250.0), GridTrack::Fr(1.0)
-                                ))],
-                                rows: vec![GridTrack::Auto],
-                                column_gap: tokens.spacing.m,
-                                row_gap: tokens.spacing.m,
-                                children: [
-                                    for story in stories.iter() {
-                                        JournalStoryCard(story.clone(), key: story.id)
-                                    },
-                                ],
-                            ),
-                        ]),
-                        Text(cx.tr("journal.footer"))
-                            .color(tokens.colors.text_secondary),
-                    ])
-                } else {
-                    EmptyState(
-                        title: cx.tr("journal.empty.title"),
-                        description: Some(cx.tr("journal.empty.description")),
-                    )
-                },
-            ]),
-        )
-        .width_length(Length::percent(100.0))
-        .max_width(1160.0)
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.background),
-    )
-}
-```
-
-**`preview/lib.rs`**
-
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-mod components;
-mod models;
-mod state;
-mod translations;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    WebApp::<state::JournalState, _>::new(app::FieldJournal::new())
-        .with_state_init(|state| state.stories = models::journal_stories())
-        .with_env(translations::create_env())
-        .with_title("Field Journal")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
-
-</TabItem>
-</Tabs>
-
-`JournalStoryCard` receives an article as a prop and sends its ID to a reducer when selected. Building the card does not change app state; the reducer owns that transition. `FeaturedStory` uses the same record for the lead article, and `FieldJournal` arranges the components in a responsive grid. Spacing, colours, and headings come from the active Fission theme, so the site does not need a second set of visual values.
 
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Open the editor’s pick, read its title and first paragraph, then return to the index. Confirm that each story opens its own content and that the article cards remain identifiable without relying on color alone.
+Open the journal, follow an article and read its final section. Follow a related link, then return to the archive. Reload an article URL directly; its content must not depend on an earlier selection.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="search-and-pagination" -->
-## Help readers find and browse stories
+## Let the collection produce search and archive routes
 
-As the archive grows, readers need a way to narrow it down. Search the title, summary, category, author, and tags, then add filters for the three Field Journal categories. Show the result count. If nothing matches, keep the search term visible and offer one action to restore all stories.
+Add four more complete posts and enable search. The current blog template uses six posts per archive page; the seventh therefore creates a real second-page route. This is the existing template rule, not a setting invented for the example.
 
-The search string, selected category, and page number are local state on `FieldJournal`. They affect this view, not the articles. Changing the category returns to page one. A search can also remove results from the current page, so clamp the displayed page to the available results. The previous and next reducers use the same rule.
-
-Use the article ID as each card's key. When a search or category filter changes the list, Fission can keep each card attached to its article instead of its old position.
+Categories and tags create linked archives. Search uses the generated content index; it is not the local title/category/author filter from a separate app. Check the actual results rather than assuming every metadata field has a dedicated search operator.
 
 <Tabs>
-<TabItem label="Search the authored records">
+<TabItem label="fission.toml">
+<!-- fission:file path="fission.toml" -->
+```toml
+targets = ["static-site"]
 
-**Update `src/models.rs`** with a case-insensitive match across the fields readers use to remember an article:
+[app]
+name = "field-journal"
+app_id = "rs.example.field.journal"
 
-<!-- fission:file path="src/models.rs" -->
-```rust
-#[derive(Clone, Debug, PartialEq)]
-pub struct JournalStory {
-    pub id: u32,
-    pub title: &'static str,
-    pub category: &'static str,
-    pub published: &'static str,
-    pub author: &'static str,
-    pub reading_minutes: u8,
-    pub summary: &'static str,
-    pub tags: &'static [&'static str],
-    pub paragraphs: Vec<&'static str>,
-}
+[site]
+entry = "crate::site_app"
+title = "Field Journal"
+description = "Practical notes about building and maintaining small software projects."
+base_url = "https://field-journal.example.com"
+out_dir = "dist/site"
+default_locale = "en-US"
+locales = ["en-US", "es-ES"]
+generate_sitemap = true
+generate_robots = true
 
-pub fn journal_stories() -> Vec<JournalStory> {
-    vec![
-        JournalStory {
-            id: 101,
-            title: "From Markdown to pages readers can find",
-            category: "rust_guides",
-            published: "18 Sep 2026",
-            author: "Alex Morgan",
-            reading_minutes: 8,
-            summary: "Turn an authored post into a clean reading experience with useful metadata, stable URLs and room for the next article.",
-            tags: &["markdown", "static sites", "content"],
-            paragraphs: vec![
-                "A blog post starts as more than a block of Markdown. Readers arrive from a search result, a shared link or the index, and each path should bring them to the same clearly titled article. That means the title, summary, publication date and canonical URL need to be part of the content record rather than scattered through page code.",
-                "Keep the writing in a dated content file and let the static site builder render it into a stable route. The summary should tell a reader what they will learn, while the body answers that promise with a beginning, a worked example and a useful next step. A feed and sitemap then point back to those same canonical routes.",
-                "This small separation makes publishing easier to review. An editor can improve a paragraph without changing the layout, and a developer can adjust the article template without rewriting every post. The URL, metadata and article body stay together as one source of truth.",
-            ],
-        },
-        JournalStory {
-            id: 102,
-            title: "Search should help readers keep exploring",
-            category: "product_design",
-            published: "15 Sep 2026",
-            author: "Mina Patel",
-            reading_minutes: 6,
-            summary: "A useful article search checks titles, topics and authors, then gives people a clear way back when nothing matches.",
-            tags: &["search", "navigation", "usability"],
-            paragraphs: vec![
-                "Search is part of the reading path, not a separate destination. A reader who remembers the idea but not the headline should still be able to find the right article by trying a topic or author name.",
-                "Start with the fields your readers already understand: title, category, summary and author. Normalize the query and those fields to the same case, and keep the result count visible so the reader knows whether the search has narrowed the list.",
-                "The empty state should explain the result and offer one immediate recovery action. Keeping the query visible lets people correct it; a separate clear action restores the full list without making them reload the page.",
-            ],
-        },
-        JournalStory {
-            id: 103,
-            title: "A post has a lifecycle, not just a publish date",
-            category: "field_notes",
-            published: "11 Sep 2026",
-            author: "Eli Turner",
-            reading_minutes: 5,
-            summary: "Plan drafts, corrections and retirement so readers can trust the date and status of the advice they found.",
-            tags: &["editorial", "maintenance", "publishing"],
-            paragraphs: vec![
-                "Publishing a post starts its public life. Examples age, links move and product behavior changes, so an editorial workflow needs a way to mark a post for review without silently changing its original publication date.",
-                "Keep publication and update dates separate. The first tells a reader when the advice appeared; the second signals that someone checked it again. If the article is retired, preserve a useful replacement route instead of leaving a dead end.",
-                "A small status field in the content record helps editors see what needs attention. The public template can then display honest dates and avoid presenting an old recommendation as if it were new.",
-            ],
-        },
-        JournalStory {
-            id: 104,
-            title: "Give a Rust tutorial a useful reading path",
-            category: "rust_guides",
-            published: "08 Sep 2026",
-            author: "Alex Morgan",
-            reading_minutes: 10,
-            summary: "Connect a tutorial's goal, steps, code and working result so a junior developer can follow the reasoning.",
-            tags: &["rust", "tutorials", "teaching"],
-            paragraphs: vec![
-                "A good tutorial begins by naming the thing the reader will build and the decision they need to make. Each section should answer the next natural question, not merely introduce another API in isolation.",
-                "For each code change, explain what the existing screen does, why it needs to change and how the new state affects the result. Keep a complete working example available, but let the reader open it when they are ready to compare the implementation.",
-                "Finish by checking the behavior a user can observe. A list of widgets is not a product outcome; a working search, a clear empty state or a saved edit is.",
-            ],
-        },
-        JournalStory {
-            id: 105,
-            title: "A product decision record your team can reuse",
-            category: "product_design",
-            published: "04 Sep 2026",
-            author: "Mina Patel",
-            reading_minutes: 7,
-            summary: "Record the problem, options and reason for a choice so future teammates do not have to rediscover the context.",
-            tags: &["decisions", "teams", "product"],
-            paragraphs: vec![
-                "A decision record is useful when it preserves the context that made a choice reasonable. Start with the user problem, then write down the real options the team considered and the tradeoff each one carried.",
-                "Record the decision and who will revisit it if its assumptions stop being true. That gives a new teammate a way to understand the choice without treating an old document as an unchangeable rule.",
-                "Keep the record short enough to review, but specific enough to connect the choice to a measurable outcome. A sentence such as “we chose this because it is simpler” is not enough unless the simplicity helps a named user do something better.",
-            ],
-        },
-        JournalStory {
-            id: 106,
-            title: "Write release notes for people upgrading",
-            category: "field_notes",
-            published: "01 Sep 2026",
-            author: "Eli Turner",
-            reading_minutes: 6,
-            summary: "Separate breaking changes, improvements and fixes, then tell users what action an upgrade requires.",
-            tags: &["releases", "maintenance", "communication"],
-            paragraphs: vec![
-                "Release notes help someone decide when and how to upgrade. Lead with the changes that affect their work, especially renamed APIs, changed defaults or new setup steps.",
-                "Group the rest by outcome. A fix should explain the behavior that changed, and an improvement should say who benefits. Avoid a raw commit list that requires users to reconstruct the product story themselves.",
-                "When a release needs action, show the command or migration path next to the change. A clear note reduces surprises and gives users a reason to trust the next release.",
-            ],
-        },
-    ]
-}
+[site.code_highlighting]
+enabled = true
 
-pub fn matches_story(story: &JournalStory, query: &str, category: Option<&str>) -> bool {
-    let query = query.trim().to_lowercase();
-    let matches_query = query.is_empty()
-        || story.title.to_lowercase().contains(&query)
-        || story.summary.to_lowercase().contains(&query)
-        || story.author.to_lowercase().contains(&query)
-        || story.category.replace('_', " ").to_lowercase().contains(&query)
-        || story
-            .tags
-            .iter()
-            .any(|tag| tag.to_lowercase().contains(&query));
-    let matches_category = category.map_or(true, |selected| story.category == selected);
+[[site.nav]]
+title = "Journal"
+href = "/blog/"
 
-    matches_query && matches_category
-}
+[[site.routes]]
+path = "/blog"
+source = "content/blog"
+template = "fission::site::blog"
+
+[site.search]
+enabled = true
+output_path = "search"
+min_token_len = 2
 ```
-
 </TabItem>
-<TabItem label="Search, filters and pages">
 
-**Update `src/app.rs`** to keep those choices local and derive the visible cards from the complete article collection:
+<TabItem label="content/blog/2026-09-08-reviewable-plan.mdx">
+<!-- fission:file path="content/blog/2026-09-08-reviewable-plan.mdx" -->
+````md
+---
+title: Write a plan someone can review
+description: Make the outcome, owner and next action observable.
+categories: [Product design]
+tags: [planning, teams]
+show_adjacent_posts: true
+---
 
-<!-- fission:file path="src/app.rs" -->
-```rust
-use crate::components::{FeaturedStory, JournalArticle, JournalStoryCard};
-use crate::models::{matches_story, JournalStory};
-use crate::state::JournalState;
-use fission::prelude::*;
+# Write a plan someone can review
 
-fn journal_page_count(stories: &[JournalStory], query: &str, category: Option<&str>) -> usize {
-    let count = stories.iter()
-        .filter(|story| matches_story(story, query, category))
-        .count();
-    ((count + 2) / 3).max(1)
-}
+A plan is useful when another person can tell what should happen next. A broad ambition such as “improve support” may be reasonable, but it is not enough to coordinate today's work.
 
-fission_component! {
-    pub FieldJournal<JournalState> {
-        state {
-            search: String = String::new(),
-            category: Option<String> = None,
-            page: usize = 1,
-        }
-    }
-    view(journal, state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let stories = &state.stories;
-        let feature = stories.first().cloned();
-        let filtered: Vec<JournalStory> = stories.iter()
-            .filter(|story| matches_story(story, &journal.search, journal.category.as_deref()))
-            .cloned()
-            .collect();
-        let result_count = filtered.len();
-        let page_count = journal_page_count(stories, &journal.search, journal.category.as_deref());
-        let current_page = journal.page.min(page_count);
-        let visible: Vec<JournalStory> = filtered.into_iter()
-            .skip((current_page - 1) * 3)
-            .take(3)
-            .collect();
-        let selected_story = state.selected_story
-            .and_then(|id| stories.iter().find(|story| story.id == id).cloned());
-    } =>
-    Scroll(
-        height: cx.view.viewport_size().height,
-                        semantic_label: Some(cx.tr("journal.semantic_label")),
-        child: Container(
-            Column(gap: tokens.spacing.l, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                        Container(Text("F").weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.on_primary))
-                            .padding_all(tokens.spacing.s)
-                            .bg(tokens.colors.primary)
-                            .border_radius(tokens.radii.medium),
-                        Column(gap: tokens.spacing.xs, children: [
-                            Text(cx.tr("journal.title")).weight(tokens.typography.font_weight_bold),
-                            Text(cx.tr("journal.subtitle"))
-                                .color(tokens.colors.text_secondary),
-                        ]),
-                    ]),
-                    Text(cx.tr("journal.issue")).color(tokens.colors.text_secondary),
-                ]),
-                if let Some(story) = selected_story {
-                    JournalArticle(story)
-                } else if let Some(feature) = feature {
-                    Column(gap: tokens.spacing.l, children: [
-                        Grid(
-                            columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-                                GridTrack::Points(240.0), GridTrack::Fr(1.0)
-                            ))],
-                            rows: vec![GridTrack::Auto],
-                            column_gap: tokens.spacing.l,
-                            row_gap: tokens.spacing.l,
-                            children: [
-                                Column(gap: tokens.spacing.m, children: [
-                                    Text(cx.tr("journal.hero.eyebrow"))
-                                        .color(tokens.colors.primary)
-                                        .weight(tokens.typography.font_weight_bold),
-                                    Text(cx.tr("journal.hero.title"))
-                                        .size(tokens.typography.heading_size)
-                                        .weight(tokens.typography.font_weight_bold),
-                                    Text(cx.tr("journal.hero.description"))
-                                        .color(tokens.colors.text_secondary),
-                                    Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                                        Container(Text("AM").weight(tokens.typography.font_weight_bold))
-                                            .padding_all(tokens.spacing.s)
-                                            .bg(tokens.colors.primary_subtle)
-                                            .border_radius(tokens.radii.large),
-                                        Column(gap: tokens.spacing.xs, children: [
-                                            Text("Alex Morgan").weight(tokens.typography.font_weight_semibold),
-                                            Text(cx.tr("journal.editor.detail"))
-                                                .color(tokens.colors.text_secondary),
-                                        ]),
-                                    ]),
-                                ]),
-                                FeaturedStory(feature),
-                            ],
-                        ),
-                        Column(gap: tokens.spacing.m, children: [
-                            Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                                Column(gap: tokens.spacing.xs, children: [
-                                    Text(cx.tr("journal.section.eyebrow"))
-                                        .color(tokens.colors.primary)
-                                        .weight(tokens.typography.font_weight_bold),
-                                    Text(cx.tr("journal.section.latest"))
-                                        .size(tokens.typography.heading2_size)
-                                        .weight(tokens.typography.font_weight_bold),
-                                ]),
-                                Spacer(flex_grow: 1.0),
-                                Text(format!("{} {}", result_count, cx.tr("journal.story_count")))
-                                    .color(tokens.colors.text_secondary),
-                            ]),
-                            TextInput(
-                                label: Some(cx.tr("journal.search.label").into()),
-                                placeholder: Some(cx.tr("journal.search.placeholder").into()),
-                                bind: journal.search,
-                                semantics_identifier: "journal.search".to_string(),
-                            ),
-                            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
-                                Button(child: Text(cx.tr("journal.category.all")), key: "category-all",
-                                    variant: if journal.category.is_none() { ButtonVariant::Primary } else { ButtonVariant::Outline },
-                                    on_press: reduce { journal.category = None; journal.page = 1; })
-                                    .semantics_identifier("journal.category-all".to_string()),
-                                Button(child: Text(cx.tr("journal.category.rust_guides")), key: "category-rust-guides",
-                                    variant: if journal.category.as_deref() == Some("rust_guides") { ButtonVariant::Primary } else { ButtonVariant::Outline },
-                                    on_press: reduce { journal.category = Some("rust_guides".to_string()); journal.page = 1; })
-                                    .semantics_identifier("journal.category-rust-guides".to_string()),
-                                Button(child: Text(cx.tr("journal.category.product_design")), key: "category-product-design",
-                                    variant: if journal.category.as_deref() == Some("product_design") { ButtonVariant::Primary } else { ButtonVariant::Outline },
-                                    on_press: reduce { journal.category = Some("product_design".to_string()); journal.page = 1; })
-                                    .semantics_identifier("journal.category-product-design".to_string()),
-                                Button(child: Text(cx.tr("journal.category.field_notes")), key: "category-field-notes",
-                                    variant: if journal.category.as_deref() == Some("field_notes") { ButtonVariant::Primary } else { ButtonVariant::Outline },
-                                    on_press: reduce { journal.category = Some("field_notes".to_string()); journal.page = 1; })
-                                    .semantics_identifier("journal.category-field-notes".to_string()),
-                            ]),
-                            if visible.is_empty() {
-                                Container(Column(gap: tokens.spacing.s, children: [
-                                    Text(cx.tr("journal.search.empty.title"))
-                                        .size(tokens.typography.heading2_size)
-                                        .weight(tokens.typography.font_weight_bold),
-                                    Text(cx.tr("journal.search.empty.description"))
-                                        .color(tokens.colors.text_secondary),
-                                    Button(
-                                        child: Text(cx.tr("journal.search.clear")),
-                                        key: "clear-journal-filters",
-                                        variant: ButtonVariant::Primary,
-                                        on_press: reduce {
-                                            journal.search = String::new();
-                                            journal.category = None;
-                                            journal.page = 1;
-                                        },
-                                    )
-                                    .semantics_identifier("journal.clear-filters".to_string()),
-                                ]))
-                                .width_length(Length::percent(100.0))
-                                .padding_all(tokens.spacing.l)
-                                .bg(tokens.colors.surface)
-                                .border(tokens.colors.border, 1.0)
-                                .border_radius(tokens.radii.large)
-                            } else {
-                                Grid(
-                                    columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-                                        GridTrack::Points(250.0), GridTrack::Fr(1.0)
-                                    ))],
-                                    rows: vec![GridTrack::Auto],
-                                    column_gap: tokens.spacing.m,
-                                    row_gap: tokens.spacing.m,
-                                    children: [
-                                        for story in visible.iter() {
-                                            JournalStoryCard(story.clone(), key: story.id)
-                                        },
-                                    ],
-                                )
-                            },
-                            Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center,
-                                children: [
-                                    Button(
-                                        child: Text(cx.tr("journal.page.previous")),
-                                        key: "previous-stories-page",
-                                        variant: ButtonVariant::Outline,
-                                        disabled: current_page <= 1 || visible.is_empty(),
-                                        on_press: reduce {
-                                            let last_page = journal_page_count(&state.stories, &journal.search, journal.category.as_deref());
-                                            journal.page = journal.page.min(last_page).saturating_sub(1).max(1);
-                                        },
-                                    ).semantics_identifier("journal.previous-page".to_string()),
-                                    Text(format!("{} {} {} {}", cx.tr("journal.page.label"), current_page, cx.tr("journal.page.of"), page_count))
-                                        .color(tokens.colors.text_secondary),
-                                    Button(
-                                        child: Text(cx.tr("journal.page.next")),
-                                        key: "next-stories-page",
-                                        variant: ButtonVariant::Outline,
-                                        disabled: current_page >= page_count || visible.is_empty(),
-                                        on_press: reduce {
-                                            let last_page = journal_page_count(&state.stories, &journal.search, journal.category.as_deref());
-                                            journal.page = (journal.page.min(last_page) + 1).min(last_page);
-                                        },
-                                    ).semantics_identifier("journal.next-page".to_string()),
-                                ]),
-                        ]),
-                        Text(cx.tr("journal.footer"))
-                            .color(tokens.colors.text_secondary),
-                    ])
-                } else {
-                    EmptyState(
-                        title: cx.tr("journal.empty.title"),
-                        description: Some(cx.tr("journal.empty.description")),
-                    )
-                },
-            ]),
-        )
-        .width_length(Length::percent(100.0))
-        .max_width(1160.0)
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.background),
-    )
-}
-```
+## Name the result
+Write “publish the handover guide reviewed by support”. That identifies an output and a reviewer. It does not prescribe every implementation detail.
 
+## Identify the next action
+Ask support which questions are missing. When that action is complete, replace it with the next decision rather than allowing this small record to become another backlog.
+````
 </TabItem>
+
+<TabItem label="content/blog/2026-09-04-error-outcomes.mdx">
+<!-- fission:file path="content/blog/2026-09-04-error-outcomes.mdx" -->
+````md
+---
+title: Distinguish a failed request from a rejected write
+description: An interrupted response does not always prove that a server changed nothing.
+categories: [Rust guides]
+tags: [errors, network]
+show_adjacent_posts: true
+---
+
+# Distinguish a failed request from a rejected write
+
+A client can lose a response after a server has committed a change. Showing “nothing was saved” in that case claims knowledge the client does not have. Automatically repeating the request may create a duplicate.
+
+## Preserve the user's input
+Keep the draft while explaining that the outcome is uncertain. Reload the authoritative record before deciding whether another write is needed.
+
+## Design a retry contract
+If an operation needs safe automatic retries, define its identity and deduplication behaviour on the server. A spinner or retry button cannot establish that guarantee by itself.
+````
+</TabItem>
+
+<TabItem label="content/blog/2026-09-01-release-notes.mdx">
+<!-- fission:file path="content/blog/2026-09-01-release-notes.mdx" -->
+````md
+---
+title: Write release notes for an upgrade decision
+description: Explain changed behaviour and required actions rather than publishing an unexplained commit list.
+categories: [Field notes]
+tags: [releases, maintenance]
+show_adjacent_posts: true
+---
+
+# Write release notes for an upgrade decision
+
+Someone reading release notes is usually deciding whether to upgrade and what the upgrade will require. A list of internal changes forces them to reconstruct the consequence.
+
+## Put required actions first
+Name a changed default, renamed setting or migration next to the command or edit needed. Separate those changes from improvements that require no action.
+
+## Describe the result
+A fix should identify the behaviour that changed and who encountered it. Avoid calling a release “more reliable” when the evidence only establishes one corrected failure path.
+````
+</TabItem>
+
+<TabItem label="content/blog/2026-08-28-state-ownership.mdx">
+<!-- fission:file path="content/blog/2026-08-28-state-ownership.mdx" -->
+````md
+---
+title: Put a draft where its lifetime belongs
+description: Why an edit that must survive filtering cannot depend only on a mounted row.
+categories: [Rust guides]
+tags: [state, identity]
+show_adjacent_posts: true
+---
+
+# Put a draft where its lifetime belongs
+
+A row's local state is useful while that row remains mounted. Filtering can remove the row entirely. Giving it a stable key does not, by itself, promise to preserve state after unmounting.
+
+## Decide what must survive
+If the user expects an unfinished note to return after clearing a filter, store the draft with the record ID in application state. Let the row observe and edit that value through reducers.
+
+## Keep the boundary small
+Hover state or an isolated open disclosure can remain local. The choice follows the information's lifetime and ownership, rather than a rule that all mutable values belong in one global structure.
+````
+</TabItem>
+
 </Tabs>
-
-Search for `Rust`, select **Rust guides**, and try the next-page control. That category has two stories and fits on one page. Choose **All stories** to browse both archive pages. Then search for a phrase that appears nowhere in the articles. The empty state should explain what happened and let you clear the filters.
 
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Use the search field and category controls, then move from page one to page two. Enter a term with no matches and use **Show all stories**; verify that the count, selected category and visible cards all return to the complete journal.
+Follow the next archive page and open the seventh article. Follow a Rust guides category link, then a maintenance tag. Search for deduplication, open the result and confirm it contains the explanation. Try a term with no matches, then clear the query.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="read-and-publish" -->
-## Read the full article and publish useful metadata
+## Make discovery output an explicit publishing responsibility
 
-The summary helps readers choose a story; it is not a substitute for the article. Update `JournalArticle` to show every paragraph in a readable column, put the byline and reading time beside the title, and add a working next-story action. On a phone, the body can fill the screen. On a wider display, keep its line length comfortable.
+Fission generates the sitemap and robots file, but it does not generate an RSS feed. Copying feed.xml is not the same as keeping its entries up to date. This small feed deliberately includes one recent article; update it as part of the publication review, or add a separate generator with an explicit source contract later.
 
-On the production site, each post's front matter supplies its metadata and the blog template gives it a stable URL. Write the description for readers and search results: say what question the article answers and what they will get from reading it. Use one descriptive H1, headings that name the next idea, and links to related pages. Use categories for the main sections and tags for narrower topics that recur.
+The page's RSS link and the copied feed are real outputs. Use canonical public URLs in the feed, not the local preview address. The adjacent-post flag on each article supplies real previous/next links; no selected_story field is involved.
 
 <Tabs>
-<TabItem label="Complete article reader">
+<TabItem label="fission.toml">
+<!-- fission:file path="fission.toml" -->
+```toml
+targets = ["static-site"]
 
-**Update `src/components/article_reader.rs`**. In the preview, the next-story button selects an article from the in-memory collection. On the production site, `show_adjacent_posts` tells the blog template to render links to the previous and next published articles.
+[app]
+name = "field-journal"
+app_id = "rs.example.field.journal"
 
-<!-- fission:file path="src/components/article_reader.rs" -->
-```rust
-use crate::models::JournalStory;
-use crate::state::{on_select_journal_story, JournalState, SelectJournalStory};
-use fission::prelude::*;
+[site]
+entry = "crate::site_app"
+title = "Field Journal"
+description = "Practical notes about building and maintaining small software projects."
+base_url = "https://field-journal.example.com"
+out_dir = "dist/site"
+default_locale = "en-US"
+locales = ["en-US", "es-ES"]
+generate_sitemap = true
+generate_robots = true
+asset_dirs = ["assets"]
 
-fission_component! {
-    pub JournalArticle<JournalState> { props { story: JournalStory } }
-    view(article, state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-        let next_story = state.stories.iter()
-            .find(|story| story.id > article.story.id)
-            .cloned();
-    } =>
-    Column(gap: tokens.spacing.l, children: [
-        Button(
-            child: Text(cx.tr("journal.article.back")),
-            key: "return-to-journal",
-            variant: ButtonVariant::Ghost,
-            on_press: with_reducer!(cx.build, SelectJournalStory(None), on_select_journal_story),
-        )
-        .semantics_identifier("journal.return-to-index".to_string()),
-        Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(cx.tr(&format!("journal.category.{}", article.story.category)))
-                    .color(tokens.colors.primary)
-                    .weight(tokens.typography.font_weight_bold),
-                Text(article.story.title)
-                    .size(tokens.typography.heading_size)
-                    .weight(tokens.typography.font_weight_bold),
-                Text(article.story.summary)
-                    .color(tokens.colors.text_secondary),
-                Text(format!("{} {} · {} · {} {}",
-                    cx.tr("journal.by"), article.story.author, article.story.published,
-                    article.story.reading_minutes, cx.tr("journal.reading_minutes")))
-                    .color(tokens.colors.text_secondary),
-                Container(Column(gap: tokens.spacing.m, children: [
-                    for paragraph in article.story.paragraphs.iter() {
-                        Text(*paragraph, key: (article.story.id, *paragraph))
-                            .color(tokens.colors.text_secondary)
-                    },
-                ]))
-                .width_length(Length::percent(100.0))
-                .max_width(760.0),
-            ]),
-        )
-        .width_length(Length::percent(100.0))
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-        if let Some(next_story) = next_story {
-            Button(
-                child: Text(format!("{} · {} →", cx.tr("journal.article.next_story"), next_story.title)),
-                key: "next-journal-story",
-                variant: ButtonVariant::Outline,
-                on_press: with_reducer!(
-                    cx.build,
-                    SelectJournalStory(Some(next_story.id)),
-                    on_select_journal_story,
-                ),
-            )
-            .semantics_identifier("journal.next-story".to_string())
-        } else {
-            Text(cx.tr("journal.article.latest"))
-                .color(tokens.colors.text_secondary)
-        },
-    ])
-}
+[site.code_highlighting]
+enabled = true
+
+[[site.nav]]
+title = "Journal"
+href = "/blog/"
+
+[[site.routes]]
+path = "/blog"
+source = "content/blog"
+template = "fission::site::blog"
+
+[site.search]
+enabled = true
+output_path = "search"
+min_token_len = 2
 ```
-
 </TabItem>
-<TabItem label="An authored article">
 
-**`content/blog/2026-09-18-markdown-to-pages.mdx`**
-
-```mdx
----
-title: From Markdown to pages readers can find
-description: Turn a Rust blog post into a useful reading experience with stable URLs, clear metadata and related articles.
-authors:
-  - Alex Morgan
-categories:
-  - Rust guides
-tags:
-  - markdown
-  - static sites
-  - content
-show_adjacent_posts: true
----
-
-# From Markdown to pages readers can find
-
-A blog post starts as more than a block of Markdown. Readers arrive from a search result, a shared link or the index, and each path should bring them to the same clearly titled article. Keep its title, summary, publication date and canonical URL with the content rather than scattering them through page code.
-
-Write the answer promised by the description. Introduce the reader's task, work through the decisions with a small example, and finish with a useful next step. The generated category and tag pages help readers discover related posts; links in the article should take them to the reference or tutorial that answers the next question.
-```
-
-</TabItem>
-<TabItem label="Maintain an RSS feed">
-
-Fission copies files from `asset_dirs`; it does not generate RSS entries. Keep the feed's canonical URLs, titles, and dates in sync with the published posts:
-
+<TabItem label="assets/feed.xml">
+<!-- fission:file path="assets/feed.xml" -->
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
   <channel>
     <title>Field Journal</title>
-    <link>https://journal.example.com/blog/</link>
-    <description>Practical notes on Rust, product craft and thoughtful software.</description>
+    <link>https://field-journal.example.com/blog/</link>
+    <description>Practical notes about building and maintaining small software projects.</description>
     <item>
-      <title>From Markdown to pages readers can find</title>
-      <link>https://journal.example.com/blog/2026-09-18-markdown-to-pages/</link>
-      <guid>https://journal.example.com/blog/2026-09-18-markdown-to-pages/</guid>
-      <description>Turn a Rust blog post into a useful reading experience with stable URLs, clear metadata and related articles.</description>
+      <title>Keep an article at a stable address</title>
+      <link>https://field-journal.example.com/blog/2026-09-18-markdown-to-pages/</link>
+      <guid>https://field-journal.example.com/blog/2026-09-18-markdown-to-pages/</guid>
+      <description>How source files, metadata and links identify the same article.</description>
     </item>
   </channel>
 </rss>
 ```
-
 </TabItem>
+
+<TabItem label="src/home.rs">
+<!-- fission:file path="src/home.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub JournalHome<()> {}
+    view(_home, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.l, children: [
+        SemanticsRegion(identifier: Some("site-heading-1:field-journal".into()), child:
+            Text(cx.tr("home.title")).size(tokens.typography.heading1_size)),
+        Text(cx.tr("home.description")),
+        Link::to(cx.tr("home.read"), "blog/"),
+        Link::to("RSS", "feed.xml"),
+    ])).padding_all(tokens.spacing.l).bg(tokens.colors.background)
+}
+```
+</TabItem>
+
 </Tabs>
 
-### Build and inspect the generated site
-
-Build the site before serving it. Check that the article routes, feed, and sitemap are in the output directory. If a post or category is missing from `fission site routes`, the builder has not created a page for it.
-
-```sh
-cargo test
-fission site routes --project-dir .
-fission site check --project-dir .
-fission site build --project-dir .
-find dist/site/blog -maxdepth 3 -type f | sort
-ls dist/site/feed.xml dist/site/sitemap.xml dist/site/robots.txt
-fission site serve --project-dir . --host 127.0.0.1 --port 8123
-```
-
-You now have stable article URLs, paginated archives, category and tag pages, a sitemap, and an RSS feed you can update as you publish. Before deployment, open an article directly, test its older and newer links, and check its generated title and description as well as the layout.
-
-Use these reference pages as you extend the site: [Platform targets](/reference/platform/targets/), [Commands, services and jobs](/reference/core/commands-services-jobs/), and [Fission TOML](/reference/config/fission-toml/).
-
 <!-- fission:preview -->
+
 <!-- fission:checkpoint -->
-Open the complete article, read to the final paragraph and use **Next story**. Then build the static site and inspect the emitted article URL, category page, sitemap and `feed.xml`; confirm that the article title and description match the page content.
+Open the RSS link and check its article URL against the actual published route. Follow older/newer article links and both archive pages. Disable JavaScript: articles, taxonomy links and pagination must still work.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
+
+## Inspect the publication
+
+```sh
+fission site build --project-dir .
+fission site check --project-dir .
+fission site routes --project-dir .
+fission site serve --project-dir . --port 8123
+curl http://127.0.0.1:8123/blog/2026-09-18-markdown-to-pages/
+```
+
+Inspect the article's title, description and body in the returned HTML. Check `dist/site/blog/page/2/index.html`, `dist/site/feed.xml` and `dist/site/sitemap.xml`. A successful build does not establish a useful archive: check long titles, code overflow and article line length at phone and desktop widths before publishing.
+
+The feed is the one deliberate duplication in this small project. Treat its update as a review item rather than claiming that copying an asset synchronises it with Markdown.
+
+- [Content routes](/docs/guides/static-site-content-routes/)
+- [Site configuration](/reference/config/fission-toml/)

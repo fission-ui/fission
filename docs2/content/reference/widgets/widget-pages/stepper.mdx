@@ -16,11 +16,13 @@ navigation. Your app owns those actions.
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Stepper {
-    steps: vec!["Account".into(), "Profile".into(), "Confirm".into()],
-    active_index: view.state().current_step,
-}
-.into();
+// In view; state.current_step belongs to the account setup workflow.
+Stepper(
+    steps: vec![
+        cx.tr("setup.account"), cx.tr("setup.profile"), cx.tr("setup.confirm"),
+    ],
+    active_index: state.current_step,
+)
 ```
 
 ## Field table
@@ -36,9 +38,9 @@ let widget: Widget = Stepper {
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+Only advance `current_step` after the corresponding validation or operation
+succeeds. Keep it within the actual step list, test Back without losing draft
+data, and check that long translated labels remain readable on a phone.
 
 ## Related
 

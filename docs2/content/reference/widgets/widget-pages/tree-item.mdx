@@ -14,6 +14,7 @@ Each item represents one node in a hierarchy. It can have its own label, optiona
 ```rust
 use fission::prelude::*;
 
+// App-owned filesystem labels are data; the parent supplies bound actions.
 let item = TreeItem {
     id: "src".into(),
     icon: None,
@@ -26,8 +27,8 @@ let item = TreeItem {
         on_toggle: None,
         on_select: Some(open_main_file_action),
     }],
-    on_toggle: Some(toggle_src_folder_action),
-    on_select: Some(select_src_folder_action),
+    on_toggle: None,
+    on_select: Some(open_src_folder_action),
 };
 ```
 
@@ -44,7 +45,13 @@ let item = TreeItem {
 
 ## Current implementation note
 
-`TreeItem` exposes `on_toggle`, but the checked-in `TreeView` renderer does not currently render a separate expansion affordance or invoke that action for you. Expansion is still reflected through `expanded_ids`, but the interaction path must be composed carefully at the app level.
+`TreeItem` exposes `on_toggle`, but the current `TreeView` renderer does not
+render a separate expansion affordance or invoke that action. In this example,
+the app's `open_src_folder_action` uses the working row-selection path to
+select and expand the folder by updating `selected_id` and `expanded_ids`.
+If your product requires separate disclosure and selection controls, the
+compact widget does not yet supply that interaction; do not make a decorative
+chevron look clickable or assume `on_toggle` alone wires it.
 
 ## Check tree items in context
 

@@ -14,36 +14,49 @@ already provides the context.
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Toast {
-    id: WidgetId::explicit("reply_sent_toast"),
-    kind: ToastKind::Success,
-    message: "Reply sent".into(),
-    on_close: Some(dismiss_reply_sent_toast_action),
+fission_component! {
+    pub ReplySentNotice<()> {
+        props { dismiss: ActionEnvelope }
+    }
+
+    view(notice, _state, cx) =>
+        Toast(
+            id: WidgetId::explicit("reply.sent"),
+            kind: ToastKind::Success,
+            message: cx.tr("reply.sent"),
+            on_close: notice.dismiss.clone(),
+            duration: ToastDuration::Default,
+        )
 }
-.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetId` | Stable toast identity. | Present in the public struct, but the checked-in widget does not currently use it internally. It is still useful in surrounding app state and overlay lists. |
+| `id` | `WidgetId` | Stable toast identity. | Retains motion and the independent dismissal timer; use a distinct id per concurrent notification. |
 | `kind` | `ToastKind` | Severity and visual tone of the message. | Required. Controls icon and accent treatment. |
 | `message` | `String` | Main toast text. | Required. Keep it short. |
-| `on_close` | `Option<ActionEnvelope>` | Action fired when the close button is pressed. | Defaults to `None`. |
+| `on_close` | `Option<ActionEnvelope>` | Action fired by close and elapsed duration. | The parent removes the toast; the widget does not mutate the list. |
+| `duration` | `ToastDuration` | Automatic close-request timing. | `Default` is 5 seconds, `Millis(ms)` overrides it, `Persistent` disables the timer. |
+| `motion` | `Option<ToastMotion>` | Entry/exit motion. | `None` follows standard widget motion. |
 
 ## Lifecycle guidance
 
-The checked-in toast is a visual surface only. It does not auto-dismiss itself. Your app decides when it appears and when it leaves state. If you want timed dismissal, trigger that with an explicit timer or service-driven flow rather than expecting the widget to manage its own lifetime.
+A toast with `on_close` requests dismissal after its duration and from the close
+button. The parent must actually remove the toast in that reducer; the visual
+widget does not own the collection. Use `Persistent` for information a person
+must act on, and guard against a stale timer dismissing a newer notification
+that reused an id. Position the surface in the application's toast overlay:
+`Toast` itself is not an automatic global portal.
 
 Also remember that a toast is not a good place for dense recovery instructions. If the user needs to read, compare, or act carefully, an inline alert or dialog is usually the better fit.
 
 ## Production checklist
 
-- Bind `on_close` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Create the success notice only after the operation really succeeds.
+- Test timer dismissal, explicit close, persistent duration, and stale notification ids.
+- Keep important recovery information inline rather than relying on a timed surface.
 
 ## Related
 

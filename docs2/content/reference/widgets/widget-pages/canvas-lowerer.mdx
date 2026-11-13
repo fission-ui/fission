@@ -16,25 +16,42 @@ This type exists because some custom drawing paths are easier to express as dire
 
 ## Example
 
-The example below shows the shape of the type, but in most app code you would wrap this in your own helper rather than constructing it at call sites.
+This library helper emits a small triangular marker. It demonstrates actual IR
+emission rather than return an empty list from something named a sparkline.
+For an ordinary app icon, prefer `Icon`; this form is for code which needs the
+lowering hook itself.
 
 ```rust
 use std::sync::Arc;
 
 use fission::prelude::*;
+use fission::authoring::IrBuilder;
+use fission::op::Op;
 
-let sparkline: Widget = CustomWidget {
-    debug_tag: "Sparkline".into(),
-    lowerer: Some(Arc::new(CanvasLowerer {
-        width: Some(120.0),
-        height: Some(32.0),
-        painter: Arc::new(|cx| {
-            // Emit paint or layout nodes and return their ids.
-            Vec::new()
-        }),
-    })),
-    render_object: None,
-}.into();
+fn vector_marker(fill: Fill) -> Widget {
+    CustomWidget {
+        debug_tag: "VectorMarker".into(),
+        lowerer: Some(Arc::new(CanvasLowerer {
+            width: Some(16.0),
+            height: Some(16.0),
+            painter: Arc::new(move |cx| {
+                let marker = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawPath {
+                        path: "M 2 2 L 14 8 L 2 14 Z".into(),
+                        fill: Some(fill.clone()),
+                        stroke: None,
+                        view_box: Some([16.0, 16.0]),
+                    }),
+                )
+                .build(cx);
+                vec![marker]
+            }),
+        })),
+        render_object: None,
+    }
+    .into()
+}
 ```
 
 ## Field table
@@ -55,10 +72,11 @@ Another important limit is maintainability. Direct lowering code is powerful, bu
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Prefer parent layout and design-system sizing first; use explicit size or spacing fields when the product layout requires that constraint on this widget specifically.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Verify the emitted node IDs belong to this lowering context and every
+  returned ID was actually built.
+- Keep the painter deterministic and free of I/O or app-state mutation.
+- Supply theme-derived paint and meaningful surrounding semantics; the custom
+  path does not provide a control role by itself.
 
 ## Related
 

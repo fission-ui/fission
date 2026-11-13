@@ -20,7 +20,9 @@ The same model serves three purposes:
 
 ## What assistive technology can use today
 
-On supported native shells, yes. The winit shell builds an AccessKit tree from Core IR and layout. AccessKit connects that tree to the operating system’s accessibility APIs.
+The winit shell builds an AccessKit tree from Core IR and layout. AccessKit
+connects that tree to the operating system's accessibility API; the presence
+of an adapter does not prove every navigation path works on a device.
 
 Current native support is:
 
@@ -30,7 +32,7 @@ Current native support is:
 | Windows | AccessKit through the Windows accessibility stack | Supported for the same Fission semantics exposed by the winit bridge. Validate with Narrator, NVDA, or JAWS for product releases. |
 | Linux | AccessKit through the AT-SPI accessibility stack | Supported where the desktop session and assistive technology expose the expected AT-SPI path. Validate with Orca on your target desktop. |
 | iOS | AccessKit through the iOS accessibility adapter | Supported by the shared native bridge where the iOS shell uses the winit path. Validate with VoiceOver on simulator and device. |
-| Android | AccessKit through the Android accessibility stack | Supported through the generated AndroidX GameActivity host. Validate with TalkBack, Switch Access, and Voice Access on the Android versions you ship. |
+| Android | AccessKit through the Android accessibility stack | Partial through the generated AndroidX GameActivity host; native TalkBack navigation is incomplete. Validate actual controls with TalkBack, Switch Access, and Voice Access on the Android versions you ship. |
 
 Static site and SSR render HTML instead. Where the renderer has enough information, that includes native inputs, buttons, links, headings, labels, and ARIA or data attributes. Browser assistive technology uses the browser’s accessibility tree. The canvas Web target does not currently expose a DOM accessibility tree for the canvas-rendered app.
 
@@ -64,38 +66,36 @@ Use built-in widgets when they fit. `Button`, `TextInput`, `Checkbox`, `Radio`, 
 Give interactive controls stable semantic identifiers when tests, automation, or host integrations need to find them.
 
 ```rust
-Button {
-    child: Some(Text::new(TextContent::Key("checkout.pay".into())).into()),
-    on_press: Some(pay_action),
-    ..Default::default()
-}
+// In view: pay_action is already bound to the checkout reducer.
+Button(
+    child: Text(cx.tr("checkout.pay")),
+    on_press: pay_action,
+)
 .semantics_identifier("checkout.pay")
-.into()
 ```
 
 An identifier is a stable name for code and tests. It is not a label: the label is what the user hears or reads.
 
-Icon-only controls need an explicit label. Add it through custom semantics or use a `SemanticsRegion` around the relevant content.
+Icon-only controls need an explicit label. `ButtonIconContent` pairs an icon
+with its accessible name without requiring a hand-written semantics tree:
 
 ```rust
 use fission::prelude::*;
 
-Button {
-    child: Some(Icon::new("trash").into()),
-    on_press: Some(delete_action),
-    semantics: Some(Semantics {
-        role: Role::Button,
-        label: Some("Delete item".into()),
-        identifier: Some("todo.delete".into()),
-        focusable: true,
-        ..Semantics::default()
-    }),
-    ..Default::default()
-}
-.into()
+// In view: delete_action is bound to the item, not its list position.
+Button(
+    child: ButtonIconContent::new(
+        Icon::svg(material::action::delete::regular()),
+        cx.tr("todo.delete"),
+    ),
+    on_press: delete_action,
+)
+.semantics_identifier("todo.delete")
 ```
 
-In a real app, resolve labels from the current locale. Visible text can use `TextContent::Key`; for a plain string in `Semantics`, look it up through `view.i18n()` first.
+Resolve accessible names from the same active locale as visible copy.
+`cx.tr(...)` is a build-phase helper; reducer contexts do not resolve copy.
+If a reducer records a status, store its meaning and translate it in the view.
 
 ## Keep focus and actions meaningful
 
@@ -121,9 +121,9 @@ client.tap_semantic_identifier("checkout.pay")?;
 client.fill_text_semantic_identifier("profile.email", "user@example.com")?;
 
 let tree = client.get_tree()?;
-assert!(tree.nodes.iter().any(|node| {
+assert!(tree.iter().any(|node| {
     node.identifier.as_deref() == Some("checkout.pay")
-        && node.role == fission_test_driver::Role::Button
+        && node.role.eq_ignore_ascii_case("button")
         && !node.disabled
 }));
 ```

@@ -36,26 +36,43 @@ This example shows a help video with an explicit play control.
 
 ```rust
 use fission::prelude::*;
-use fission::WidgetId;
 
-let video_id = WidgetId::explicit("welcome_video");
-let controls = ctx.video_controls(video_id);
+fission_component! {
+    pub LessonPlayer<()> {
+        props {
+            video_url: String,
+            width: f32,
+            height: f32,
+        }
+    }
 
-let player = video_asset!("assets/welcome.mp4")
-    .id(video_id)
-    .size(640.0, 360.0)
-    .audio(VideoAudioOptions::system_default())
-.into();
-
-let play_button = Button {
-    child: Some(Text::new("Play video").into()),
-    on_press: Some(controls.play()),
-    ..Default::default()
+    view(lesson, _state, cx) {
+        let video_id = WidgetId::explicit("lesson.video");
+        let controls = cx.video_controls(video_id);
+        let spacing = &cx.view.env().theme.tokens.spacing;
+    } =>
+        Column(
+            gap: spacing.m,
+            children: [
+                Video::network(lesson.video_url.clone())
+                    .id(video_id)
+                    .size(lesson.width, lesson.height)
+                    .audio(VideoAudioOptions::playback()),
+                Button(
+                    child: Text(cx.tr("lesson.play_video")),
+                    on_press: controls.play(),
+                ),
+            ],
+        )
 }
-.into();
 ```
 
-The useful part here is the separation of responsibilities.
+The parent supplies a real lesson URL and bounded layout dimensions. For
+multiple simultaneously retained lessons derive the component identity from
+the lesson id. `Video` intentionally uses its typed constructor rather than a
+`Default` struct path; the normal Rust expression needs no `rust { ... }` wrapper.
+
+The control boundary is deliberate.
 
 `ctx.video_controls(video_id)` returns typed control actions for this specific video surface. The button does not directly manipulate a backend player object. It dispatches a normal Fission action envelope for that video id. That keeps the interaction explicit and consistent with the rest of the framework's state-driven model.
 
@@ -121,7 +138,7 @@ In the winit shell path, macOS and iOS use AVFoundation player layers, Windows u
 Native Linux video is behind the `video` Cargo feature so ordinary desktop apps do not need GStreamer development packages unless they use embedded video:
 
 ```toml
-fission = { version = "0.15.1", default-features = false, features = ["desktop", "video"] }
+fission = { version = "0.16.0", default-features = false, features = ["desktop", "video"] }
 ```
 
 On Debian or Ubuntu, enabling that feature requires:
@@ -147,11 +164,10 @@ If video is only a nice-to-have on a screen, keep the surrounding experience res
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Prefer parent layout and design-system sizing first; use explicit size or spacing fields when the product layout requires that constraint on this widget specifically.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test the actual codec, source policy, host permissions, and audio behaviour on every advertised target.
+- Keep control ids matched to the retained video through rebuild and navigation.
+- Provide captions/transcripts and usable play/pause controls, not only decorative media.
+- Check autoplay rejection and unsupported backends without hiding the rest of the lesson.
 
 ## Related
 

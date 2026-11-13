@@ -15,10 +15,14 @@ Before you distribute a production release, check the app, its package, and the 
 | Tests | Reducer, headless, LiveTest, target smoke, and golden tests pass. |
 | Visual QA | Phone, tablet, desktop, static/SSR, and dark/light screenshots are reviewed where applicable. |
 | Accessibility | Important controls and regions expose roles, labels, values, and semantic identifiers. |
-| Metadata | Release notes, description, homepage, privacy URL, support URL, categories, locales, and screenshots are present or intentionally skipped. |
-| Signing | Signing material comes from environment variables or local/CI secret files, not from committed paths. |
+| Metadata | Provider-required content is present; optional recommendations are included or deliberately skipped. |
+| Signing | Secret material comes from protected local/CI inputs or platform stores, not committed credential files or repo-local secret references. |
 | Package | The platform package builds and can be inspected locally. |
 | Publish | Provider upload succeeds and provider-side validation is checked. |
 | Receipt | Store edit, release id, deployment URL, GitHub release, or artifact URL is saved. |
 
 Use the Fission CLI guided flow for local releases and fully specified command arguments for CI.
+
+Run these checks against the exact packaged revision. A previous build's
+passing screenshot, signature, or receipt does not qualify a new executable,
+and an upload receipt does not prove store review or public rollout finished.

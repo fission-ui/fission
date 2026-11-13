@@ -18,20 +18,13 @@ Use `AspectRatio` when the child should scale responsively while preserving shap
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = AspectRatio {
-    ratio: 16.0 / 9.0,
-    child:
-        Container::new(Text::new("Preview").into())
-            .bg(fission::core::op::Color {
-                r: 32,
-                g: 37,
-                b: 49,
-                a: 255,
-            })
-            .into(),
-    ,
+fission_component! {
+    pub MediaFrame<()> {
+        props { content: Widget }
+    }
+    view(frame, _state, _cx) =>
+    AspectRatio(ratio: 16.0 / 9.0, child: frame.content.clone())
 }
-.into();
 ```
 
 The parent still controls how much space is available. `AspectRatio` only makes sure the child stays in the requested proportion.
@@ -55,10 +48,12 @@ Keep the ratio positive and meaningful. A very common pattern is `1.0` for avata
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Keep the ratio positive and test the actual parent constraints, not only a
+  standalone fixed-size preview.
+- Check portrait and landscape media; choose image/video fit separately from
+  the frame ratio.
+- Add clipping only when the design requires it, and verify that it does not
+  hide meaningful content or input targets.
 
 ## Related
 

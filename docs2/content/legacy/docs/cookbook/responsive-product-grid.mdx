@@ -5,30 +5,72 @@ description: Use GridTrack auto-fit and minmax to build a responsive card grid.
 
 # Responsive product grid
 
-Use `GridTrack::auto_fit` plus `GridTrack::minmax` when cards should create as many columns as fit.
+A catalog's column count follows the space available to its cards. Put that
+rule in the grid rather than calculating columns from the viewport width:
+the catalog may occupy only one pane of a larger screen.
 
 ```rust
-const PRODUCT_CARD_MIN_WIDTH: f32 = 220.0;
+use fission::prelude::*;
 
-let (_ctx, view) = fission::build::current::<CatalogState>();
-let spacing = &view.env().theme.tokens.spacing;
-
-Grid {
-    columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-        GridTrack::Points(PRODUCT_CARD_MIN_WIDTH),
-        GridTrack::Fr(1.0),
-    ))],
-    column_gap: Some(spacing.l),
-    row_gap: Some(spacing.l),
-    children: products
-        .iter()
-        .map(|product| ProductCard { product }.into())
-        .collect(),
-    ..Default::default()
+#[derive(Clone)]
+pub struct CatalogProduct {
+    pub id: String,
+    pub name: String,
+    pub formatted_price: String,
 }
-.into()
+
+fission_component! {
+    pub ProductCard<()> {
+        props { product: CatalogProduct }
+    }
+    view(card, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Card(child: Column(gap: tokens.spacing.s, children: [
+        Text(card.product.name.clone()),
+        Text(card.product.formatted_price.clone()),
+    ]))
+}
+
+fission_component! {
+    pub ProductGrid<()> {
+        props { products: Vec<CatalogProduct> }
+    }
+    view(catalog, _state, cx) {
+        let spacing = &cx.view.env().theme.tokens.spacing;
+        // A readable card constraint, not a viewport breakpoint.
+        let card_min_width = 220.0;
+    } =>
+    if catalog.products.is_empty() {
+        EmptyState(title: cx.tr("catalog.empty"))
+    } else {
+        Grid(
+            columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                GridTrack::Points(card_min_width),
+                GridTrack::Fr(1.0),
+            ))],
+            column_gap: spacing.l,
+            row_gap: spacing.l,
+            children: [
+                for product in &catalog.products {
+                    ProductCard(product.clone(), key: product.id.clone())
+                },
+            ],
+        )
+    }
+}
 ```
 
-This is usually better than manually calculating column counts from `viewport_size()`.
+The parent supplies real catalog records and prices formatted for the active
+locale and currency. The grid is a presentation component: it does not invent
+stock, calculate prices from display strings, or start a request during build.
 
-If a card owns retained state, give each product a stable `WidgetId` derived from its product ID. Do not use the card's position in the collection; reordering the products should not move one card's state to another.
+`auto_fit` collapses unused tracks, while `minmax` keeps occupied tracks
+readable and lets them share remaining space. Give the card minimum a
+design-system token when it is shared across the app. Verify the minimum
+against the narrowest supported container; a parent cannot make a fixed
+220-point minimum fit into less space.
+
+The key comes from each product's ID. Filtering or reordering the catalog
+therefore keeps retained interaction state attached to the same product,
+not to the product that happens to occupy its former list position.

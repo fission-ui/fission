@@ -5,7 +5,14 @@ description: Build a mail-style screen that uses Responsive for phone and deskto
 
 # Responsive master-detail layout
 
-A master-detail screen should show one pane on phones and two or three useful panes on desktop.
+A mail screen has two related tasks: choose a thread and read it. On a phone,
+show one at a time; on a desktop, keep the list beside the selected thread.
+Do not shrink two desktop panes until neither is usable.
+
+This layout excerpt assumes `MailState::selected_thread: Option<u64>` and the
+app's `ThreadList`, `ThreadDetail` and `EmptyThreadState` Compose components.
+The list's selection reducer updates that shared id. `ThreadDetail::new(id)`
+receives a durable thread id, not a borrowed list row.
 
 ```rust
 use fission::prelude::*;
@@ -14,46 +21,69 @@ const PHONE_BREAKPOINT: f32 = 900.0;
 const THREAD_LIST_MIN_WIDTH: f32 = 280.0;
 const THREAD_LIST_MAX_WIDTH: f32 = 380.0;
 
-
-
-fission_component!
-{
-    pub MailRoot<()> {
-    }
-    view(_component, _state, _cx) => rust {
-        Responsive::new(MailDesktop)
-                    .case(ResponsiveCase::max_width(PHONE_BREAKPOINT, MailPhone))
-                    .into()
-    }
+fission_component! {
+    pub MailRoot<MailState> {}
+    view(_root, _state, _cx) =>
+        Responsive::new_with_id(
+            WidgetId::explicit("mail.responsive"),
+            || MailDesktop,
+        ).case_max_width_with(PHONE_BREAKPOINT, || MailPhone)
 }
 
+fission_component! {
+    pub MailPhone<MailState> {}
+    view(_phone, state, cx) =>
+        Scroll(
+            semantic_label: cx.tr("mail.content"),
+            child: if let Some(id) = state.selected_thread {
+                ThreadDetail(id)
+            } else {
+                ThreadList()
+            },
+        )
+}
 
-
-fission_component!
-{
-    pub MailDesktop<MailState> {
-    }
-    view(_component, _state, _cx) => rust {
-        let (_ctx, view) = fission::build::current::<MailState>();
-                let spacing = &view.env().theme.tokens.spacing;
-
-                Row {
-                    gap: Some(spacing.m),
-                    children: widgets![
-                        Container::new(ThreadList)
-                            .width_length(Length::clamp(
-                                Length::points(THREAD_LIST_MIN_WIDTH),
-                                Length::percent(32.0),
-                                Length::points(THREAD_LIST_MAX_WIDTH),
-                            ))
-                            .flex_shrink(0.0)
-                            .into(),
-                        Container::new(ThreadDetail).flex_grow(1.0).into(),
-                    ],
-                    ..Default::default()
-                }
-                .into()
-    }
+fission_component! {
+    pub MailDesktop<MailState> {}
+    view(_desktop, state, cx) {
+        let spacing = &cx.view.env().theme.tokens.spacing;
+    } =>
+    Row(gap: spacing.m, children: [
+        Container(
+            Scroll(
+                semantic_label: cx.tr("mail.thread_list"),
+                child: ThreadList(),
+            ),
+        ).width_length(Length::clamp(
+            Length::points(THREAD_LIST_MIN_WIDTH),
+            Length::percent(32.0),
+            Length::points(THREAD_LIST_MAX_WIDTH),
+        )).flex_shrink(0.0),
+        Container(
+            Scroll(
+                semantic_label: cx.tr("mail.thread_content"),
+                child: if let Some(id) = state.selected_thread {
+                    ThreadDetail(id)
+                } else {
+                    EmptyThreadState()
+                },
+            ),
+        ).flex_grow(1.0),
+    ])
 }
 ```
-Keep the phone and desktop branches as named widgets so retained state and tests have stable boundaries.
+
+Supply the `mail.*` labels through the app's translation bundles. Each desktop
+pane owns its scroll position, while the selected thread belongs to the app.
+The phone's reading screen also needs an explicit Back-to-list action that
+clears the selected id; do not leave a phone user trapped in the detail pane.
+
+The identity-aware Responsive constructors give each branch its own retained
+scope. Never create one `Widget` and clone it into both branches. Responsive
+lowers both trees and selects visibility; it is not an authorization boundary.
+Keep permissions in the route or component that owns access.
+
+Test a selected and unselected thread at phone and desktop widths, resize
+without losing the selection, and inspect both scroll regions with long mail.
+See [Layout and widgets](/docs/guides/layout-and-widgets/) for the broader
+layout choices.

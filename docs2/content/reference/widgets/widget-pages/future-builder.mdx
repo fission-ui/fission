@@ -6,8 +6,9 @@ slug: /widgets/future-builder
 # FutureBuilder
 
 `FutureBuilder` renders from the latest snapshot of one asynchronous job.
-Use it for one-shot work such as loading products, fetching a profile, parsing
-an import, or saving a document.
+Use it for declared one-shot loads such as products, a profile, or an import
+preview. Do not declare a save resource merely because a document rendered:
+a user-requested mutation belongs behind an explicit action and effect.
 
 The resource is declared during component conversion. Reducers still own the
 state changes when the job succeeds or fails.
@@ -17,11 +18,15 @@ state changes when the job succeeds or fails.
 ```rust
 use fission::prelude::*;
 
+// Inside the catalog parent's Compose view setup block:
+let request = state.product_request();
+let loaded = cx.bind(ProductsLoaded, reduce!(on_products_loaded));
+let failed = cx.bind(ProductsFailed, reduce!(on_products_failed));
 let products = FutureBuilder::new(
     ResourceKey::new("catalog.products"),
     PRODUCTS_JOB,
-    view.state().product_request(),
-    view.state().products.clone(),
+    request.clone(),
+    state.products.clone(),
     |_ctx, _view, snapshot| {
         ProductList {
             snapshot: snapshot.clone(),
@@ -29,11 +34,18 @@ let products = FutureBuilder::new(
         .into()
     },
 )
-.deps(view.state().product_request())
-.on_ok(with_reducer!(ctx, ProductsLoaded, on_products_loaded))
-.on_err(with_reducer!(ctx, ProductsFailed, on_products_failed))
-.into();
+.deps(request)
+.on_ok(loaded)
+.on_err(failed);
+
+// Use products as an ordinary Rust expression in the parent Compose tree.
 ```
+
+This is a resource declaration excerpt, not a complete catalog application.
+The parent defines `product_request`, `PRODUCTS_JOB`, the snapshot field,
+completion reducers, and the named `ProductList` component. A custom component
+with required props can be constructed by the fully specified Rust literal
+shown here without relying on a nonexistent `Default` implementation.
 
 The important rule is that the snapshot is not hidden inside the widget. Store it in your app state. The success and error reducers update that state, and the next build renders the new snapshot.
 
@@ -55,13 +67,14 @@ The important rule is that the snapshot is not hidden inside the widget. Store i
 
 `AsyncSnapshot` has three pieces: a connection state, optional data, and optional error.
 
-Use `AsyncSnapshot::waiting()` when a request starts. Use `AsyncSnapshot::with_data(AsyncConnectionState::Done, value)` when it succeeds. Use `AsyncSnapshot::with_error(AsyncConnectionState::Done, error)` when it fails. The helper methods `data()`, `error()`, `has_data()`, and `has_error()` make display widgets straightforward.
+Represent a pending request with `AsyncSnapshot::waiting()`; the application must
+not reset a completed snapshot to waiting on every build. Use `AsyncSnapshot::with_data(AsyncConnectionState::Done, value)` when it succeeds. Use `AsyncSnapshot::with_error(AsyncConnectionState::Done, error)` when it fails. The helper methods `data()`, `error()`, `has_data()`, and `has_error()` make display widgets straightforward.
 
 ## Production checklist
 
-- Bind `on_ok`, `on_err` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test waiting, data, empty, error, changed dependencies, and disposal.
+- Register both completion paths and reject stale results where requests can overlap.
+- Keep mutations behind explicit actions instead of triggering them through rendering.
 
 ## Related
 

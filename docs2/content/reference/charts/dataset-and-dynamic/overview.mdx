@@ -1,14 +1,14 @@
 ---
 title: Dataset and dynamic
 sidebar_label: Overview
-description: Fission Charts reference for the Dataset and dynamic family.
+description: Bind validated datasets and refresh real chart inputs through Fission state, reducers and effects.
 ---
 
 # Dataset and dynamic
 
-This family has 16 chart variants. Pick one that matches your data. Each page has a screenshot, data shape, API notes, and code you can adapt.
+A dynamic chart is still a projection of application state. Data arrives through the ordinary effect/reducer flow; the component receives a ready snapshot and constructs the matching series. The chart does not acquire a subscription merely because an example is named dynamic.
 
-Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
+These sixteen examples cover actual dataset encodings, source changes, meaningful series choices and colour scales. They distinguish what the current renderer does from behaviour that still belongs to the application.
 
 ![Dataset stacked area screenshot](/img/charts/dataset-stack-area.png)
 
@@ -25,50 +25,28 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 | [Dynamic sales funnel](./dynamic-funnel-sales) | Stage/value pairs ordered by process position. | Use it when the loss between stages matters more than exact axis measurement. |
 | [Dynamic score gauge](./dynamic-gauge-score) | Single label/value pair scaled into a gauge arc. | Use it for scorecards where the main result should be immediately visible. |
 | [Dynamic single-axis events](./dynamic-single-axis-events) | Position/value pairs on one continuous axis. | Use it for timelines or compact event strips. |
-| [Dynamic speed gauge](./dynamic-gauge-speed) | Single label/value pair in a known range. | Use it for operational status values where one number dominates the view. |
-| [Dynamic toolbox line](./dynamic-toolbox-line) | Ordered samples plus toolbox action configuration. | Use it when zoom, brush, restore, and export controls belong with the chart. |
+| [Dynamic speed gauge](./dynamic-gauge-speed) | Speed relative to a declared limit, with uncapped values retained. | Use a limit-utilisation dial, not a falsely configurable physical speedometer. |
+| [Dynamic toolbox line](./dynamic-toolbox-line) | Ordered samples plus toolbox action configuration. | Use real application commands; built-in toolbox labels are decorative. |
 | [Encoded bars dataset](./dataset-encoded-bars) | Records with category, group, and numeric value fields. | Use it when chart code should name fields once and reuse them across bar variants. |
 | [Encoded lines dataset](./dataset-encoded-lines) | Records with ordered label, measure, and series fields. | Use it when the same dataset powers several line views. |
 | [Visual map calendar](./visual-map-calendar) | Date/value pairs over a calendar range. | Use it to show daily volume, incidents, or activity in a compact year-like shape. |
 | [Visual map heatmap](./visual-map-heatmap) | Grid cell coordinates with numeric intensity. | Use it for dense comparisons where color communicates rank faster than labels. |
-| [Visual map scatter](./visual-map-scatter) | Triples of x, y, and magnitude values. | Use it when density and magnitude both matter. |
+| [Visual map scatter](./visual-map-scatter) | Triples of x, y, and magnitude values. | Compare two cohort rates with size and colour representing account count. |
 
-## Choosing within this family
+## Keep one report authority
 
-First decide what the user needs to compare or understand. Pick the simplest chart that shows it; add interaction only when it helps, and use animation only when it explains a change.
+Validate and aggregate source records in ordinary Rust. Named dataset dimensions are runtime schema keys, not compiler-checked struct fields. The current numeric extractor can turn malformed or absent cells into zero, so build complete typed projections rather than allowing that fallback to conceal an error.
 
-## Authoring from a Fission component
+Preserve domain identities outside the chart. A brushed or zoomed item index belongs to its displayed projection and snapshot; resolve it before treating it as an order, account or resource ID.
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+## Updates do not change interpretation
 
-```rust
-use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+Use stable reporting windows, denominators and units when comparing updates. A gauge uses a fixed 0–100 dial, whilst polar extents are relative to the displayed maximum. Pictorial symbols follow their fixed count rule, and a radar polygon is not an overall health score.
 
+Concentric effect-scatter rings are visual emphasis, not asynchronous effects or an alert subscription. Timeline and toolbox graphics likewise do not implement dataset switching, playback or export. The relevant examples use actual Compose controls and existing state transitions where application behaviour is required.
 
+## Compose, accessibility and checks
 
-fission_component!
-{
-    pub DatasetAndDynamicChart<()> {
-    }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Dataset and dynamic")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
-}
-```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
+Built-in chart fields use normal `Chart(...)` composition and explicit `Series` variants. Required-prop component reuse uses fully specified Rust struct literals, preserving required inputs without assuming a generated `Default`.
 
-## Options, accessibility, and diagnostics
-
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+Supply translated visible labels and design-system colours. Keep exact values, IDs and essential explanations in accessible content, including missing/stale/error states. Use LiveTest to exercise actual gestures and controls, inspect both small and large layouts, and profile representative datasets rather than inferring performance from the gallery screenshots.

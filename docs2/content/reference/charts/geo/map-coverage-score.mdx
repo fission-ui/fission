@@ -1,93 +1,29 @@
 ---
 title: Coverage score map
 sidebar_label: Coverage score map
-description: Fission Charts reference for Coverage score map.
+description: Define coverage as a ratio with a measured eligible population.
 ---
 
 # Coverage score map
 
 ![Coverage score map screenshot](/img/charts/map-coverage-score.png)
 
-This example uses Fission Charts' typed Rust API. Use it for service coverage surfaces. The screenshot is from Fission's chart gallery.
+Coverage should say what has been covered. Counting active customers alone can make a populous region look better served even when most eligible premises remain unconnected.
 
-## What the chart is for
-
-This chart is in the **Geo** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Coverage scores by region`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
+Use [PremisesCoverageMap](../dataset/dataset-map-coverage) for the actual Compose chart and GeoJSON join. The input records contain covered and total premises, preserving the denominator instead of retaining only an unexplained score.
 
 ```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
-
-```rust
-use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
-
-
-
-fission_component!
-{
-    pub CoverageScoreMapChart<()> {
-    }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
+pub fn measured_coverage(covered: u32, eligible: u32) -> Option<f32> {
+    match eligible {
+        0 => None,
+        _ if covered > eligible => None,
+        _ => Some(100.0 * covered as f32 / eligible as f32),
     }
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Validate this relationship before constructing the report. A missing denominator is not 0% coverage; an inconsistent numerator is a data error, not 100%. The linked component accepts translated title, measure caption and explanatory text, together with a fixed percentage colour scale.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
-
-Tags: `map`, `coverage`.
+The geometry must contain the same durable region IDs as the records. Keep exact covered/eligible totals nearby, and state the survey date so stale information is not mistaken for current rollout. Test no eligible premises, partial coverage and missing polygons. The gallery data is separate, and this map is not a continuous signal-strength surface.
 
 [Geo family overview](./overview)

@@ -15,12 +15,15 @@ success message. Choose the kind for what happened, not for the colour you want.
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Alert {
-    kind: AlertKind::Warning,
-    title: "Storage almost full".into(),
-    description: Some("Uploads may fail until space is cleared.".into()),
+fission_component! {
+    pub StorageWarning<()>
+    view(_warning, _state, cx) =>
+    Alert(
+        kind: AlertKind::Warning,
+        title: cx.tr("storage.almost_full"),
+        description: Some(cx.tr("storage.clear_space_before_uploading")),
+    )
 }
-.into();
 ```
 
 ## Choice table

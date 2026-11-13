@@ -1,95 +1,71 @@
 ---
 title: Report toolbox chart
 sidebar_label: Report toolbox chart
-description: Fission Charts reference for Report toolbox chart.
+description: Provide real report commands through semantic Compose buttons rather than decorative chart toolbox labels.
 ---
 
 # Report toolbox chart
 
 ![Report toolbox chart screenshot](/img/charts/analytics-toolbox-report.png)
 
-This example uses Fission Charts' typed Rust API. Use it when analytics views need built-in controls. The screenshot is from Fission's chart gallery.
+A reporting screen often needs commands around the chart: export the source rows, reset filters or open the underlying records. Those commands belong to the application because they need its current filters, data and permissions.
 
-## What the chart is for
+The current chart toolbox draws labels for `Restore`, `SaveImage`, `DataZoom` and `Brush`. It does not route those labels as working commands. Adding a save label therefore does not implement export.
 
-This chart is in the **Analytics** family. Use it when a visual makes the pattern easier to spot.
+## Compose example
 
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Chart with report actions`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Use ordinary buttons bound to the report's registered actions. This keeps keyboard behaviour, semantics and disabled state in the standard widget API.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{Axis, Chart, LineSeries, Series};
 
-
-
-fission_component!
-{
-    pub ReportToolboxChart<()> {
+fission_component! {
+    pub ReportWithCommands<()> {
+        props {
+            title: String,
+            measure_label: String,
+            periods: Vec<String>,
+            values: Vec<f32>,
+            export_label: TextContent,
+            reset_label: TextContent,
+            export_action: ActionEnvelope,
+            reset_action: ActionEnvelope,
+            exporting: bool,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
-    }
+    view(report, _state, _cx) {
+        let labels = report.periods.iter().map(String::as_str).collect();
+    } => Column(children: [
+        Row(children: [
+            Button(
+                child: Text(report.export_label.clone()),
+                disabled: report.exporting,
+                on_press: report.export_action.clone(),
+            ),
+            Button(
+                child: Text(report.reset_label.clone()),
+                on_press: report.reset_action.clone(),
+            ),
+        ]),
+        Chart(
+            title: Some(report.title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            series: vec![Series::Line(
+                LineSeries::new(&report.measure_label).data(report.values.clone()),
+            )],
+        ),
+    ])
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+The parent creates the actions and registers their reducers against its concrete app state. Export should queue an effect with explicit success and failure handling, not write a file during component conversion. Reset should update the authoritative report filters.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## Verify the command, not its appearance
 
-Tags: `analytics`, `toolbox`.
+Validate equal period/value lengths and finite display values. Test export against the same filtered snapshot the chart represents, including a failed export and repeated activation whilst pending. If a target cannot export, present that limitation rather than an inert control.
+
+The gallery screenshot shows toolbox styling. It is not evidence that a save operation has been implemented.
 
 [Analytics family overview](./overview)

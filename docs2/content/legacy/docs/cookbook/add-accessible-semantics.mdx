@@ -7,217 +7,198 @@ description: Add roles, labels, semantic identifiers, focus behavior, and LiveTe
 
 # Add accessible semantics
 
-This recipe adds semantics to a settings panel so screen readers, keyboard
-users, and selector-driven tests can use the same widget tree as everyone else.
+A control has one purpose whether it is activated by pointer, keyboard, screen
+reader, or a test. Start from the standard widget that already owns those
+interaction semantics, then add the product's name and stable identifier.
+
+This recipe uses contact preferences. The form has an editable draft and a
+separate set of applied session preferences; Apply copies the draft rather
+than turning on a loading flag for work that never completes.
 
 ## Step 1: start from meaningful state and actions
-
-Accessibility works best when the app already has explicit product actions.
 
 ```rust
 use fission::prelude::*;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SettingsState {
+pub struct ContactPreferences {
     pub email: String,
     pub marketing_enabled: bool,
-    pub saving: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SettingsState {
+    pub draft: ContactPreferences,
+    pub applied: ContactPreferences,
+    pub applied_notice: bool,
 }
 
 impl GlobalState for SettingsState {}
-
-#[derive(Action)]
-pub struct EmailChanged;
-
-#[derive(Action)]
-pub struct ToggleMarketing;
-
-#[derive(Action)]
-pub struct SaveSettings;
-
-#[fission_reducer(EmailChanged)]
-fn email_changed(state: &mut SettingsState, ctx: &mut ReducerContext<SettingsState>) {
-    let Some(change) = ctx.input.text_change() else {
-        return;
-    };
-    state.email = change.new_text.clone();
-}
-
-#[fission_reducer(ToggleMarketing)]
-fn toggle_marketing(state: &mut SettingsState) {
-    state.marketing_enabled = !state.marketing_enabled;
-}
-
-#[fission_reducer(SaveSettings)]
-fn save_settings(state: &mut SettingsState) {
-    state.saving = true;
-}
 ```
 
-A screen reader activation should eventually dispatch `SaveSettings`, not a parallel accessibility-specific path.
+The app reads `applied` when it needs current session preferences. This example
+does not persist them or change a server account. Those operations would need
+their own effects and completion states. Draft edits remain separate so Apply
+has a real, inspectable consequence.
 
 ## Step 2: resolve labels from the current locale
 
-Visible text can use translation keys directly. Semantic labels are strings, so resolve them from `Env` while converting the widget.
+`cx.tr("settings.email")` resolves a translation key against the active
+environment and returns a String for a visible or semantic label. Prepare
+English and Spanish bundles at startup as described in
+[Theming and i18n](/docs/guides/theming-and-i18n/).
 
-```rust
-fn tr<S: GlobalState>(view: &ViewHandle<S>, key: &str, fallback: &str) -> String {
-    view.i18n()
-        .get(&view.env().locale, key)
-        .unwrap_or(fallback)
-        .to_string()
-}
-```
-
-Use stable translation keys. Do not build labels by concatenating translated fragments.
+Keep labels meaningful after the user starts typing. A placeholder is not a
+replacement for an input label, and concatenating translated fragments can
+produce the wrong sentence order.
 
 ## Step 3: make the section a semantic region
 
-Use `SemanticsRegion` when a subtree is meaningful as a region, panel, dialog, or custom control.
-
 ```rust
-
-
-fission_component!
-{
-    pub AccountSettings<SettingsState> {
-    }
-    view(_settings, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<SettingsState>();
-                let state = view.state();
-
-                let email_label = tr(&view, "settings.email", "Email address");
-                let marketing_label = tr(&view, "settings.marketing", "Marketing emails");
-                let save_label = tr(&view, "settings.save", "Save settings");
-                let panel_label = tr(&view, "settings.account", "Account settings");
-
-                let email_changed = ctx.bind(EmailChanged, reduce_with!(email_changed));
-                let toggle_marketing = ctx.bind(ToggleMarketing, reduce_with!(toggle_marketing));
-                let save_settings = ctx.bind(SaveSettings, reduce_with!(save_settings));
-
-                SemanticsRegion::new(
-                    Column {
-                        gap: Some(12.0),
-                        children: widgets![
-                            Text::new(panel_label.clone()).into(),
-                            TextInput {
-                                value: state.email.clone(),
-                                label: Some(email_label.into()),
-                                on_input: Some(email_changed),
-                                ..Default::default()
-                            }
-                            .semantics_identifier("settings.email")
-                            .into(),
-                            Checkbox {
-                                checked: state.marketing_enabled,
-                                label: Some(marketing_label),
-                                on_toggle: Some(toggle_marketing),
-                                ..Default::default()
-                            }
-                            .semantics_identifier("settings.marketing")
-                            .into(),
-                            Button {
-                                child: Some(Text::new(save_label).into()),
-                                on_press: Some(save_settings),
-                                disabled: state.saving,
-                                ..Default::default()
-                            }
-                            .semantics_identifier("settings.save")
-                            .into(),
-                        ],
-                        ..Default::default()
+fission_component! {
+    pub AccountSettings<SettingsState> {}
+    view(_settings, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(
+        identifier: Some("settings.account".into()),
+        label: cx.tr("settings.account"),
+        child: Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("settings.account"), font_size: tokens.typography.heading1_size),
+            TextInput(
+                value: state.draft.email.clone(),
+                label: cx.tr("settings.email"),
+                bind(on_input): to(state.draft.email),
+            ).semantics_identifier("settings.email"),
+            Checkbox(
+                label: cx.tr("settings.marketing"),
+                bind: state.draft.marketing_enabled,
+            ).semantics_identifier("settings.marketing"),
+            Button(
+                child: Text(cx.tr("settings.apply")),
+                key: "apply",
+                disabled: state.draft.email.trim().is_empty(),
+                on_press: reduce {
+                    if !state.draft.email.trim().is_empty() {
+                        state.draft.email = state.draft.email.trim().to_owned();
+                        state.applied = state.draft.clone();
+                        state.applied_notice = true;
                     }
-                )
-                .identifier("settings.account")
-                .label(panel_label)
-                .role(Role::Generic)
-                .into()
-    }
+                },
+            ).semantics_identifier("settings.apply"),
+            if state.applied_notice && state.applied == state.draft {
+                Text(cx.tr("settings.applied_this_session"))
+            },
+        ]),
+    )
 }
 ```
-The region identifier gives tests and platform tooling a stable target for the panel. The individual controls expose stable identifiers for automation and clear labels for assistive technology.
+
+The standard input, checkbox, and button supply their roles and supported
+actions. The region groups them without pretending to be another control.
+`settings.account` identifies the panel, while the control identifiers survive
+translation and layout changes.
+
+The required-text guard is not an email-verification scheme. An account server
+must validate addresses and authorise account updates independently.
 
 ## Step 4: add explicit labels for visual-only controls
 
-If a control uses only an icon or custom drawing, do not rely on pixels to communicate meaning.
+An icon-only button still needs an accessible name. `ButtonIconContent` owns
+that relationship, so use it instead of an unlabelled glyph:
 
 ```rust
-let close_settings = ctx.bind(CloseSettings, reduce_with!(close_settings));
-
-Button {
-    child: Some(Icon::new("x").into()),
-    on_press: Some(close_settings),
-    semantics: Some(Semantics {
-        role: Role::Button,
-        label: Some(tr(&view, "settings.close", "Close settings")),
-        identifier: Some("settings.close".into()),
-        focusable: true,
-        ..Semantics::default()
-    }),
-    ..Default::default()
+fission_component! {
+    pub CloseSettingsButton<()> {
+        props { close: ActionEnvelope }
+    }
+    view(button, _state, cx) =>
+    Button(
+        child: ButtonIconContent(
+            Icon::svg(material::navigation::close::regular()),
+            cx.tr("settings.close"),
+        ),
+        on_press: button.close.clone(),
+    ).semantics_identifier("settings.close")
 }
-.into()
 ```
 
-Use this pattern for icon buttons, custom canvas controls, drag handles, toolbar buttons, disclosure affordances, and any status indicator that is not already represented by text.
+The parent supplies the actual close action through `CloseSettingsButton(close)`.
+There is no separate accessibility-only close path. Use the same rule for
+toolbar icons, drag handles, and custom controls: pixels do not supply a name.
 
 ## Step 5: keep focus predictable
 
-Most focusable controls should use normal pointer focus. Use `FocusPolicy::PreserveCurrentOnPointer` for toolbar or ribbon buttons that should not steal focus from an editor.
+Most buttons should take focus normally. A formatting toolbar is different:
+activating Bold by pointer should not move focus out of the editor whose
+selection it modifies.
 
 ```rust
-let toggle_bold = ctx.bind(ToggleBold, reduce_with!(toggle_bold));
-
-Button {
-    child: Some(Text::new(TextContent::Key("editor.bold".into())).into()),
-    on_press: Some(toggle_bold),
-    focus_policy: FocusPolicy::PreserveCurrentOnPointer,
-    ..Default::default()
+fission_component! {
+    pub BoldToolbarButton<()> {
+        props { toggle_bold: ActionEnvelope }
+    }
+    view(button, _state, cx) =>
+    Button(
+        child: Text(cx.tr("editor.bold")),
+        on_press: button.toggle_bold.clone(),
+        focus_policy: FocusPolicy::PreserveCurrentOnPointer,
+    ).semantics_identifier("editor.bold")
 }
-.semantics_identifier("editor.bold")
-.into()
 ```
 
-This lets the button activate while the editor remains the focused text field.
+The action must still modify the editor's current selection through its normal
+state model. Preserving pointer focus is not a reason to remove the button from
+keyboard traversal or suppress its accessible name.
 
 ## Step 6: test with semantic selectors
 
-Live tests should target product semantics instead of coordinates when the requirement is semantic behavior.
+This live scenario uses English bundles and starts with an empty draft:
 
 ```rust
-client.wait_for_visible("settings.email")?;
+use fission_test_driver::SelectorQuery;
+
+client.wait_for_visible(SelectorQuery::semantic_identifier("settings.email"), 5_000)?;
 client.fill_text_semantic_identifier("settings.email", "alex@example.com")?;
 client.tap_semantic_identifier("settings.marketing")?;
-client.tap_semantic_identifier("settings.save")?;
+client.tap_semantic_identifier("settings.apply")?;
+client.wait_for_text("Applied for this session", 5_000)?;
 
 let tree = client.get_tree()?;
-let save = tree
-    .nodes
-    .iter()
-    .find(|node| node.identifier.as_deref() == Some("settings.save"))
-    .expect("save button semantics");
-
-assert_eq!(save.label.as_deref(), Some("Save settings"));
-assert!(!save.disabled);
+let apply = tree.nodes.iter()
+    .find(|node| node.identifier.as_deref() == Some("settings.apply"))
+    .expect("apply button semantics");
+assert_eq!(apply.label.as_deref(), Some("Apply preferences"));
+assert!(!apply.disabled);
 ```
 
-If a selector fails, inspect the returned candidates and visibility information. A good failure should tell you whether the target was missing, disabled, hidden, clipped, or ambiguous.
+Use those exact values for `settings.apply` and `settings.applied_this_session`
+in this test's English bundle. The test proves the control is reachable and
+produces the session notice, not that preferences reached durable storage.
+Test the applied state transition separately.
+
+If resolution fails, inspect the candidates and visibility information. A
+missing target, ambiguous name, clipped control, and disabled action are
+different failures; replacing the selector with coordinates would hide that
+distinction.
 
 ## Step 7: run manual screen-reader QA
 
-Before shipping a native app, run the app with the platform screen reader enabled.
+Inspect the real target with its platform screen reader. Check that:
 
-Check at least these behaviors:
+- The title and grouped region are discoverable.
+- Each control announces its role, label, current value, and state.
+- Focus follows the intended order and activation uses the normal reducer.
+- Inputs support editing, selection, and submission.
+- Dialog focus enters, stays contained where appropriate, and returns on dismissal.
+- Errors and pending states have meaning beyond their colour.
 
-- the screen title and major regions are discoverable;
-- each control announces a useful role and label;
-- checked, disabled, read-only, masked, and value states are announced correctly;
-- focus order matches visible order;
-- activating controls dispatches the same reducers as pointer input;
-- text fields can be focused, edited, selected, and submitted;
-- dialogs trap or guide focus appropriately;
-- errors and loading states are not communicated by color alone.
+A semantic tree assertion is useful evidence, but does not prove every native
+screen-reader bridge behaves identically. Keep platform QA alongside it.
 
 ## Related reference
 
-Read [Accessibility in Fission](/docs/learn/accessibility/) for the conceptual model. Read [Accessibility reference](/reference/platform/accessibility/) for the platform matrix and exact native bridge behavior. Read [LiveTest command API](/reference/core/live-test-command-api/) for selector commands such as `TapSelector`, `FocusSelector`, `FillText`, `WaitForVisible`, and `GetTree`.
+Read [Accessibility in Fission](/docs/learn/accessibility/) for the model,
+[Accessibility reference](/reference/platform/accessibility/) for target
+behavior, and [LiveTest command API](/reference/core/live-test-command-api/)
+for selector commands and responses.

@@ -18,32 +18,46 @@ the menu by mutating state internally.
 ```rust
 use fission::prelude::*;
 
-let actions: Widget = MenuButton {
-    id: WidgetId::explicit("message-actions"),
-    label: "Actions".into(),
-    items: vec![
-        MenuItem {
-            label: "Archive".into(),
-            icon: None,
-            on_select: Some(archive_and_close_action),
-            semantics_identifier: Some("message-actions.archive".into()),
-        },
-        MenuItem {
-            label: "Delete".into(),
-            icon: None,
-            on_select: Some(delete_and_close_action),
-            semantics_identifier: Some("message-actions.delete".into()),
-        },
-    ],
-    is_open: view.state().actions_open,
-    on_toggle: Some(toggle_actions_menu_action),
-    trigger_semantics_identifier: Some("message-actions.trigger".into()),
+fission_component! {
+    pub MessageActions<()> {
+        props {
+            open: bool,
+            toggle_menu: ActionEnvelope,
+            archive_and_close: ActionEnvelope,
+            delete_and_close: ActionEnvelope,
+        }
+    }
+
+    view(actions, _state, cx) =>
+        MenuButton(
+            id: WidgetId::explicit("message.actions"),
+            label: cx.tr("message.actions"),
+            items: vec![
+                MenuItem {
+                    label: cx.tr("message.archive"),
+                    icon: None,
+                    on_select: Some(actions.archive_and_close.clone()),
+                    semantics_identifier: Some("message.archive".into()),
+                },
+                MenuItem {
+                    label: cx.tr("message.delete"),
+                    icon: None,
+                    on_select: Some(actions.delete_and_close.clone()),
+                    semantics_identifier: Some("message.delete".into()),
+                },
+            ],
+            is_open: actions.open,
+            on_toggle: actions.toggle_menu.clone(),
+            trigger_semantics_identifier: Some("message.actions-trigger".into()),
+        )
 }
-.into();
 ```
 
 An item action should update both the product state and `is_open` when selecting
 the item is expected to close the menu. Selection alone does not close it.
+
+The parent binds these actions to the current message. If multiple message
+menus can coexist, derive the component's identity from the message id.
 
 When a command surface needs groups, headings, separators, descriptions,
 shortcuts, disabled rows, or destructive emphasis, use the retained layout
@@ -54,21 +68,21 @@ use fission::prelude::*;
 
 let actions: Widget = MenuButtonLayout::new(
     WidgetId::explicit("message-actions"),
-    MenuTrigger::new("Actions")
+    MenuTrigger::new(cx.tr("message.actions"))
         .size(ComponentSize::Sm)
         .semantics_identifier("message-actions.trigger"),
     MenuContent::new(vec![
         MenuGroup::new(vec![
-            MenuActionItem::new("Archive")
-                .shortcut("Ctrl+A")
+            MenuActionItem::new(cx.tr("message.archive"))
+                .metadata(cx.tr("message.archive_help"))
                 .on_select(archive_and_close_action)
                 .semantics_identifier("message-actions.archive")
                 .into(),
         ])
-        .label("Message")
+        .label(cx.tr("message.section"))
         .into(),
         MenuSeparator::new().into(),
-        MenuActionItem::new("Delete")
+        MenuActionItem::new(cx.tr("message.delete"))
             .tone(MenuItemTone::Destructive)
             .on_select(delete_and_close_action)
             .semantics_identifier("message-actions.delete")

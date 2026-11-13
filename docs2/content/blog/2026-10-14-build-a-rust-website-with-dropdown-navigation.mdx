@@ -39,7 +39,11 @@ harbour-site/
 ├── fission.toml
 ├── src/
 │   ├── lib.rs
-│   └── main.rs
+│   ├── main.rs
+│   └── design.rs
+├── build.rs
+├── design/
+├── i18n/
 └── content/
     ├── index.mdx
     ├── about.mdx
@@ -54,7 +58,7 @@ harbour-site/
 You need a current stable Rust toolchain. Install the Fission command-line interface once, then create a project from the website template:
 
 ```sh
-cargo install cargo-fission
+cargo install cargo-fission --locked
 fission init harbour-site --template website
 cd harbour-site
 ```
@@ -66,15 +70,28 @@ The website template starts with designed Rust page components. Here we'll use c
 Replace `src/lib.rs` with this small site entrypoint:
 
 ```rust
+pub mod design;
+
+use fission::prelude::*;
+
 #[cfg(not(target_arch = "wasm32"))]
 pub fn build_site() -> anyhow::Result<()> {
-    fission::site::build_from_cli(fission::site::FissionSite::new())
+    let site = fission::site::FissionSite::new()
+        .with_env(design::environment()?)
+        .with_design_system::<design::WebsiteDesignSystem>(DesignMode::Light);
+    fission::site::build_from_cli(site)
 }
 ```
 
 Leave the generated `src/main.rs` as it is. It calls `build_site()` for the Static site target.
 
-The other generated Rust modules are no longer used. You can remove `src/design.rs`, `src/footer.rs`, `src/navigation.rs`, `src/page.rs`, and `src/state.rs`. For this content-only site, you can also remove `build.rs`, `design/`, and `i18n/`. Leaving them there will not break the project, but deleting unused files makes it clearer what this version needs.
+The content renderer now owns the page layout and navigation, so the generated
+`src/footer.rs`, `src/navigation.rs`, `src/page.rs`, and `src/state.rs` are no
+longer used. Keep `src/design.rs`, `build.rs`, `design/`, and `i18n/`: they own
+the generated design system and the English and Spanish translation bundles
+installed above. Markdown content does not require us to throw away the app's
+theme or localisation setup. The five pages below are English content; adding
+a Spanish bundle alone does not translate them.
 
 ## 3. Configure the pages and dropdown
 

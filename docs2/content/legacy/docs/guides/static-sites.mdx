@@ -8,7 +8,7 @@ description: Build documentation, marketing, and content sites with the Fission 
 
 Fission can build a static site from the same widget model you use in an app. Use it for documentation, marketing pages, references, blogs, and other pages that are mostly read. The output is ordinary HTML and CSS, with a small amount of JavaScript for progressive enhancement.
 
-This documentation site is a real example. `documentation/` is a Fission app with the `static-site` target enabled. Its home page and footer are Fission widgets; docs and reference pages come from Markdown; and the build writes static HTML for GitHub Pages. The site isn’t built with a separate documentation framework bolted onto Fission. It uses Fission’s own static site shell.
+This documentation site is a real example. `docs2/` is a Fission app with the `static-site` target enabled. Its home page, tutorial pages and shared navigation are Compose components; the explanations come from Markdown; and the build writes static HTML for GitHub Pages. The interactive examples are separate Fission Web apps embedded in those pages. The site uses Fission’s own static site shell, rather than a separate documentation framework bolted onto it.
 
 ## When to use the static-site target
 
@@ -24,29 +24,31 @@ The key point: there is no second page model or parallel HTML router. Custom pag
 
 ## The documentation site as the reference example
 
-The `documentation/` project exercises the features a real documentation site needs:
+The `docs2/` project brings together the parts a documentation site needs. Start at `docs2/src/main.rs`: it builds the tutorial apps, then passes `site_app()` to `build_from_cli`. The route registration lives in `src/app.rs`; screens and reusable widgets live in their own modules. That separation matters because the entrypoint should configure the site, not become the place where every page is implemented.
 
 | Feature | Where this site uses it | Why it matters |
 | --- | --- | --- |
-| Custom Fission route | `documentation/src/components/home.rs` renders `/` | The landing page is a normal widget tree, so product pages can use the same component style as apps |
-| Content routes | `documentation/content/docs`, `documentation/content/reference`, and `documentation/content/blog` | Markdown files become generated routes without hand-writing every page |
-| Documentation template | `fission::site::documentation` in [`documentation/fission.toml`](/reference/config/fission-toml/) | Content pages get a header, left sidebar, article body, right table of contents, footer, and responsive layout |
-| Blog template | `fission::site::blog` on a content route | The configured mount gains ordered indexes, pagination, category and tag pages, and adjacent-post navigation |
-| Sidebar files | `documentation/site/*.toml` | Navigation is explicit, reviewable, and independent from the Markdown body |
-| Content transform | `documentation/src/charts.rs` | The site can expand generated chart catalog sections before rendering Markdown |
-| Light and dark themes | `FissionSite::light_dark_themes(...)` in `documentation/src/main.rs` | The generated CSS contains both theme modes and the page includes a small theme toggle script |
-| User CSS | `documentation/site/overrides.css` | Site-specific polish can be appended after generated CSS without replacing the renderer |
+| Custom Fission routes | `docs2/src/app.rs` registers Compose screens from `docs2/src/screens/` | The home page, documentation hub and tutorial pages use the same component model as an app |
+| Content routes | `docs2/content/legacy/docs`, `docs2/content/reference` and `docs2/content/compose` | Existing Markdown pages keep their paths and use the documentation template |
+| Documentation template | `fission::site::documentation` in [`docs2/fission.toml`](/reference/config/fission-toml/) | Reference pages get a header, left sidebar, article body, right table of contents, footer and responsive layout |
+| Goal tutorials | `docs2/src/content.rs` reads `docs2/content/goals/` | The documentation app interprets its own front matter and content markers, then supplies that content to Compose screens |
+| Interactive examples | `docs2/src/tutorials.rs` builds the code extracted from each tutorial | Readers can use each stage of the app; invalid tutorial code fails the site build |
+| Blog routes | `docs2/src/blog.rs` and the blog screens, registered in `docs2/src/app.rs` | Markdown posts get designed article pages and paginated archives, including category and tag routes |
+| Sidebar files | `docs2/site/*-sidebar.toml` | Reference navigation remains explicit, reviewable and independent from the Markdown body |
+| Content transform | `docs2/src/charts.rs` | A documentation-specific transform expands chart catalog sections before rendering Markdown |
+| Design system and themes | `docs2/src/design.rs`, installed in `docs2/src/app.rs` | Compose components read generated design tokens; `light_dark_themes(...)` supplies both theme modes |
+| User CSS | `docs2/site/docs2.css` | Site-specific styling is appended after generated CSS without replacing the renderer |
 | Page elements | `[[site.elements]]` and `FissionSite::page_element(...)` | Document-level scripts, verification tags, analytics snippets, and provider metadata can be inserted without hard-coding them into the generic shell |
-| Static assets | `documentation/static` | Logos, favicons, fonts, and chart screenshots are copied into the output directory |
-| Code highlighting | `[site.code_highlighting]` in [`documentation/fission.toml`](/reference/config/fission-toml/) | Code blocks can opt into client-side syntax highlighting without loading it on pages that do not need it |
-| Client search | `[site.search]` in [`documentation/fission.toml`](/reference/config/fission-toml/) | The build writes a client-side search index so the deployed site does not need a hosted search service |
+| Static assets | `docs2/site/assets` and `docs2/generated-assets` | Checked-in images and generated interactive preview packages are copied into the output directory |
+| Code highlighting | `[site.code_highlighting]` in [`docs2/fission.toml`](/reference/config/fission-toml/) | Code blocks can opt into client-side syntax highlighting without loading it on pages that do not need it |
+| Client search | `[site.search]` in [`docs2/fission.toml`](/reference/config/fission-toml/) | The build writes a client-side search index so the deployed site does not need a hosted search service |
 | Search shortcut | Generated search script | The header search button and Command/Control-K open the local search interface |
 | SEO metadata | Site and page front matter | Pages emit titles, descriptions, canonical links, Open Graph metadata, Twitter metadata, and JSON-LD structured data |
 | Sitemap and robots | `generate_sitemap` and `generate_robots` | Crawlers can discover the generated route set from static files |
 | Link validation | Static site build | The build fails when generated internal links do not point at generated pages |
 | Static publishing | `.github/workflows/publish-website.yml` | The repository publishes the generated Fission site to GitHub Pages on `main` |
 
-That is the baseline. A small site can use content routes alone. Add custom route widgets and a footer when the design needs them. A large documentation site can add sidebars, transforms, search, code highlighting, and static assets while staying in the Fission workflow.
+The key point is that the tutorial format belongs to this documentation app, not to Fission itself. The static site API provides routes, widgets, content transforms and assets; `docs2/` combines them for this particular design. A smaller site can use content routes alone. Add custom Compose screens, tutorial previews or a content transform only when the site needs them.
 
 ## Project shape
 
@@ -102,25 +104,19 @@ use anyhow::Result;
 use fission::prelude::*;
 use fission::site::{build_from_cli, FissionSite};
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct SiteState;
 impl GlobalState for SiteState {}
 
-fission_component!
-{
-    pub HomePage<()> {
-    }
-    view(component, _state, _cx) => rust {
-        Column {
-                    children: vec![
-                        Text::new("Build something people can read").size(48.0).into(),
-                        Text::new("This route is rendered by the Fission static site shell.").into(),
-                    ],
-                    gap: Some(16.0),
-                    ..Default::default()
-                }
-                .into()
-    }
+fission_component! {
+    pub HomePage<()> {}
+    view(_home, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.m, children: [
+        Text(TextContent::Key("home.title".into()), font_size: tokens.typography.display_sm_size),
+        Text(TextContent::Key("home.introduction".into())),
+    ])
 }
 
 fn main() -> Result<()> {
@@ -134,7 +130,15 @@ fn main() -> Result<()> {
     )
 }
 ```
-The route widget is rendered during the build. Component conversion should describe the static page for the current route and theme. Don’t start network requests, mutate global state, or depend on a browser event loop there. If the page needs live behaviour, keep the static version useful and link to a Fission Web app.
+Supply `home.title` and `home.introduction` through the site's translation
+bundles and pass the prepared environment with `FissionSite::with_env(...)`, as
+described in [Theming and i18n](/docs/guides/theming-and-i18n/). The component
+reads that build environment; it does not invent language or theme settings.
+
+The route widget is rendered during the build. Conversion describes the current
+route, locale, and theme; it must not start network requests, mutate app state,
+or depend on a browser event loop. Keep the static page useful and embed or
+link to an interactive Web app when the page needs a runtime.
 
 ## Content routes
 
@@ -197,7 +201,7 @@ Don’t put every post in the global header. Register the blog as a content rout
 kind = "content"
 path = "/blog"
 source = "content/blog"
-template = "fission::site::documentation"
+template = "fission::site::blog"
 sidebar = "site/blog-sidebar.toml"
 ```
 
@@ -302,7 +306,7 @@ let site = FissionSite::new()
     );
 ```
 
-The HTML is trusted raw markup; never put untrusted user content in a page element. Keep product-specific markup in your site project, not Fission’s generic shell. This site follows the same rule for analytics: the renderer supports page elements, while the measurement ID stays in `documentation/site/`.
+The HTML is trusted raw markup; never put untrusted user content in a page element. Keep product-specific markup in your site project, not Fission’s generic shell. This site follows the same rule for analytics: the renderer supports page elements, while the measurement ID stays in `docs2/site/google-analytics.html`.
 
 ## Code highlighting
 
@@ -329,17 +333,20 @@ Each page can include more than visible content:
 | `sitemap.xml` | generated route list | Helps crawlers discover every generated page |
 | `robots.txt` | generated site config | Points crawlers at the sitemap |
 
-This site enables those features because it should appear in public search. Internal sites can disable sitemap or robots generation when crawlers should stay out.
+These outputs help public discovery; they are not access control. Omitting a
+sitemap or adding a robots rule does not make an internal page private. Keep
+private documents behind authenticated hosting rather than publishing them as
+public static assets.
 
 ## Commands
 
 Use these commands from the repository or from a generated site project.
 
 ```sh
-fission site routes --project-dir documentation
-fission site check --project-dir documentation
-fission site build --project-dir documentation
-fission site serve --project-dir documentation --host 127.0.0.1 --port 8123
+fission site routes --project-dir docs2
+fission site check --project-dir docs2
+fission site build --project-dir docs2
+fission site serve --project-dir docs2 --host 127.0.0.1 --port 8123
 ```
 
 `routes` lists custom and content routes without writing output. `check` renders every route and validates generated links without creating a deployable directory. `build` writes the configured output. `serve` builds first, then starts a local file server and opens the browser unless you pass `--no-open`.
@@ -347,13 +354,13 @@ fission site serve --project-dir documentation --host 127.0.0.1 --port 8123
 For release verification, use the same commands with `--release` where supported:
 
 ```sh
-fission site check --project-dir documentation --release
-fission site build --project-dir documentation --release
+fission site check --project-dir docs2 --release
+fission site build --project-dir docs2 --release
 ```
 
 ## Publishing
 
-A production job should build the checked-in Fission project and upload only the generated output directory. This repository does that in `.github/workflows/publish-website.yml`: it builds `documentation/` and publishes `documentation/dist/site`.
+A production job should build the checked-in Fission project and upload only the generated output directory. This repository does that in `.github/workflows/publish-website.yml`: it builds `docs2/` and publishes `docs2/dist/site`.
 
 For a hosted site:
 
@@ -368,7 +375,7 @@ Do not commit `dist/site`. It is build output and should be reproducible from th
 
 The static site target keeps interactivity deliberately limited. Theme switching, sidebar expansion, search, and code highlighting work as progressive enhancements. Static export does not turn general Fission actions into arbitrary browser-side app logic.
 
-Static routes produce documents; interactive apps use a runtime target such as macOS, Windows, Linux, Web, Android, iOS, Terminal, or SSR. If you need both, keep marketing and documentation static and link to a Fission Web or SSR app for the live experience.
+Static routes produce documents; interactive apps use a runtime target such as macOS, Windows, Linux, Web, Android, iOS, Terminal, or SSR. If you need both, keep the document static and link to or embed a Fission Web app for the live experience. That is how this site's tutorial previews work: the build packages separate Web apps, rather than trying to execute their reducers in the static document.
 
 ## Where to go next
 

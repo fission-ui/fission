@@ -14,28 +14,36 @@ inline renaming, such as a title, tag, or list item.
 ```rust
 use fission::prelude::*;
 
-#[fission_reducer(SetProjectNameDraft)]
-fn on_set_project_name_draft(
-    state: &mut ProjectState,
-    ctx: &mut ReducerContext<ProjectState>,
-) {
-    if let Some(change) = ctx.input.text_change() {
-        state.project_name_draft = change.new_text.clone();
+fission_component! {
+    pub ProjectNameEditor<()> {
+        props {
+            draft: String,
+            editing: bool,
+            edit_draft: ActionEnvelope,
+            begin_edit: ActionEnvelope,
+            commit: ActionEnvelope,
+            cancel: ActionEnvelope,
+        }
     }
-}
 
-let widget: Widget = Editable {
-id: Some(WidgetId::explicit("rename_project")),
-value: view.state().project_name_draft.clone(),
-placeholder: "Untitled project".into(),
-is_editing: view.state().renaming_project,
-on_input: Some(with_reducer!(ctx, SetProjectNameDraft, on_set_project_name_draft)),
-on_edit: Some(with_reducer!(ctx, BeginProjectRename, on_begin_project_rename)),
-on_submit: Some(finish_project_rename_action),
-on_cancel: Some(cancel_project_rename_action),
+    view(editor, _state, cx) =>
+        Editable(
+            id: WidgetId::explicit("project.name"),
+            value: editor.draft.clone(),
+            placeholder: cx.tr("project.untitled"),
+            is_editing: editor.editing,
+            on_input: editor.edit_draft.clone(),
+            on_edit: editor.begin_edit.clone(),
+            on_submit: editor.commit.clone(),
+            on_cancel: editor.cancel.clone(),
+        )
 }
-.into();
 ```
+
+All actions are bound by the parent to the same project. On begin, copy the
+committed name into the draft. The edit reducer reads `cx.input.text_change()`;
+commit validates and requests any save effect; cancel restores the committed
+name. Keep editing visible when a save fails rather than silently losing the draft.
 
 The usual reducer flow is to keep both the committed value and the draft in
 state, start editing with `on_edit`, update the draft from `on_input`, and only
@@ -70,10 +78,9 @@ backup copy.
 
 ## Production checklist
 
-- Bind `on_input`, `on_submit`, `on_edit`, and `on_cancel` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test begin, incremental edits, Enter commit, Escape cancellation, and failed save.
+- Keep committed value and draft separate until the save policy allows replacement.
+- Preserve editor identity when a list containing the project reorders.
 
 ## Related
 

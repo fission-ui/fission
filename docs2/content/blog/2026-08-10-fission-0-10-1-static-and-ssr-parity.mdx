@@ -69,6 +69,11 @@ response status, workers, and islands. Static site handles build-time work such
 as content discovery, search files, redirects, sitemaps, robots files, and link
 checking.
 
+This post records the 0.10.1 API. Current HTML font delivery is explicit:
+`[web].font_delivery` defaults to `"none"`; choose `"external"` or `"inline"`
+when the document should publish packaged fonts. Sharing a document API does
+not make inline font bytes the default. See the [font reference](/reference/core/fonts/).
+
 ## Compatibility
 
 This is a patch release. Existing `FissionSite` and `FissionServerApp` builders

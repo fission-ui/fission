@@ -1,93 +1,55 @@
 ---
 title: Data zoom long
 sidebar_label: Data zoom long
-description: Fission Charts reference for Data zoom long.
+description: Give an ordered queue history an actual retained data-zoom slider.
 ---
 
 # Data zoom long
 
 ![Data zoom long screenshot](/img/charts/component-data-zoom-long.png)
 
-Wide data zoom window over ordered data. Use it for dashboards with focus ranges. The screenshot is from Fission's chart gallery.
+A data-zoom window lets the reader focus on part of an ordered history without changing the stored report. For queue monitoring, a broad initial window preserves context before the user narrows it.
 
-## What the chart is for
-
-This chart is in the **Components and interaction** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `DataZoom plus LineSeries`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue")
-        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+The chart retains the user's zoom state under its identity. Initial percentages are therefore not a replacement for an application-controlled filter or a command to reset an already-used chart.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::charts::{Axis, Chart, DataZoom, LineSeries, Series};
 
-
-
-fission_component!
-{
-    pub DataZoomLongChart<()> {
+fission_component! {
+    pub ZoomableQueueHistory<()> {
+        props {
+            chart_id: WidgetId,
+            title: String,
+            jobs_label: String,
+            intervals: Vec<String>,
+            waiting_jobs: Vec<u32>,
+            initial_start: f32,
+            initial_end: f32,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue")
-                        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
-                        .into()])
-                    .into()
-    }
+    view(history, _state, _cx) {
+        let labels = history.intervals.iter().map(String::as_str).collect();
+        let values = history.waiting_jobs.iter().map(|count| *count as f32).collect();
+    } => Chart(
+        id: Some(history.chart_id),
+        title: Some(history.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        data_zoom: Some(DataZoom::new()
+            .start_percent(history.initial_start)
+            .end_percent(history.initial_end)),
+        series: vec![Series::Line(
+            LineSeries::new(&history.jobs_label).data(values),
+        )],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Put the component in `widgets/zoomable_queue_history.rs`. Supply translated labels, aligned equal-interval data and finite percentages with `0 <= start < end <= 100`. For a broad view, initialise to 0 and 100.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+`DataZoom::new()` selects the slider presentation. Its percentages select positions in the supplied category sequence, not a server-side time query. The current filtering path supports this line series; it is not a promise that every series type shares the same filtering behaviour.
 
-Tags: `dataZoom`, `component`.
+Use LiveTest to drag the slider continuously and verify the resulting visible categories. Test narrow windows and empty history, and keep an accessible reporting-range control outside the chart. The screenshot alone does not verify the gesture.
 
 [Components and interaction family overview](./overview)

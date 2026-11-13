@@ -1,91 +1,45 @@
 ---
 title: Large line
 sidebar_label: Large line
-description: Fission Charts reference for Large line.
+description: Bound the displayed queue history while retaining complete telemetry outside the chart.
 ---
 
 # Large line
 
 ![Large line screenshot](/img/charts/line-large.png)
 
-A dense ordered series rendered as a continuous trend without changing the app model. Use it for telemetry, monitoring, and sampled metrics where the trend matters more than every label. The screenshot is from Fission's chart gallery.
+A monitoring screen rarely needs to draw its entire stored history on every build. Select a deliberate recent window and keep the full history in the data layer for investigation and export.
 
-## What the chart is for
+The renderer thins dense line geometry to the plot width and omits crowded symbols. That reduces overdraw, but does not make an unbounded input free to store, project or inspect.
 
-This chart is in the **Cartesian** family. Use it when a visual makes the pattern easier to spot.
-
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-`A longer Vec<f32> aligned to ordered category samples.` Keep the source values in Rust types. Fission Charts uses typed series and options, not string-based configuration.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use a value axis when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the vertical range. |
-| `series` | `LineSeries` | Holds ordered values plus smooth, step, stack, color, and area styling. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, Chart, LineSeries};
-
-let chart = Chart::new()
-    .title("Trend")
-    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]))
-    .y_axis(Axis::value())
-    .series(vec![LineSeries::new("Revenue").data(vec![120.0, 132.0, 101.0, 134.0, 90.0, 230.0, 210.0]).into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+The [basic line](./line-basic) defines `QueueSample` and `QueueLoadTrend`. Put them in `widgets/queue_load_trend.rs`:
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use crate::widgets::queue_load_trend::{QueueSample, QueueLoadTrend};
 
-
-
-fission_component!
-{
-    pub LargeLineChart<()> {
+fission_component! {
+    pub RecentQueueHistory<()> {
+        props {
+            title: String,
+            jobs_label: String,
+            samples: Vec<QueueSample>,
+            window_samples: usize,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Trend")
-                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Revenue").data(vec![120.0, 132.0, 101.0, 134.0, 90.0, 230.0, 210.0]).into()])
-                    .into()
+    view(history, _state, _cx) {
+        let start = history.samples.len().saturating_sub(history.window_samples);
+        let recent = history.samples[start..].to_vec();
+    } => QueueLoadTrend {
+        title: history.title.clone(),
+        jobs_label: history.jobs_label.clone(),
+        samples: recent,
     }
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Choose a positive window and describe its duration in the translated title. This is sample-count windowing, not an elapsed-time query; it assumes the complete fixed sampling interval described by the basic example.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
-
-Tags: `line`, `large`.
+Test a short history, a window boundary and important spikes against the actual rendering. Thinning is not statistical aggregation or a guarantee that every extreme remains visually distinct. Profile representative histories and retain exact observations for the report list. The gallery screenshot does not establish an unlimited-data performance claim.
 
 [Cartesian family overview](./overview)

@@ -7,7 +7,7 @@ description: Show local notifications, schedule reminders, update badges, and re
 
 Notifications are for information that should reach the user outside the currently visible Fission view. A completed export, a missed message, or a scheduled reminder belongs here. A validation message inside the current screen usually does not; use `Toast`, `Modal`, or another Fission overlay for in-app feedback.
 
-This example sends a notification after sync completes. You can use the same host API for local reminders or push, but those need their own platform and provider setup.
+This example provides a test-notification control in app settings. It exercises the host's delivery path without pretending that a sync or export has happened. In a real sync flow, request the notification from the successful sync completion reducer, not when the user starts the sync.
 
 Do not use the notification capability as a replacement for normal UI. If the user is already looking at the relevant screen, show a Fission widget. Use a notification when the host owns delivery through the operating system, browser, launcher, notification center, or push service.
 
@@ -16,17 +16,17 @@ Do not use the notification capability as a replacement for normal UI. If the us
 Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
 
 ```rust
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct NotificationState {
-    // Add these fields to your existing app state.
-    last_notification_id: Option<NotificationId>,
+    last_notification: Option<NotificationReceipt>,
     notification_error: Option<String>,
+    sending_notification: bool,
 }
 
 impl GlobalState for NotificationState {}
 ```
 
-Keep the receipt and any delivery error in app state. Update them from the completion actions rather than assuming the host delivered the notification.
+Keep the complete receipt, not just its id. A provider can accept or schedule a request without reporting that it was delivered. The screen needs that distinction if it is going to tell the user what actually happened.
 
 ## 2. Configure the target and host
 
@@ -48,68 +48,80 @@ The host handles a notification request after the starting reducer returns. Hand
 
 ```rust
 #[fission_reducer(NotificationShown)]
-fn on_notification_shown(state: &mut NotificationState, receipt: NotificationReceipt) {
-    state.last_notification_id = Some(receipt.id);
-    state.notification_error = None;
+fn on_notification_shown(state: &mut NotificationState, ctx: &mut ReducerContext<NotificationState>) {
+    state.sending_notification = false;
+    match ctx.input.capability_ok(SHOW_NOTIFICATION) {
+        Some(receipt) => {
+            state.last_notification = Some(receipt);
+            state.notification_error = None;
+        }
+        None => state.notification_error = Some("The host returned no notification receipt".into()),
+    }
 }
 
 #[fission_reducer(NotificationFailed)]
-fn on_notification_failed(state: &mut NotificationState, error: NotificationError) {
-    state.notification_error = Some(error.message);
+fn on_notification_failed(state: &mut NotificationState, ctx: &mut ReducerContext<NotificationState>) {
+    state.sending_notification = false;
+    state.notification_error = Some(
+        ctx.input.capability_error(SHOW_NOTIFICATION)
+            .map(|error| error.message)
+            .unwrap_or_else(|| "The host could not show the notification".into()),
+    );
 }
 ```
 
-Permission denial and unsupported providers are expected outcomes. Keep them separate from a successful receipt so the UI can explain what happened.
+Read the actual receipt from `ctx.input`. The registered action is a unit action, not an empty `NotificationReceipt` for the host to fill. Permission denial and unsupported providers follow the failure path; an accepted request follows the success path, which still needs to inspect `delivered`.
 
 ## 4. Request the capability from a reducer
 
 Request the notification from the reducer handling the user's action. Fission queues the host request and later dispatches a completion action.
 
 ```rust
-ctx.effects
-    .notifications()
-    .show(NotificationRequest {
-        id: NotificationId::new("sync-complete"),
-        title: "Sync complete".into(),
-        body: "Your workspace is up to date.".into(),
-        deep_link: Some("fission://sync/history".into()),
-        ..Default::default()
-    })
-    .on_ok(ctx.effects.bind(
-        NotificationShown(NotificationReceipt::default()),
-        reduce_with!(on_notification_shown),
-    ))
-    .on_err(ctx.effects.bind(
-        NotificationFailed(NotificationError::default()),
-        reduce_with!(on_notification_failed),
-    ));
+#[fission_reducer(ShowTestNotification)]
+fn on_show_test_notification(
+    state: &mut NotificationState,
+    request: NotificationRequest,
+    ctx: &mut ReducerContext<NotificationState>,
+) {
+    if state.sending_notification { return; }
+    state.sending_notification = true;
+    state.last_notification = None;
+    state.notification_error = None;
+    let shown = ctx.effects.bind(NotificationShown, reduce_with!(on_notification_shown));
+    let failed = ctx.effects.bind(NotificationFailed, reduce_with!(on_notification_failed));
+    ctx.effects.notifications().show(request).on_ok(shown).on_err(failed);
+}
 ```
 
-The call records a typed host request; the shell handles delivery.
+The reducer queues delivery and returns. Binding the callbacks first avoids borrowing `ctx.effects` again while its notification builder is active. Choose a stable notification id when a later request should replace the same logical notification, rather than accumulating duplicates.
 
 ## 5. Trigger the reducer from the UI
 
 Bind the button to the reducer that sends the notification:
 
 ```rust
-
-
-fission_component!
-{
-    pub ShowSyncNotificationButton<NotificationState> {
+fission_component! {
+    pub TestNotificationButton<NotificationState> {}
+    view(_button, state, cx) {
+        let request = NotificationRequest {
+            id: NotificationId::new("notification-settings-test"),
+            title: cx.tr("notifications.test_title"),
+            body: cx.tr("notifications.test_body"),
+            ..Default::default()
+        };
+        let run = cx.bind(ShowTestNotification(request), reduce!(on_show_test_notification));
     }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<NotificationState>();
-                let run = with_reducer!(ctx, ShowSyncNotification, on_show_sync_notification);
-
-                Button::new("Show sync notification")
-                    .disabled(false)
-                    .on_press(run)
-                    .into()
-    }
+    => Column(children: [
+        Button(child: Text(cx.tr("notifications.test")), disabled: state.sending_notification, on_press: run),
+        if state.sending_notification { Spinner(motion: SpinnerMotion::Default, label: cx.tr("notifications.sending")) },
+        if let Some(receipt) = &state.last_notification {
+            Text(cx.tr(if receipt.delivered { "notifications.delivered" } else { "notifications.accepted" }))
+        },
+        if let Some(error) = &state.notification_error { Alert(title: error.clone(), kind: AlertKind::Error) },
+    ])
 }
 ```
-The button dispatches an action; a reducer requests delivery, and a completion reducer records the receipt or error.
+Define the `notifications.*` text in the app's translation bundles. This request deliberately has no deep link. Add one only after registering and validating the destination; a notification tap should not select an arbitrary route or bypass its access checks.
 
 ## 6. Provide and test the host behavior
 

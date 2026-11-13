@@ -32,4 +32,8 @@ Fission 0.3.0 brought several important parts of the platform together: real med
 ## What this means for developers
 
 
-If your app depends on remote media, native device access, or server-rendered pages, this release gives you more of that path to try. Start with the example closest to your use case, run it on the target you care about, and check its security and packaging steps before building on it.
+Remote media, device access, and server actions all have a failure boundary
+outside rendering. Exercise those failures as well as success: an image can
+fail to load, a permission can be denied, and a session-specific page must not
+enter a public cache. The examples provide integration paths to inspect, not
+permission to omit the application's own security and recovery rules.

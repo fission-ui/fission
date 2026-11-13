@@ -16,34 +16,56 @@ sidebars, dashboard tiles, and other small spaces.
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = CircularProgress {
-    value: Some(0.72),
-    size: 44.0,
-    color: None,
-    track_color: None,
-    thickness: 4.0,
+fission_component! {
+    pub UploadProgress<()> {
+        props {
+            uploaded_bytes: u64,
+            total_bytes: u64,
+        }
+    }
+
+    view(upload, _state, cx) {
+        let fraction = (upload.total_bytes > 0).then(|| {
+            (upload.uploaded_bytes as f64 / upload.total_bytes as f64)
+                .clamp(0.0, 1.0) as f32
+        });
+    } =>
+        CircularProgress(
+            value: fraction,
+            label: Some(cx.tr("upload.progress")),
+            motion: CircularProgressMotion::Default,
+        )
 }
-.into();
 ```
 
-This gives a compact 72 percent progress ring that can sit beside text or a stat value.
+Byte counts remain integers in the upload model. Only the display projection
+becomes a fraction. An unknown total stays indeterminate; it is not reported as
+zero percent or a made-up estimate.
+
+The label names the operation for assistive technology. Keep the byte-count
+text nearby when the user needs an exact transfer amount.
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `value` | `Option<f32>` | Progress fraction for the ring. | Use `Some(0.0..=1.0)` for determinate progress. Use `None` for indeterminate activity. |
-| `size` | `f32` | Outer width and height of the indicator. | Defaults to `40.0`. |
+| `id` | `WidgetId` | Retained motion/semantic identity. | Compose supplies structural identity; distinguish repeated indicators. |
+| `size` | `Option<f32>` | Outer width and height of the indicator. | `None` follows the circular-progress recipe. |
 | `color` | `Option<Color>` | Indicator arc color override. | Defaults to the theme's primary color. |
 | `track_color` | `Option<Color>` | Background track color override. | Defaults to the theme's border color. |
-| `thickness` | `f32` | Stroke width of the ring. | Defaults to `4.0`. |
-| `animated` | `bool` | Whether indeterminate mode should spin. | Defaults to `true`. Applies when `value` is `None`. |
+| `thickness` | `Option<f32>` | Stroke width of the ring. | `None` follows the circular-progress recipe. |
+| `motion` | `Option<CircularProgressMotion>` | Optional indeterminate rotation. | `None` is static; choose `Default` or `Spin` to animate. |
+| `label` | `Option<String>` | Accessible name for the operation. | Set it even when a nearby caption also explains progress. |
 
 ## Determinate versus indeterminate behavior
 
-`value: None` is indeterminate mode. The widget draws a partial arc and, when `animated` is true, registers a rotation animation for its `id`. Give each concurrently animated indicator a stable distinct `WidgetId` so their animation state does not collide.
+`value: None` is indeterminate mode. The widget draws a partial arc and animates
+only when `motion` is set. Motion still respects the environment's reduced-motion
+preference. Give each concurrently animated indicator a stable distinct `WidgetId` so their animation state does not collide.
 
-For determinate progress, pass `Some(fraction)`. The widget expects a value in the `0.0` to `1.0` range and does not clamp it internally. Clamp upstream if the data may drift outside that range.
+For determinate progress, pass `Some(fraction)`. Validate and clamp the display fraction to `0.0..=1.0` upstream; the semantic
+range is clamped, but that does not make invalid source measurements meaningful.
 
 ## Specific advice
 
@@ -51,9 +73,9 @@ Pair circular progress with text when precision matters. A ring is good at showi
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test unknown totals, completed transfers, and impossible counts without NaN or fabricated progress.
+- Give concurrent operations independent retained identities and accessible names.
+- Check both ordinary and reduced-motion behaviour.
 
 ## Related
 

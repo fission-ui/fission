@@ -35,16 +35,31 @@ ctx.effects.print_pdf(request)
 Bind both result paths so the app can explain whether the host opened a print dialog, submitted a job, or returned an error:
 
 ```rust
-let printed = ctx.effects.bind(PrintFinished(PrintPdfResult {
-    outcome: PrintOutcome::Submitted,
-    job_id: None,
-}), reduce_with!(on_print_finished));
-let failed = ctx.effects.bind(PrintFailed(PrintError::default()), reduce_with!(on_print_failed));
+let printed = ctx.effects.bind(PrintFinished, reduce_with!(on_print_finished));
+let failed = ctx.effects.bind(PrintFailed, reduce_with!(on_print_failed));
 
 ctx.effects.print_pdf(request).on_ok(printed).on_err(failed);
+
+#[fission_reducer(PrintFinished)]
+fn on_print_finished(state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
+    if let Some(result) = ctx.input.capability_ok(PRINT_PDF) {
+        state.print_outcome = Some(result.outcome);
+        state.print_error = None;
+    }
+}
+
+#[fission_reducer(PrintFailed)]
+fn on_print_failed(state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
+    state.print_error = ctx.input.capability_error(PRINT_PDF);
+}
 ```
 
-In application code, construct the callback payloads with the exact result and error types registered by the reducer. Persist the original PDF and any product-level output record in app storage before calling this capability; the host print operation does not own that document data.
+The callbacks name the outcome paths; the host's actual result arrives through
+`ctx.input`, not through a fabricated `Submitted` action payload. Here the app
+owns `print_outcome: Option<PrintOutcome>` and `print_error: Option<PrintError>`.
+Persist the original PDF and any product-level output record in app storage
+before calling this capability; the host print operation does not own that
+document data.
 
 ## Outcomes
 

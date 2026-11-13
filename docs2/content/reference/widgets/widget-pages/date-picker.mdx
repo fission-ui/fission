@@ -11,28 +11,56 @@ whether the popup is open.
 
 ## Example
 
+Add `chrono` to the app for the `NaiveDate` value used below:
+
+```bash
+cargo add chrono
+```
+
+This must be a direct dependency of your app, even though Fission also uses it
+internally.
+
 ```rust
 use chrono::NaiveDate;
 use fission::prelude::*;
 use std::sync::Arc;
 
-let widget: Widget = DatePicker {
-id: WidgetId::explicit("publish_date"),
-value: view.state().publish_date,
-is_open: view.state().publish_date_open,
-width: Some(200.0),
-view_year: None,
-view_month: None,
-on_navigate: None,
-on_change: Some(Arc::new(move |date: NaiveDate| ActionEnvelope {
-    id: set_publish_date_id,
-    payload: serde_json::to_vec(&SetPublishDate(date)).unwrap(),
-})),
-on_toggle: Some(toggle_publish_date_action),
-on_close: Some(close_publish_date_action),
+fission_component! {
+    pub PublishDateField<()> {
+        props {
+            date: Option<NaiveDate>,
+            open: bool,
+            year: i32,
+            month: u32,
+            choose_date: Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>,
+            change_month: Arc<dyn Fn(i32, u32) -> ActionEnvelope + Send + Sync>,
+            toggle_popup: ActionEnvelope,
+            close_popup: ActionEnvelope,
+        }
+    }
+
+    view(field, _state, cx) =>
+        FormControl(
+            label: Some(cx.tr("article.publish_date")),
+            child: DatePicker(
+                id: WidgetId::explicit("article.publish-date"),
+                value: field.date,
+                is_open: field.open,
+                view_year: field.year,
+                view_month: field.month,
+                on_navigate: field.change_month.clone(),
+                on_change: field.choose_date.clone(),
+                on_toggle: field.toggle_popup.clone(),
+                on_close: field.close_popup.clone(),
+            ),
+        )
 }
-.into();
 ```
+
+The parent owns the selected date and a separate visible month. Selection can
+commit a day and close the popup in one reducer; explicit close sets `open = false`
+rather than toggling a possibly already-closed picker. The callbacks create
+owned action payloads for the parent's registered reducers.
 
 A common reducer flow is: `on_toggle` opens the picker, `on_change` stores the selected date, and the same reducer or a follow-up action closes the picker.
 
@@ -63,11 +91,9 @@ Store a real `NaiveDate` in state, not a locale-formatted display string. A disp
 
 ## Production checklist
 
-- Bind `on_change`, `on_toggle`, `on_close` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Prefer parent layout and design-system sizing first; use explicit size or spacing fields when the product layout requires that constraint on this widget specifically.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test visible-month navigation independently of the selected date, including leap years.
+- Set explicit labels around the field and check built-in English popup copy for your target locales.
+- Validate the date against product rules again when saving; the calendar itself does not disable unavailable days.
 
 ## Related
 

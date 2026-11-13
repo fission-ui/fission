@@ -134,6 +134,12 @@ fission release-content render --project-dir . --provider play-store --json
 Review screenshots before publishing. Automated capture makes the release
 reproducible; it does not replace product judgment.
 
+The scenario's script must be a real project-owned launcher/test script; the
+sample name is not a promise every scaffold already supplies it. Use stable
+semantic selectors for localised screens and fix locale, viewport, and real
+product state for each capture. Do not publish fixture account data or private
+review credentials in a public screenshot.
+
 ## 4. Keep provider metadata reviewable
 
 Use `release-config import`, `diff`, `lock`, and `push` for provider metadata:

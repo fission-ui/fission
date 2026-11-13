@@ -17,19 +17,34 @@ For ordinary actions and inputs, start with a
 
 ```rust
 use fission::prelude::*;
-let widget: Widget = GestureDetector {
-    child:
-        Container::new(Text::new("Open context menu").into())
-            .padding_all(12.0)
-            .into(),
-    ,
-    on_secondary_click: Some(show_context_menu_action),
-    ..Default::default()
+
+fission_component! {
+    pub TimelineGestureArea<()> {
+        props {
+            timeline: Widget,
+            begin_scrub: ActionEnvelope,
+            scrub: ActionEnvelope,
+            finish_scrub: ActionEnvelope,
+        }
+    }
+
+    view(area, _state, _cx) =>
+        GestureDetector(
+            child: area.timeline.clone(),
+            on_drag_start: area.begin_scrub.clone(),
+            on_drag_update: area.scrub.clone(),
+            on_drag_end: area.finish_scrub.clone(),
+        )
 }
-.into();
 ```
 
-This is a good use case because the interaction is more specific than a plain button press.
+The parent supplies registered scrub actions; position/delta information arrives
+through the reducer's input context. The detector adds no timeline semantics or
+keyboard controls by itself. Keep an accessible seek control beside the surface;
+a gesture-only scrubber excludes users who cannot drag.
+
+Use `ContextMenuRegion` for a normal secondary-click menu; it owns the menu
+boundary rather than leaving the author to recreate focus and dismissal.
 
 ## Field table
 
@@ -65,11 +80,9 @@ For drop targets, keep the payload format documented and stable. The runtime onl
 
 ## Production checklist
 
-- Bind `on_tap`, `on_double_tap`, `on_long_press`, `on_drag_start` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test drag start/update/end and cancellation against the current timeline model.
+- Provide keyboard and assistive-technology equivalents for scrubbing.
+- Keep a normal action in Button or Pressable rather than simulating it with raw taps.
 
 ## Related
 

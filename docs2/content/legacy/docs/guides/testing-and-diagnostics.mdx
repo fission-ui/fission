@@ -34,9 +34,13 @@ That is the right layer for business rules, validation logic, toggles, counters,
 
 The benefit is speed and clarity. A reducer test fails close to the logic that caused the bug.
 
-A typical reducer test is straightforward:
+This orchestration test assumes the app defines `EditorState`, the generated
+`SaveRequested` action, and `on_save_requested` handler. The generated handler
+takes the action and context even when a simpler state helper would not:
 
 ```rust
+use fission::core::{ActionInput, ActionRegistry, Effects, ReducerContext};
+
 #[test]
 fn save_request_marks_state_as_saving() {
     let mut state = EditorState::default();
@@ -146,9 +150,13 @@ A practical example looks like this:
 ```bash
 FISSION_DIAG=layout,paint,frame \
 FISSION_DIAG_LEVEL=debug \
-FISSION_DIAG_SINK=file:/tmp/fission.jsonl \
+FISSION_DIAG_SINK=file:.artifacts/fission.jsonl \
 cargo run -p counter
 ```
+
+Create `.artifacts/` first and retain only the diagnostic categories needed
+for the failing path. A local app with a different package name should run
+its own package rather than copying `-p counter` unchanged.
 
 Use diagnostics when you need evidence such as these:
 

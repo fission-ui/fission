@@ -19,13 +19,13 @@ The closure receives scoped build handles and returns a `Widget`. It is still pa
 use fission::prelude::*;
 
 let greeting = Builder::<MyState>::new(|_ctx, view| {
-    let label = if view.state().is_signed_in {
-        "Welcome back"
+    let key = if view.state().is_signed_in {
+        "session.welcome_back"
     } else {
-        "Please sign in"
+        "session.sign_in"
     };
 
-    Text::new(label).into()
+    Text::new(TextContent::Key(key.into())).into()
 });
 ```
 
@@ -41,9 +41,10 @@ Use `Builder` when the closure is small and local. If the closure starts to cont
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Verify the closure stays read-only and does not start work on every rebuild.
+- Do not retain the build/view handles in a service or future.
+- Extract a named component when the fragment acquires its own state, identity
+  or reusable product meaning.
 
 ## Related
 

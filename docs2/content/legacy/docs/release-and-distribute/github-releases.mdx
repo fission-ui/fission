@@ -29,8 +29,13 @@ notes = "release-content/metadata/1.2.3/notes/en-US.md"
 [distribution.github_releases.production]
 owner = "example"
 repo = "my-app"
-tag_prefix = "v"
+tag = "v1.2.3"
 ```
+
+`tag` selects this release's exact tag; there is no `tag_prefix` setting. When
+neither configuration nor `--deploy` supplies a tag, Fission derives `v<version>`
+from the artifact manifest. Keep that manifest tied to the source revision you
+actually qualified rather than publishing whichever build is newest locally.
 
 ## 3. Publish the assets
 
@@ -42,7 +47,10 @@ fission distribute \
   --deploy v1.2.3
 ```
 
-The command should create or update the release, upload every asset listed in the manifest, and write a receipt under `target/fission/distribution/`.
+The command creates or updates the release, uploads the manifest's assets, and
+writes a receipt under `target/fission/distribution/`. Review replacement policy
+before retrying a public release; a successful upload is not permission to change
+an existing version's contents silently.
 
 ## 4. Verify the release
 

@@ -5,7 +5,10 @@ description: The reference contract for GlobalState, local widget state, build h
 
 # State system
 
-Fission keeps durable app state, local widget state, build-scope handles, and reducer effects separate. That lets the same app model run in different shells without hiding platform-specific behavior.
+Rebuilding a view, leaving a screen and restarting an app are different events.
+Fission separates app state, retained widget memory, build-scope handles and
+effects so each can have the lifetime it actually needs. Sharing that model
+across shells does not make a build handle persistent or local state global.
 
 For a walkthrough, read [State, handles, and providers](/docs/guides/state-handles-and-providers/). This page documents the APIs and their contracts.
 
@@ -13,7 +16,7 @@ For a walkthrough, read [State, handles, and providers](/docs/guides/state-handl
 
 | Piece | Contract | Purpose |
 | --- | --- | --- |
-| `GlobalState` | Runtime-owned durable app state | Holds product truth shared across screens, reducers, tests, and shells |
+| `GlobalState` | Runtime-owned root app state | Holds product truth shared across screens, reducers, tests, and shells; persistence is explicit |
 | `StateField<T>` | Handle to retained local widget state | Stores UI-local memory for one stable widget identity |
 | `BuildCtxHandle<S>` | Build-scope wiring handle | Binds actions, local reducers, resources, portals, media, and animations |
 | `ViewHandle<S>` | Build-scope read handle | Reads `GlobalState`, `Env`, runtime values, layout snapshots, and selectors |
@@ -44,11 +47,26 @@ pub struct CartState {
 
 Use `GlobalState` for durable product facts: current route, loaded records, form drafts that should survive navigation, selected account, save status, user preferences, and feature state shared by distant widgets.
 
+Here “durable” means the value belongs to the app rather than a disposable
+widget instance. `GlobalState` does not automatically write it to disk or a
+server. Use Store, SQL or an explicit server operation for persistence across
+launches.
+
 Do not use `GlobalState` for runtime-owned details such as current animation interpolation values or host handle stores. Do not use it for tiny UI-local state that disappears with a component unless that state is product-significant.
 
 ## Reading state during component conversion
 
-Component conversion reads app inputs with `fission::build::current::<S>()`:
+Compose supplies these scopes through its named `view` header:
+
+```rust
+fission_component! {
+    pub CartBadge<ShopState>
+    view(_badge, state, _cx) => Badge(text: state.cart.items.len().to_string())
+}
+```
+
+Lower-level component conversion reads the same app inputs with
+`fission::build::current::<S>()`:
 
 ```rust
 let (ctx, view) = fission::build::current::<ShopState>();
@@ -118,14 +136,9 @@ handlers registered for that action type run on dispatch.
 Correct usage:
 
 ```rust
-fission_component!
-{
-    pub CartBadge<ShopState> {
-    }
-    view(_component, _state, _cx) => rust {
-        let (_, view) = fission::build::current::<ShopState>();
-                Text::new(format!("{}", view.state().cart.items.len())).into()
-    }
+fission_component! {
+    pub CartCount<ShopState>
+    view(_count, state, _cx) => Text(state.cart.items.len().to_string())
 }
 ```
 Incorrect usage:
@@ -143,7 +156,33 @@ Using a handle outside an active build pass panics with a scope error. This prev
 
 Local widget state is retained for a component field and widget identity.
 
-Declare it with `#[with_local_state]` and `#[local_state(default = ...)]`:
+The default Compose authoring form declares it with a `state` block:
+
+```rust
+fission_component! {
+    pub DetailsDisclosure<()> {
+        props { title: String, details: String }
+        state { open: bool = false }
+    }
+    view(disclosure, _state, _cx) =>
+    Column(children: [
+        Button(
+            child: Text(disclosure.title.clone()),
+            key: "toggle-details",
+            on_press: reduce { disclosure.open = !disclosure.open; },
+        ),
+        if disclosure.open {
+            Text(disclosure.details.clone())
+        },
+    ])
+}
+```
+
+The parent supplies translated title and detail text. This disclosure owns
+only whether that content is visible.
+
+For lower-level Rust authoring, declare the same retained state with
+`#[with_local_state]` and `#[local_state(default = ...)]`:
 
 ```rust
 #[with_local_state]
@@ -255,10 +294,11 @@ fn on_set_filter(state: &mut ShopState, filter: ProductFilter) {
     state.filter = filter;
 }
 
-#[fission_reducer(SaveRequested)]
-fn on_save_requested(state: &mut ShopState, ctx: &mut ReducerContext<ShopState>) {
-    state.saving = true;
-    // request outside work through ctx.effects
+#[fission_reducer(CheckoutRequested)]
+fn on_checkout_requested(state: &mut ShopState, ctx: &mut ReducerContext<ShopState>) {
+    if !state.cart.items.is_empty() {
+        ctx.effects.navigate("/checkout");
+    }
 }
 ```
 
@@ -300,15 +340,15 @@ Selectors are read-only. Do not use them to mutate state or hide side effects.
 
 | Need | API |
 | --- | --- |
-| Durable product data | `GlobalState` |
-| One widget's temporary retained memory | `#[local_state]` and `StateField<T>` |
+| Shared product data | `GlobalState`; persist explicitly when needed |
+| One widget's temporary retained memory | Compose `state` block; lower-level `#[local_state]` and `StateField<T>` |
 | Parent-scoped contextual read-only data | `Provider<T, F>`, `read::<T>()`, `try_read::<T>()` |
 | Theme, locale, viewport, window, safe-area, and platform presentation context | `Env` through `ViewHandle` |
-| Bind a widget event to app-state change | `BuildCtxHandle::bind(...)` or `with_reducer!(...)` |
-| Bind a widget event to local state change | `BuildCtxHandle::bind_local(...)` |
+| Bind a widget event to app-state change | Compose `reduce`; `bind(...)` or `with_reducer!(...)` for existing reusable reducers |
+| Bind a widget event to local state change | Compose `reduce`; lower-level `BuildCtxHandle::bind_local(...)` |
 | Read app state or derived view models | `ViewHandle::state`, `global`, `select`, or `select_with` |
 | Request outside work | `ReducerContext::effects` |
-| Keep identity stable across reordered dynamic children | `.id(WidgetId::explicit(...))` |
+| Keep identity stable across reordered dynamic children | Compose `key: durable_id`; lower-level `.id(WidgetId::explicit(...))` |
 
 ## Related pages
 

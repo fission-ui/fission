@@ -17,10 +17,15 @@ current location.
 use fission::prelude::*;
 
 let item = BreadcrumbItem {
-    label: "Projects".into(),
+    label: cx.tr("projects.title"),
     on_click: Some(open_projects_action),
 };
 ```
+
+This setup-block excerpt uses an already bound navigation action.
+`BreadcrumbItem` is configuration data for `Breadcrumb`, not a widget; an
+ordinary Rust struct is appropriate here. The final item normally has no
+navigation action because it already describes the current location.
 
 ## Field table
 
@@ -35,9 +40,10 @@ Use stable, human-readable labels. Breadcrumbs are for orientation first and nav
 
 ## Production checklist
 
-- Bind `on_click` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Verify that each earlier item navigates to the location its label names.
+- Keep the current item non-navigable unless returning to that same location
+  has a deliberate product meaning.
+- Test long translated labels and a deep trail at the narrowest supported width.
 
 ## Related
 

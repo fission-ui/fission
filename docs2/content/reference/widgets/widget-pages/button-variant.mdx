@@ -14,30 +14,46 @@ The selected variant changes the presentation, not the action itself.
 
 ```rust
 use fission::prelude::*;
-let primary = Button {
-    variant: ButtonVariant::Primary,
-    child: Some(Text::new("Save").into()),
-    on_press: Some(save_action),
-    ..Default::default()
-};
-
-let secondary = Button {
-    variant: ButtonVariant::SecondaryGray,
-    child: Some(Text::new("Preview").into()),
-    on_press: Some(preview_action),
-    ..Default::default()
-};
-
-let destructive = Button {
-    variant: ButtonVariant::Destructive,
-    child: Some(Text::new("Delete").into()),
-    on_press: Some(delete_action),
-    ..Default::default()
-};
+fission_component! {
+    pub DocumentActions<()> {
+        props {
+            save: ActionEnvelope,
+            preview: ActionEnvelope,
+            delete: ActionEnvelope,
+        }
+    }
+    view(actions, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Wrap(
+        spacing: tokens.spacing.s,
+        run_spacing: tokens.spacing.s,
+        children: [
+            Button(
+                variant: ButtonVariant::Primary,
+                child: Text(cx.tr("document.save")),
+                on_press: actions.save.clone(),
+            ),
+            Button(
+                variant: ButtonVariant::SecondaryGray,
+                child: Text(cx.tr("document.preview")),
+                on_press: actions.preview.clone(),
+            ),
+            Button(
+                variant: ButtonVariant::Destructive,
+                child: Text(cx.tr("document.delete")),
+                on_press: actions.delete.clone(),
+            ),
+        ],
+    )
+}
 ```
 
-All three buttons use the same runtime action path. The variant changes visual
-hierarchy, not how the action is dispatched.
+The parent supplies already bound actions because this reusable group does not
+own persistence or deletion policy. All three buttons use the same runtime
+action path. The variant changes visual hierarchy, not how the action is
+dispatched. A destructive colour does not add a confirmation step; the app
+must implement that policy where required.
 
 ## Choice table
 
@@ -71,9 +87,11 @@ Keep the meaning of each variant stable across your product. If `Filled` means "
 Make the action hierarchy visible without making every button compete for
 attention.
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Check the complete action group rather than a primary button in isolation;
+  several primary treatments defeat the intended hierarchy.
+- Verify destructive, disabled, focus and hover treatments in both theme modes.
+- Keep the semantic label explicit when the action has no visible text; a
+  colour or hierarchy variant is not an accessible name.
 
 ## Related
 

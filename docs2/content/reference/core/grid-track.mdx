@@ -5,7 +5,10 @@ description: Grid track definitions for explicit and responsive grid layouts.
 
 # GridTrack
 
-`GridTrack` defines a row or column track for `Grid`.
+`GridTrack` defines how a row or column obtains its size. A fixed track reserves
+space first; fractional tracks divide the space left over. Content-sized tracks
+instead depend on the children, which is useful when their labels determine
+the required width.
 
 | Track | Meaning |
 | --- | --- |
@@ -23,13 +26,22 @@ description: Grid track definitions for explicit and responsive grid layouts.
 ```rust
 const CARD_MIN_WIDTH: f32 = 220.0;
 
-Grid {
-    columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-        GridTrack::Points(CARD_MIN_WIDTH),
-        GridTrack::Fr(1.0),
-    ))],
-    children: cards,
-    ..Default::default()
+fission_component! {
+    pub ProductGrid<AppState> {
+        props { cards: Vec<Widget> }
+    }
+    view(grid, _state, _cx) =>
+    Grid(
+        columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+            GridTrack::Points(CARD_MIN_WIDTH),
+            GridTrack::Fr(1.0),
+        ))],
+        children: grid.cards.clone(),
+    )
 }
-.into()
 ```
+
+Here the minimum is a product-card constraint, not a device breakpoint.
+`auto_fit` adds as many columns as fit and collapses unused tracks. A parent
+narrower than the declared minimum still needs an explicit compact layout;
+fractional sizing does not make that minimum disappear.

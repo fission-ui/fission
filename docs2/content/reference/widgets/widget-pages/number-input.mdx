@@ -14,32 +14,64 @@ where choosing a specific step matters more than free-form typing.
 ```rust
 use fission::prelude::*;
 
-#[fission_reducer(SetQuantity)]
-fn set_quantity(state: &mut OrderState, ctx: &mut ReducerContext<OrderState>) {
-    let Some(change) = ctx.input.text_change() else {
-        return;
-    };
-    if let Ok(quantity) = change.new_text.parse::<f32>() {
-        state.quantity = quantity.clamp(1.0, 10.0);
+#[derive(Debug)]
+pub struct OrderState {
+    quantity: u16,
+    quantity_draft: String,
+}
+
+impl Default for OrderState {
+    fn default() -> Self {
+        Self { quantity: 1, quantity_draft: "1".into() }
     }
 }
 
-let widget: Widget = NumberInput {
-value: view.state().quantity as f32,
-display_text: Some(view.state().quantity.to_string()),
-min: Some(1.0),
-max: Some(10.0),
-step: 1.0,
-on_increment: Some(increment_quantity_action),
-on_decrement: Some(decrement_quantity_action),
-on_input: Some(ctx.bind(SetQuantity, reduce_with!(set_quantity))),
-..Default::default()
+impl GlobalState for OrderState {}
+
+fission_component! {
+    pub OrderQuantity<OrderState> {}
+
+    view(_field, state, cx) {
+        let invalid = state.quantity_draft.parse::<u16>()
+            .map_or(true, |value| !(1..=10).contains(&value));
+    } =>
+        FormControl(
+            label: Some(cx.tr("order.quantity")),
+            error: if invalid { Some(cx.tr("order.quantity_range")) } else { None },
+            child: NumberInput(
+                value: state.quantity as f32,
+                display_text: Some(state.quantity_draft.clone()),
+                min: 1.0,
+                max: 10.0,
+                step: 1.0,
+                label: Some(cx.tr("order.quantity")),
+                on_input: reduce {
+                    if let Some(change) = cx.input.text_change() {
+                        state.quantity_draft = change.new_text.clone();
+                        if let Ok(value) = state.quantity_draft.parse::<u16>() {
+                            if (1..=10).contains(&value) {
+                                state.quantity = value;
+                            }
+                        }
+                    }
+                },
+                on_increment: reduce {
+                    state.quantity = state.quantity.saturating_add(1).min(10);
+                    state.quantity_draft = state.quantity.to_string();
+                },
+                on_decrement: reduce {
+                    state.quantity = state.quantity.saturating_sub(1).max(1);
+                    state.quantity_draft = state.quantity.to_string();
+                },
+            ),
+        )
 }
-.into();
 ```
 
-The reducer owns the real numeric value and decides how to parse, clamp, or
-reject the edit exposed by `ctx.input.text_change()`.
+The canonical quantity is an integer. An incomplete draft remains visible
+without replacing the last valid quantity. The checkout action must reject an
+invalid draft rather than silently ordering the previous number. Shared order
+truth lives in `GlobalState`; the field does not invent its own hidden cart.
 
 ## Field table
 
@@ -48,22 +80,23 @@ reject the edit exposed by `ctx.input.text_change()`.
 | `id` | `Option<WidgetId>` | Stable identity for the inner text field. | Defaults to `None`. |
 | `value` | `f32` | Current numeric value. | Defaults to `0.0`. |
 | `display_text` | `Option<String>` | Exact text shown in the field. | If `None`, the widget formats `value` with `format!("{}", value)`. |
-| `min` | `Option<f32>` | Intended minimum value. | Present for product meaning, but not enforced by the current widget implementation. |
-| `max` | `Option<f32>` | Intended maximum value. | Present for product meaning, but not enforced by the current widget implementation. |
+| `min` | `Option<f32>` | Intended minimum value. | Exposed in range semantics; enforce it in the reducer. |
+| `max` | `Option<f32>` | Intended maximum value. | Exposed in range semantics; enforce it in the reducer. |
 | `step` | `f32` | Intended adjustment step. | Defaults to `1.0`, but the current widget does not apply it automatically. Your reducer does. |
 | `field_width` | `Option<f32>` | Width of the central text field. | If `None`, width is estimated from `display_text`. |
-| `button_size` | `Option<f32>` | Size of the plus and minus buttons. | Defaults to `32.0` with a lower bound of `28.0`. |
-| `gap` | `Option<f32>` | Spacing between the buttons and field. | Defaults to `4.0`. |
+| `button_size` | `Option<f32>` | Size of the plus and minus buttons. | Uses `tokens.sizing.control_md`, bounded below by `min_pointer_target`. |
+| `gap` | `Option<f32>` | Spacing between the buttons and field. | Uses the number-input recipe gap or `tokens.spacing.xs`. |
 | `on_increment` | `Option<ActionEnvelope>` | Action fired by the plus button. | Defaults to `None`. |
 | `on_decrement` | `Option<ActionEnvelope>` | Action fired by the minus button. | Defaults to `None`. |
+| `label` | `Option<String>` | Accessible name for the numeric adjustment. | Supply the same operation name as the visible form label. |
 | `on_input` | `Option<ActionEnvelope>` | Action fired for typed edits in the central field. | Preserves the bound action; parse `ctx.input.text_change().new_text` in the reducer. |
 
 ## Current behavior and limitations
 
 The central field is rendered with [`TextInput`](/reference/widgets/text-input)
-and forwards `on_input`. `min`, `max`, and `step` are meaningful configuration
-fields for your product logic, but the widget does not enforce or apply them by
-itself.
+and forwards `on_input`. Bounds are exposed in range semantics, but do not
+disable the step buttons or parse typed edits. `step` likewise does not generate
+a new number: the supplied actions and reducers own every adjustment.
 
 Typed edits arrive as text because incomplete numeric input such as an empty
 field, `-`, or a trailing decimal point is not always an `f32`. Parse inside the
@@ -77,10 +110,9 @@ Keep the canonical number in state as a number, not only as a string. If you als
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test empty, partial, malformed, out-of-range, and very large typed values.
+- Enforce bounds in the reducer; the current step buttons do not disable themselves at the ends.
+- Prevent submission while the visible draft is invalid; do not order the last valid quantity silently.
 
 ## Related
 

@@ -14,27 +14,31 @@ that should highlight during a drag.
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Dropzone {
-    id: Some(WidgetId::explicit("composer_upload_dropzone")),
-    semantics_identifier: Some("composer.attachments.dropzone".into()),
-    child: upload_panel_node,
-    active_child: Some(upload_panel_active_node),
-    hover_child: Some(upload_panel_hover_node),
-    on_drag_enter: Some(with_reducer!(ctx, SetHoveringUpload(true), on_set_hovering_upload)),
-    on_drag_leave: Some(with_reducer!(ctx, SetHoveringUpload(false), on_set_hovering_upload)),
-    on_drop: Some(ctx.bind(
-        FilesDropped,
-        reduce_with!((|state: &mut ComposerState, _action: FilesDropped, ctx| {
-            if let Some(paths) = ctx.input.as_drop_paths() {
-                state.attachments.extend(paths.iter().cloned());
-            }
-        })),
-    )),
+fission_component! {
+    pub AttachmentDropArea<()> {
+        props { receive_files: ActionEnvelope }
+    }
+
+    view(area, _state, cx) =>
+        Dropzone(
+            id: WidgetId::explicit("composer.attachments"),
+            semantics_identifier: Some("composer.attachments.dropzone".into()),
+            child: Text(cx.tr("attachment.drop_files")),
+            active_child: Text(cx.tr("attachment.drag_here")),
+            hover_child: Text(cx.tr("attachment.release_files")),
+            on_drop: area.receive_files.clone(),
+        )
 }
-.into();
 ```
 
-Here the hover state lives in `GlobalState`, so the next build can re-render the dropzone with a highlight border.
+The runtime already chooses `active_child` and `hover_child` from the current
+drag session. No extra global hover flag is needed for these three states.
+The parent binds `receive_files` to a reducer that validates host input and
+requests asynchronous import work; merely appending paths is not an upload.
+
+Use `on_drag_enter` and `on_drag_leave` only when application logic needs those
+transitions beyond the built-in surface swap. An app-owned flag should be
+retained local state for isolated presentation, not global truth by default.
 
 ## Field table
 
@@ -55,14 +59,15 @@ Here the hover state lives in `GlobalState`, so the next build can re-render the
 
 ## Specific advice
 
-Keep visual hover feedback in state, not in a hidden mutable local flag. That way a reconvert, test harness, or target-level snapshot sees the same dropzone state the user sees.
+Treat dropped paths as untrusted host input. Validate type, size, duplicates,
+and destination permissions before importing, and do not synchronously read
+large files in a reducer. Provide `FileUpload` as a non-drag alternative.
 
 ## Production checklist
 
-- Bind `on_drop`, `on_drag_enter`, `on_drag_leave` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Test malformed internal bytes separately from external file paths.
+- Verify idle, drag-active, hover, leave, cancel, and accepted-drop states.
+- Keep file parsing/upload asynchronous and offer a labelled browse action.
 
 ## Related
 

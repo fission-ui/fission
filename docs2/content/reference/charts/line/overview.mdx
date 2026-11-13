@@ -6,7 +6,7 @@ description: Fission Charts reference for the Line family.
 
 # Line
 
-This family has 36 chart variants. Pick one that matches your data. Each page has a screenshot, data shape, API notes, and code you can adapt.
+A line chart puts ordered measurements on a common scale so changes become visible. The order is part of the meaning: joining categories that have no meaningful sequence creates a trend that the source data does not contain.
 
 Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
 
@@ -19,14 +19,14 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 | [Alert annotations](./line-alert-annotations) | Ordered values with event markers. | Use it when incidents or milestones need to stay attached to the trend. |
 | [Annotated line](./line-annotation) | LineSeries plus ChartGraphic. | Use it to explain a visible change directly on the chart. |
 | [API throughput line](./line-api-throughput) | Dense ordered samples from a service counter. | Use it for telemetry panels with many points. |
-| [Capacity forecast band](./line-capacity-forecast) | Observed values with a highlighted expected range. | Use it when a forecast needs both the line and the safe range. |
+| [Capacity forecast band](./line-capacity-forecast) | Forecast values with a fixed planning interval. | Use it when a forecast needs a declared planning range. |
 | [Conversion stack area](./line-conversion-stack) | Several ordered series sharing a stack key. | Use it to explain how categories make up a total over time. |
 | [Demand sparkline](./line-demand-spark) | Compact dense ordered values. | Use it inside dense dashboard cards. |
 | [Dense spark line](./line-spark-dense) | Long Vec&lt;f32&gt; on ordered categories. | Use it for monitoring and telemetry surfaces. |
 | [Deployment event line](./line-deployment-events) | Trend values with deployment markers. | Use it to connect product changes to metric movement. |
 | [Dual line comparison](./line-dual-series) | Two Vec&lt;f32&gt; series on shared axes. | Use it to compare two trends without changing units. |
 | [Error budget burn](./line-error-budget) | Budget percentage samples plus threshold marks. | Use it when teams need to see whether a service is inside its operating band. |
-| [Forecast band](./line-forecast-band) | Vec&lt;f32&gt; plus MarkArea. | Use it when forecasts need uncertainty context. |
+| [Forecast band](./line-forecast-band) | Vec&lt;f32&gt; plus MarkArea. | Use it for a fixed expected interval, not varying uncertainty. |
 | [Gradient area line](./line-gradient-area) | Vec&lt;f32&gt; with area style. | Use it when magnitude and trend should be read together. |
 | [Inventory end-step](./line-inventory-end-step) | Discrete samples that update at the end of each interval. | Use it when the value changes after the period closes. |
 | [Line with alert events](./line-alert-events) | LineSeries plus MarkPoint. | Use it to label incidents or releases on a metric. |
@@ -38,7 +38,7 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 | [Product mix area](./line-product-mix-area) | Stacked product series over ordered buckets. | Use it when the total and category mix both matter. |
 | [Quality operating band](./line-quality-band) | Samples with a target and acceptable range. | Use it for production quality metrics with explicit guardrails. |
 | [Regional trend comparison](./line-region-comparison) | Two regional series on shared axes. | Use it when teams compare regions over the same period. |
-| [Release window annotation](./line-release-window) | Ordered samples with a graphic callout over the plot. | Use it when a chart needs to explain why a trend changed. |
+| [Release window annotation](./line-release-window) | Ordered samples with a graphic callout over the plot. | Use it to put recorded release context beside a metric. |
 | [Retention zoom window](./line-retention-window) | Long ordered samples with a visible zoom window. | Use it when the primary view should focus on one time range. |
 | [Revenue seasonality](./line-revenue-seasonality) | Ordered samples over a repeated seasonal interval. | Use it when weekly or monthly rhythm is the main signal. |
 | [Rolling average line](./line-rolling-average) | Two Vec&lt;f32&gt; series. | Use it when readers need both movement and trend. |
@@ -55,33 +55,42 @@ Charts are regular Fission widgets, so use the same layout, theme, and state API
 
 ## Choosing within this family
 
-First decide what the user needs to compare or understand. Pick the simplest chart that shows it; add interaction only when it helps, and use animation only when it explains a change.
+Start with the measure and reporting interval. Counts, rates and percentiles require different preparation even though each becomes a vector of numbers. Use steps for discrete transitions, a shared stack only for disjoint parts of a total, and marks for declared events or limits. Neither smoothing a path nor drawing a band calculates a statistical average, forecast or confidence interval.
 
 ## Authoring from a Fission component
 
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+This component receives the values and their reporting labels. Loading, aggregation and failures stay in the parent workflow; chart construction does not start another request.
 
 ```rust
 use fission::prelude::*;
 use fission::charts::{Axis, Chart, LineSeries};
 
-
-
-fission_component!
-{
+// The parent resolves display labels from its translation bundles.
+fission_component! {
     pub LineChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            completed_jobs: Vec<f32>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Line")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
-    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.completed_jobs.clone())
+                    .into(),
+            ],
+        )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
+Keep a readable statement of the current value and reporting period alongside the visual. Test the source calculation independently from rendering, then inspect the actual plot at the widths where the app will use it.
 
 ## Options, accessibility, and diagnostics
 

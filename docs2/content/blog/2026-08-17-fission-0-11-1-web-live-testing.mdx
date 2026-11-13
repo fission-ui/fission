@@ -43,6 +43,12 @@ let screenshot = client.capture_screenshot_png()?;
 Native callers still use `LiveTestClient::connect(port)`. The browser API is
 additive; it does not change the native transport.
 
+The application must already be served from a matching Web test build.
+`FISSION_WEB_TEST_CONTROL=1` is a compile-time WASM input; setting it only on
+the test process after the app was built does not install the bridge. The
+[current testing reference](/reference/platform/testing/) also distinguishes
+retained canvas mode from generic website mode introduced later.
+
 ## The CLI proves live control
 
 `fission test --target web` does more than check that a canvas appeared. It

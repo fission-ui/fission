@@ -1,87 +1,52 @@
 ---
 title: 3D terrain response
 sidebar_label: 3D terrain response
-description: Fission Charts reference for 3D terrain response.
+description: Present an elevation-like field with an explicit measurement and interpolation contract.
 ---
 
 # 3D terrain response
 
 ![3D terrain response screenshot](/img/charts/scene3d-surface-terrain.png)
 
-This example uses Fission Charts' typed Rust API. Use it for elevation and field surfaces. The screenshot is from Fission's chart gallery.
+A terrain-like surface may represent physical elevation or another response drawn as height. Those meanings should not be left ambiguous. A high point in an equipment-response model is not necessarily a physical hill or a more dangerous operating condition.
 
-## What the chart is for
+State what the two ground-plane coordinates and height represent before choosing units and scale.
 
-This chart is in the **3D and GL** family. Use it when a visual makes the pattern easier to spot.
+## Compose the validated field
 
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Raised terrain-like mesh`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `Scene3D` | `Scene3D` | Defines native 3D primitives, camera, light, and material data. |
-| `width / height` | `f32` | Optional fixed size; omit them when the scene should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::three_d::{Scene3D, Vec3};
-
-let scene = Scene3D::new()
-    .size(720.0, 420.0)
-    .camera(Vec3::new(3.5, 2.6, 5.0), Vec3::ZERO)
-    .ambient_light(0.45);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Use `regular_surface` from [3D surface](./surface3d-basic) for complete regular grids, then render the geometry with `SurveySurface` from [Mesh surface](./mesh-surface), placed in `widgets/survey_surface.rs`.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, Chart, LineSeries};
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::survey_surface::SurveySurface;
 
-
-
-fission_component!
-{
-    pub Fission3DTerrainResponseChart<()> {
+fission_component! {
+    pub MeasuredFieldSurface<()> {
+        props {
+            title: TextContent,
+            field_vertices: Vec<Point3D>,
+            triangles: Vec<u32>,
+            field_color: Color,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("3D terrain response")
-                    .x_axis(Axis::category(vec!["A", "B", "C"]))
-                    .y_axis(Axis::value())
-                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
-                    .into()
+    view(field, _state, _cx) => SurveySurface {
+        title: field.title.clone(),
+        vertices: field.field_vertices.clone(),
+        indices: field.triangles.clone(),
+        surface_color: field.field_color,
     }
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Enable the `three-d` feature. The parent provides translated text and theme colour; the projection owns finite coordinates, triangle connectivity and the missing-measurement policy.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## Checks
+
+Do not fill absent values with zero merely to obtain a complete mesh. Test the units and interpolation on a small known dataset, then inspect the rendered shape for misleading slopes or holes.
+
+Provide a source-value table or accessible explanation of the field. `Scene3D` renders geometry; it does not infer axis labels, camera settings or per-cell chart events. The screenshot is sample gallery output.
 
 Tags: `3d`, `terrain`.
 

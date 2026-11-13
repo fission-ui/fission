@@ -1,94 +1,77 @@
 ---
 title: Budget variance
 sidebar_label: Budget variance
-description: Fission Charts reference for Budget variance.
+description: Compare signed differences from budget on a symmetric horizontal scale.
 ---
 
 # Budget variance
 
 ![Budget variance screenshot](/img/charts/bar-budget-variance.png)
 
-This example uses Fission Charts' typed Rust API. Use it when over and under budget must be symmetric. The screenshot is from Fission's chart gallery.
+A variance is a difference from a reference, not another total. Here it means actual spending minus budget: positive values indicate spending above budget and negative values indicate spending below it. State that convention on the screen; reversing the subtraction reverses the meaning of every bar.
 
-## What the chart is for
+A horizontal chart gives department names room and puts zero between the two directions. Equal distances on either side should represent equal amounts.
 
-This chart is in the **Bar** family. Use it when a visual makes the pattern easier to spot.
+## Derive the difference once
 
-Use a table or simpler chart when readers need exact values.
-
-## Data model
-
-This example uses `Signed budget variances on a horizontal axis`. Keep the source values in Rust types and map them to the series or component below.
-
-## Rust API
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
-| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
-| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
-| `series` | `Series` | Provides the typed data model for this chart family. |
-| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
-
-## Example
-
-```rust
-use fission::charts::{Axis, BarSeries, Chart};
-
-let chart = Chart::new()
-    .title("Orders")
-    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-    .y_axis(Axis::value())
-    .series(vec![BarSeries::new("Orders")
-        .data(vec![120.0, 156.0, 184.0, 212.0])
-        .into()]);
-```
-
-## Interaction and animation
-
-Only add interaction when it helps the user. Fission emits typed `ChartInteractionEvent` values for hover, press, release, scroll, selection, and brush actions; handle them in a reducer. Use `ChartAnimation` to set duration, delay, stagger, easing, and reduced-motion behavior. Those settings stay visible and testable.
-
-## Testing guidance
-
-Test that your data maps to the series you expect. If you change how the chart is built or rendered, capture a live screenshot. To refresh the gallery image, run the ignored chart-gallery screenshot test with `FISSION_UPDATE_CHART_DOCS=1`; it updates `documentation/static/img/charts` before the static-site build.
-
-## Authoring from a Fission component
-
-Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+Convert financial values into the same display unit before constructing these rows. Keep the authoritative amounts in the application's money representation rather than using chart floats as a ledger.
 
 ```rust
 use fission::prelude::*;
-use fission::charts::{Axis, BarSeries, Chart};
+use fission::charts::{Axis, BarSeries, Chart, Series};
 
+#[derive(Clone)]
+pub struct BudgetResult {
+    pub department: String,
+    pub actual: f32,
+    pub budget: f32,
+}
 
-
-fission_component!
-{
+fission_component! {
     pub BudgetVarianceChart<()> {
+        props {
+            title: String,
+            variance_label: String,
+            unit_label: String,
+            rows: Vec<BudgetResult>,
+        }
     }
-    view(_component, _state, _cx) => rust {
-        Chart::new()
-                    .title("Orders")
-                    .x_axis(Axis::category(vec!["Q1", "Q2", "Q3", "Q4"]))
-                    .y_axis(Axis::value())
-                    .series(vec![BarSeries::new("Orders")
-                        .data(vec![120.0, 156.0, 184.0, 212.0])
-                        .into()])
-                    .into()
-    }
+    view(report, _state, _cx) {
+        let labels = report.rows.iter().map(|row| row.department.as_str()).collect();
+        let variances: Vec<f32> = report.rows.iter()
+            .map(|row| row.actual - row.budget)
+            .collect();
+        let bound = variances.iter()
+            .fold(1.0_f32, |bound, value| bound.max(value.abs()));
+    } => Chart(
+        title: Some(report.title.clone()),
+        x_axis: Some(Axis::value()
+            .min(-bound)
+            .max(bound)
+            .name(report.unit_label.clone())),
+        y_axis: Some(Axis::category(labels)),
+        series: vec![
+            Series::Bar(BarSeries::new(&report.variance_label)
+                .horizontal()
+                .data(variances)),
+        ],
+    )
 }
 ```
-Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
 
-## Options, accessibility, and diagnostics
+Enable the `charts` feature. Validate that incoming amounts and derived differences are finite before rendering them. The minimum bound of one display unit keeps an all-zero result from producing a zero-width range.
 
-| Area | What to decide | How to check it |
-| --- | --- | --- |
-| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
-| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
-| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
-| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
-| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |
+## Why the axes change
+
+`BarSeries::horizontal()` changes the bar orientation. Consequently, the numeric axis is X and the category axis is Y. Merely swapping labels without changing orientation would not create the same chart.
+
+`Axis::min` and `Axis::max` accept `f32` limits. Setting them to opposite values keeps the scale symmetric. Negative bars already express direction through position, so a red/green colour distinction is unnecessary and should not carry the meaning alone.
+
+## Check the interpretation
+
+Test a department exactly on budget, one above and one below. Verify the subtraction and the axis bounds separately from rendering. Provide actual, budget and variance values in an accessible table so the user can investigate the difference rather than only see its size.
+
+The title, series name and unit are supplied by the parent for localisation. A missing result is not zero variance: show a pending or unavailable state rather than inserting a made-up amount. The gallery screenshot uses its own sample values.
 
 Tags: `bar`, `variance`.
 

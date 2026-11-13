@@ -10,20 +10,14 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-create-and-launch-a-fission-android-emulator
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - Distinguish an AVD configuration from a running emulator
+  - Create and boot an installed arm64 system image
+  - Verify Android boot and launch the app on that emulator
 ---
-Before an Android app can run, Rust, the Android SDK, the NDK and an emulator all need to agree about the target. This guide checks them in the order Fission uses them, so when a step fails you know which part to fix instead of guessing at the whole toolchain.
 
-The setup is ready when an AVD boots and Fission can detect it. The browser
-preview only shows the sample screen; it cannot install SDK packages, create
-an emulator, or connect to a phone. Use the terminal output to verify Android
-setup.
+An Android Virtual Device (AVD) is a saved emulator configuration, not the emulator process itself. Creating one establishes its system image and device profile; booting it starts the Android system that will run the app. A successful Rust build proves neither.
 
-### The Fission pieces in this example
-
-The app's behaviour stays in shared Rust; the generated Android host handles launch and packaging. The small browser preview gives the page something to render, but it does not test Android. Use the commands below to check the SDK, emulator and generated host.
+We will use Fission's generated launcher to create or reuse an arm64 AVD, wait for Android to boot, and install the app. Start with the [Android setup guide](/blog/set-up-rust-android-gui-development-with-fission/) and [SDK packages](/blog/install-android-sdk-packages-for-a-fission-app/) if the tools or system image are missing.
 
 ## Create the project and add the target
 
@@ -33,6 +27,7 @@ Start with a fresh project and add Android as a target. If you have not installe
 cargo install cargo-fission
 fission init android-create-and-launch-a-fission-android-emulator
 cd android-create-and-launch-a-fission-android-emulator
+cargo add serde_yaml
 fission add-target android --project-dir .
 ```
 
@@ -47,17 +42,19 @@ android-create-and-launch-a-fission-android-emulator/
 ├── src/
 │   ├── main.rs                # generated app entrypoint
 │   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
+│   └── app.rs                 # Compose checklist
 └── platforms/
     └── android/              # generated Android host
 ```
 
-Keep the screen, state, reducers and reusable `fission_component!` components in the shared Rust project. Add a separate state, service or effect module when the feature gives it a real job; do not create one just to fill out the folder tree. The generated host owns Android launch and packaging, so shared components do not need to import Android APIs.
+The generated platform directory owns launch and packaging. The shared Rust library owns this screen and its translations.
 
 <!-- fission:step id="start-screen" -->
-## Create the app screen
+## Keep an observable launch checklist
 
-This screen is only a small thing for the project to install and launch. It does not prove the toolchain is ready; the AVD and device checks in the next section do that.
+Use the same screen in the browser and the native app, but do not confuse those results. A browser click checks the interface; changing a checkbox on the selected native device checks that this build actually launched there. The marks record your observations, not detected toolchain status, and can be cleared if you need to repeat a check.
+
+Replace both `src/app.rs` and `src/lib.rs` so the generated native entrypoint launches this component. Keep the language bundles in `i18n/` and the setup in `src/translations.rs`. The separate preview entrypoint is only for this documentation page.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -66,106 +63,121 @@ This screen is only a small thing for the project to install and launch. It does
 use fission::prelude::*;
 
 fission_component! {
-    pub AndroidEmulatorReadiness<()> {
+    pub EmulatorChecklist<()> {
         state {
-            sdk_check_marked: bool = false,
-            avd_check_marked: bool = false,
+            tools_checked: bool = false,
+            runtime_checked: bool = false,
+            targets_checked: bool = false,
         }
     }
     view(setup, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let status = if setup.avd_check_marked {
-            cx.tr("preview.state.ready")
-        } else if setup.sdk_check_marked {
-            cx.tr("preview.state.next")
-        } else {
-            cx.tr("preview.state.check")
-        };
+        let reviewed = [setup.tools_checked, setup.runtime_checked, setup.targets_checked]
+            .iter().filter(|checked| **checked).count();
     } =>
-    SemanticsRegion(
-        identifier: Some("android-emulator-checklist".to_string()),
-        label: Some(cx.tr("preview.title")),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Text(cx.tr("preview.app.name"))
-                        .weight(tokens.typography.font_weight_bold),
-                    Spacer(flex_grow: 1.0),
-                    Badge(text: cx.tr("preview.badge")),
-                ]),
-                Divider(),
-                Text(cx.tr("preview.title"))
-                    .size(tokens.typography.heading2_size),
-                Text(cx.tr("preview.description"))
-                    .color(tokens.colors.text_secondary),
-                Container(
-                    Column(gap: tokens.spacing.s, children: [
-                        Text(cx.tr("preview.step.sdk"))
-                            .weight(tokens.typography.font_weight_semibold),
-                        Text(cx.tr("preview.step.sdk.detail"))
-                            .color(tokens.colors.text_secondary),
-                        Button(
-                            child: Text(if setup.sdk_check_marked {
-                                cx.tr("preview.action.sdk.done")
-                            } else {
-                                cx.tr("preview.action.sdk.start")
-                            }),
-                            key: "sdk-check",
-                            variant: ButtonVariant::Outline,
-                            disabled: setup.sdk_check_marked,
-                            on_press: reduce { setup.sdk_check_marked = true; },
-                        ),
-                        Text(cx.tr("preview.step.avd"))
-                            .weight(tokens.typography.font_weight_semibold),
-                        Text(cx.tr("preview.step.avd.detail"))
-                            .color(tokens.colors.text_secondary),
-                        Button(
-                            child: Text(if setup.avd_check_marked {
-                                cx.tr("preview.action.avd.done")
-                            } else {
-                                cx.tr("preview.action.avd.start")
-                            }),
-                            key: "avd-check",
-                            variant: ButtonVariant::Outline,
-                            disabled: !setup.sdk_check_marked || setup.avd_check_marked,
-                            on_press: reduce { setup.avd_check_marked = true; },
-                        ),
-                    ])
-                )
-                .padding_all(tokens.spacing.m)
-                .bg(tokens.colors.background)
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.medium),
-                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
-                    Badge(text: status),
-                    Text(cx.tr("preview.status.description"))
-                        .color(tokens.colors.text_secondary),
-                ]),
-                if setup.avd_check_marked {
-                    Container(
-                        Column(gap: tokens.spacing.xs, children: [
-                            Text(cx.tr("preview.command.title"))
-                                .weight(tokens.typography.font_weight_semibold),
-                            Text("./platforms/android/run-emulator.sh"),
-                            Text(cx.tr("preview.command.detail"))
-                                .color(tokens.colors.text_secondary),
-                        ])
-                    )
-                    .padding_all(tokens.spacing.m)
-                    .bg(tokens.colors.surface)
-                    .border(tokens.colors.border, 1.0)
-                    .border_radius(tokens.radii.medium)
-                } else {
-                    Text(cx.tr("preview.footer"))
-                        .color(tokens.colors.text_secondary)
-                },
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
+    Container(SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("setup.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("setup.summary")).color(tokens.colors.text_secondary),
+            Text(cx.tr("setup.manual")).weight(tokens.typography.font_weight_semibold),
+            Divider(),
+            Checkbox(
+                checked: setup.tools_checked,
+                label: Some(cx.tr("setup.tools.check")),
+                semantics_identifier: Some("setup.tools".into()),
+                bind(on_toggle): to(setup.tools_checked),
+            ),
+            Text(cx.tr("setup.tools.detail")),
+            Checkbox(
+                checked: setup.runtime_checked,
+                label: Some(cx.tr("setup.runtime.check")),
+                semantics_identifier: Some("setup.runtime".into()),
+                bind(on_toggle): to(setup.runtime_checked),
+            ),
+            Text(cx.tr("setup.runtime.detail")),
+            Checkbox(
+                checked: setup.targets_checked,
+                label: Some(cx.tr("setup.targets.check")),
+                semantics_identifier: Some("setup.targets".into()),
+                bind(on_toggle): to(setup.targets_checked),
+            ),
+            Text(cx.tr("setup.targets.detail")),
+            Divider(),
+            Text(cx.tr("setup.reviewed").replace("{count}", &reviewed.to_string())),
+            Text(cx.tr("setup.scope")).color(tokens.colors.text_secondary),
+        ])
+    ).padding_all(tokens.spacing.l)
+     .width_length(Length::percent(100.0))
+     .max_width(680.0))))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod translations;
+
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(app::EmulatorChecklist)
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), app::EmulatorChecklist> {
+    let app = MobileApp::<(), _>::new(app::EmulatorChecklist)
+        .with_env(translations::create_env())
+        .with_title("Android emulator checklist");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::EmulatorChecklist)
+        .with_env(translations::create_env())
+        .with_title("Android emulator checklist")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("checked-in setup translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
 }
 ```
 </TabItem>
@@ -173,33 +185,17 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod translations;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
-    TranslationBundle {
-        locale: Locale::from(locale),
-        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
-    }
-}
-
-fn preview_env() -> Env {
-    let mut env = Env::default();
-    env.locale = Locale::from("en-US");
-    env.i18n
-        .add_bundle(load_bundle("en-US", include_str!("i18n/en-US.yaml")));
-    env.i18n
-        .add_bundle(load_bundle("es-ES", include_str!("i18n/es-ES.yaml")));
-    env
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    WebApp::<(), _>::new(app::AndroidEmulatorReadiness)
-        .with_env(preview_env())
-        .with_title("Fission Android Emulator Setup")
+    WebApp::<(), _>::new(app::EmulatorChecklist)
+        .with_env(translations::create_env())
+        .with_title("Android emulator checklist")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -207,61 +203,48 @@ pub fn run() -> Result<(), JsValue> {
 ```
 </TabItem>
 <TabItem label="i18n/en-US.yaml">
-<!-- fission:file path="src/i18n/en-US.yaml" -->
+<!-- fission:file path="i18n/en-US.yaml" -->
 ```yaml
-preview.app.name: "Android emulator setup"
-preview.badge: "Manual preflight"
-preview.title: "Get the emulator ready"
-preview.description: "Work through the Android setup checks before launching the app. This browser preview records your checklist choices; it cannot inspect the SDK or control an emulator."
-preview.step.sdk: "1. Android SDK and NDK"
-preview.step.sdk.detail: "Install the platform, build tools, NDK and an arm64 Google APIs system image."
-preview.step.avd: "2. Boot an arm64 AVD"
-preview.step.avd.detail: "Create or start the emulator after the required image is installed."
-preview.action.sdk.start: "Mark SDK and NDK check complete"
-preview.action.sdk.done: "SDK and NDK check marked"
-preview.action.avd.start: "Mark AVD boot check complete"
-preview.action.avd.done: "AVD boot check marked"
-preview.state.check: "SDK check not marked"
-preview.state.next: "SDK check marked · AVD still to verify"
-preview.state.ready: "Both checks marked manually"
-preview.status.description: "These are your checklist marks, not device results. Confirm both checks in the terminal."
-preview.command.title: "When the checks are complete, run the generated launcher"
-preview.command.detail: "The terminal command—not this browser checklist—builds, installs and launches on the AVD."
-preview.footer: "Follow the tutorial commands in a terminal to verify the real host and device."
+setup.title: "Android emulator checklist"
+setup.summary: "Record the checks you perform in the terminal and on the selected device."
+setup.manual: "Mark a check only after observing the result."
+setup.tools.check: "System image installed"
+setup.tools.detail: "Review sdkmanager --list_installed for the arm64 Google APIs image."
+setup.runtime.check: "Android finished booting"
+setup.runtime.detail: "Use adb devices -l and adb -s <serial> shell getprop sys.boot_completed."
+setup.targets.check: "App opened in the emulator"
+setup.targets.detail: "Launch through the generated host, then change a checklist item in the emulator."
+setup.reviewed: "{count} of 3 checks marked"
+setup.scope: "This checklist does not run commands or inspect devices. Marks are kept in this session only and can be cleared when a check must be repeated."
 ```
 </TabItem>
 <TabItem label="i18n/es-ES.yaml">
-<!-- fission:file path="src/i18n/es-ES.yaml" -->
+<!-- fission:file path="i18n/es-ES.yaml" -->
 ```yaml
-preview.app.name: "Configuración del emulador Android"
-preview.badge: "Comprobación manual"
-preview.title: "Prepara el emulador"
-preview.description: "Completa las comprobaciones de Android antes de iniciar la app. Esta vista web guarda tus selecciones; no puede inspeccionar el SDK ni controlar un emulador."
-preview.step.sdk: "1. SDK y NDK de Android"
-preview.step.sdk.detail: "Instala la plataforma, las herramientas de compilación, el NDK y una imagen arm64 de Google APIs."
-preview.step.avd: "2. Inicia un AVD arm64"
-preview.step.avd.detail: "Crea o inicia el emulador después de instalar la imagen necesaria."
-preview.action.sdk.start: "Marcar comprobación del SDK y NDK"
-preview.action.sdk.done: "Comprobación del SDK y NDK marcada"
-preview.action.avd.start: "Marcar comprobación de inicio del AVD"
-preview.action.avd.done: "Comprobación del AVD marcada"
-preview.state.check: "Comprobación del SDK sin marcar"
-preview.state.next: "Comprobación del SDK marcada · falta verificar el AVD"
-preview.state.ready: "Ambas comprobaciones marcadas manualmente"
-preview.status.description: "Son marcas de tu lista, no resultados del dispositivo. Confirma ambas comprobaciones en la terminal."
-preview.command.title: "Cuando termines las comprobaciones, ejecuta el lanzador generado"
-preview.command.detail: "El comando de la terminal—no esta lista del navegador—compila, instala e inicia la app en el AVD."
-preview.footer: "Sigue los comandos del tutorial en una terminal para verificar el host y el dispositivo reales."
+setup.title: "Lista del emulador Android"
+setup.summary: "Anota las comprobaciones que haces en el terminal y en el dispositivo elegido."
+setup.manual: "Marca cada comprobación tras observar el resultado."
+setup.tools.check: "Imagen del sistema instalada"
+setup.tools.detail: "Revisa sdkmanager --list_installed y comprueba la imagen arm64 de Google APIs."
+setup.runtime.check: "Android ha terminado de iniciar"
+setup.runtime.detail: "Usa adb devices -l y adb -s <serial> shell getprop sys.boot_completed."
+setup.targets.check: "App abierta en el emulador"
+setup.targets.detail: "Inicia la app con el host generado y cambia una casilla dentro del emulador."
+setup.reviewed: "{count} de 3 comprobaciones marcadas"
+setup.scope: "Esta lista no ejecuta comandos ni inspecciona dispositivos. Las marcas duran esta sesión y pueden borrarse para repetir una comprobación."
 ```
 </TabItem>
 </Tabs>
 <!-- fission:preview -->
+<!-- fission:checkpoint -->
+Mark and clear each check, then reload to confirm the session-local state resets. Repeat the interaction on the actual emulator, simulator or phone after the native launch below.
+<!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
 ## Create and launch the generated Android AVD
 
-The generated host includes `platforms/android/run-emulator.sh`. From the project root, it finds an installed arm64 Google APIs image, creates the default `FissionApi<level>Arm64` AVD when needed, then boots the emulator, builds and installs the APK, and launches the app. First follow the [Android SDK setup tutorial](/blog/set-up-rust-android-gui-development-with-fission/) if those tools are not installed yet.
+The generated host includes `platforms/android/run-emulator.sh`. Keep only the intended emulator running for this script: it can reuse an already running emulator rather than booting the configured AVD. From the project root, it finds an installed arm64 Google APIs image, creates the default `FissionApi<level>Arm64` AVD when needed, then boots the emulator, builds and installs the APK, and launches the app. First follow the [Android SDK setup tutorial](/blog/set-up-rust-android-gui-development-with-fission/) if those tools are not installed yet.
 
 ```sh
 fission doctor android --project-dir .
@@ -281,7 +264,7 @@ adb devices -l
 fission devices --project-dir .
 ```
 
-The emulator needs hardware acceleration. In the ADB output, `device` means it is ready; `offline` usually means it is still booting. Then check `fission devices` to make sure Fission sees the AVD too. If the emulator has a graphics problem, cold-boot it from Android Studio's Device Manager before changing the generated script.
+Check acceleration separately from the ADB connection. In the ADB output, `device` means ADB can communicate with Android; it does not prove that the system has finished booting. An `offline` entry means the connection is not yet usable. Use `adb -s <emulator-serial> shell getprop sys.boot_completed` to check for `1` before relying on the app launcher. Then check `fission devices` to make sure Fission sees the AVD too. If the emulator has a graphics problem, cold-boot it from Android Studio's Device Manager before changing the generated script.
 
 ### Read next
 
@@ -289,6 +272,6 @@ The emulator needs hardware acceleration. In the ADB output, `device` means it i
 - [Android target requirements](/reference/platform/targets/)
 
 <!-- fission:checkpoint -->
-The browser preview only simulates the screen. The commands above start a real AVD and check that the generated Android host can find it.
+The browser runs the shared checklist, not an Android emulator. The commands above start a real AVD and check that the generated Android host can find it.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->

@@ -11,62 +11,47 @@ The widget is available with the `desktop`, `android`, `ios`, `mobile`, and `web
 
 ## Example
 
+This component presents the current pipeline model. Its parent owns the
+node bounds, selected IDs, and reducer bindings; the canvas does not become
+a second copy of that model.
+
 ```rust
+use std::collections::BTreeSet;
 use fission::prelude::*;
-use fission::op::{Color, Fill, LineCap, LineJoin, Stroke};
 
-let source = InfiniteCanvasNode::new(
-    CanvasNodeId::explicit("source"),
-    LayoutRect::new(-160.0, 40.0, 140.0, 72.0),
-    Card {
-        child: Text::new("Source").into(),
-        ..Default::default()
-    },
-);
-let output = InfiniteCanvasNode::new(
-    CanvasNodeId::explicit("output"),
-    LayoutRect::new(120.0, 40.0, 140.0, 72.0),
-    Card {
-        child: Text::new("Output").into(),
-        ..Default::default()
-    },
-);
-
-let canvas: Widget = InfiniteCanvas {
-    id: Some(WidgetId::explicit("pipeline")),
-    nodes: vec![source.clone(), output.clone()],
-    edges: vec![InfiniteCanvasEdge {
-        id: CanvasEdgeId::explicit("source-output"),
-        from: CanvasEdgeEndpoint::Node {
-            node: source.id,
-            anchor: CanvasNodeAnchor::Right,
-        },
-        to: CanvasEdgeEndpoint::Node {
-            node: output.id,
-            anchor: CanvasNodeAnchor::Left,
-        },
-        route: CanvasEdgeRoute::Straight,
-        stroke: Stroke {
-            fill: Fill::Solid(Color::BLACK),
-            width: 2.0,
-            dash_array: None,
-            line_cap: LineCap::Round,
-            line_join: LineJoin::Round,
-        },
-        start_marker: None,
-        end_marker: None,
-        label: Some(CanvasEdgeLabel::new(Text::new("records"))),
-    }],
-    selection_policy: CanvasSelectionPolicy::Marquee,
-    snap: CanvasSnap {
-        enabled: true,
-        spacing: 16.0,
-        threshold: 4.0,
-    },
-    ..Default::default()
+fission_component! {
+    pub PipelineCanvas<()> {
+        props {
+            nodes: Vec<InfiniteCanvasNode>,
+            edges: Vec<InfiniteCanvasEdge>,
+            selected_nodes: BTreeSet<CanvasNodeId>,
+            selected_edges: BTreeSet<CanvasEdgeId>,
+            actions: InfiniteCanvasActions,
+        }
+    }
+    view(pipeline, _state, _cx) =>
+    InfiniteCanvas(
+        nodes: pipeline.nodes.clone(),
+        edges: pipeline.edges.clone(),
+        selected_nodes: pipeline.selected_nodes.clone(),
+        selected_edges: pipeline.selected_edges.clone(),
+        actions: pipeline.actions.clone(),
+        selection_policy: CanvasSelectionPolicy::Marquee,
+    )
 }
-.into();
 ```
+
+Build the typed node and edge values from your pipeline records, and use
+durable record IDs for `CanvasNodeId` and `CanvasEdgeId`. These are ordinary
+Rust model values rather than additional Compose widgets. Supply independently
+constructed child widgets for each node. For example, a validation node can
+contain a status badge and a Configure button while the canvas owns movement
+around it.
+
+The parent creates `PipelineCanvas(nodes, edges, selected_nodes,
+selected_edges, actions, key: pipeline.id.clone())`. The action bindings must
+commit geometry and selection changes to app state; passing an empty actions
+value demonstrates a view, not a working pipeline editor.
 
 ## Declarative ownership
 
@@ -81,17 +66,19 @@ When a selected group moves, `node_changes` contains every affected node with th
 Ports belong to a node and use node-local bounds. Their IDs are stable within that node, while `CanvasPortRef` identifies a port unambiguously across the canvas. Edge endpoints can reference a port directly, and Fission resolves the endpoint from the current node and port geometry.
 
 ```rust
+// In view setup: the node's card and port use the active app theme.
+let tokens = &cx.view.env().theme.tokens;
 let output_id = CanvasPortId::explicit("output");
 let mut source = InfiniteCanvasNode::new(
     CanvasNodeId::explicit("source"),
     LayoutRect::new(0.0, 0.0, 160.0, 80.0),
-    Text::new("Source"),
+    Text::new(cx.tr("pipeline.source")),
 );
 source.ports.push(InfiniteCanvasPort::new(
     output_id,
     LayoutRect::new(152.0, 32.0, 16.0, 16.0),
     CanvasNodeAnchor::Right,
-    Container::new(Spacer::default()).bg(Color::BLACK),
+    Container::new(Spacer::default()).bg(tokens.colors.primary),
 ));
 ```
 

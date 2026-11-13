@@ -20,28 +20,26 @@ menus, choices, and hints, start with
 ```rust
 use fission::prelude::*;
 
-let anchor_widget_id = WidgetId::explicit("help_button");
-let anchor_id = WidgetId::derived(anchor_widget_id.as_u128(), &[]);
+// Inside a custom composite's build scope. The parent owns open/dismiss state
+// and supplies these already-built, independently retained child widgets.
+let anchor = WidgetId::explicit("editor.shortcut-trigger");
+let trigger = trigger.id(anchor);
 
-let trigger = Button {
-    child: Some(Text::new("Help").into()),
-    on_press: Some(toggle_help),
-    ..Default::default()
-}
-.id(anchor_widget_id);
-
-if view.state.show_help {
-    let popup = Container::new(Text::new("Keyboard shortcuts live here"))
-        .padding_all(12.0)
-        .into();
-
-    ctx.register_portal_with_layer(
+if show_help {
+    cx.build.register_portal_with_layer(
         PortalLayer::Flyout,
-        Some(WidgetId::explicit("help_popup")),
-        flyout(anchor_id, popup),
+        Some(WidgetId::explicit("editor.shortcut-help")),
+        flyout(anchor, help_content),
     );
 }
+
+// Return trigger in the composite's normal tree, not only in the portal.
 ```
+
+This is the low-level geometry portion of a composite, not a complete help
+popover. `cx.build` is the current Compose component's build context; neither it nor the
+view handle may escape into an event handler. The anchor is its actual widget
+id, not another id produced by hashing or deriving it again.
 
 The open state still belongs to your app model. `flyout(...)` only handles the geometry.
 
@@ -64,9 +62,9 @@ If you do use `flyout(...)` directly, give the anchor a stable id, register the 
 
 ## Production checklist
 
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+- Verify the anchor exists in the normal tree while the portal is visible.
+- Test all viewport edges, nested portals, dismissal, and keyboard focus.
+- Add the popup's required role/relationships; positioning alone supplies none.
 
 ## Related
 
