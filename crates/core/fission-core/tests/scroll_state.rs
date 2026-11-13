@@ -87,7 +87,7 @@ fn focused_text_input_frame(
 #[test]
 fn focused_text_input_keeps_caret_visible_when_viewport_narrows() {
     let input_id = WidgetId::explicit("responsive-title-input");
-    let value = "PersonalDB Web slide persisted by LiveTest";
+    let value = "A long document title replaced through LiveTest";
     let measurer = Arc::new(FixedTextMeasurer);
     let mut engine = LayoutEngine::new().with_measurer(measurer.clone());
     let mut runtime = Runtime::default().with_measurer(measurer);
@@ -139,7 +139,7 @@ fn focused_text_input_keeps_caret_visible_when_viewport_narrows() {
 fn responsive_text_input_scroll_uses_semantic_caret_without_retained_session() {
     let desktop_id = WidgetId::explicit("responsive-title-input.desktop");
     let phone_id = WidgetId::explicit("responsive-title-input.phone");
-    let value = "PersonalDB Web slide persisted by LiveTest";
+    let value = "A long document title replaced through LiveTest";
     let measurer = Arc::new(FixedTextMeasurer);
     let mut engine = LayoutEngine::new().with_measurer(measurer.clone());
     let mut runtime = Runtime::default().with_measurer(measurer);
