@@ -45,7 +45,9 @@ use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 #[cfg(target_os = "linux")]
 use winit::platform::wayland::ActiveEventLoopExtWayland;
 #[cfg(target_arch = "wasm32")]
-use winit::platform::web::{EventLoopExtWebSys, WindowAttributesExtWebSys, WindowExtWebSys};
+use winit::platform::web::{
+    EventLoopExtWebSys, WaitUntilStrategy, WindowAttributesExtWebSys, WindowExtWebSys,
+};
 #[cfg(target_os = "windows")]
 use winit::platform::windows::WindowAttributesExtWindows;
 use winit::{
@@ -2583,6 +2585,11 @@ fn animation_redraw_interval(
     } else {
         None
     }
+}
+
+#[cfg(any(all(target_arch = "wasm32", fission_web_test_control), test))]
+fn web_live_test_event_loop_wait_until(now: Instant) -> ControlFlow {
+    ControlFlow::WaitUntil(now + Duration::from_millis(16))
 }
 
 fn runtime_timer_wake_at(runtime: &Runtime, last_frame_time: Instant) -> Option<Instant> {
@@ -5782,6 +5789,8 @@ where
         let event_loop = event_loop_builder
             .build()
             .map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
+        #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+        event_loop.set_wait_until_strategy(WaitUntilStrategy::Worker);
         #[cfg(target_arch = "wasm32")]
         let web_navigation_config = self.web_navigation.clone();
         let event_proxy = event_loop.create_proxy();
@@ -8540,12 +8549,13 @@ where
                         #[cfg(not(target_os = "android"))]
                         elwt.set_control_flow(ControlFlow::Wait);
                     }
-                    // LiveTest uses EventLoopProxy from browser tasks. Keep its event loop on the
-                    // browser frame cadence so user events queued while Winit is waiting are
-                    // drained even if the Web wake notification is coalesced or lost.
+                    // LiveTest uses EventLoopProxy from browser tasks. Keep its event loop on a
+                    // timer cadence so queued user events are drained even when requestAnimationFrame
+                    // is throttled or paused by the browser's responsive/headless capture state.
                     #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
                     if test_control_enabled {
-                        elwt.set_control_flow(ControlFlow::Poll);
+                        elwt.set_control_flow(web_live_test_event_loop_wait_until(now));
+                        record_web_test_diagnostic(479, 1);
                     }
                     record_web_test_diagnostic(365, redraw_pending as u32);
                     // Keep the wake gate closed through event handling and the complete
@@ -11726,8 +11736,9 @@ mod tests {
         scroll_build_dependency_offsets_changed, should_present_startup_clear_frame,
         surface_acquire_recovery, sync_tracked_target_texture_size_to_surface,
         test_pump_can_ack_current_frame, text_input_blink_enabled, texture_plans_fit_device_limits,
-        visual_rect_for_node, web_effective_render_scale, window_insets_from_safe_area_frames,
-        windows_shell_execute_succeeded, windows_wide, BrowserDefaults, ControlFlow,
+        visual_rect_for_node, web_effective_render_scale, web_live_test_event_loop_wait_until,
+        window_insets_from_safe_area_frames, windows_shell_execute_succeeded, windows_wide,
+        BrowserDefaults, ControlFlow,
         FrameScheduleState, Instant, LiveResizeController, RedrawRequestTiming,
         SurfaceAcquireRecovery, TestPumpState, WindowViewportState,
     };
@@ -12859,6 +12870,15 @@ mod tests {
         assert_eq!(
             schedule.wait_for_redraw_or_deadline(deadline),
             ControlFlow::WaitUntil(deadline)
+        );
+    }
+
+    #[test]
+    fn web_live_test_event_loop_uses_a_short_timer_deadline() {
+        let now = Instant::now();
+        assert_eq!(
+            web_live_test_event_loop_wait_until(now),
+            ControlFlow::WaitUntil(now + Duration::from_millis(16))
         );
     }
 

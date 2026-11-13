@@ -34,6 +34,7 @@ static LAST_POLL_STAGE: AtomicU32 = AtomicU32::new(0);
 static WEB_WAKE_TRACE_COUNT: AtomicU32 = AtomicU32::new(0);
 static WEB_REDRAW_WAIT_TRACE_COUNT: AtomicU32 = AtomicU32::new(0);
 static WEB_EVENT_LOOP_TRACE_COUNT: AtomicU32 = AtomicU32::new(0);
+static WEB_TEST_WAIT_LOOP_TRACE_COUNT: AtomicU32 = AtomicU32::new(0);
 static WEB_LAST_PENDING_WORK_TRACE: AtomicU32 = AtomicU32::new(u32::MAX);
 static WEB_LAST_REDRAW_PENDING_TRACE: AtomicU32 = AtomicU32::new(u32::MAX);
 static WEB_LAST_REDRAW_REQUEST_TRACE: AtomicU32 = AtomicU32::new(u32::MAX);
@@ -96,6 +97,9 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
         }
         437 if iteration == 42 || iteration == 43 || iteration == 44 => true,
         437 if iteration == 31 => WEB_WAKE_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 4096 == 0,
+        479 if iteration == 1 => {
+            WEB_TEST_WAIT_LOOP_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 256 == 0
+        }
         450..=470 | 474 | 475 | 476 => true,
         90 | 91 if iteration == 42 => true,
         _ => false,
