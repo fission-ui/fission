@@ -11322,24 +11322,13 @@ fn gpu_screenshot_async(
     );
     queue.submit(Some(encoder.finish()));
 
-    // WebGPU mapping completes through the browser event loop. Keep the frame callback free to
-    // process input and subsequent frames while the staging buffer becomes readable.
-    let promise = js_sys::Promise::new(&mut |resolve, reject| {
+    // Some browser WebGPU implementations reject mapAsync on a buffer referenced by the
+    // currently pending submission. Wait for the copy to complete before requesting the map.
+    let work_done = js_sys::Promise::new(&mut |resolve, _reject| {
         let resolve = resolve.clone();
-        let reject = reject.clone();
-        staging
-            .slice(..)
-            .map_async(wgpu::MapMode::Read, move |result| match result {
-                Ok(()) => {
-                    let _ = resolve.call0(&wasm_bindgen::JsValue::UNDEFINED);
-                }
-                Err(error) => {
-                    let _ = reject.call1(
-                        &wasm_bindgen::JsValue::UNDEFINED,
-                        &wasm_bindgen::JsValue::from_str(&error.to_string()),
-                    );
-                }
-            });
+        queue.on_submitted_work_done(move || {
+            let _ = resolve.call0(&wasm_bindgen::JsValue::UNDEFINED);
+        });
     });
     let out_of_memory_error = out_of_memory_scope.pop();
     let validation_error = validation_scope.pop();
@@ -11352,7 +11341,30 @@ fn gpu_screenshot_async(
                     "WebGPU screenshot readback GPU error for {texture_width}x{texture_height} ({buffer_size} bytes, {padded_bytes_per_row} bytes per row): {error}"
                 ),
             }
+        } else if let Err(error) = wasm_bindgen_futures::JsFuture::from(work_done).await {
+            fission_test_driver::TestResponse::Error {
+                message: format!("WebGPU screenshot queue completion failed: {error:?}"),
+            }
         } else {
+            // WebGPU mapping completes through the browser event loop. Keep the frame callback
+            // free to process input and subsequent frames while the staging buffer is readable.
+            let promise = js_sys::Promise::new(&mut |resolve, reject| {
+                let resolve = resolve.clone();
+                let reject = reject.clone();
+                staging
+                    .slice(..)
+                    .map_async(wgpu::MapMode::Read, move |result| match result {
+                        Ok(()) => {
+                            let _ = resolve.call0(&wasm_bindgen::JsValue::UNDEFINED);
+                        }
+                        Err(error) => {
+                            let _ = reject.call1(
+                                &wasm_bindgen::JsValue::UNDEFINED,
+                                &wasm_bindgen::JsValue::from_str(&error.to_string()),
+                            );
+                        }
+                    });
+            });
             match wasm_bindgen_futures::JsFuture::from(promise).await {
                 Ok(_) => {
                     let data = staging.slice(..).get_mapped_range();
