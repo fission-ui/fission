@@ -9662,6 +9662,7 @@ where
                                                             .devices
                                                             [presenter.render_state.surface.dev_id];
                                                         gpu_screenshot_async(
+                                                            &presenter.render_cx.instance,
                                                             &device_handle.device,
                                                             &device_handle.queue,
                                                             &presenter
@@ -11260,6 +11261,7 @@ fn gpu_screenshot(
 
 #[cfg(target_arch = "wasm32")]
 fn gpu_screenshot_async(
+    instance: &wgpu::Instance,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     texture: &wgpu::Texture,
@@ -11332,8 +11334,12 @@ fn gpu_screenshot_async(
     });
     let out_of_memory_error = out_of_memory_scope.pop();
     let validation_error = validation_scope.pop();
+    let instance_keepalive = instance.clone();
+    let device_keepalive = device.clone();
+    let queue_keepalive = queue.clone();
 
     wasm_bindgen_futures::spawn_local(async move {
+        let _keepalive = (instance_keepalive, device_keepalive, queue_keepalive);
         let gpu_error = out_of_memory_error.await.or(validation_error.await);
         let response = if let Some(error) = gpu_error {
             fission_test_driver::TestResponse::Error {
