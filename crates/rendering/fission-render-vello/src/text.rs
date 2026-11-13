@@ -10,7 +10,7 @@ use fission_layout::{
     TextMeasurer,
 };
 use fission_render::TextStyle as RenderTextStyle;
-use parley::layout::{Affinity, Cluster, Layout, PositionedLayoutItem};
+use parley::layout::{Affinity, Cluster, GlyphRun, Layout, PositionedLayoutItem};
 use parley::style::{
     FontFamily, FontFeatures, FontStyle as ParleyFontStyle, FontVariations, FontWeight, Language,
     LineHeight, OverflowWrap, StyleProperty, WordBreak,
@@ -32,6 +32,40 @@ impl Default for ParleyBrush {
     fn default() -> Self {
         Self([0, 0, 0, 255])
     }
+}
+
+/// Text belonging to this positioned style segment, rather than the whole
+/// shaping run. Keep complete clusters so combining sequences remain intact.
+pub(crate) fn glyph_run_text_range(
+    glyph_run: &GlyphRun<'_, ParleyBrush>,
+) -> Option<std::ops::Range<usize>> {
+    let style_index = glyph_run.glyphs().next()?.style_index;
+    let left = glyph_run.offset();
+    let right = left + glyph_run.advance();
+    let run = glyph_run.run();
+    let first = run.visual_clusters().next()?;
+    let mut offset = first.visual_offset()? + first.line().metrics().inline_min_coord;
+    let epsilon = run.font_size() * 0.00001;
+    let mut range: Option<std::ops::Range<usize>> = None;
+    for cluster in run.visual_clusters() {
+        let cluster_left = offset;
+        offset += cluster.advance();
+        if offset <= left + epsilon || cluster_left >= right - epsilon {
+            continue;
+        }
+        if !cluster
+            .glyphs()
+            .any(|glyph| glyph.style_index == style_index)
+        {
+            continue;
+        }
+        let text = cluster.text_range();
+        range = Some(match range {
+            Some(current) => current.start.min(text.start)..current.end.max(text.end),
+            None => text,
+        });
+    }
+    range
 }
 
 const SIMPLE_CACHE_CAP: usize = 4096;
@@ -1522,6 +1556,56 @@ mod tests {
                 background_color: None,
                 typography: Default::default(),
             },
+        }
+    }
+
+    #[test]
+    fn positioned_glyph_text_ranges_do_not_repeat_adjacent_style_segments() {
+        let measurer = measurer();
+        for (first, second) in [("Hello", " world"), ("مرحبا", " بكم")] {
+            let mut second_run = text_run(second, 18.0, 24.0);
+            second_run.style.color = Color {
+                r: 200,
+                g: 20,
+                b: 10,
+                a: 255,
+            };
+            second_run.style.underline = true;
+            let rich = VelloTextMeasurer::rich_layout_input_from_ir_runs(&[
+                text_run(first, 18.0, 24.0),
+                second_run,
+            ]);
+            let layout = measurer.layout_rich(
+                &rich.text,
+                rich.base_size,
+                rich.base_color,
+                &rich.styles,
+                &rich.inline_boxes,
+                None,
+            );
+            let mut covered = Vec::new();
+            for line in layout.lines() {
+                for item in line.items() {
+                    if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                        let range =
+                            glyph_run_text_range(&glyph_run).expect("positioned text range");
+                        let boundary = first.len();
+                        assert!(
+                            range.end <= boundary || range.start >= boundary,
+                            "one style segment must not include its neighbour: {range:?}"
+                        );
+                        covered.push(range);
+                    }
+                }
+            }
+            covered.sort_by_key(|range| range.start);
+            assert_eq!(
+                covered
+                    .iter()
+                    .map(|range| &rich.text[range.clone()])
+                    .collect::<String>(),
+                rich.text
+            );
         }
     }
 

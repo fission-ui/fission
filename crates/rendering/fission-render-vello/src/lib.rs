@@ -2595,9 +2595,12 @@ impl<'a> VelloRenderer<'a> {
                     brush_data.0[2],
                     brush_data.0[3],
                 );
+                let glyph_text_range = text::glyph_run_text_range(&glyph_run);
                 let rich_style = styles.iter().find_map(|(range, style)| {
-                    let run_range = run.text_range();
-                    (range.start < run_range.end && range.end > run_range.start).then_some(style)
+                    glyph_text_range
+                        .as_ref()
+                        .filter(|segment| range.start < segment.end && range.end > segment.start)
+                        .map(|_| style)
                 });
                 let paint_bounds = Rect::new(
                     position.x as f64 + run_left as f64,
@@ -2650,8 +2653,10 @@ impl<'a> VelloRenderer<'a> {
 
                 #[cfg(target_arch = "wasm32")]
                 let used_browser_fallback = if glyphs.iter().any(|glyph| glyph.id == 0) {
-                    let range = run.text_range();
-                    let fallback_text = _text.get(range).unwrap_or_default();
+                    let fallback_text = glyph_text_range
+                        .clone()
+                        .and_then(|range| _text.get(range))
+                        .unwrap_or_default();
                     let family = rich_style
                         .and_then(|style| style.font_family.as_deref())
                         .unwrap_or_else(|| self.measurer.default_font_family())
@@ -3387,7 +3392,9 @@ impl<'a> VelloRenderer<'a> {
 
                         #[cfg(target_arch = "wasm32")]
                         let used_browser_fallback = if glyphs.iter().any(|glyph| glyph.id == 0) {
-                            let fallback_text = text.get(run.text_range()).unwrap_or_default();
+                            let fallback_text = text::glyph_run_text_range(&glyph_run)
+                                .and_then(|range| text.get(range))
+                                .unwrap_or_default();
                             let metrics = run.metrics();
                             let family = self.measurer.default_font_family().to_owned();
                             self.draw_browser_text_fallback(

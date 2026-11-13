@@ -849,11 +849,8 @@ impl WebCanvasPresenter {
         Ok(Self {
             canvas,
             context,
-            // Canvas2D is a software fallback. A full-window backdrop blur and an extra
-            // viewport-sized clip layer both cost heavily in WebAssembly, so keep the modal's
-            // translucent scrim while omitting those redundant fallback operations.
+            // The software fallback renders the same declared effects as the GPU path.
             cpu_renderer: fission_render_vello::cpu::CpuRenderer::new()
-                .with_backdrop_filters(false)
                 .with_exact_root_clip_elision(true),
             report: RendererReport::new(
                 "canvas2d-software",
