@@ -439,6 +439,27 @@ fn resolved_paragraph_cache_obeys_entry_and_byte_limits() {
 }
 
 #[test]
+fn updating_a_valid_graph_rejects_duplicate_node_ids() {
+    let root = WidgetId::from_u128(20);
+    let child = WidgetId::from_u128(21);
+    let valid = vec![
+        box_node(root, None, vec![child]),
+        box_node(child, Some(root), vec![]),
+    ];
+    let mut engine = LayoutEngine::new();
+    engine
+        .compute_layout(&valid, root, LayoutSize::new(100.0, 100.0), &|_| 0.0)
+        .expect("initial valid graph");
+    let mut duplicate = valid;
+    duplicate.push(box_node(child, Some(root), vec![]));
+    engine.update(&duplicate);
+    let error = engine
+        .compute_layout(&duplicate, root, LayoutSize::new(100.0, 100.0), &|_| 0.0)
+        .expect_err("duplicate IDs must remain invalid after updating the graph");
+    assert!(error.to_string().contains("duplicate"), "{error}");
+}
+
+#[test]
 fn update_refreshes_node_order_for_reordered_flattened_inputs() {
     let root = WidgetId::from_u128(10);
     let first = WidgetId::from_u128(11);

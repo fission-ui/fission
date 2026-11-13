@@ -722,7 +722,6 @@ impl LayoutGraphState {
         if !order_matches {
             let changed_rich_text = self.changed_rich_text_nodes(input_nodes);
             self.replace_all_nodes(input_nodes);
-            self.rebuild_topology(LayoutGraphValidationState::default());
             return LayoutGraphUpdate {
                 changed: true,
                 changed_rich_text,
@@ -736,7 +735,6 @@ impl LayoutGraphState {
             let Some(current) = self.nodes.get(&node.id) else {
                 let changed_rich_text = self.changed_rich_text_nodes(input_nodes);
                 self.replace_all_nodes(input_nodes);
-                self.rebuild_topology(LayoutGraphValidationState::default());
                 return LayoutGraphUpdate {
                     changed: true,
                     changed_rich_text,
