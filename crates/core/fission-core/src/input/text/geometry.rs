@@ -825,11 +825,23 @@ impl TextInputController {
                         None
                     };
 
-                    let resolved = Self::resolved_paragraph_for_text(
-                        ctx.layout,
-                        text_op_node_id,
-                        &metric_text,
-                    );
+                    // A platform replacement or LiveTest FillText can update the
+                    // retained editing value before the declarative tree and layout
+                    // have been rebuilt. Do not use caret geometry or text width
+                    // resolved for the previous value during that interval.
+                    let layout_has_current_text = !ctx
+                        .text_edit
+                        .get(text_root)
+                        .is_some_and(|state| state.pending_model_sync);
+                    let resolved = layout_has_current_text
+                        .then(|| {
+                            Self::resolved_paragraph_for_text(
+                                ctx.layout,
+                                text_op_node_id,
+                                &metric_text,
+                            )
+                        })
+                        .flatten();
                     let resolved_caret =
                         resolved.and_then(|paragraph| paragraph.caret(metric_caret_idx, false));
                     let (caret_x, caret_y) = resolved_caret
@@ -848,13 +860,19 @@ impl TextInputController {
                     if scroll_direction == op::FlexDirection::Row {
                         // Handle horizontal scrolling for single-line text
                         let line_width = resolved
-                            .and_then(|paragraph| paragraph.lines.first())
-                            .map(|line| line.width)
-                            .or_else(|| {
-                                measurer
-                                    .get_line_metrics(&metric_text, font_size, None)
-                                    .first()
+                            .map(|paragraph| {
+                                paragraph
+                                    .lines
+                                    .iter()
                                     .map(|line| line.width)
+                                    .fold(0.0f32, f32::max)
+                            })
+                            .or_else(|| {
+                                let lines =
+                                    measurer.get_line_metrics(&metric_text, font_size, None);
+                                (!lines.is_empty()).then(|| {
+                                    lines.iter().map(|line| line.width).fold(0.0f32, f32::max)
+                                })
                             })
                             .unwrap_or_else(|| measurer.measure(&metric_text, font_size, None).0);
                         let caret_left = caret_x
@@ -883,7 +901,15 @@ impl TextInputController {
                         } else if visible_left < margin_left {
                             offset = (caret_left - margin_left).max(0.0f32);
                         }
-                        let content_w = scroll_geom.content_size.width.max(viewport_size.width);
+                        // The snapshot's content width can still describe the old,
+                        // short value. Include the current measured line and caret
+                        // padding so a replacement at the end can scroll immediately.
+                        let measured_content_width = line_width + caret_width + margin_right;
+                        let content_w = scroll_geom
+                            .content_size
+                            .width
+                            .max(measured_content_width)
+                            .max(viewport_size.width);
                         let max_offset = (content_w - viewport_size.width).max(0.0f32);
                         offset = offset.clamp(0.0f32, max_offset);
                         ctx.scroll.set_offset(scroll_id, offset);
