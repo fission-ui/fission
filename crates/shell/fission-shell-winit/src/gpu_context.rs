@@ -81,6 +81,20 @@ impl DeviceHandle {
     }
 }
 
+fn surface_device_limits(supported: Limits) -> Limits {
+    let defaults = Limits::default();
+    Limits {
+        // Metal can expose 15 varying locations while wgpu's generic default
+        // requests 16. Our built-in pipelines fit within that smaller budget;
+        // an unused default must not prevent the surface from being created.
+        // Leave the other requirements intact and retain pipeline validation.
+        max_inter_stage_shader_variables: defaults
+            .max_inter_stage_shader_variables
+            .min(supported.max_inter_stage_shader_variables),
+        ..defaults
+    }
+}
+
 impl RenderContext {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
@@ -210,7 +224,7 @@ impl RenderContext {
                 .await
                 .map_err(Error::RequestAdapter)?;
         let features = adapter.features();
-        let limits = Limits::default();
+        let limits = surface_device_limits(adapter.limits());
         let maybe_features = wgpu::Features::CLEAR_TEXTURE | wgpu::Features::PIPELINE_CACHE;
         let required_features = features & maybe_features;
         log::info!(
@@ -291,5 +305,42 @@ impl fmt::Debug for RenderSurface<'_> {
             .field("target_view", &self.target_view)
             .field("blitter", &"(not Debug)")
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn metal_varying_budget_does_not_reject_an_otherwise_supported_device() {
+        let supported = Limits {
+            max_inter_stage_shader_variables: 15,
+            ..Limits::default()
+        };
+        let requested = surface_device_limits(supported.clone());
+        assert!(requested.check_limits(&supported));
+        assert_eq!(requested, supported);
+    }
+
+    #[test]
+    fn larger_adapters_keep_the_existing_default_request() {
+        let supported = Limits {
+            max_inter_stage_shader_variables: 32,
+            ..Limits::default()
+        };
+        assert_eq!(surface_device_limits(supported), Limits::default());
+    }
+
+    #[test]
+    fn unrelated_renderer_requirements_are_not_silently_reduced() {
+        let supported = Limits {
+            max_bind_groups: 3,
+            max_inter_stage_shader_variables: 15,
+            ..Limits::default()
+        };
+        let requested = surface_device_limits(supported.clone());
+        assert_eq!(requested.max_bind_groups, Limits::default().max_bind_groups);
+        assert!(!requested.check_limits(&supported));
     }
 }
