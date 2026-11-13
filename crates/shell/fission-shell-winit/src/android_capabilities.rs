@@ -848,7 +848,7 @@ impl AndroidNotificationHost {
             if cancellation.wait(delay) {
                 return;
             }
-            if schedules.finish(&id, &cancellation) {
+            if schedules.finish(&request.id, &cancellation) {
                 let _ = host.show(request);
             }
         });
