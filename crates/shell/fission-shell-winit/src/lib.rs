@@ -9660,7 +9660,7 @@ where
                                                             );
                                                         let rendered = pipeline.retained_scene().map(
                                                             |scene| {
-                                                                fission_render_vello::cpu::render_to_rgba8(
+                                                                fission_render_vello::cpu::render_to_rgba8_for_screenshot(
                                                                     scene,
                                                                     render_target_size.0,
                                                                     render_target_size.1,
@@ -9885,7 +9885,7 @@ where
                                                                 env.theme.tokens.colors.background;
                                                             covered_window_screenshot(
                                                                 pipeline.retained_scene().map(|scene| {
-                                                                    fission_render_vello::cpu::render_to_rgba8(
+                                                        fission_render_vello::cpu::render_to_rgba8_for_screenshot(
                                                                         scene,
                                                                         render_target_size.0,
                                                                         render_target_size.1,

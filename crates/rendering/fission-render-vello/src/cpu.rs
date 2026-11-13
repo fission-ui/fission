@@ -284,6 +284,25 @@ pub fn render_to_rgba8(
     CpuRenderer::new().render_to_rgba8(scene, width, height, background, scale_factor, measurer)
 }
 
+/// Render a scene for screenshot fallback when the active renderer is GPU-backed.
+///
+/// A WebGPU screenshot may need to be reconstructed from the retained scene because the browser
+/// cannot reliably capture its swapchain. Keep this best-effort CPU path responsive by omitting
+/// backdrop filters, which can require a full-window software blur. The translucent scrim and
+/// the rest of the scene are preserved.
+pub fn render_to_rgba8_for_screenshot(
+    scene: &RenderScene,
+    width: u32,
+    height: u32,
+    background: RenderColor,
+    scale_factor: f64,
+    measurer: Arc<VelloTextMeasurer>,
+) -> Result<Vec<u8>> {
+    CpuRenderer::new()
+        .with_backdrop_filters(false)
+        .render_to_rgba8(scene, width, height, background, scale_factor, measurer)
+}
+
 fn pixmap_dimension(value: u32, axis: &str) -> Result<u16> {
     u16::try_from(value.max(1))
         .map_err(|_| anyhow!("CPU render target {axis} {value} exceeds the 65535 pixel limit"))
@@ -362,6 +381,74 @@ mod tests {
             .unwrap();
 
         assert_eq!(cleared_background, rasterized_background);
+    }
+
+    #[test]
+    fn screenshot_fallback_omits_full_window_backdrop_filters() {
+        let bounds = LayoutRect::new(0.0, 0.0, 48.0, 32.0);
+        let mut list = fission_render::DisplayList::new(bounds);
+        list.push(fission_render::DisplayOp::DrawRect {
+            rect: LayoutRect::new(0.0, 0.0, 24.0, 32.0),
+            fill: Some(fission_render::Fill::Solid(fission_render::Color {
+                r: 240,
+                g: 80,
+                b: 24,
+                a: 255,
+            })),
+            stroke: None,
+            corner_radius: 0.0,
+            shadow: None,
+            bounds: LayoutRect::new(0.0, 0.0, 24.0, 32.0),
+            node_id: None,
+            corner_radii: None,
+            border_sides: None,
+        });
+        list.push(fission_render::DisplayOp::DrawRect {
+            rect: LayoutRect::new(24.0, 0.0, 24.0, 32.0),
+            fill: Some(fission_render::Fill::Solid(fission_render::Color {
+                r: 24,
+                g: 80,
+                b: 240,
+                a: 255,
+            })),
+            stroke: None,
+            corner_radius: 0.0,
+            shadow: None,
+            bounds: LayoutRect::new(24.0, 0.0, 24.0, 32.0),
+            node_id: None,
+            corner_radii: None,
+            border_sides: None,
+        });
+        list.push(fission_render::DisplayOp::BackdropFilter {
+            rect: bounds,
+            filter: fission_ir::op::BackdropFilter::Blur(4.0),
+            corner_radius: 0.0,
+            bounds,
+            node_id: None,
+            corner_radii: None,
+        });
+        let scene = RenderScene::from_display_list(list);
+        let background = RenderColor {
+            r: 12,
+            g: 34,
+            b: 56,
+            a: 255,
+        };
+        let measurer = measurer();
+
+        let screenshot =
+            render_to_rgba8_for_screenshot(&scene, 48, 32, background, 1.0, measurer.clone())
+                .unwrap();
+        let without_backdrop = CpuRenderer::new()
+            .with_backdrop_filters(false)
+            .render_to_rgba8(&scene, 48, 32, background, 1.0, measurer.clone())
+            .unwrap();
+        let with_backdrop = CpuRenderer::new()
+            .render_to_rgba8(&scene, 48, 32, background, 1.0, measurer)
+            .unwrap();
+
+        assert_eq!(screenshot, without_backdrop);
+        assert_ne!(screenshot, with_backdrop);
     }
 
     #[test]
