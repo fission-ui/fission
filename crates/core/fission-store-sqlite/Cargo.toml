@@ -41,3 +41,8 @@ web-sys = { version = "0.3", features = ["Window"], optional = true }
 anyhow = "1"
 fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.15.1" }
 futures-lite = "2"
+
+[[example]]
+name = "web_transaction_cancellation"
+crate-type = ["cdylib"]
+required-features = ["web"]

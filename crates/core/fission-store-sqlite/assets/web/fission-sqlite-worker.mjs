@@ -352,7 +352,10 @@ const authorizerActions = {
   Function: 31, Savepoint: 32, Recursive: 33,
 };
 const authorizerActionGroups = {
-  Read: [19, 20, 21, 31],
+  // SQLITE_PRAGMA includes writes such as `PRAGMA user_version = ...` and
+  // `writable_schema = ON`. It is never an implicit read permission. Callers
+  // needing a pragma must name it explicitly with a Pragma rule.
+  Read: [20, 21, 31],
   Write: [9, 18, 23],
   Attach: [24, 25],
   Admin: [1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 26, 27, 28, 29, 30],
@@ -690,6 +693,12 @@ function errorResponse(error) {
 }
 
 function handleMessage(endpoint, data) {
+  if (data?.type === "client-closed") {
+    if (activeTransaction?.clientId === data.clientId) {
+      clearTransaction(activeTransaction, { rollback: true });
+    }
+    return;
+  }
   let operation;
   let request;
   try {

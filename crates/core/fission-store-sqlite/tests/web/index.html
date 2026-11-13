@@ -24,7 +24,29 @@
 
     try {
       const run = crypto.randomUUID();
-      if (new URL(location.href).searchParams.has("peer")) {
+      const search = new URL(location.href).searchParams;
+      if (search.has("lifetime_client")) {
+        const databaseName = search.get("database");
+        const marker = search.get("marker");
+        const held = await request("sql_tx_begin", {}, databaseName);
+        await transactionStatement(
+          held.transaction_id,
+          "sql_tx_execute",
+          "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
+          { Positional: [{ Text: marker }, { Text: "orphaned" }] },
+          databaseName,
+        );
+        addEventListener("message", (event) => {
+          if (event.origin === location.origin && event.source === parent &&
+              event.data?.type === "close-borrower" && event.data.marker === marker) {
+            if (!globalThis.__fissionSqliteCloseDatabase(databaseName)) {
+              throw new Error("borrower close did not find its database bridge");
+            }
+            parent.postMessage({ type: "borrower-closed", marker }, location.origin);
+          }
+        });
+        parent.postMessage({ type: "borrower-ready", marker }, location.origin);
+      } else if (search.has("peer")) {
         const peerRun = new URL(location.href).searchParams.get("run");
         const transactionId = new URL(location.href).searchParams.get("transaction_id");
         const workspaceA = new URL(location.href).searchParams.get("workspace_a");
@@ -133,6 +155,10 @@
         );
         globalThis.__FISSION_SQLITE_BRIDGE__.close();
       } else {
+        const { default: initializeRust, check_cancelled_begin } =
+          await import("./pkg/web_transaction_cancellation.js");
+        await initializeRust();
+        await check_cancelled_begin();
         await execute(
           "CREATE TABLE IF NOT EXISTS browser_smoke(run TEXT NOT NULL, writer TEXT NOT NULL)",
         );
@@ -144,6 +170,16 @@
         await execute(
           "CREATE TABLE IF NOT EXISTS browser_transaction_smoke(run TEXT PRIMARY KEY, value TEXT NOT NULL)",
         );
+        // SQLite Session inspects this table with table_xinfo during the first
+        // tracked INSERT. Denial is retained by Session until changeset capture,
+        // even when the INSERT itself succeeds. Grant only that schema read.
+        const sessionSchemaRead = {
+          action: "Pragma",
+          decision: "Allow",
+          firstArgument: "table_xinfo",
+          secondArgument: "browser_transaction_smoke",
+          database: "main",
+        };
         const transactionRun = crypto.randomUUID();
         const transaction = await request("sql_tx_begin", {
           operationContext: { operation_id: "browser-smoke-operation", next_op_seq: 1 },
@@ -151,6 +187,7 @@
             defaultDecision: "Deny",
             rules: [
               { action: "Read", decision: "Allow" },
+              sessionSchemaRead,
               {
                 action: "Insert",
                 decision: "Allow",
@@ -303,6 +340,53 @@
         }
         if (!commitContextExpired) throw new Error("commit left operation functions installed");
 
+        const versionRows = await request("sql_query", {
+          statement: { sql: "PRAGMA user_version" },
+        });
+        const originalVersion = versionRows.rows[0].values[0].Integer;
+        const schemaOnly = await request("sql_tx_begin", {
+          authorizerPolicy: {
+            defaultDecision: "Deny",
+            rules: [{ action: "Read", decision: "Allow" }, sessionSchemaRead],
+          },
+        });
+        const schemaRows = await transactionStatement(
+          schemaOnly.transaction_id,
+          "sql_tx_query",
+          "PRAGMA main.table_xinfo(browser_transaction_smoke)",
+        );
+        if (schemaRows.rows.length !== 2) {
+          throw new Error("explicit table_xinfo permission did not expose the tracked table schema");
+        }
+        let otherTableDenied = false;
+        try {
+          await transactionStatement(schemaOnly.transaction_id, "sql_tx_query",
+            "PRAGMA main.table_xinfo(browser_smoke)");
+        } catch (error) {
+          otherTableDenied = error.sqliteCode === 23;
+        }
+        if (!otherTableDenied) throw new Error("table_xinfo permission exposed an unrelated table");
+        const readOnly = await request("sql_tx_begin", {
+          authorizerPolicy: {
+            defaultDecision: "Deny",
+            rules: [{ action: "Read", decision: "Allow" }, sessionSchemaRead],
+          },
+        });
+        let pragmaDenied = false;
+        try {
+          await transactionStatement(readOnly.transaction_id, "sql_tx_execute",
+            `PRAGMA user_version = ${originalVersion + 1}`);
+        } catch (error) {
+          pragmaDenied = error.sqliteCode === 23;
+        }
+        if (!pragmaDenied) throw new Error("Read policy with table_xinfo permission allowed a modifying PRAGMA");
+        const unchangedVersion = await request("sql_query", {
+          statement: { sql: "PRAGMA user_version" },
+        });
+        if (unchangedVersion.rows[0].values[0].Integer !== originalVersion) {
+          throw new Error("denied PRAGMA changed persistent database metadata");
+        }
+
         const workspaceA = `workspace:${run}:a`;
         const workspaceB = `workspace:${run}:b`;
         const createWorkspaceTable =
@@ -346,6 +430,56 @@
         }, workspaceA);
         if (rolledBackWorkspace.rows[0]?.values[0]?.Integer !== 0) {
           throw new Error("named database transaction rollback left data behind");
+        }
+
+        // The parent remains the actual worker owner. A borrower must be able
+        // to leave without a Rust Drop or unload callback stranding that worker.
+        for (const mode of ["close", "destroy"]) {
+          const marker = `${run}:${mode}`;
+          const borrower = document.createElement("iframe");
+          borrower.hidden = true;
+          const url = new URL(location.href);
+          url.search = new URLSearchParams({ lifetime_client: "1", database: workspaceA, marker });
+          borrower.src = url;
+          const message = (type) => new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              removeEventListener("message", listener);
+              reject(new Error(`borrower ${type} timed out`));
+            }, 15000);
+            function listener(event) {
+              if (event.origin === location.origin && event.source === borrower.contentWindow &&
+                  event.data?.type === type && event.data.marker === marker) {
+                clearTimeout(timeout);
+                removeEventListener("message", listener);
+                resolve();
+              }
+            }
+            addEventListener("message", listener);
+          });
+          const ready = message("borrower-ready");
+          document.body.append(borrower);
+          await ready;
+          if (mode === "close") {
+            const closed = message("borrower-closed");
+            borrower.contentWindow.postMessage({ type: "close-borrower", marker }, location.origin);
+            await closed;
+          } else {
+            borrower.remove();
+          }
+          const deadline = performance.now() + 15000;
+          let recovered;
+          while (!recovered) {
+            try { recovered = await request("sql_tx_begin", {}, workspaceA); }
+            catch (error) {
+              if (error.code !== "busy" || performance.now() >= deadline) throw error;
+              await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+          }
+          const rows = await transactionStatement(recovered.transaction_id, "sql_tx_query",
+            "SELECT count(*) FROM browser_smoke WHERE run=?1", { Positional: [{ Text: marker }] }, workspaceA);
+          await request("sql_tx_rollback", recovered, workspaceA);
+          if (rows.rows[0].values[0].Integer !== 0) throw new Error("borrower loss committed its write");
+          borrower.remove();
         }
 
         const held = await request("sql_tx_begin", {}, workspaceA);

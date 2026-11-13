@@ -50,11 +50,11 @@ impl WebSqliteStore {
         })
     }
 
-    /// Closes this handle's browser worker and releases its writer lock. A
-    /// later request on this handle (or another handle with the same name)
-    /// starts a fresh worker and reopens the same OPFS database. Call this
-    /// after pending operations complete; an open transaction is rolled back
-    /// when its worker is closed.
+    /// Closes this browser context's database connection and cancels its open
+    /// transaction, including when another tab owns the actual SQLite worker.
+    /// If this context owns the worker, closing it also releases its writer
+    /// lock. A later request reopens the same OPFS database. Call this after
+    /// pending operations complete.
     pub fn close(&self) -> Result<(), SqlError> {
         ensure_sqlite_bridge().map_err(sql_error)?;
         let database_name = self
@@ -71,14 +71,20 @@ impl WebSqliteStore {
     /// Begins a worker-owned transaction which remains open across requests.
     /// Requests for this same database from other browser contexts receive
     /// `SqlErrorKind::Busy` until this transaction commits or rolls back.
+    /// Cancelling this future requests rollback of its eventual transaction,
+    /// even if the worker has begun it before Rust receives the handle.
     pub async fn begin_transaction(
         &self,
         options: WebSqliteTransactionOptions,
     ) -> Result<WebSqliteTransaction, SqlError> {
-        let result: TransactionIdResponse =
-            request(self.database_name.as_deref(), "sql_tx_begin", options)
-                .await
-                .map_err(sql_error)?;
+        let promise = start_request(self.database_name.as_deref(), "sql_tx_begin", options)
+            .map_err(sql_error)?;
+        let rollback = TransactionBeginRollback {
+            database_name: self.database_name.clone(),
+            promise: Some(promise.clone()),
+        };
+        let result: TransactionIdResponse = await_response(promise).await.map_err(sql_error)?;
+        rollback.disarm();
         Ok(WebSqliteTransaction {
             id: result.transaction_id,
             database_name: self.database_name.clone(),
@@ -134,7 +140,9 @@ pub enum WebSqliteAuthorizerDecision {
 
 /// SQLite authorizer operations. `Read`, `Write`, `Attach`, and `Admin` group
 /// the corresponding SQLite action codes; the remaining variants target one
-/// exact SQLite action.
+/// exact SQLite action. `Read` allows reads, selections and function calls,
+/// but not PRAGMAs: those can modify persistent state and require an explicit
+/// `Pragma` rule. Custom SQL functions must enforce their own side-effect policy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WebSqliteAuthorizerAction {
     Any,
@@ -177,7 +185,7 @@ pub enum WebSqliteAuthorizerAction {
 
 /// Match an authorizer callback and allow or deny that operation. Exact
 /// argument filters are case-insensitive. Prefix filters support dynamic
-/// protected table names such as `_personaldb_`.
+/// protected table names such as `_internal_`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebSqliteAuthorizerRule {
@@ -203,7 +211,7 @@ pub struct WebSqliteAuthorizerRule {
     pub trigger: Option<String>,
 }
 
-/// Values exposed by PersonalDB's transaction-context SQL functions.
+/// Values exposed by the transaction-context SQL functions.
 /// `pdb_next_op_seq()` returns this value first, then increments on each call.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebSqliteOperationContext {
@@ -452,6 +460,39 @@ impl Drop for WebSqliteTransaction {
     }
 }
 
+/// A BEGIN request can outlive its Rust future. Retain the started JS promise
+/// until either the returned handle takes ownership or cancellation queues a
+/// cleanup task which waits for its exact transaction ID before rolling back.
+struct TransactionBeginRollback {
+    database_name: Option<String>,
+    promise: Option<js_sys::Promise>,
+}
+
+impl TransactionBeginRollback {
+    fn disarm(mut self) {
+        self.promise = None;
+    }
+}
+
+impl Drop for TransactionBeginRollback {
+    fn drop(&mut self) {
+        let Some(promise) = self.promise.take() else {
+            return;
+        };
+        let database_name = self.database_name.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Ok(result) = await_response::<TransactionIdResponse>(promise).await {
+                let _ = request::<_, ()>(
+                    database_name.as_deref(),
+                    "sql_tx_rollback",
+                    TransactionIdRequest::new(&result.transaction_id),
+                )
+                .await;
+            }
+        });
+    }
+}
+
 #[derive(Serialize)]
 struct TransactionIdRequest {
     transaction_id: String,
@@ -552,6 +593,14 @@ where
     Q: Serialize,
     R: DeserializeOwned,
 {
+    await_response(start_request(database_name, operation, request)?).await
+}
+
+fn start_request<Q: Serialize>(
+    database_name: Option<&str>,
+    operation: &str,
+    request: Q,
+) -> Result<js_sys::Promise, WebSqliteError> {
     ensure_sqlite_bridge()?;
     #[derive(Serialize)]
     struct Request<'a, Q> {
@@ -567,7 +616,12 @@ where
         request,
     })
     .map_err(|error| WebSqliteError::new("serialization", error.to_string()))?;
-    let promise = sqlite_request(value).map_err(js_error)?;
+    sqlite_request(value).map_err(js_error)
+}
+
+async fn await_response<R: DeserializeOwned>(
+    promise: js_sys::Promise,
+) -> Result<R, WebSqliteError> {
     let response = JsFuture::from(promise).await.map_err(js_error)?;
     serde_wasm_bindgen::from_value(response)
         .map_err(|error| WebSqliteError::new("serialization", error.to_string()))
