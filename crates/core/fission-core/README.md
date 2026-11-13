@@ -56,6 +56,8 @@ The scoped context handle available during authoring conversion. Use it to:
 - **Bind** actions to handlers: `with_reducer!(ctx, MyAction { .. }, my_handler)` or `#[fission_reducer(MyAction)]` for compact one-reducer actions
 - **Register portals** (overlays, modals, toasts)
 - **Request animations**
+- **Declare scroll dependencies** when a custom composed widget reads an offset to virtualize children:
+  `ctx.mark_scroll_build_dependency(scroll_id)` before reading `view.runtime().scroll.get_offset(scroll_id)`.
 
 ### ViewHandle
 

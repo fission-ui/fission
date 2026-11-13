@@ -62,7 +62,11 @@ impl<'a> LoweringContext<'a> {
     }
 
     /// Marks a scroll node whose authored children depend on its live offset.
-    pub(crate) fn mark_scroll_build_dependency(&mut self, node_id: WidgetId) {
+    ///
+    /// Widgets built through [`crate::build::BuildCtxHandle`] normally declare
+    /// this dependency during composition. Custom lowering implementations can
+    /// call this directly when they create offset-dependent children.
+    pub fn mark_scroll_build_dependency(&mut self, node_id: WidgetId) {
         self.ir.scroll_build_dependencies.insert(node_id);
     }
 
