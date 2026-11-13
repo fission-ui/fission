@@ -284,7 +284,8 @@ impl JobCtx {
 
     /// Opens a runtime-owned data stream for this job.
     ///
-    /// Streams are one-shot by default; opening consumes the stream handle.
+    /// Streams are one-shot by default. The stream's registry entry is released
+    /// when the returned stream is dropped.
     pub fn open_data_stream(
         &self,
         id: DataStreamId,
@@ -292,7 +293,7 @@ impl JobCtx {
         self.data_streams.open(id)
     }
 
-    /// Releases a stream without consuming it.
+    /// Releases a stream that will not be opened.
     pub fn release_data_stream(&self, id: DataStreamId) -> bool {
         self.data_streams.release(id)
     }
@@ -391,7 +392,8 @@ impl<S: ServiceSpec> ServiceCtx<S> {
 
     /// Opens a runtime-owned data stream for this service.
     ///
-    /// Streams are one-shot by default; opening consumes the stream handle.
+    /// Streams are one-shot by default. The stream's registry entry is released
+    /// when the returned stream is dropped.
     pub fn open_data_stream(
         &self,
         id: DataStreamId,
@@ -399,7 +401,7 @@ impl<S: ServiceSpec> ServiceCtx<S> {
         self.inner.data_streams.open(id)
     }
 
-    /// Releases a stream without consuming it.
+    /// Releases a stream that will not be opened.
     pub fn release_data_stream(&self, id: DataStreamId) -> bool {
         self.inner.data_streams.release(id)
     }

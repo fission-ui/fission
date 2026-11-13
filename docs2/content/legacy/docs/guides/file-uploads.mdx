@@ -149,10 +149,12 @@ fn on_attachment_pick_failed(state: &mut AppState, ctx: &mut ReducerContext<AppS
 ```
 
 `PickedFile` already contains the required metadata; there is no need to copy
-its fields into a second app type. Its stream is one-shot: after a job or
-service opens it, another open fails with `AlreadyConsumed`. Picking another
-file gives a new handle. This flow requires a fresh selection after an upload
-attempt; a Retry button cannot replay consumed bytes automatically.
+its fields into a second app type. Its stream is one-shot: while a job or
+service is consuming it, another open fails with `AlreadyConsumed`. Dropping
+the opened stream releases its registry entry; a later attempt with the old id
+returns `NotFound`. Picking another file gives a new handle. This flow requires
+a fresh selection after an upload attempt; a Retry button cannot replay
+consumed bytes automatically.
 
 ## 4. Consume the stream in a job
 

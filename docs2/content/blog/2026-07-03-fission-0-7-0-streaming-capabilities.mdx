@@ -45,7 +45,7 @@ The new public stream surface includes:
 - `FissionDataStreamError` and `FissionDataStreamErrorKind` for portable stream failures;
 - helpers such as `single_chunk_data_stream`, `empty_data_stream`, and `collect_data_stream`.
 
-Streams have one consumer by default. Opening one consumes its registry slot; trying to open it again returns `AlreadyConsumed`. Accidental duplicate processing therefore fails clearly instead of behaving unpredictably.
+Streams have one consumer by default. While an opened stream is alive, another open returns `AlreadyConsumed`. Dropping the stream releases its registry entry, so a later attempt with that stale id returns `NotFound`. This keeps duplicate processing detectable during consumption without retaining old stream ids for the lifetime of the app.
 
 ## File uploads now use streams
 
