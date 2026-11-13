@@ -2161,7 +2161,7 @@ fn test_single_line_replacement_scrolls_using_the_new_text_value() {
     let scroll_id = WidgetId::derived(212, &[1]);
     let text_id = WidgetId::derived(212, &[2]);
     let previous_value = "x";
-    let replacement = "PersonalDB Web slide persisted by LiveTest";
+    let replacement = "A long document title replaced through LiveTest";
     let ir = create_rich_text_input_tree(input_id, scroll_id, text_id, previous_value, false);
 
     let mut layout = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
