@@ -750,12 +750,13 @@ impl TextInputController {
         Some(fission_layout::LayoutRect::new(x, y, 2.0, line_height))
     }
 
-    pub(super) fn auto_scroll_textinput(ctx: &mut ControllerContext, text_root: WidgetId) {
+    pub(crate) fn auto_scroll_textinput(ctx: &mut ControllerContext, text_root: WidgetId) -> bool {
         if Self::runtime_config(ctx, text_root)
             .is_some_and(|config| config.scroll_policy == TextScrollPolicy::Never)
         {
-            return;
+            return false;
         }
+        let mut changed = false;
         let font_size = Self::extract_font_size(ctx.ir, text_root).unwrap_or(16.0);
         if let Some(measurer) = ctx.measurer {
             // Need to get multiline status from semantics here
@@ -856,6 +857,7 @@ impl TextInputController {
                         });
 
                     let mut offset = ctx.scroll.get_offset(scroll_id);
+                    let previous_offset = offset;
 
                     if scroll_direction == op::FlexDirection::Row {
                         // Handle horizontal scrolling for single-line text
@@ -958,9 +960,11 @@ impl TextInputController {
                         offset = offset.clamp(0.0f32, max_offset);
                         ctx.scroll.set_offset(scroll_id, offset);
                     }
+                    changed |= (offset - previous_offset).abs() > 0.001;
                 }
             }
         }
+        changed
     }
 
     pub(super) fn handle_vertical_navigation(
