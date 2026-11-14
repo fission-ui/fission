@@ -6,6 +6,7 @@ import {
   fissionClosePickedFileWriter,
   fissionOpenPickedFileWriter,
   fissionPickSaveFile,
+  fissionReleaseWritableFile,
   fissionWritePickedFileChunk,
 } from "../src/web_file_picker.mjs";
 
@@ -61,6 +62,10 @@ test("a picked Web save destination remains usable after writes and failures", a
     await fissionWritePickedFileChunk(recoveredWriter, new TextEncoder().encode("saved after retry"));
     await fissionClosePickedFileWriter(recoveredWriter);
     assert.equal(savedText, "saved after retry");
+
+    fissionReleaseWritableFile(selected.id);
+    await assert.rejects(fissionOpenPickedFileWriter(selected.id), { name: "invalid_handle" });
+    assert.doesNotThrow(() => fissionReleaseWritableFile(selected.id));
 
     globalThis.showSaveFilePicker = async () => {
       throw new DOMException("user cancelled", "AbortError");
@@ -187,7 +192,14 @@ test("a Web save handle restores from IndexedDB with its current permission", as
     await restoredSession.fissionClosePickedFileWriter(writer);
     assert.equal(savedText, "saved");
 
+    restoredSession.fissionReleaseWritableFile(restored.id);
+    await assert.rejects(restoredSession.fissionOpenPickedFileWriter(restored.id), { name: "invalid_handle" });
+    const restoredAgain = await restoredSession.fissionRestoreSaveFile("monthly-report");
+    assert.equal(restoredAgain.name, "report.txt");
+
     await restoredSession.fissionForgetSaveFile("monthly-report");
+    restoredSession.fissionReleaseWritableFile(restoredAgain.id);
+    firstSession.fissionReleaseWritableFile(selected.id);
     const afterForget = await restoredSession.fissionRestoreSaveFile("monthly-report");
     assert.equal(afterForget, null);
     assert.equal(records.has(databaseKey(["fission.save-file", "monthly-report"])), false);

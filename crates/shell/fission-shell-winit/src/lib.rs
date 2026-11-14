@@ -496,6 +496,14 @@ fn register_unsupported_file_picker_capability(async_registry: &mut AsyncRegistr
             )
         },
     );
+    async_registry.register_operation_capability(
+        fission_core::RELEASE_WRITABLE_FILE,
+        |_request: fission_core::ReleaseWritableFileRequest, _| async move {
+            Err::<(), _>(fission_core::FileSystemError::unsupported(
+                "release_writable_file",
+            ))
+        },
+    );
 }
 
 fn collect_startup_deep_links(config: &DeepLinkConfig) -> Vec<DeepLink> {

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Writable file handle lifecycle** - Applications can explicitly release a
+  picked or restored save-file handle after the last write, dropping retained
+  host handles without deleting the file or its persisted browser grant.
+
 ## [0.16.0] - 2026-11-13
 
 ### Added

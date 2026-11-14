@@ -226,3 +226,7 @@ export function fissionClosePickedFileWriter(writable) {
 export function fissionAbortPickedFileWriter(writable) {
   return writable.abort();
 }
+
+export function fissionReleaseWritableFile(fileId) {
+  writableFiles.delete(Number(fileId));
+}
