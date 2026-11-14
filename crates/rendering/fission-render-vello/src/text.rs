@@ -747,8 +747,13 @@ impl VelloTextMeasurer {
         width: Option<f32>,
     ) -> Arc<Layout<ParleyBrush>> {
         let start = Instant::now();
-        let style_keys: Vec<RichStyleKey> = styles
-            .iter()
+        // Parley requires every emitted style run to cover at least one byte.
+        // Empty rich-text runs are useful for representing an empty caret
+        // continuation, but their style has no text to affect and must not be
+        // forwarded as a zero-length range.
+        let non_empty_styles = styles.iter().filter(|(range, _)| range.start < range.end);
+        let style_keys: Vec<RichStyleKey> = non_empty_styles
+            .clone()
             .map(|(r, s)| RichStyleKey {
                 range: r.clone(),
                 font_size_bits: s.font_size.to_bits(),
@@ -831,7 +836,7 @@ impl VelloTextMeasurer {
                     });
                 }
 
-                for (range, style) in styles {
+                for (range, style) in non_empty_styles {
                     let brush =
                         ParleyBrush([style.color.r, style.color.g, style.color.b, style.color.a]);
                     builder.push(StyleProperty::Brush(brush), range.clone());
@@ -1607,6 +1612,27 @@ mod tests {
                 rich.text
             );
         }
+    }
+
+    #[test]
+    fn empty_rich_text_run_does_not_create_an_empty_parley_style_range() {
+        let measurer = measurer();
+        let mut continuation = text_run("", 18.0, 24.0);
+        continuation.style.font_weight = 700;
+
+        // Empty continuation runs are valid rich-text input. They carry the
+        // active paragraph style even though there are no bytes to style.
+        // Keep real text in the paragraph so Parley's style-run analysis runs.
+        let (width, height) =
+            measurer.measure_rich_text(&[text_run("First", 18.0, 24.0), continuation], None);
+
+        assert!(width.is_finite());
+        assert!(height.is_finite());
+        assert_eq!(
+            (width, height),
+            measurer.measure_rich_text(&[text_run("First", 18.0, 24.0)], None),
+            "an empty styled run must not affect paragraph geometry"
+        );
     }
 
     #[test]
