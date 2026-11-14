@@ -70,6 +70,40 @@ pub(crate) struct SemanticRecord {
     pub(crate) node: fission_test_driver::SemanticNode,
 }
 
+/// Finds the nearest measured layout node that represents a semantic node.
+/// `SemanticsRegion` is an accessibility wrapper, so its own IR node often has
+/// no layout geometry even though its child subtree does.
+pub(crate) fn layout_target_for_semantic(
+    ir: &CoreIR,
+    snap: &fission_layout::LayoutSnapshot,
+    semantic_id: WidgetId,
+) -> Option<WidgetId> {
+    if snap.get_node_geometry(semantic_id).is_some() {
+        return Some(semantic_id);
+    }
+
+    let mut frontier = ir.nodes.get(&semantic_id)?.children.clone();
+    let mut visited = HashSet::new();
+    while !frontier.is_empty() {
+        frontier.sort_unstable_by_key(|id| id.as_u128());
+        let mut next = Vec::new();
+        for descendant_id in frontier {
+            if !visited.insert(descendant_id) {
+                continue;
+            }
+            if snap.get_node_geometry(descendant_id).is_some() {
+                return Some(descendant_id);
+            }
+            if let Some(descendant) = ir.nodes.get(&descendant_id) {
+                next.extend(descendant.children.iter().copied());
+            }
+        }
+        frontier = next;
+    }
+
+    None
+}
+
 pub(crate) fn collect_semantic_records(
     ir: &CoreIR,
     snap: &fission_layout::LayoutSnapshot,
@@ -117,11 +151,12 @@ fn semantic_record_for_node(
     let fission_ir::Op::Semantics(semantics) = &node.op else {
         return None;
     };
+    let layout_target = layout_target_for_semantic(ir, snap, id).unwrap_or(id);
     let logical = snap
-        .get_node_rect(id)
+        .get_node_rect(layout_target)
         .unwrap_or_else(|| LayoutRect::new(0.0, 0.0, 0.0, 0.0));
-    let visual = visual_rect_for_node(ir, snap, scroll, id);
-    let visible = clipped_visible_rect_for_node(ir, snap, scroll, id);
+    let visual = visual_rect_for_node(ir, snap, scroll, layout_target);
+    let visible = clipped_visible_rect_for_node(ir, snap, scroll, layout_target);
     let visibility = visibility_state(visual, visible);
     let visible_bounds = visible.map(bounds_from_rect);
     let legacy_bounds = visible_bounds.unwrap_or(fission_test_driver::Bounds {

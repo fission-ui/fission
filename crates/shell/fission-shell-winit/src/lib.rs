@@ -4577,9 +4577,15 @@ fn handle_scroll_into_view_selector(
             let needs_scroll =
                 record.node.visibility != fission_test_driver::VisibilityState::FullyVisible;
             if needs_scroll {
+                let target = pipeline
+                    .prev_ir
+                    .as_ref()
+                    .zip(pipeline.last_snapshot.as_ref())
+                    .and_then(|(ir, snapshot)| layout_target_for_semantic(ir, snapshot, record.id))
+                    .unwrap_or(record.id);
                 runtime.queue_scroll_into_view(ScrollIntoViewRequest {
                     container: None,
-                    target: record.id,
+                    target,
                     axis: ScrollAxis::Both,
                     alignment: ScrollAlignment::Nearest,
                     padding: [8.0, 8.0, 8.0, 8.0],
@@ -11566,10 +11572,10 @@ mod tests {
         animation_redraw_interval, build_window_attributes, clamp_copy_extent_to_texture,
         classify_web_text_value, collect_semantic_records, collect_startup_deep_links_from,
         cursor_icon_for, downscale_rgba_box, fission_key_down_event, focused_text_input_id,
-        handle_fill_text_selector, layout_size_to_image_dimensions,
-        logical_viewport_to_physical_size, logical_viewport_to_render_target_size,
-        magnification_scale_factor, map_test_pointer_id, map_test_pointer_kind,
-        map_test_pointer_phase, map_test_scroll_delta_mode, map_touch_phase,
+        handle_fill_text_selector, handle_scroll_into_view_selector,
+        layout_size_to_image_dimensions, logical_viewport_to_physical_size,
+        logical_viewport_to_render_target_size, magnification_scale_factor, map_test_pointer_id,
+        map_test_pointer_kind, map_test_pointer_phase, map_test_scroll_delta_mode, map_touch_phase,
         native_window_size_for_logical_viewport, normalize_scale_factor,
         normalize_winit_scroll_delta, physical_position_to_layout_point,
         physical_size_to_layout_size, preferred_native_present_mode, preferred_surface_alpha_mode,
@@ -11608,6 +11614,114 @@ mod tests {
     }
 
     impl GlobalState for TimerWakeState {}
+
+    #[test]
+    fn live_test_scroll_into_view_reveals_a_semantics_wrapper_without_layout_geometry() {
+        let root = WidgetId::explicit("root");
+        let scroll = WidgetId::explicit("document-scroll");
+        let page = WidgetId::explicit("page-frame");
+        let semantic_page = WidgetId::explicit("page-semantic-region");
+        let page_content = WidgetId::explicit("page-content");
+        let box_op = || {
+            Op::Layout(LayoutOp::Box {
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            })
+        };
+
+        let mut ir = CoreIR::new();
+        ir.add_node(page_content, box_op(), Vec::new());
+        ir.add_node(
+            semantic_page,
+            Op::Semantics(Semantics {
+                role: Role::Text,
+                identifier: Some("document.page.2".into()),
+                value: Some("Page 2/2".into()),
+                ..Default::default()
+            }),
+            vec![page_content],
+        );
+        ir.add_node(page, box_op(), vec![semantic_page]);
+        ir.add_node(
+            scroll,
+            Op::Layout(LayoutOp::Scroll {
+                direction: FlexDirection::Column,
+                show_scrollbar: true,
+                width: Some(100.0),
+                height: Some(100.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+            }),
+            vec![page],
+        );
+        ir.add_node(root, box_op(), vec![scroll]);
+        ir.set_root(root);
+
+        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
+        for (id, rect, content_size) in [
+            (
+                root,
+                LayoutRect::new(0.0, 0.0, 100.0, 100.0),
+                LayoutSize::new(100.0, 100.0),
+            ),
+            (
+                scroll,
+                LayoutRect::new(0.0, 0.0, 100.0, 100.0),
+                LayoutSize::new(100.0, 500.0),
+            ),
+            (
+                page,
+                LayoutRect::new(0.0, 250.0, 100.0, 60.0),
+                LayoutSize::new(100.0, 60.0),
+            ),
+            (
+                page_content,
+                LayoutRect::new(0.0, 260.0, 100.0, 40.0),
+                LayoutSize::new(100.0, 40.0),
+            ),
+        ] {
+            snapshot
+                .nodes
+                .insert(id, LayoutNodeGeometry { rect, content_size });
+        }
+
+        let mut pipeline = crate::Pipeline::new();
+        pipeline.prev_ir = Some(ir.clone());
+        pipeline.last_snapshot = Some(snapshot.clone());
+        let query = fission_test_driver::SelectorQuery::semantic_identifier("document.page.2")
+            .include_hidden();
+        let mut runtime = Runtime::default();
+
+        let (response, needs_scroll) =
+            handle_scroll_into_view_selector(&query, &mut runtime, &pipeline);
+        assert!(matches!(
+            response,
+            fission_test_driver::TestResponse::SelectorResolved { .. }
+        ));
+        assert!(needs_scroll);
+        assert!(runtime.post_layout_hook(&ir, &snapshot));
+        assert_eq!(runtime.runtime_state.scroll.get_offset(scroll), 208.0);
+
+        let visible = resolve_selector_record(&pipeline, &runtime.runtime_state.scroll, &query)
+            .expect("semantic page remains selectable after scrolling");
+        assert_eq!(
+            visible.node.visibility,
+            fission_test_driver::VisibilityState::FullyVisible
+        );
+    }
 
     #[test]
     fn only_changed_scroll_build_dependencies_request_tree_rebuilds() {
