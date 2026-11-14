@@ -3,6 +3,8 @@ use fission::compose::identity::{BindingProbe, BindingRecord};
 use fission::prelude::*;
 use fission_core::{self as core, ActionInput, UpdateTextInput};
 
+mod ignored_bindings;
+
 struct Harness {
     state: AppState,
     runtime: core::RuntimeState,

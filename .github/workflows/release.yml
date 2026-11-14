@@ -51,6 +51,9 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: test -n "$CARGO_REGISTRY_TOKEN"
 
+      - name: Preserve workflow-version verification harness
+        run: git show "$GITHUB_SHA:scripts/smoke_published_release.sh" > "$RUNNER_TEMP/smoke_published_release.sh"
+
       - name: Resolve immutable release source
         id: source
         shell: bash
@@ -160,7 +163,15 @@ jobs:
 
       - name: Smoke published CLI and generated Web application
         if: steps.publish.outputs.state == 'complete'
-        run: ./scripts/smoke_published_release.sh "$RELEASE_VERSION"
+        run: bash "$RUNNER_TEMP/smoke_published_release.sh" "$RELEASE_VERSION"
+
+      - name: Preserve generated application build diagnostics
+        if: always() && steps.publish.outputs.state == 'complete'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ inputs.version }}-web-smoke-log
+          path: ${{ runner.temp }}/fission-release-smoke/fission-run.log
+          if-no-files-found: ignore
 
       - name: Publish GitHub release
         if: steps.publish.outputs.state == 'complete'
