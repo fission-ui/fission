@@ -11548,10 +11548,9 @@ mod tests {
         sync_tracked_target_texture_size_to_surface, test_pump_can_ack_current_frame,
         text_input_blink_enabled, texture_plans_fit_device_limits, visual_rect_for_node,
         web_effective_render_scale, web_live_test_event_loop_wait_until,
-        window_insets_from_safe_area_frames,
-        windows_shell_execute_succeeded, windows_wide, BrowserDefaults, ControlFlow,
-        FrameScheduleState, Instant, LiveResizeController, RedrawRequestTiming,
-        SurfaceAcquireRecovery, TestPumpState, WindowViewportState,
+        window_insets_from_safe_area_frames, windows_shell_execute_succeeded, windows_wide,
+        BrowserDefaults, ControlFlow, FrameScheduleState, Instant, LiveResizeController,
+        RedrawRequestTiming, SurfaceAcquireRecovery, TestPumpState, WindowViewportState,
     };
     use crate::pipeline::{software_frame_needs_raster, CompositorTexturePlan};
     use crate::InvalidationSet;
