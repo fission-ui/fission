@@ -1064,6 +1064,7 @@ pub(crate) fn resolve_rich_text_annotation_at_index(
         spell_out: None,
         mouse_cursor: None,
         actions: Vec::new(),
+        hyperlink: None,
     };
 
     for annotation in matches {
@@ -1078,6 +1079,9 @@ pub(crate) fn resolve_rich_text_annotation_at_index(
         }
         if annotation.mouse_cursor.is_some() {
             resolved.mouse_cursor = annotation.mouse_cursor;
+        }
+        if annotation.hyperlink.is_some() {
+            resolved.hyperlink = annotation.hyperlink.clone();
         }
         for action in &annotation.actions {
             upsert_resolved_action(&mut resolved.actions, action.clone());

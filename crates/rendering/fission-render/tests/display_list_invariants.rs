@@ -183,6 +183,7 @@ fn test_rich_text_display_ops_preserve_caret_metadata() {
                     payload_data: Some(vec![2]),
                 },
             ],
+            hyperlink: None,
         }],
         resolved_layout: None,
     };

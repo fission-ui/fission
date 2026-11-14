@@ -12388,6 +12388,136 @@ mod tests {
     }
 
     #[test]
+    fn web_semantic_records_project_rich_text_links_to_line_fragments() {
+        let root = WidgetId::explicit("web-rich-link-root");
+        let paint = WidgetId::explicit("web-rich-link-paint");
+        let link = WidgetId::explicit("web-rich-link-semantics");
+        let hyperlink = fission_ir::Hyperlink::new("https://example.com/guide");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            link,
+            Op::Semantics(Semantics {
+                role: Role::Link,
+                label: Some("docs".into()),
+                identifier: Some("docs-link".into()),
+                hyperlink: Some(hyperlink.clone()),
+                focusable: true,
+                ..Semantics::default()
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            paint,
+            Op::Paint(fission_ir::PaintOp::DrawRichText {
+                runs: vec![fission_ir::op::TextRun {
+                    text: "Read docs".into(),
+                    style: fission_ir::op::TextStyle {
+                        font_size: 16.0,
+                        color: fission_ir::op::Color::BLACK,
+                        underline: false,
+                        font_family: None,
+                        locale: None,
+                        font_weight: 400,
+                        font_style: fission_ir::op::FontStyle::Normal,
+                        line_height: None,
+                        letter_spacing: 0.0,
+                        background_color: None,
+                        typography: Default::default(),
+                    },
+                }],
+                wrap: true,
+                caret_index: None,
+                caret_color: None,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: None,
+            }),
+            vec![link],
+        );
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::Box {
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            }),
+            vec![paint],
+        );
+        ir.set_root(root);
+        ir.custom_render_objects.insert(
+            paint,
+            std::sync::Arc::new(vec![fission_ir::op::RichTextAnnotation {
+                range: 5..9,
+                semantics_label: Some("docs".into()),
+                semantics_identifier: Some("docs-link".into()),
+                spell_out: None,
+                mouse_cursor: Some(fission_ir::op::MouseCursor::Pointer),
+                actions: Vec::new(),
+                hyperlink: Some(hyperlink),
+            }]),
+        );
+
+        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(160.0, 40.0));
+        for (id, rect, content_size) in [
+            (
+                root,
+                LayoutRect::new(0.0, 0.0, 160.0, 40.0),
+                LayoutSize::new(160.0, 40.0),
+            ),
+            (
+                paint,
+                LayoutRect::new(10.0, 8.0, 100.0, 20.0),
+                LayoutSize::new(100.0, 20.0),
+            ),
+        ] {
+            snapshot
+                .nodes
+                .insert(id, LayoutNodeGeometry { rect, content_size });
+        }
+        snapshot.paragraphs.insert(
+            paint,
+            fission_layout::ResolvedParagraphLayout {
+                constraint_width: Some(100.0),
+                size: LayoutSize::new(100.0, 20.0),
+                lines: Vec::new(),
+                inline_boxes: Vec::new(),
+                clusters: Vec::new(),
+                glyphs: Vec::new(),
+                caret_stops: Vec::new(),
+                selection_boxes: vec![fission_layout::ParagraphSelectionBox {
+                    start_index: 5,
+                    end_index: 9,
+                    line_index: 0,
+                    rect: LayoutRect::new(50.0, 0.0, 40.0, 16.0),
+                }],
+            },
+        );
+
+        let records = collect_semantic_records(&ir, &snapshot, &ScrollStateMap::default());
+        let record = records
+            .iter()
+            .find(|record| record.node.identifier.as_deref() == Some("docs-link"))
+            .expect("inline link semantic record");
+        assert_eq!(
+            record.semantics.hyperlink.as_ref().unwrap().href,
+            "https://example.com/guide"
+        );
+        assert_eq!(record.link_fragments.len(), 1);
+        assert_eq!(record.link_fragments[0].x, 60.0);
+        assert_eq!(record.link_fragments[0].y, 8.0);
+        assert_eq!(record.link_fragments[0].width, 40.0);
+        assert_eq!(record.link_fragments[0].height, 16.0);
+    }
+
+    #[test]
     fn get_tree_reports_effective_sequential_focusability() {
         let input = WidgetId::from_u128(10);
         let mut ir = CoreIR::new();

@@ -101,7 +101,12 @@ fn focus_candidates(
 ) -> Vec<WidgetId> {
     crate::hit_test::get_all_focusable_nodes(ir)
         .into_iter()
-        .filter(|id| layout.is_none_or(|layout| layout.get_node_geometry(*id).is_some()))
+        .filter(|id| {
+            layout.is_none_or(|layout| {
+                layout.get_node_geometry(*id).is_some()
+                    || crate::ui::widgets::text::rich_text_link_rects(ir, layout, *id).is_some()
+            })
+        })
         .filter(|id| {
             matches!(
                 ir.nodes.get(id).map(|node| &node.op),
@@ -417,7 +422,10 @@ impl Runtime {
             }
         }
 
-        let current_is_active = current.is_some_and(|id| layout.get_node_geometry(id).is_some());
+        let current_is_active = current.is_some_and(|id| {
+            layout.get_node_geometry(id).is_some()
+                || crate::ui::widgets::text::rich_text_link_rects(ir, layout, id).is_some()
+        });
         let mut changed = false;
         if !current_is_active {
             if let Some(anchor) = self.focus_semantic_anchor.clone() {

@@ -983,6 +983,45 @@ fn rich_text_span_interactions_lower_to_annotation_sidecar() {
 }
 
 #[test]
+fn rich_text_run_hyperlink_lowers_to_retained_focusable_link_semantics() {
+    let hyperlink = fission_ir::Hyperlink::new("https://example.com/guide");
+    let ir = lower_node(
+        RichText::new(vec![
+            RichTextRun::new("Read "),
+            RichTextRun::new("the guide")
+                .semantics_identifier("guide-link")
+                .hyperlink(hyperlink.clone()),
+        ])
+        .into(),
+    );
+
+    let (paint_id, annotations) = rich_text_annotations(&ir).expect("hyperlink sidecar");
+    let annotation = annotations
+        .iter()
+        .find(|annotation| annotation.range == (5..14))
+        .expect("linked run annotation");
+    assert_eq!(annotation.hyperlink, Some(hyperlink.clone()));
+    assert_eq!(annotation.mouse_cursor, Some(MouseCursor::Pointer));
+
+    let (link_id, semantics) = ir
+        .nodes
+        .iter()
+        .find_map(|(id, node)| match &node.op {
+            Op::Semantics(semantics) if semantics.identifier.as_deref() == Some("guide-link") => {
+                Some((*id, semantics))
+            }
+            _ => None,
+        })
+        .expect("retained link semantics node");
+    assert_eq!(semantics.role, fission_ir::Role::Link);
+    assert_eq!(semantics.label.as_deref(), Some("the guide"));
+    assert_eq!(semantics.hyperlink, Some(hyperlink));
+    assert!(semantics.focusable);
+    assert!(semantics.is_sequentially_focusable());
+    assert_eq!(ir.nodes[&link_id].parent, Some(paint_id));
+}
+
+#[test]
 fn rich_text_run_spell_out_lowers_to_annotation_sidecar() {
     let ir = lower_node(
         RichText::new(vec![

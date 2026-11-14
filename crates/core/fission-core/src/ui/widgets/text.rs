@@ -8,6 +8,7 @@ pub use fission_ir::op::{
     TextDecorationStyle, TextHyphenation, TextLeadingDistribution, TextLineBreakPolicy, TextShadow,
     TextTypography,
 };
+use fission_ir::semantics::Hyperlink;
 use fission_ir::{
     op::{
         decode_inline_widget_marker, encode_inline_widget_marker, Color as IrColor,
@@ -18,8 +19,9 @@ use fission_ir::{
         TextRun as IrTextRun, TextWidthBasis as IrTextWidthBasis,
     },
     semantics::ActionTrigger,
-    ActionEntry, CompositeStyle, Role, Semantics, WidgetId,
+    ActionEntry, CompositeStyle, CoreIR, Role, Semantics, WidgetId,
 };
+use fission_layout::{LayoutRect, LayoutSnapshot};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -260,6 +262,9 @@ pub struct RichTextRun {
     pub semantics_identifier: Option<String>,
     #[serde(default)]
     pub spell_out: Option<bool>,
+    /// Optional navigational destination for this run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hyperlink: Option<Hyperlink>,
 }
 
 impl RichTextRun {
@@ -270,6 +275,7 @@ impl RichTextRun {
             semantics_label: None,
             semantics_identifier: None,
             spell_out: None,
+            hyperlink: None,
         }
     }
 
@@ -377,6 +383,12 @@ impl RichTextRun {
         self
     }
 
+    /// Makes this run a navigable link while preserving its authored text style.
+    pub fn hyperlink(mut self, hyperlink: impl Into<Hyperlink>) -> Self {
+        self.hyperlink = Some(hyperlink.into());
+        self
+    }
+
     pub fn into_span(self) -> RichTextSpan {
         RichTextSpan::from(self)
     }
@@ -456,10 +468,70 @@ pub struct RichTextSpan {
     pub mouse_cursor: Option<IrMouseCursor>,
     #[serde(default)]
     pub actions: Vec<ActionEntry>,
+    /// Optional navigational destination for this span.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hyperlink: Option<Hyperlink>,
 }
 
 pub type TextSpan = RichTextSpan;
 pub type WidgetSpan = InlineWidgetSpan;
+
+/// Returns the shaped visual rectangles for a retained hyperlink semantics node.
+///
+/// Rich-text links have their own semantics and focus identity, while layout
+/// belongs to the containing paragraph. This resolves the link's annotation
+/// range against that paragraph's shared shaped layout.
+pub fn rich_text_link_rects(
+    ir: &CoreIR,
+    layout: &LayoutSnapshot,
+    semantics_id: WidgetId,
+) -> Option<(WidgetId, Vec<LayoutRect>)> {
+    let semantics_identifier = ir
+        .nodes
+        .get(&semantics_id)
+        .and_then(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.role == Role::Link => {
+                semantics.identifier.as_deref()
+            }
+            _ => None,
+        })?;
+
+    let mut current = ir.nodes.get(&semantics_id).and_then(|node| node.parent);
+    while let Some(node_id) = current {
+        let Some(node) = ir.nodes.get(&node_id) else {
+            break;
+        };
+        if matches!(node.op, Op::Paint(PaintOp::DrawRichText { .. })) {
+            let annotations = ir
+                .custom_render_objects
+                .get(&node_id)
+                .and_then(|sidecar| sidecar.downcast_ref::<Vec<IrRichTextAnnotation>>())?;
+            let annotation = annotations.iter().find(|annotation| {
+                annotation.hyperlink.is_some()
+                    && annotation.semantics_identifier.as_deref() == Some(semantics_identifier)
+            })?;
+            let paragraph = layout.get_resolved_paragraph(node_id)?;
+            let paragraph_rect = layout.get_node_rect(node_id)?;
+            let rects = paragraph
+                .selection_rects(annotation.range.start, annotation.range.end)
+                .into_iter()
+                .filter(|rect| rect.width() > 0.0 && rect.height() > 0.0)
+                .map(|rect| {
+                    LayoutRect::new(
+                        paragraph_rect.x() + rect.x(),
+                        paragraph_rect.y() + rect.y(),
+                        rect.width(),
+                        rect.height(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            return (!rects.is_empty()).then_some((node_id, rects));
+        }
+        current = node.parent;
+    }
+
+    None
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InlineWidgetSpan {
@@ -592,6 +664,13 @@ impl RichTextSpan {
         self
     }
 
+    /// Makes this span a navigable link while preserving its authored text style.
+    pub fn hyperlink(mut self, hyperlink: impl Into<Hyperlink>) -> Self {
+        self.hyperlink = Some(hyperlink.into());
+        self.mouse_cursor = Some(IrMouseCursor::Pointer);
+        self
+    }
+
     pub fn mouse_cursor(mut self, mouse_cursor: IrMouseCursor) -> Self {
         self.mouse_cursor = Some(mouse_cursor);
         self
@@ -675,6 +754,7 @@ impl RichTextSpan {
                         semantics_label: None,
                         semantics_identifier: None,
                         spell_out: None,
+                        hyperlink: None,
                     });
                 }
             }
@@ -710,8 +790,14 @@ impl RichTextSpan {
     }
 
     fn collect_semantics_identifier(&self) -> Option<String> {
-        if let Some(identifier) = &self.semantics_identifier {
-            return Some(identifier.clone());
+        // A hyperlink's identifier belongs to its retained inline Link node.
+        // Promoting it to the enclosing paragraph creates duplicate semantic
+        // identifiers and turns the link into an ordinary Text node for
+        // consumers that select the first matching identifier.
+        if self.hyperlink.is_none() {
+            if let Some(identifier) = &self.semantics_identifier {
+                return Some(identifier.clone());
+            }
         }
         for child in &self.children {
             if let RichTextChild::Span(child) = child {
@@ -729,6 +815,7 @@ impl RichTextSpan {
                 && self.semantics_identifier.is_none()
                 && self.spell_out.is_none()
                 && self.mouse_cursor.is_none()
+                && self.hyperlink.is_none()
                 && self.actions.is_empty())
         {
             return None;
@@ -741,12 +828,14 @@ impl RichTextSpan {
             spell_out: self.spell_out,
             mouse_cursor: self.mouse_cursor,
             actions: self.actions.clone(),
+            hyperlink: self.hyperlink.clone(),
         })
     }
 }
 
 impl From<RichTextRun> for RichTextSpan {
     fn from(value: RichTextRun) -> Self {
+        let mouse_cursor = value.hyperlink.as_ref().map(|_| IrMouseCursor::Pointer);
         Self {
             text: value.text,
             style: RichTextSpanStyle {
@@ -768,7 +857,8 @@ impl From<RichTextRun> for RichTextSpan {
             semantics_label: value.semantics_label,
             semantics_identifier: value.semantics_identifier,
             spell_out: value.spell_out,
-            mouse_cursor: None,
+            hyperlink: value.hyperlink,
+            mouse_cursor,
             actions: Vec::new(),
         }
     }
@@ -1143,6 +1233,7 @@ impl RichText {
             run.semantics_label.is_some()
                 || run.semantics_identifier.is_some()
                 || run.spell_out.is_some()
+                || run.hyperlink.is_some()
         }) {
             return Self::from_spans(runs);
         }
@@ -1223,6 +1314,7 @@ impl RichText {
                         semantics_label: None,
                         semantics_identifier: None,
                         spell_out: None,
+                        hyperlink: None,
                     });
                     if let Some(label) = &widget.semantics_label {
                         semantics_text.push_str(label);
@@ -1430,6 +1522,7 @@ fn push_rich_text_run(runs: &mut Vec<RichTextRun>, text: &str, style: &TextRunSt
         semantics_label: None,
         semantics_identifier: None,
         spell_out: None,
+        hyperlink: None,
     });
 }
 
@@ -1821,6 +1914,80 @@ impl Lower for RichText {
         };
         let runs = self.lower_runs(cx);
         let plain_text = runs.iter().map(|run| run.text.as_str()).collect::<String>();
+        let mut annotations = self.annotations.clone();
+        let mut run_byte_start = 0;
+        for run in &self.runs {
+            let range = run_byte_start..run_byte_start + run.text.len();
+            run_byte_start = range.end;
+            if range.is_empty()
+                || (run.semantics_label.is_none()
+                    && run.semantics_identifier.is_none()
+                    && run.spell_out.is_none()
+                    && run.hyperlink.is_none())
+            {
+                continue;
+            }
+
+            let candidate = IrRichTextAnnotation {
+                range: range.clone(),
+                semantics_label: run.semantics_label.clone(),
+                semantics_identifier: run.semantics_identifier.clone(),
+                spell_out: run.spell_out,
+                mouse_cursor: run.hyperlink.as_ref().map(|_| IrMouseCursor::Pointer),
+                actions: Vec::new(),
+                hyperlink: run.hyperlink.clone(),
+            };
+            if !annotations.iter().any(|annotation| {
+                annotation.range == candidate.range
+                    && annotation.semantics_identifier == candidate.semantics_identifier
+                    && annotation.hyperlink == candidate.hyperlink
+            }) {
+                annotations.push(candidate);
+            }
+        }
+
+        let mut rich_text_links = Vec::new();
+        for (index, annotation) in annotations.iter_mut().enumerate() {
+            let Some(hyperlink) = annotation.hyperlink.clone() else {
+                continue;
+            };
+            let Some(link_text) = plain_text.get(annotation.range.clone()) else {
+                continue;
+            };
+            if link_text.is_empty() {
+                continue;
+            }
+
+            let semantics_identifier = annotation
+                .semantics_identifier
+                .clone()
+                .unwrap_or_else(|| format!("rich-text-link:{}:{index}", owner_id.as_u128()));
+            annotation.semantics_identifier = Some(semantics_identifier.clone());
+            let semantics_id = WidgetId::derived(
+                owner_id.as_u128(),
+                &[
+                    0x5254_4c4b,
+                    annotation.range.start.min(u32::MAX as usize) as u32,
+                    annotation.range.end.min(u32::MAX as usize) as u32,
+                ],
+            );
+            rich_text_links.push((
+                semantics_id,
+                Semantics {
+                    role: Role::Link,
+                    label: Some(
+                        annotation
+                            .semantics_label
+                            .clone()
+                            .unwrap_or_else(|| link_text.to_owned()),
+                    ),
+                    identifier: Some(semantics_identifier),
+                    hyperlink: Some(hyperlink),
+                    focusable: true,
+                    ..Semantics::default()
+                },
+            ));
+        }
         let runtime_selection = if self.selectable {
             cx.runtime_state.selectable_text.selection_range(owner_id)
         } else {
@@ -1869,11 +2036,15 @@ impl Lower for RichText {
             let child_id = inline_widget.widget.lower(cx);
             paint_builder.add_child(child_id);
         }
+        for (link_id, semantics) in rich_text_links {
+            IrBuilder::new(link_id, Op::Semantics(semantics)).build(cx);
+            paint_builder.add_child(link_id);
+        }
         let paint_node_id = paint_builder.build(cx);
-        if !self.annotations.is_empty() {
+        if !annotations.is_empty() {
             cx.ir
                 .custom_render_objects
-                .insert(paint_node_id, Arc::new(self.annotations.clone()));
+                .insert(paint_node_id, Arc::new(annotations));
         }
 
         let layout_node_id = wrap_paint_in_layout(
