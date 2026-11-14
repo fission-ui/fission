@@ -11619,6 +11619,7 @@ mod tests {
     fn live_test_scroll_into_view_reveals_a_semantics_wrapper_without_layout_geometry() {
         let root = WidgetId::explicit("root");
         let scroll = WidgetId::explicit("document-scroll");
+        let horizontal_scroll = WidgetId::explicit("document-horizontal-scroll");
         let page = WidgetId::explicit("page-frame");
         let semantic_page = WidgetId::explicit("page-semantic-region");
         let page_content = WidgetId::explicit("page-content");
@@ -11651,6 +11652,23 @@ mod tests {
         );
         ir.add_node(page, box_op(), vec![semantic_page]);
         ir.add_node(
+            horizontal_scroll,
+            Op::Layout(LayoutOp::Scroll {
+                direction: FlexDirection::Row,
+                show_scrollbar: true,
+                width: Some(100.0),
+                height: Some(100.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+            }),
+            vec![page],
+        );
+        ir.add_node(
             scroll,
             Op::Layout(LayoutOp::Scroll {
                 direction: FlexDirection::Column,
@@ -11665,7 +11683,7 @@ mod tests {
                 flex_grow: 0.0,
                 flex_shrink: 0.0,
             }),
-            vec![page],
+            vec![horizontal_scroll],
         );
         ir.add_node(root, box_op(), vec![scroll]);
         ir.set_root(root);
@@ -11683,14 +11701,19 @@ mod tests {
                 LayoutSize::new(100.0, 500.0),
             ),
             (
+                horizontal_scroll,
+                LayoutRect::new(0.0, 240.0, 100.0, 100.0),
+                LayoutSize::new(400.0, 100.0),
+            ),
+            (
                 page,
                 LayoutRect::new(0.0, 250.0, 100.0, 60.0),
                 LayoutSize::new(100.0, 60.0),
             ),
             (
                 page_content,
-                LayoutRect::new(0.0, 260.0, 100.0, 40.0),
-                LayoutSize::new(100.0, 40.0),
+                LayoutRect::new(10.0, 260.0, 80.0, 40.0),
+                LayoutSize::new(80.0, 40.0),
             ),
         ] {
             snapshot
@@ -11714,6 +11737,10 @@ mod tests {
         assert!(needs_scroll);
         assert!(runtime.post_layout_hook(&ir, &snapshot));
         assert_eq!(runtime.runtime_state.scroll.get_offset(scroll), 208.0);
+        assert_eq!(
+            runtime.runtime_state.scroll.get_offset(horizontal_scroll),
+            0.0
+        );
 
         let visible = resolve_selector_record(&pipeline, &runtime.runtime_state.scroll, &query)
             .expect("semantic page remains selectable after scrolling");
