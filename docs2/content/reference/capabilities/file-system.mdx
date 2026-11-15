@@ -54,7 +54,7 @@ Handles are opaque, runtime-local values. They must not be persisted as integers
 
 `pick_save_file` returns either a path-backed `Location` or an opaque `WritableFileHandle`. Use `write_picked_file` for the latter. A writable handle can be reused for multiple writes until `release_writable_file` is called. Release it after the final write when the application no longer needs it; this drops the host's active reference but does not delete the selected file or its optional persisted browser grant. `forget_save_file` removes only the persisted browser grant, so call both operations when discarding a live handle and its restoration key.
 
-On Web, saving uses `showSaveFilePicker`. Hosts that do not expose this API return an `unsupported` error; Fission does not substitute a download link.
+On Web, Fission uses `showSaveFilePicker` when the browser provides it. Otherwise it returns a download destination: closing the writer combines its chunks into a Blob and starts a browser download. This fallback buffers the whole file in memory and is limited to 128 MiB. The browser chooses the final location and may require the save action to run during a user gesture; Fission cannot learn whether the user later cancels or blocks the download. Download destinations are temporary and cannot be restored with a persistence key.
 
 `FileSystemAccessMode` is a picker-provider request, not a Fission sandbox policy. Native operations are authorized by the operating system; browser and document providers enforce their host grants.
 
@@ -64,7 +64,7 @@ On Web, saving uses `showSaveFilePicker`. Hosts that do not expose this API retu
 
 | Target | Behavior |
 | --- | --- |
-| Web | Open-file selection through an HTML file input; save-file and directory selection use the File System Access API. Direct host paths are unsupported. Optional handles are structured-cloned into IndexedDB. Save and directory pickers require a secure context and browser support. |
+| Web | Open-file selection through an HTML file input; save-file selection uses the File System Access API when available and otherwise starts a Blob download when the writer closes; directory selection uses the File System Access API. Direct host paths are unsupported. Only File System Access handles can be persisted in IndexedDB. Save and directory pickers require a secure context and browser support. |
 | macOS, Windows, Linux | Direct OS paths plus native open/save and folder pickers. Picked save files use path destinations. |
 | Android | Direct OS paths plus system open/save and document-tree pickers, persisted URI grants, and document-provider operations. |
 | iOS | Direct OS paths plus system open/save and folder pickers, security-scoped access, and persisted bookmarks. |
