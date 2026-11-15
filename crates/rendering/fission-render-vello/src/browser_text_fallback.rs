@@ -114,6 +114,7 @@ pub(crate) fn rasterize(
         family,
         weight,
         italic,
+        raster_started.as_ref(),
     )?;
     let image = Arc::new(image);
 
@@ -135,6 +136,12 @@ fn pixel_dimension(logical: f32, scale: f32) -> Option<u16> {
     (pixels.is_finite() && pixels > 0.0 && pixels <= MAX_CANVAS_DIMENSION).then_some(pixels as u16)
 }
 
+fn trace_raster_stage(stage: u32, started: Option<&Instant>) {
+    if let Some(started) = started {
+        trace_web_test_stage(stage, started.elapsed().as_millis() as u32);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn rasterize_uncached(
     text: &str,
@@ -148,6 +155,7 @@ fn rasterize_uncached(
     family: &str,
     weight: u16,
     italic: bool,
+    trace_started: Option<&Instant>,
 ) -> Option<Pixmap> {
     let document = web_sys::window()?.document()?;
     let canvas = document
@@ -162,6 +170,11 @@ fn rasterize_uncached(
         .ok()??
         .dyn_into::<CanvasRenderingContext2d>()
         .ok()?;
+
+    // 497 marks Canvas creation and context acquisition; 498 marks text
+    // configuration; 499 marks fillText; 500 marks pixel readback. These
+    // checkpoints are emitted only for an opt-in Web LiveTest renderer trace.
+    trace_raster_stage(497, trace_started);
 
     context.scale(f64::from(scale), f64::from(scale)).ok()?;
     context.set_text_baseline("alphabetic");
@@ -180,6 +193,7 @@ fn rasterize_uncached(
         color[2],
         f32::from(color[3]) / 255.0,
     ));
+    trace_raster_stage(498, trace_started);
     context
         .fill_text_with_max_width(
             text,
@@ -188,12 +202,14 @@ fn rasterize_uncached(
             f64::from(width),
         )
         .ok()?;
+    trace_raster_stage(499, trace_started);
 
     let rgba = context
         .get_image_data(0.0, 0.0, f64::from(pixel_width), f64::from(pixel_height))
         .ok()?
         .data()
         .0;
+    trace_raster_stage(500, trace_started);
     Some(Pixmap::from_parts(
         rgba,
         pixel_width,
