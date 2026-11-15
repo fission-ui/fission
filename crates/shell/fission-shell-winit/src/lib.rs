@@ -2271,11 +2271,7 @@ fn request_redraw_once(window: &Window, frame_schedule: &mut FrameScheduleState)
 fn request_capture_redraw_once(window: &Window, frame_schedule: &mut FrameScheduleState) -> bool {
     let scheduled = request_redraw_once(window, frame_schedule);
     #[cfg(target_arch = "wasm32")]
-    if let Some(web_redraw) = frame_schedule.web_redraw.as_ref() {
-        if let Err(error) = web_redraw.request_fallback(250) {
-            eprintln!("failed to schedule Web capture redraw fallback: {error}");
-        }
-    }
+    frame_schedule.request_capture_fallback();
     scheduled
 }
 
@@ -2505,6 +2501,15 @@ impl FrameScheduleState {
     ) -> anyhow::Result<()> {
         self.web_redraw = Some(WebRedrawScheduler::new(proxy)?);
         Ok(())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn request_capture_fallback(&self) {
+        if let Some(web_redraw) = self.web_redraw.as_ref() {
+            if let Err(error) = web_redraw.request_fallback(250) {
+                eprintln!("failed to schedule Web capture redraw fallback: {error}");
+            }
+        }
     }
 
     fn redraw_timing(
@@ -8575,6 +8580,15 @@ where
                             &mut frame_trace,
                             redraw_reason,
                         );
+                        // A capture can need more than one frame to settle after a resize.
+                        // Keep the timer fallback armed for those follow-up frames too, so a
+                        // paused browser RAF cannot strand the screenshot response.
+                        #[cfg(target_arch = "wasm32")]
+                        if pending_screenshot_path.is_some()
+                            || pending_screenshot_response_tx.is_some()
+                        {
+                            frame_trace.request_capture_fallback();
+                        }
                         let reasons = frame_trace.take_redraw_reasons();
                         frame_trace.emit(
                                 "about_to_wait",
