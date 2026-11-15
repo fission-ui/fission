@@ -1253,13 +1253,17 @@ fn web_build_command(
             .arg("--config")
             .arg(format!("profile.dev.package.\"*\".opt-level={opt_level}"));
     }
-    configure_web_wasm_simd(&mut command, wasm_simd)?;
+    configure_web_wasm_rustflags(&mut command, wasm_simd)?;
     Ok(command)
 }
 
 const WEB_WASM_SIMD_ENV: &str = "FISSION_WEB_WASM_SIMD";
+const WEB_WASM_STACK_SIZE_ENV: &str = "FISSION_WEB_WASM_STACK_SIZE";
 const WEB_DEV_DEPENDENCY_OPT_LEVEL_ENV: &str = "FISSION_WEB_DEV_DEPENDENCY_OPT_LEVEL";
 const WEB_WASM_TARGET_RUSTFLAGS: &str = "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS";
+const DEFAULT_WEB_WASM_STACK_SIZE: usize = 4 * 1024 * 1024;
+const MIN_WEB_WASM_STACK_SIZE: usize = 1024 * 1024;
+const MAX_WEB_WASM_STACK_SIZE: usize = 64 * 1024 * 1024;
 
 fn web_wasm_simd_from_env() -> Result<bool> {
     match env::var(WEB_WASM_SIMD_ENV) {
@@ -1278,6 +1282,30 @@ fn parse_web_wasm_simd(value: Option<&str>) -> Result<bool> {
         },
         None => Ok(true),
     }
+}
+
+fn web_wasm_stack_size_from_env() -> Result<usize> {
+    match env::var(WEB_WASM_STACK_SIZE_ENV) {
+        Ok(value) => parse_web_wasm_stack_size(Some(&value)),
+        Err(env::VarError::NotPresent) => parse_web_wasm_stack_size(None),
+        Err(error) => Err(error).context("failed to read Fission Web stack size"),
+    }
+}
+
+fn parse_web_wasm_stack_size(value: Option<&str>) -> Result<usize> {
+    let Some(value) = value else {
+        return Ok(DEFAULT_WEB_WASM_STACK_SIZE);
+    };
+    let bytes = value
+        .trim()
+        .parse::<usize>()
+        .with_context(|| format!("{WEB_WASM_STACK_SIZE_ENV} must be a byte count"))?;
+    if !(MIN_WEB_WASM_STACK_SIZE..=MAX_WEB_WASM_STACK_SIZE).contains(&bytes) {
+        bail!(
+            "{WEB_WASM_STACK_SIZE_ENV} must be between {MIN_WEB_WASM_STACK_SIZE} and {MAX_WEB_WASM_STACK_SIZE} bytes"
+        );
+    }
+    Ok(bytes)
 }
 
 fn web_dev_dependency_opt_level_from_env() -> Result<u8> {
@@ -1300,7 +1328,8 @@ fn parse_web_dev_dependency_opt_level(value: Option<&str>) -> Result<u8> {
     }
 }
 
-fn configure_web_wasm_simd(command: &mut Command, enabled: bool) -> Result<()> {
+fn configure_web_wasm_rustflags(command: &mut Command, enabled: bool) -> Result<()> {
+    let stack_size = web_wasm_stack_size_from_env()?;
     let global_rustflags = if let Some(value) = env::var_os("CARGO_ENCODED_RUSTFLAGS") {
         Some(("CARGO_ENCODED_RUSTFLAGS", value))
     } else {
@@ -1311,26 +1340,34 @@ fn configure_web_wasm_simd(command: &mut Command, enabled: bool) -> Result<()> {
         let value = value
             .into_string()
             .map_err(|_| anyhow::anyhow!("{variable} must contain UTF-8 Rust compiler flags"))?;
-        let flags = if variable == "CARGO_ENCODED_RUSTFLAGS" {
+        let mut flags = if variable == "CARGO_ENCODED_RUSTFLAGS" {
             value.split('\u{1f}').map(str::to_owned).collect::<Vec<_>>()
         } else {
             shell_words::split(&value).with_context(|| format!("failed to parse {variable}"))?
         };
         match target_feature_state(&flags, "simd128") {
-            Some(true) if enabled => return Ok(()),
-            Some(false) if !enabled => return Ok(()),
+            Some(true) if enabled => {}
+            Some(false) if !enabled => {}
             Some(_) => bail!(
                 "{WEB_WASM_SIMD_ENV} conflicts with {variable}; update its `target-feature` flags or remove it"
             ),
             None if enabled => bail!(
                 "{variable} overrides Cargo's target-specific Web flags; add `-C target-feature=+simd128` there or set {WEB_WASM_SIMD_ENV}=scalar"
             ),
-            None => return Ok(()),
+            None => {}
         }
+        flags.extend([
+            "-C".to_owned(),
+            format!("link-arg=-zstack-size={stack_size}"),
+        ]);
+        command.env("CARGO_ENCODED_RUSTFLAGS", flags.join("\u{1f}"));
+        return Ok(());
     }
 
     let existing = env::var(WEB_WASM_TARGET_RUSTFLAGS).ok();
-    let flags = update_simd_target_feature_flags(existing.as_deref().unwrap_or_default(), enabled)?;
+    let mut flags =
+        update_simd_target_feature_flags(existing.as_deref().unwrap_or_default(), enabled)?;
+    flags.push_str(&format!(" -C link-arg=-zstack-size={stack_size}"));
     if !flags.is_empty() || existing.is_some() {
         command.env(WEB_WASM_TARGET_RUSTFLAGS, flags);
     }
@@ -2734,6 +2771,7 @@ mod tests {
             })
             .expect("Web builds must set target-specific compiler flags");
         assert!(wasm_flags.contains("target-feature=+simd128"));
+        assert!(wasm_flags.contains("link-arg=-zstack-size=4194304"));
     }
 
     #[test]
@@ -2764,6 +2802,19 @@ mod tests {
         assert!(!parse_web_wasm_simd(Some("scalar")).unwrap());
         assert!(!parse_web_wasm_simd(Some("0")).unwrap());
         assert!(parse_web_wasm_simd(Some("mystery")).is_err());
+    }
+
+    #[test]
+    fn web_stack_size_defaults_to_four_mib_and_accepts_bounded_byte_counts() {
+        assert_eq!(parse_web_wasm_stack_size(None).unwrap(), 4 * 1024 * 1024);
+        assert_eq!(
+            parse_web_wasm_stack_size(Some(" 8388608 ")).unwrap(),
+            8 * 1024 * 1024
+        );
+        assert!(parse_web_wasm_stack_size(Some("0")).is_err());
+        assert!(parse_web_wasm_stack_size(Some("1048575")).is_err());
+        assert!(parse_web_wasm_stack_size(Some("67108865")).is_err());
+        assert!(parse_web_wasm_stack_size(Some("four MiB")).is_err());
     }
 
     #[test]
