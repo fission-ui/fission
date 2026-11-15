@@ -677,34 +677,12 @@ impl BrowserController {
         timeout_ms: u64,
         ignore_repeating_motion: bool,
     ) -> Result<TestResponse> {
-        let started = Instant::now();
-        let timeout = Duration::from_millis(timeout_ms);
-        loop {
-            match self.send_bridge_command(TestCommand::WaitForIdle {
-                timeout_ms: 0,
-                ignore_repeating_motion,
-            })? {
-                TestResponse::MotionStatus {
-                    finite,
-                    repeating,
-                    ripples,
-                } if finite == 0 && ripples == 0 && (ignore_repeating_motion || repeating == 0) => {
-                    return Ok(TestResponse::Ok {});
-                }
-                TestResponse::Error { message } => {
-                    return Ok(TestResponse::Error { message });
-                }
-                _ => {}
-            }
-            if started.elapsed() >= timeout {
-                return Ok(TestResponse::Error {
-                    message: format!(
-                        "timed out after {timeout_ms}ms waiting for browser motion to become idle"
-                    ),
-                });
-            }
-            std::thread::sleep(Duration::from_millis(8));
-        }
+        wait_for_idle_with(
+            timeout_ms,
+            ignore_repeating_motion,
+            |command| self.send_bridge_command(command),
+            std::thread::sleep,
+        )
     }
 
     fn send_bridge_command(&mut self, command: TestCommand) -> Result<TestResponse> {
@@ -1616,6 +1594,51 @@ impl CdpClient {
     }
 }
 
+fn wait_for_idle_with(
+    timeout_ms: u64,
+    ignore_repeating_motion: bool,
+    mut send: impl FnMut(TestCommand) -> Result<TestResponse>,
+    mut sleep: impl FnMut(Duration),
+) -> Result<TestResponse> {
+    let started = Instant::now();
+    let timeout = Duration::from_millis(timeout_ms);
+    loop {
+        // The Web shell's WaitForIdle command only reads motion counts. Pump
+        // first so queued effects and finite motion get a chance to advance.
+        match send(TestCommand::Pump {})? {
+            TestResponse::Ok {} => {}
+            TestResponse::Error { message } => return Ok(TestResponse::Error { message }),
+            response => {
+                return Ok(TestResponse::Error {
+                    message: format!("unexpected response from browser pump: {response:?}"),
+                });
+            }
+        }
+        match send(TestCommand::WaitForIdle {
+            timeout_ms: 0,
+            ignore_repeating_motion,
+        })? {
+            TestResponse::MotionStatus {
+                finite,
+                repeating,
+                ripples,
+            } if finite == 0 && ripples == 0 && (ignore_repeating_motion || repeating == 0) => {
+                return Ok(TestResponse::Ok {});
+            }
+            TestResponse::Error { message } => return Ok(TestResponse::Error { message }),
+            _ => {}
+        }
+        if started.elapsed() >= timeout {
+            return Ok(TestResponse::Error {
+                message: format!(
+                    "timed out after {timeout_ms}ms waiting for browser motion to become idle"
+                ),
+            });
+        }
+        sleep(Duration::from_millis(8));
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn is_web_text_input_trace_stage(stage: u32) -> bool {
     // 410–435 cover bridge submit/query/poll stages; 450–470 and 473–476 cover
@@ -1671,6 +1694,64 @@ mod tests {
 
         let reduced = standard.reduced_motion();
         assert!(reduced.prefers_reduced_motion);
+    }
+
+    #[test]
+    fn browser_wait_for_idle_pumps_before_reading_motion_status() {
+        let mut finite_motion = 1;
+        let mut commands = Vec::new();
+        let response = wait_for_idle_with(
+            1_000,
+            true,
+            |command| match command {
+                TestCommand::Pump {} => {
+                    commands.push("pump");
+                    finite_motion = 0;
+                    Ok(TestResponse::Ok {})
+                }
+                TestCommand::WaitForIdle {
+                    timeout_ms,
+                    ignore_repeating_motion,
+                } => {
+                    commands.push("status");
+                    assert_eq!(timeout_ms, 0);
+                    assert!(ignore_repeating_motion);
+                    Ok(TestResponse::MotionStatus {
+                        finite: finite_motion,
+                        repeating: 1,
+                        ripples: 0,
+                    })
+                }
+                _ => panic!("unexpected browser test command: {command:?}"),
+            },
+            |_| {},
+        )
+        .expect("wait for idle protocol should succeed");
+
+        assert!(matches!(response, TestResponse::Ok {}));
+        assert_eq!(commands, ["pump", "status"]);
+    }
+
+    #[test]
+    fn browser_wait_for_idle_rejects_unexpected_pump_response() {
+        let response = wait_for_idle_with(
+            1_000,
+            true,
+            |_| {
+                Ok(TestResponse::MotionStatus {
+                    finite: 0,
+                    repeating: 0,
+                    ripples: 0,
+                })
+            },
+            |_| {},
+        )
+        .expect("protocol response should decode");
+
+        assert!(matches!(
+            response,
+            TestResponse::Error { message } if message.contains("unexpected response from browser pump")
+        ));
     }
 
     #[test]

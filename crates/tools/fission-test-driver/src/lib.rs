@@ -1605,11 +1605,13 @@ impl LiveTestClient {
 
     /// Waits for finite motion to settle, optionally ignoring repeating motion.
     pub fn wait_for_idle(&self, timeout_ms: u64, ignore_repeating_motion: bool) -> Result<()> {
-        self.send(TestCommand::WaitForIdle {
-            timeout_ms,
-            ignore_repeating_motion,
-        })?;
-        Ok(())
+        ensure_success_response(
+            "wait_for_idle",
+            self.send(TestCommand::WaitForIdle {
+                timeout_ms,
+                ignore_repeating_motion,
+            })?,
+        )
     }
 
     pub fn get_text(&self) -> Result<Vec<TextItem>> {
@@ -1693,8 +1695,7 @@ impl LiveTestClient {
     /// Waits for pending app work to render. Returns immediately if the current frame is already up
     /// to date.
     pub fn pump(&self) -> Result<()> {
-        self.send(TestCommand::Pump {})?;
-        Ok(())
+        ensure_success_response("pump", self.send(TestCommand::Pump {})?)
     }
 
     pub fn quit(&self) -> Result<()> {
@@ -1824,6 +1825,15 @@ fn screenshot_bytes(response: TestResponse) -> Result<Vec<u8>> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn ensure_success_response(operation: &str, response: TestResponse) -> Result<()> {
+    match response {
+        TestResponse::Ok {} => Ok(()),
+        TestResponse::Error { message } => Err(anyhow!("{operation} failed: {message}")),
+        other => Err(anyhow!("unexpected response from {operation}: {other:?}")),
+    }
+}
+
 fn rectangles_intersect(left: Bounds, right: Bounds) -> bool {
     left.x < right.x + right.width
         && left.x + left.width > right.x
@@ -1859,6 +1869,33 @@ mod tests {
         let older_wire = serde_json::to_value(default).unwrap();
         let decoded: SelectorQuery = serde_json::from_value(older_wire).unwrap();
         assert!(decoded.include_candidates);
+    }
+
+    #[test]
+    fn wait_and_pump_operations_propagate_test_host_errors() {
+        let error = super::ensure_success_response(
+            "wait_for_idle",
+            TestResponse::Error {
+                message: "finite motion did not settle".into(),
+            },
+        )
+        .expect_err("a host error must be visible to callers");
+        assert!(error
+            .to_string()
+            .contains("wait_for_idle failed: finite motion did not settle"));
+
+        let unexpected = super::ensure_success_response(
+            "pump",
+            TestResponse::MotionStatus {
+                finite: 1,
+                repeating: 0,
+                ripples: 0,
+            },
+        )
+        .expect_err("unexpected responses must not look successful");
+        assert!(unexpected
+            .to_string()
+            .contains("unexpected response from pump"));
     }
 
     fn populated_semantic_node() -> SemanticNode {

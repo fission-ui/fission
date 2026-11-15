@@ -529,6 +529,15 @@ fn wait_for_motion_idle(
     let started = std::time::Instant::now();
     let timeout = std::time::Duration::from_millis(timeout_ms);
     loop {
+        match query_event(injector, |response_tx| TestEvent::Pump { response_tx }) {
+            TestResponse::Ok {} => {}
+            TestResponse::Error { message } => return TestResponse::Error { message },
+            response => {
+                return TestResponse::Error {
+                    message: format!("unexpected response from motion idle pump: {response:?}"),
+                };
+            }
+        }
         let status = query_event(injector, |response_tx| TestEvent::MotionStatus {
             response_tx,
         });
@@ -756,7 +765,12 @@ fn send_http_response(stream: &mut TcpStream, status: u16, body: &str) {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use super::request_has_bearer_token;
+    use super::{
+        create_pending_event_queue, request_has_bearer_token, wait_for_motion_idle, EventInjector,
+    };
+    use fission_test_driver::{TestEvent, TestResponse};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn bearer_capability_is_required_exactly() {
@@ -767,5 +781,55 @@ mod tests {
             "GET /health HTTP/1.1\r\n\r\n",
             "correct"
         ));
+    }
+
+    #[test]
+    fn wait_for_motion_idle_pumps_before_each_status_read() {
+        let queue = create_pending_event_queue();
+        let injector = EventInjector::Queue {
+            queue: queue.clone(),
+            wake_proxy: None,
+        };
+        let (observed_tx, observed_rx) = mpsc::channel();
+        let event_loop = std::thread::spawn(move || {
+            let mut pumps = 0;
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while Instant::now() < deadline {
+                let event = queue.lock().ok().and_then(|mut events| events.pop_front());
+                let Some(event) = event else {
+                    std::thread::sleep(Duration::from_millis(1));
+                    continue;
+                };
+                match event {
+                    TestEvent::Pump { response_tx } => {
+                        pumps += 1;
+                        observed_tx.send("pump").unwrap();
+                        let _ = response_tx.send(TestResponse::Ok {});
+                    }
+                    TestEvent::MotionStatus { response_tx } => {
+                        observed_tx.send("status").unwrap();
+                        let finite = if pumps >= 2 { 0 } else { 1 };
+                        let _ = response_tx.send(TestResponse::MotionStatus {
+                            finite,
+                            repeating: 0,
+                            ripples: 0,
+                        });
+                        if finite == 0 {
+                            return;
+                        }
+                    }
+                    other => panic!("unexpected test event: {other:?}"),
+                }
+            }
+            panic!("timed out waiting for idle wait events");
+        });
+
+        let response = wait_for_motion_idle(&injector, 1_000, false);
+        assert!(matches!(response, TestResponse::Ok {}));
+        event_loop.join().expect("event loop test thread panicked");
+        assert_eq!(
+            observed_rx.try_iter().collect::<Vec<_>>(),
+            ["pump", "status", "pump", "status"]
+        );
     }
 }
