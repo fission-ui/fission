@@ -13,12 +13,22 @@ use lazy_static::lazy_static;
 use vello_cpu::peniko::ImageAlphaType;
 use vello_cpu::{PixelMetadata, Pixmap};
 use wasm_bindgen::JsCast;
-use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement};
+use web_sys::{CanvasRenderingContext2d, ContextAttributes2d, HtmlCanvasElement};
 use web_time::Instant;
 
 pub(crate) const RASTER_PADDING: f32 = 1.0;
 const MAX_CANVAS_DIMENSION: f32 = 16_384.0;
 const MAX_CACHED_RUNS: usize = 128;
+
+fn readback_context(canvas: &HtmlCanvasElement) -> Option<CanvasRenderingContext2d> {
+    let options = ContextAttributes2d::new();
+    options.set_will_read_frequently(true);
+    canvas
+        .get_context_with_context_options("2d", options.as_ref())
+        .ok()??
+        .dyn_into::<CanvasRenderingContext2d>()
+        .ok()
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct CacheKey {
@@ -165,11 +175,10 @@ fn rasterize_uncached(
         .ok()?;
     canvas.set_width(u32::from(pixel_width));
     canvas.set_height(u32::from(pixel_height));
-    let context = canvas
-        .get_context("2d")
-        .ok()??
-        .dyn_into::<CanvasRenderingContext2d>()
-        .ok()?;
+    // This image is immediately read back into CPU memory for Vello. Ask the
+    // browser for a readback-friendly backing store instead of allowing a GPU
+    // canvas that can make getImageData block for seconds in software WebGPU.
+    let context = readback_context(&canvas)?;
 
     // 497 marks Canvas creation and context acquisition; 498 marks text
     // configuration; 499 marks fillText; 500 marks pixel readback. These
@@ -248,4 +257,46 @@ fn css_font_families(families: &str) -> String {
         parsed.push("sans-serif".to_owned());
     }
     parsed.join(", ")
+}
+
+#[cfg(all(test, target_arch = "wasm32"))]
+mod tests {
+    use super::readback_context;
+    use js_sys::{Function, Reflect};
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
+    use web_sys::HtmlCanvasElement;
+
+    wasm_bindgen_test_configure!(run_in_browser);
+
+    #[wasm_bindgen_test]
+    fn browser_text_context_requests_readback_optimized_storage() {
+        let canvas = web_sys::window()
+            .expect("browser window")
+            .document()
+            .expect("browser document")
+            .create_element("canvas")
+            .expect("create canvas")
+            .dyn_into::<HtmlCanvasElement>()
+            .expect("canvas element");
+        let context = readback_context(&canvas).expect("2D context");
+        let get_context_attributes = Reflect::get(
+            context.as_ref(),
+            &wasm_bindgen::JsValue::from_str("getContextAttributes"),
+        )
+        .expect("getContextAttributes property")
+        .dyn_into::<Function>()
+        .expect("getContextAttributes function");
+        let attributes = get_context_attributes
+            .call0(context.as_ref())
+            .expect("context attributes");
+        let will_read_frequently = Reflect::get(
+            &attributes,
+            &wasm_bindgen::JsValue::from_str("willReadFrequently"),
+        )
+        .expect("willReadFrequently attribute")
+        .as_bool();
+
+        assert_eq!(will_read_frequently, Some(true));
+    }
 }

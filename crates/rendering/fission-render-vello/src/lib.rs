@@ -710,6 +710,7 @@ fn fetch_network_image(
 mod image_tests {
     use super::*;
     use std::io::Cursor;
+    #[cfg(not(target_arch = "wasm32"))]
     use std::net::TcpListener;
     use std::time::{Duration, Instant};
 
@@ -722,6 +723,7 @@ mod image_tests {
         bytes.into_inner()
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn serve_once(body: Vec<u8>) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind test image server");
         let url = format!("http://{}", listener.local_addr().expect("local addr"));
@@ -833,6 +835,7 @@ mod image_tests {
     }
 
     #[test]
+    #[cfg(not(target_arch = "wasm32"))]
     fn network_image_fetch_decodes_png_response() {
         let url = serve_once(tiny_png());
         let image = fetch_network_image(&url, Vec::new(), Some(1), Some(1))
