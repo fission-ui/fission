@@ -33,11 +33,6 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
       return requestId;
     },
     poll(requestId) {
-      // The CDP driver may issue Runtime.evaluate polls before the browser
-      // gets a turn to run the timer scheduled by submit(). Dispatch on the
-      // first poll as a fallback, so those evaluations cannot starve commands
-      // indefinitely in the Queued state.
-      dispatch(requestId);
       const length = exports.fission_web_test_poll_json_len(requestId) >>> 0;
       const address = exports.fission_web_test_poll_json_ptr() >>> 0;
       return decoder.decode(new Uint8Array(memory.buffer, address, length));
