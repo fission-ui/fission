@@ -7,6 +7,9 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
   const diagnosticsAddress = exports.fission_web_test_diagnostics_ptr() >>> 0;
   const pendingDispatches = new Set();
   const dispatchesInFlight = new Set();
+  const pendingCaptureWakes = new Set();
+  const captureWakeTimers = new Map();
+  const captureWakeRetryAttempts = new Map();
   let dispatchAttempts = 0;
   let dispatchCompletions = 0;
   let dispatchFailures = 0;
@@ -17,6 +20,47 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
   let deferredWakeSendSuccesses = 0;
   let lastDeferredWakeSendResult = null;
   let deferredWakeFailures = 0;
+  let deferredWakeRetrySchedules = 0;
+  let deferredWakeRetryCalls = 0;
+
+  const captureWakeRetryDelay = (attempt) => [16, 32, 64, 128, 250][Math.min(attempt, 4)];
+  const clearCaptureWake = (requestId) => {
+    pendingCaptureWakes.delete(requestId);
+    captureWakeRetryAttempts.delete(requestId);
+    const timer = captureWakeTimers.get(requestId);
+    if (timer !== undefined) globalThis.clearTimeout(timer);
+    captureWakeTimers.delete(requestId);
+  };
+  const sendDeferredWake = (requestId, isRetry) => {
+    if (captureWakeTimers.has(requestId) || !pendingCaptureWakes.has(requestId)) return;
+    if (isRetry) deferredWakeRetrySchedules += 1;
+    else {
+      deferredWakeSchedules += 1;
+      exports.fission_web_test_deferred_wake_scheduled();
+    }
+    const attempt = captureWakeRetryAttempts.get(requestId) || 0;
+    const delay = isRetry ? captureWakeRetryDelay(attempt) : 0;
+    if (isRetry) captureWakeRetryAttempts.set(requestId, attempt + 1);
+    const timer = globalThis.setTimeout(() => {
+      captureWakeTimers.delete(requestId);
+      if (!pendingCaptureWakes.has(requestId)) return;
+      deferredWakeCalls += 1;
+      if (isRetry) deferredWakeRetryCalls += 1;
+      try {
+        // A repeated wake is safe while this request remains in the Rust
+        // capture queue: the event-loop drain removes it before dispatching
+        // the render capture, and the request response remains single-shot.
+        const sent = (exports.fission_web_test_wake_event_loop() >>> 0) === 1;
+        deferredWakeExportReturns += 1;
+        lastDeferredWakeSendResult = sent;
+        if (sent) deferredWakeSendSuccesses += 1;
+      } catch (error) {
+        deferredWakeFailures += 1;
+        throw error;
+      }
+    }, delay);
+    captureWakeTimers.set(requestId, timer);
+  };
 
   const dispatch = (requestId) => {
     if (!pendingDispatches.has(requestId) || dispatchesInFlight.has(requestId)) return;
@@ -37,26 +81,12 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
     }
     if (wakeAfterDispatch) {
       // Run the extra Winit wake only after the command's Wasm export has
-      // returned. A browser-owned timer avoids retaining a Rust Closure for
-      // the deferred event and cannot re-enter the shell during dispatch.
+      // returned. If Winit accepts a proxy event but misses its callback, a
+      // later null poll schedules another wake while this capture remains in
+      // Rust's queue. Poll never invokes Wasm recursively.
+      pendingCaptureWakes.add(requestId);
       try {
-        globalThis.setTimeout(() => {
-          deferredWakeCalls += 1;
-          try {
-            // A scheduled callback is not evidence that the Wasm wake export
-            // ran or that Winit accepted its proxy event. Keep all three
-            // boundaries visible to LiveTest diagnostics.
-            const sent = (exports.fission_web_test_wake_event_loop() >>> 0) === 1;
-            deferredWakeExportReturns += 1;
-            lastDeferredWakeSendResult = sent;
-            if (sent) deferredWakeSendSuccesses += 1;
-          } catch (error) {
-            deferredWakeFailures += 1;
-            throw error;
-          }
-        }, 0);
-        deferredWakeSchedules += 1;
-        exports.fission_web_test_deferred_wake_scheduled();
+        sendDeferredWake(requestId, false);
       } catch (error) {
         deferredWakeFailures += 1;
         throw error;
@@ -93,7 +123,17 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
       }
       const length = exports.fission_web_test_poll_json_len(requestId) >>> 0;
       const address = exports.fission_web_test_poll_json_ptr() >>> 0;
-      return decoder.decode(new Uint8Array(memory.buffer, address, length));
+      const json = decoder.decode(new Uint8Array(memory.buffer, address, length));
+      if (pendingCaptureWakes.has(requestId)) {
+        if (json !== "null") {
+          clearCaptureWake(requestId);
+        } else {
+          const captureStillQueued = typeof exports.fission_web_test_capture_requests_pending !== "function"
+            || (exports.fission_web_test_capture_requests_pending() >>> 0) === 1;
+          if (captureStillQueued) sendDeferredWake(requestId, true);
+        }
+      }
+      return json;
     },
     pollDiagnostics() {
       return new DataView(memory.buffer).getUint32(pollStageAddress, true);
@@ -128,6 +168,8 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
           deferredWakeSendSuccesses,
           lastDeferredWakeSendResult,
           deferredWakeFailures,
+          deferredWakeRetrySchedules,
+          deferredWakeRetryCalls,
         },
       };
     },

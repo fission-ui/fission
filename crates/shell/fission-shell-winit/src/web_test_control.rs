@@ -298,6 +298,11 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         &JsValue::from_str("fission_web_test_wake_event_loop"),
     )
     .unwrap_or(JsValue::UNDEFINED);
+    let capture_requests_pending = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_capture_requests_pending"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
     let deferred_wake_scheduled = Reflect::get(
         &exports,
         &JsValue::from_str("fission_web_test_deferred_wake_scheduled"),
@@ -305,6 +310,7 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     .unwrap_or(JsValue::UNDEFINED);
     if !dispatch_command.is_function()
         || !wake_event_loop.is_function()
+        || !capture_requests_pending.is_function()
         || !deferred_wake_scheduled.is_function()
     {
         return false;
@@ -562,6 +568,12 @@ pub extern "C" fn fission_web_test_wake_event_loop() -> u32 {
     let sent = proxy.is_some_and(|proxy| proxy.send_event(TestEvent::Wake).is_ok());
     record_diagnostic(427, u32::from(sent));
     u32::from(sent)
+}
+
+#[cfg(fission_web_test_control)]
+#[no_mangle]
+pub extern "C" fn fission_web_test_capture_requests_pending() -> u32 {
+    with_bridge_state(|state| u32::from(!state.pending_capture_requests.is_empty()))
 }
 
 #[cfg(fission_web_test_control)]

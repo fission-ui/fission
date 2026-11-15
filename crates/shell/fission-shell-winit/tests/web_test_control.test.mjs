@@ -72,6 +72,8 @@ test("static adapters preserve command, frame, diagnostics and grown-memory ABI"
       deferredWakeSendSuccesses: 0,
       lastDeferredWakeSendResult: null,
       deferredWakeFailures: 0,
+      deferredWakeRetrySchedules: 0,
+      deferredWakeRetryCalls: 0,
     },
   });
   assert.deepEqual(JSON.parse(adapters.frame()), {
@@ -139,6 +141,8 @@ test("poll stays observational until the deferred command dispatch runs", () => 
       deferredWakeSendSuccesses: 1,
       lastDeferredWakeSendResult: true,
       deferredWakeFailures: 0,
+      deferredWakeRetrySchedules: 0,
+      deferredWakeRetryCalls: 0,
     });
     assert.equal(adapters.poll(requestId), "{}");
     timers[0]();
@@ -207,9 +211,85 @@ test("capture wake remains deferred after hundreds of requests", () => {
       deferredWakeSendSuccesses: 600,
       lastDeferredWakeSendResult: true,
       deferredWakeFailures: 0,
+      deferredWakeRetrySchedules: 0,
+      deferredWakeRetryCalls: 0,
     });
   } finally {
     globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+test("queued screenshot retries an accepted wake until the event-loop pass drains it", () => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const timers = [];
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  let queuePending = true;
+  let wakeCalls = 0;
+  let captureHandlerCalls = 0;
+  let responseJson = null;
+  const exports = {
+    fission_web_test_diagnostics_ptr: () => 64,
+    fission_web_test_command_json_ptr: () => 256,
+    fission_web_test_command_json_capacity: () => 128,
+    fission_web_test_submit_json: () => 687,
+    fission_web_test_dispatch_command: () => 1,
+    fission_web_test_wake_event_loop: () => {
+      wakeCalls += 1;
+      // Model EventLoopProxy::send_event returning Ok while Winit misses its
+      // callback once. The next wake reaches the regular queue drain.
+      if (wakeCalls === 2 && queuePending) {
+        queuePending = false;
+        captureHandlerCalls += 1;
+        responseJson = JSON.stringify({
+          status: "Screenshot",
+          png_base64: "cG5n",
+          width: 16,
+          height: 9,
+        });
+      }
+      return 1;
+    },
+    fission_web_test_capture_requests_pending: () => Number(queuePending),
+    fission_web_test_deferred_wake_scheduled: () => {},
+    fission_web_test_poll_json_len: () => {
+      const bytes = new TextEncoder().encode(responseJson ?? "null");
+      new Uint8Array(memory.buffer, 512, bytes.length).set(bytes);
+      return bytes.length;
+    },
+    fission_web_test_poll_json_ptr: () => 512,
+  };
+  globalThis.setTimeout = (callback, delay = 0) => {
+    const timer = { callback, delay, cleared: false };
+    timers.push(timer);
+    return timer;
+  };
+  globalThis.clearTimeout = (timer) => { timer.cleared = true; };
+
+  try {
+    const adapters = createWebTestAdapters(exports, memory, 48);
+    const requestId = adapters.submit('{"cmd":"CaptureScreenshot"}');
+    assert.equal(requestId, 687);
+
+    timers.shift().callback(); // dispatch command
+    timers.shift().callback(); // first accepted wake, callback is lost
+    assert.equal(adapters.poll(requestId), "null");
+    const retry = timers.shift();
+    assert.equal(retry.delay, 16);
+    retry.callback(); // second wake reaches AboutToWait and drains once
+
+    const response = JSON.parse(adapters.poll(requestId));
+    assert.equal(response.status, "Screenshot");
+    assert.equal(response.png_base64, "cG5n");
+    assert.equal(captureHandlerCalls, 1, "the queued request is drained once");
+    assert.equal(wakeCalls, 2, "a successful proxy send is retried while queued");
+    assert.equal(adapters.diagnostics().bridgeDispatch.deferredWakeRetrySchedules, 1);
+    assert.equal(adapters.diagnostics().bridgeDispatch.deferredWakeRetryCalls, 1);
+    assert.equal(adapters.poll(requestId), responseJson, "the response remains stable after polling");
+    assert.equal(timers.length, 0, "response completion clears all wake retries");
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
   }
 });
 
@@ -250,6 +330,8 @@ test("wake diagnostics distinguish a timer callback from a rejected proxy send",
       deferredWakeSendSuccesses: 0,
       lastDeferredWakeSendResult: false,
       deferredWakeFailures: 0,
+      deferredWakeRetrySchedules: 0,
+      deferredWakeRetryCalls: 0,
     });
   } finally {
     globalThis.setTimeout = originalSetTimeout;
