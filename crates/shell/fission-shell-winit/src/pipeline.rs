@@ -3050,6 +3050,7 @@ mod tests {
                     action_id: 7,
                     payload_data: Some(vec![1, 2, 3]),
                 }],
+                hyperlink: None,
             }]),
         );
 

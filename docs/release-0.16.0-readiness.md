@@ -1,10 +1,9 @@
 # Fission 0.16.0 preparation and migration notes
 
-Fission 0.16.0 is being prepared. This document is not a release announcement:
-no crates.io publication, Git tag or GitHub release is authorised by this work.
-Version alignment does not establish package availability or platform
-qualification. The registry dependency blocker below must be resolved before
-publication can proceed.
+This records Fission 0.16.0's migrations and qualification boundaries. The user
+authorised merging and publishing the release on 13 November 2026. Publication
+and the final registry-consumer smoke check are performed by the release
+workflow; version alignment alone does not establish either outcome.
 
 ## Application migrations
 
@@ -126,9 +125,9 @@ The PDF remains intact and the system spooler applies the user's selected page
 range. Application-supplied page-range and copy overrides remain unsupported on
 Android; choose these in its system print sheet.
 
-## Registry publication blocker: the required winit revision is not in `.6`
+## Why the release requires fission-winit `.7`, not `.6`
 
-The shell currently depends on package `fission-winit` from
+The candidate originally depended on package `fission-winit` from
 [`worka-ai/winit` at `1e99d748234f11a0dd49a00a1ffc3cca1bb0b203`](https://github.com/worka-ai/winit/commit/1e99d748234f11a0dd49a00a1ffc3cca1bb0b203).
 That checkout declares version `0.30.13-fission.6`, but it is **not** the source
 published under the same version on crates.io.
@@ -154,22 +153,17 @@ The source difference is consequential:
   The registry `.6` lacks it, so replacing Git with that registry version would
   break the Web build as well as discard the intended browser-command behaviour.
 
-The pinned Git dependency is deliberately retained. Adding a registry version
-that cannot supply the required API is not a publication fix. This also affects
-the Android dependency declaration and the shared shell dependency used by the
-vendored accessibility adapter; those consumers must stay aligned.
+The release resolves this with the new registry package
+`fission-winit 0.30.13-fission.7`, preserving that implementation under a distinct
+version. Desktop, mobile and shared-shell manifests now use the same registry
+requirement, including the Android game-activity dependency. The immutable `.6`
+archive was not replaced.
 
-Before a future registry release, publish a **new, distinct** fork version
-containing the required revision, update the affected manifests to that registry
-package, and validate registry-only consumers, including Web and Android. Do not
-attempt to replace the immutable `.6` archive. Publication of that prerequisite
-is not authorised as part of the current preparation work.
+## Why the release requires the Vello GPU `.2` package
 
-## Registry publication blocker: the Vello GPU package lacks the upload fixes
-
-The checked-out Vello fork is
+The qualified Vello implementation was
 [`9e2b85cb91316f7870097d12666804b1a50e1aed`](https://github.com/worka-ai/vello/commit/9e2b85cb91316f7870097d12666804b1a50e1aed).
-Its `vello_gpu` package still declares `fission-vello-gpu` version
+Its `vello_gpu` package still declared `fission-vello-gpu` version
 `0.2.0-fission.1`. The independently downloaded
 [`0.2.0-fission.1` registry archive](https://static.crates.io/crates/fission-vello-gpu/fission-vello-gpu-0.2.0-fission.1.crate)
 matches the [public sparse-index](https://index.crates.io/fi/ss/fission-vello-gpu)
@@ -193,7 +187,7 @@ one file:
   resizing and updates it through the queue instead of recreating a mapped
   buffer.
 
-The checkout therefore contains fixes absent from the registry package. A
+That checkout therefore contained fixes absent from the registry package. A
 workspace build uses the local path dependency in `fission-render-vello`, but a
 published consumer resolves the declared registry dependency. Keeping the old
 package version would lose those fixes outside this checkout. This establishes
@@ -214,11 +208,18 @@ checkout:
 
 There is no evidence from this comparison that those four unchanged packages
 need replacement merely because the fork's Git revision advanced. The smallest
-future publication fix is a distinct version of `fission-vello-gpu` containing
-the upload corrections, corresponding dependency/version alignment, and
-registry-only consumer qualification. Do not republish or substitute the
-immutable existing archive. No fork version changes or publication are included
-in this readiness check.
+publication fix is a distinct version of `fission-vello-gpu` containing the upload
+corrections and corresponding dependency/version alignment, followed by
+registry-only consumer qualification. The release now uses
+`fission-vello-gpu 0.2.0-fission.2`; the immutable `.1` archive was not replaced.
+
+Both prerequisite packages were independently downloaded after publication and
+their SHA-256 values matched the public registry index:
+
+| Package | Source commit | Archive SHA-256 |
+| --- | --- | --- |
+| `fission-winit 0.30.13-fission.7` | `7ee000bd8b2643da5de9c0cc7634aadfccb2c22c` | `e586194b2f318e49202bd6dddcdb2aa61a2bdb9f12d553349745f7217a743e1c` |
+| `fission-vello-gpu 0.2.0-fission.2` | `3da0cde07583cc46469d6a14852edd8b1fa1e32c` | `ebdfe0f12baa490b51ddb99259e190d6d74a90c2c6e9d4224c832ff20b9f5f02` |
 
 ## Qualification gates before a release
 
@@ -235,9 +236,8 @@ unit checks do not establish device behaviour or registry installability.
   device or emulator. Verify the selected print range in actual output.
 - Exercise iOS provider-backed import/save flows and cancellation on a simulator
   or device, including destinations outside the application's container.
-- Resolve both fork dependency blockers before claiming crates.io readiness;
-  validate the package contents and downstream installation separately from a
-  workspace build.
+- Keep the registry prerequisites aligned and validate package contents and
+  downstream installation separately from a workspace build.
 
 The new documentation source is `docs2`; there is no need to restore the removed
 legacy documentation project for migration or release qualification.
@@ -270,10 +270,11 @@ These checks do not make the candidate merge-ready by themselves:
 - Finish native document import/save/update/cancellation and print-sheet checks
   on iOS and Android. iOS Metal/Vello rendering, a counter interaction and actual
   Files save-sheet presentation passed; completed provider operations did not.
-- Resolve the registry dependency blockers above and coordinate availability of
+- With the registry prerequisites above published, coordinate availability of
   the matching 0.16.0 CLI/framework packages before deploying setup commands that
   require them. The site labels this as its documentation version, not latest
-  stable. No package publication, tag or release is part of this preparation.
+  stable. The release workflow publishes and verifies the framework packages
+  separately from the website deployment.
 
 Responsive text regressions cover end-caret visibility, including replacement
 by another responsive widget identity. They do not establish arbitrary mid-text

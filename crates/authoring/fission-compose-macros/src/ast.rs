@@ -97,22 +97,22 @@ impl Parse for Component {
             input.parse::<kw::view>()?;
             let bindings;
             syn::parenthesized!(bindings in input);
-            let editor = bindings.parse()?;
+            let editor = parse_view_binding(&bindings, "__fission_ignored_component")?;
             bindings.parse::<Token![,]>()?;
-            let state = bindings.parse()?;
+            let state = parse_view_binding(&bindings, "__fission_ignored_state")?;
             bindings.parse::<Token![,]>()?;
-            let cx = bindings.parse()?;
+            let cx = parse_view_binding(&bindings, "__fission_ignored_context")?;
             if !bindings.is_empty() {
                 return Err(bindings.error("view takes component, state and context bindings"));
             }
             (editor, state, cx)
         } else {
             input.parse::<Token![|]>()?;
-            let editor = input.parse()?;
+            let editor = parse_view_binding(input, "__fission_ignored_component")?;
             input.parse::<Token![,]>()?;
-            let state = input.parse()?;
+            let state = parse_view_binding(input, "__fission_ignored_state")?;
             input.parse::<Token![,]>()?;
-            let cx = input.parse()?;
+            let cx = parse_view_binding(input, "__fission_ignored_context")?;
             input.parse::<Token![|]>()?;
             (editor, state, cx)
         };
@@ -151,6 +151,17 @@ impl Parse for Component {
             setup,
             body,
         })
+    }
+}
+
+fn parse_view_binding(input: ParseStream<'_>, ignored_name: &str) -> syn::Result<Ident> {
+    if input.peek(Token![_]) {
+        input.parse::<Token![_]>()?;
+        // Expansion still needs each value internally. Give ignored scopes
+        // distinct, hygienic names rather than emitting `_` as an expression.
+        Ok(Ident::new(ignored_name, proc_macro2::Span::mixed_site()))
+    } else {
+        input.parse()
     }
 }
 

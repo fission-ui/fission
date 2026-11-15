@@ -85,6 +85,22 @@ mod tests {
     }
 
     #[test]
+    fn ignored_view_bindings_expand_to_valid_rust_in_both_headers() {
+        for input in [
+            quote!(pub Counter<State> |_, state, cx| => Text("Count")),
+            quote!(pub Counter<State> |counter, _, cx| => Text("Count")),
+            quote!(pub Counter<State> |counter, state, _| => Text("Count")),
+            quote!(pub Counter<()> |_, _, _| => Text("Count")),
+            quote!(pub Counter<State> view(_, state, cx) => Text("Count")),
+            quote!(pub Counter<State> view(counter, _, cx) => Text("Count")),
+            quote!(pub Counter<State> view(counter, state, _) => Text("Count")),
+            quote!(pub Counter<()> view(_, _, _) => Text("Count")),
+        ] {
+            syn::parse2::<syn::File>(expand(input).unwrap()).unwrap();
+        }
+    }
+
+    #[test]
     fn effect_functions_and_component_lifecycle_blocks_expand_to_rust() {
         let effect = effect::expand(
             syn::parse2(quote! {

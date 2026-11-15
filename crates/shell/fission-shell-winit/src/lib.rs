@@ -45,7 +45,9 @@ use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 #[cfg(target_os = "linux")]
 use winit::platform::wayland::ActiveEventLoopExtWayland;
 #[cfg(target_arch = "wasm32")]
-use winit::platform::web::{EventLoopExtWebSys, WindowAttributesExtWebSys, WindowExtWebSys};
+use winit::platform::web::{
+    EventLoopExtWebSys, WaitUntilStrategy, WindowAttributesExtWebSys, WindowExtWebSys,
+};
 #[cfg(target_os = "windows")]
 use winit::platform::windows::WindowAttributesExtWindows;
 use winit::{
@@ -284,6 +286,23 @@ fn record_web_test_diagnostic(stage: u32, iteration: u32) {
     let _ = (stage, iteration);
 }
 
+fn enqueue_bounded<T>(queue: &mut VecDeque<T>, value: T, capacity: usize) -> Result<(), T> {
+    if queue.len() >= capacity {
+        Err(value)
+    } else {
+        queue.push_back(value);
+        Ok(())
+    }
+}
+
+fn take_one<T>(queue: &mut VecDeque<T>) -> Option<T> {
+    queue.pop_front()
+}
+
+const fn web_test_diagnostic_is_poll_stage(stage: u32) -> bool {
+    matches!(stage, 430 | 432 | 435)
+}
+
 type EffectResult = AsyncMessage;
 
 type ServiceKey = (String, String);
@@ -492,6 +511,14 @@ fn register_unsupported_file_picker_capability(async_registry: &mut AsyncRegistr
             Err::<fission_core::WritableFilePermissionResult, _>(
                 fission_core::FileSystemError::unsupported("writable_file_permission"),
             )
+        },
+    );
+    async_registry.register_operation_capability(
+        fission_core::RELEASE_WRITABLE_FILE,
+        |_request: fission_core::ReleaseWritableFileRequest, _| async move {
+            Err::<(), _>(fission_core::FileSystemError::unsupported(
+                "release_writable_file",
+            ))
         },
     );
 }
@@ -2239,6 +2266,12 @@ fn request_redraw_once(window: &Window, frame_schedule: &mut FrameScheduleState)
     true
 }
 
+#[cfg(any(test, target_arch = "wasm32"))]
+fn prepare_capture_redraw(redraw_pending: &mut bool, frame_schedule: &mut FrameScheduleState) {
+    frame_schedule.redraw_started();
+    *redraw_pending = false;
+}
+
 fn request_redraw_throttled(
     window: &Window,
     elwt: &EventLoopWindowTarget,
@@ -2577,6 +2610,11 @@ fn animation_redraw_interval(
     } else {
         None
     }
+}
+
+#[cfg(any(all(target_arch = "wasm32", fission_web_test_control), test))]
+fn web_live_test_event_loop_wait_until(now: Instant) -> ControlFlow {
+    ControlFlow::WaitUntil(now + Duration::from_millis(16))
 }
 
 fn runtime_timer_wake_at(runtime: &Runtime, last_frame_time: Instant) -> Option<Instant> {
@@ -4562,9 +4600,15 @@ fn handle_scroll_into_view_selector(
             let needs_scroll =
                 record.node.visibility != fission_test_driver::VisibilityState::FullyVisible;
             if needs_scroll {
+                let target = pipeline
+                    .prev_ir
+                    .as_ref()
+                    .zip(pipeline.last_snapshot.as_ref())
+                    .and_then(|(ir, snapshot)| layout_target_for_semantic(ir, snapshot, record.id))
+                    .unwrap_or(record.id);
                 runtime.queue_scroll_into_view(ScrollIntoViewRequest {
                     container: None,
-                    target: record.id,
+                    target,
                     axis: ScrollAxis::Both,
                     alignment: ScrollAlignment::Nearest,
                     padding: [8.0, 8.0, 8.0, 8.0],
@@ -5776,6 +5820,8 @@ where
         let event_loop = event_loop_builder
             .build()
             .map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
+        #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+        event_loop.set_wait_until_strategy(WaitUntilStrategy::Worker);
         #[cfg(target_arch = "wasm32")]
         let web_navigation_config = self.web_navigation.clone();
         let event_proxy = event_loop.create_proxy();
@@ -7270,6 +7316,7 @@ where
                         );
                     }
                     TestEvent::Screenshot { path, response_tx } => {
+                        record_web_test_diagnostic(346, 0);
                         let Some(window) = platform_window.active_window() else {
                             let _ = response_tx.send(fission_test_driver::TestResponse::Error {
                                 message: "window not ready".into(),
@@ -7286,10 +7333,32 @@ where
                         // A capture reads the complete retained target texture. Force every
                         // compositor layer to repaint so the image cannot contain only the
                         // regions damaged by the preceding interaction.
+                        // A capture is a barrier: discard a coalesced web RAF request that may
+                        // have gone stale while browser test commands continued to arrive.
+                        #[cfg(target_arch = "wasm32")]
+                        prepare_capture_redraw(&mut redraw_pending, &mut frame_trace);
                         invalidations.mark_paint();
-                        request_redraw_once(window, &mut frame_trace);
+                        let scheduled = request_redraw_once(window, &mut frame_trace);
+                        record_web_test_diagnostic(347, u32::from(scheduled));
                     }
                     TestEvent::CaptureScreenshot { response_tx } => {
+                        #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                        if pending_screenshot_path.is_some()
+                            || pending_screenshot_response_tx.is_some()
+                        {
+                            if let Err(response_tx) =
+                                web_test_control::requeue_pending_capture_request(response_tx)
+                            {
+                                let _ =
+                                    response_tx.send(fission_test_driver::TestResponse::Error {
+                                        message: "too many pending browser screenshot requests"
+                                            .into(),
+                                    });
+                            }
+                            return;
+                        }
+                        record_web_test_diagnostic(481, 1);
+                        record_web_test_diagnostic(346, 1);
                         let Some(window) = platform_window.active_window() else {
                             let _ = response_tx.send(fission_test_driver::TestResponse::Error {
                                 message: "window not ready".into(),
@@ -7303,8 +7372,12 @@ where
                             resize_needs_settled_frame,
                             live_resize.is_live(Instant::now()),
                         );
+                        // Keep LiveTest captures from waiting behind an older coalesced RAF.
+                        #[cfg(target_arch = "wasm32")]
+                        prepare_capture_redraw(&mut redraw_pending, &mut frame_trace);
                         invalidations.mark_paint();
-                        request_redraw_once(window, &mut frame_trace);
+                        let scheduled = request_redraw_once(window, &mut frame_trace);
+                        record_web_test_diagnostic(347, u32::from(scheduled));
                     }
                     TestEvent::PauseAnimations { response_tx } => {
                         test_animations_paused = true;
@@ -7759,6 +7832,8 @@ where
                     }
                 }
                 Event::LoopExiting => {
+                    #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                    web_test_control::fail_pending_capture_requests();
                     native_surface_handlers.detach_host();
                 }
                 // ═══════════════════════════════════════════════════════
@@ -7769,8 +7844,16 @@ where
                         TestEvent::Pump { .. } => 30,
                         TestEvent::Wake => 31,
                         TestEvent::FillText { .. } => 42,
+                        TestEvent::CaptureScreenshot { .. } => 43,
+                        TestEvent::Screenshot { .. } => 44,
                         _ => 0,
                     };
+                    if matches!(diagnostic_kind, 43 | 44) {
+                        record_web_test_diagnostic(436, diagnostic_kind);
+                    }
+                    if matches!(&test_event, TestEvent::Wake) {
+                        record_web_test_diagnostic(428, 1);
+                    }
                     #[cfg(target_arch = "wasm32")]
                     if matches!(&test_event, TestEvent::Wake) {
                         web_wake_dispatched_in_cycle = true;
@@ -7784,6 +7867,9 @@ where
                         return;
                     }
                     handle_test_event(test_event);
+                    if diagnostic_kind == 31 {
+                        record_web_test_diagnostic(429, 1);
+                    }
                     record_web_test_diagnostic(437, diagnostic_kind);
                 }
 
@@ -7792,6 +7878,15 @@ where
                 // ═══════════════════════════════════════════════════════
                 Event::AboutToWait => {
                     record_web_test_diagnostic(360, 0);
+                    // A successful EventLoopProxy send only means Winit accepted
+                    // the channel message; Web dispatches it in a later task.
+                    // Keep capture requests in the bridge until the regular
+                    // LiveTest event-loop pass can hand them to the render path.
+                    #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                    if let Some(response_tx) = web_test_control::take_next_pending_capture_request()
+                    {
+                        handle_test_event(TestEvent::CaptureScreenshot { response_tx });
+                    }
                     let Some(window) = platform_window.active_window() else {
                         elwt.set_control_flow(ControlFlow::Wait);
                         #[cfg(target_arch = "wasm32")]
@@ -8517,6 +8612,14 @@ where
                         }
                         #[cfg(not(target_os = "android"))]
                         elwt.set_control_flow(ControlFlow::Wait);
+                    }
+                    // LiveTest uses EventLoopProxy from browser tasks. Keep its event loop on a
+                    // timer cadence so queued user events are drained even when requestAnimationFrame
+                    // is throttled or paused by the browser's responsive/headless capture state.
+                    #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                    if test_control_enabled {
+                        elwt.set_control_flow(web_live_test_event_loop_wait_until(now));
+                        record_web_test_diagnostic(479, 1);
                     }
                     record_web_test_diagnostic(365, redraw_pending as u32);
                     // Keep the wake gate closed through event handling and the complete
@@ -9649,35 +9752,33 @@ where
                                                         let _ = response_tx.send(
                                                             fission_test_driver::TestResponse::Ok {},
                                                         );
-                                                    } else if matches!(
-                                                        web_renderer.as_ref(),
-                                                        Some(WebRenderer::WebGpu(_))
-                                                    ) {
+                                                    } else if let WebRenderer::WebGpu(presenter) =
+                                                        renderer
+                                                    {
                                                         record_web_test_diagnostic(367, 3);
                                                         let screenshot_dimensions =
                                                             layout_size_to_image_dimensions(
                                                                 target_viewport,
                                                             );
-                                                        let rendered = pipeline.retained_scene().map(
-                                                            |scene| {
-                                                                fission_render_vello::cpu::render_to_rgba8(
-                                                                    scene,
-                                                                    render_target_size.0,
-                                                                    render_target_size.1,
-                                                                    theme_background_render_color(&env),
-                                                                    scale_factor,
-                                                                    measurer.clone(),
-                                                                )
-                                                            },
+                                                        let device_handle = &presenter
+                                                            .render_cx
+                                                            .devices
+                                                            [presenter.render_state.surface.dev_id];
+                                                        gpu_screenshot_async(
+                                                            &presenter.render_cx.instance,
+                                                            &device_handle.device,
+                                                            &device_handle.queue,
+                                                            &presenter
+                                                                .render_state
+                                                                .surface
+                                                                .target_texture,
+                                                            render_target_size.0,
+                                                            render_target_size.1,
+                                                            screenshot_dimensions.0,
+                                                            screenshot_dimensions.1,
+                                                            response_tx,
                                                         );
                                                         record_web_test_diagnostic(368, 3);
-                                                        let response = covered_window_screenshot(
-                                                            rendered,
-                                                            render_target_size,
-                                                            screenshot_dimensions,
-                                                            None,
-                                                        );
-                                                        let _ = response_tx.send(response);
                                                     } else {
                                                         let _ = response_tx.send(
                                                             fission_test_driver::TestResponse::Error {
@@ -9885,7 +9986,7 @@ where
                                                                 env.theme.tokens.colors.background;
                                                             covered_window_screenshot(
                                                                 pipeline.retained_scene().map(|scene| {
-                                                                    fission_render_vello::cpu::render_to_rgba8(
+                                                        fission_render_vello::cpu::render_to_rgba8_for_screenshot(
                                                                         scene,
                                                                         render_target_size.0,
                                                                         render_target_size.1,
@@ -11261,6 +11362,150 @@ fn gpu_screenshot(
     )
 }
 
+#[cfg(target_arch = "wasm32")]
+fn gpu_screenshot_async(
+    instance: &wgpu::Instance,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    texture_width: u32,
+    texture_height: u32,
+    output_width: u32,
+    output_height: u32,
+    response_tx: mpsc::Sender<fission_test_driver::TestResponse>,
+) {
+    let (texture_width, texture_height) = clamp_copy_extent_to_texture(
+        texture_width,
+        texture_height,
+        texture.width(),
+        texture.height(),
+    );
+    if output_width == 0 || output_height == 0 {
+        let _ = response_tx.send(fission_test_driver::TestResponse::Error {
+            message: "zero-size viewport".into(),
+        });
+        return;
+    }
+
+    let bytes_per_pixel = 4_u32;
+    let unpadded_bytes_per_row = texture_width * bytes_per_pixel;
+    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) / align * align;
+    let buffer_size = (padded_bytes_per_row * texture_height) as u64;
+    let validation_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let out_of_memory_scope = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+    let staging = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("WebGPU screenshot staging"),
+        size: buffer_size,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("WebGPU screenshot copy"),
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &staging,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded_bytes_per_row),
+                rows_per_image: Some(texture_height),
+            },
+        },
+        wgpu::Extent3d {
+            width: texture_width,
+            height: texture_height,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(Some(encoder.finish()));
+
+    // Some browser WebGPU implementations reject mapAsync on a buffer referenced by the
+    // currently pending submission. Wait for the copy to complete before requesting the map.
+    let work_done = js_sys::Promise::new(&mut |resolve, _reject| {
+        let resolve = resolve.clone();
+        queue.on_submitted_work_done(move || {
+            let _ = resolve.call0(&wasm_bindgen::JsValue::UNDEFINED);
+        });
+    });
+    let out_of_memory_error = out_of_memory_scope.pop();
+    let validation_error = validation_scope.pop();
+    let instance_keepalive = instance.clone();
+    let device_keepalive = device.clone();
+    let queue_keepalive = queue.clone();
+
+    wasm_bindgen_futures::spawn_local(async move {
+        let _keepalive = (instance_keepalive, device_keepalive, queue_keepalive);
+        let gpu_error = out_of_memory_error.await.or(validation_error.await);
+        let response = if let Some(error) = gpu_error {
+            fission_test_driver::TestResponse::Error {
+                message: format!(
+                    "WebGPU screenshot readback GPU error for {texture_width}x{texture_height} ({buffer_size} bytes, {padded_bytes_per_row} bytes per row): {error}"
+                ),
+            }
+        } else if let Err(error) = wasm_bindgen_futures::JsFuture::from(work_done).await {
+            fission_test_driver::TestResponse::Error {
+                message: format!("WebGPU screenshot queue completion failed: {error:?}"),
+            }
+        } else {
+            // WebGPU mapping completes through the browser event loop. Keep the frame callback
+            // free to process input and subsequent frames while the staging buffer is readable.
+            let promise = js_sys::Promise::new(&mut |resolve, reject| {
+                let resolve = resolve.clone();
+                let reject = reject.clone();
+                staging
+                    .slice(..)
+                    .map_async(wgpu::MapMode::Read, move |result| match result {
+                        Ok(()) => {
+                            let _ = resolve.call0(&wasm_bindgen::JsValue::UNDEFINED);
+                        }
+                        Err(error) => {
+                            let _ = reject.call1(
+                                &wasm_bindgen::JsValue::UNDEFINED,
+                                &wasm_bindgen::JsValue::from_str(&error.to_string()),
+                            );
+                        }
+                    });
+            });
+            match wasm_bindgen_futures::JsFuture::from(promise).await {
+                Ok(_) => {
+                    let data = staging.slice(..).get_mapped_range();
+                    let mut rgba =
+                        Vec::with_capacity((texture_width * texture_height * 4) as usize);
+                    for row in 0..texture_height {
+                        let start = (row * padded_bytes_per_row) as usize;
+                        let end = start + (texture_width * bytes_per_pixel) as usize;
+                        rgba.extend_from_slice(&data[start..end]);
+                    }
+                    drop(data);
+                    staging.unmap();
+                    rgba_screenshot_response(
+                        rgba,
+                        texture_width,
+                        texture_height,
+                        output_width,
+                        output_height,
+                        None,
+                    )
+                }
+                Err(error) => fission_test_driver::TestResponse::Error {
+                    message: format!(
+                        "renderer_screenshot_unavailable: WebGPU buffer map failed for {texture_width}x{texture_height} readback ({buffer_size} bytes, {padded_bytes_per_row} bytes per row): {error:?}"
+                    ),
+                },
+            }
+        };
+        let _ = response_tx.send(response);
+    });
+}
+
 /// Answers a screenshot from a software rendering of the retained scene when the presented surface
 /// cannot be read back reliably.
 fn covered_window_screenshot<E: std::fmt::Display>(
@@ -11540,25 +11785,25 @@ mod tests {
     use super::{
         animation_redraw_interval, build_window_attributes, clamp_copy_extent_to_texture,
         classify_web_text_value, collect_semantic_records, collect_startup_deep_links_from,
-        cursor_icon_for, downscale_rgba_box, fission_key_down_event, focused_text_input_id,
-        handle_fill_text_selector, layout_size_to_image_dimensions,
-        logical_viewport_to_physical_size, logical_viewport_to_render_target_size,
-        magnification_scale_factor, map_test_pointer_id, map_test_pointer_kind,
-        map_test_pointer_phase, map_test_scroll_delta_mode, map_touch_phase,
+        cursor_icon_for, downscale_rgba_box, enqueue_bounded, fission_key_down_event,
+        focused_text_input_id, handle_fill_text_selector, handle_scroll_into_view_selector,
+        layout_size_to_image_dimensions, logical_viewport_to_physical_size,
+        logical_viewport_to_render_target_size, magnification_scale_factor, map_test_pointer_id,
+        map_test_pointer_kind, map_test_pointer_phase, map_test_scroll_delta_mode, map_touch_phase,
         native_window_size_for_logical_viewport, normalize_scale_factor,
         normalize_winit_scroll_delta, physical_position_to_layout_point,
         physical_size_to_layout_size, preferred_native_present_mode, preferred_surface_alpha_mode,
-        preferred_web_surface_alpha_mode, present_frame_with_winit_coordination,
-        rect_visible_in_scroll_ancestors, repeating_animation_redraw_interval, resize_is_unsettled,
-        resolve_build_viewport, resolve_selector_record, runtime_timer_wake_at,
-        scroll_build_dependency_offsets, scroll_build_dependency_offsets_changed,
-        should_present_startup_clear_frame, surface_acquire_recovery,
-        sync_tracked_target_texture_size_to_surface, test_pump_can_ack_current_frame,
-        text_input_blink_enabled, texture_plans_fit_device_limits, visual_rect_for_node,
-        web_effective_render_scale, window_insets_from_safe_area_frames,
-        windows_shell_execute_succeeded, windows_wide, BrowserDefaults, ControlFlow,
-        FrameScheduleState, Instant, LiveResizeController, RedrawRequestTiming,
-        SurfaceAcquireRecovery, TestPumpState, WindowViewportState,
+        preferred_web_surface_alpha_mode, prepare_capture_redraw,
+        present_frame_with_winit_coordination, rect_visible_in_scroll_ancestors,
+        repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
+        resolve_selector_record, runtime_timer_wake_at, scroll_build_dependency_offsets,
+        scroll_build_dependency_offsets_changed, should_present_startup_clear_frame,
+        surface_acquire_recovery, sync_tracked_target_texture_size_to_surface, take_one,
+        test_pump_can_ack_current_frame, text_input_blink_enabled, texture_plans_fit_device_limits,
+        visual_rect_for_node, web_effective_render_scale, web_live_test_event_loop_wait_until,
+        window_insets_from_safe_area_frames, windows_shell_execute_succeeded, windows_wide,
+        BrowserDefaults, ControlFlow, FrameScheduleState, Instant, LiveResizeController,
+        RedrawRequestTiming, SurfaceAcquireRecovery, TestPumpState, WindowViewportState,
     };
     use crate::pipeline::{software_frame_needs_raster, CompositorTexturePlan};
     use crate::InvalidationSet;
@@ -11574,7 +11819,11 @@ mod tests {
     use fission_ir::semantics::{ActionTrigger, MouseCursor};
     use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, Role, Semantics};
     use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
-    use fission_test_driver::{TestPointerKind, TestPointerPhase, TestScrollDeltaMode};
+    use fission_test_driver::{
+        TestPointerKind, TestPointerPhase, TestResponse, TestScrollDeltaMode,
+    };
+    use std::collections::VecDeque;
+    use std::sync::mpsc;
     use wgpu::PresentMode;
 
     #[derive(Debug, Default, Clone)]
@@ -11583,6 +11832,141 @@ mod tests {
     }
 
     impl GlobalState for TimerWakeState {}
+
+    #[test]
+    fn live_test_scroll_into_view_reveals_a_semantics_wrapper_without_layout_geometry() {
+        let root = WidgetId::explicit("root");
+        let scroll = WidgetId::explicit("document-scroll");
+        let horizontal_scroll = WidgetId::explicit("document-horizontal-scroll");
+        let page = WidgetId::explicit("page-frame");
+        let semantic_page = WidgetId::explicit("page-semantic-region");
+        let page_content = WidgetId::explicit("page-content");
+        let box_op = || {
+            Op::Layout(LayoutOp::Box {
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            })
+        };
+
+        let mut ir = CoreIR::new();
+        ir.add_node(page_content, box_op(), Vec::new());
+        ir.add_node(
+            semantic_page,
+            Op::Semantics(Semantics {
+                role: Role::Text,
+                identifier: Some("document.page.2".into()),
+                value: Some("Page 2/2".into()),
+                ..Default::default()
+            }),
+            vec![page_content],
+        );
+        ir.add_node(page, box_op(), vec![semantic_page]);
+        ir.add_node(
+            horizontal_scroll,
+            Op::Layout(LayoutOp::Scroll {
+                direction: FlexDirection::Row,
+                show_scrollbar: true,
+                width: Some(100.0),
+                height: Some(100.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+            }),
+            vec![page],
+        );
+        ir.add_node(
+            scroll,
+            Op::Layout(LayoutOp::Scroll {
+                direction: FlexDirection::Column,
+                show_scrollbar: true,
+                width: Some(100.0),
+                height: Some(100.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+            }),
+            vec![horizontal_scroll],
+        );
+        ir.add_node(root, box_op(), vec![scroll]);
+        ir.set_root(root);
+
+        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
+        for (id, rect, content_size) in [
+            (
+                root,
+                LayoutRect::new(0.0, 0.0, 100.0, 100.0),
+                LayoutSize::new(100.0, 100.0),
+            ),
+            (
+                scroll,
+                LayoutRect::new(0.0, 0.0, 100.0, 100.0),
+                LayoutSize::new(100.0, 500.0),
+            ),
+            (
+                horizontal_scroll,
+                LayoutRect::new(0.0, 240.0, 100.0, 100.0),
+                LayoutSize::new(400.0, 100.0),
+            ),
+            (
+                page,
+                LayoutRect::new(0.0, 250.0, 100.0, 60.0),
+                LayoutSize::new(100.0, 60.0),
+            ),
+            (
+                page_content,
+                LayoutRect::new(10.0, 260.0, 80.0, 40.0),
+                LayoutSize::new(80.0, 40.0),
+            ),
+        ] {
+            snapshot
+                .nodes
+                .insert(id, LayoutNodeGeometry { rect, content_size });
+        }
+
+        let mut pipeline = crate::Pipeline::new();
+        pipeline.prev_ir = Some(ir.clone());
+        pipeline.last_snapshot = Some(snapshot.clone());
+        let query = fission_test_driver::SelectorQuery::semantic_identifier("document.page.2")
+            .include_hidden();
+        let mut runtime = Runtime::default();
+
+        let (response, needs_scroll) =
+            handle_scroll_into_view_selector(&query, &mut runtime, &pipeline);
+        assert!(matches!(
+            response,
+            fission_test_driver::TestResponse::SelectorResolved { .. }
+        ));
+        assert!(needs_scroll);
+        assert!(runtime.post_layout_hook(&ir, &snapshot));
+        assert_eq!(runtime.runtime_state.scroll.get_offset(scroll), 208.0);
+        assert_eq!(
+            runtime.runtime_state.scroll.get_offset(horizontal_scroll),
+            0.0
+        );
+
+        let visible = resolve_selector_record(&pipeline, &runtime.runtime_state.scroll, &query)
+            .expect("semantic page remains selectable after scrolling");
+        assert_eq!(
+            visible.node.visibility,
+            fission_test_driver::VisibilityState::FullyVisible
+        );
+    }
 
     #[test]
     fn only_changed_scroll_build_dependencies_request_tree_rebuilds() {
@@ -12222,6 +12606,136 @@ mod tests {
     }
 
     #[test]
+    fn web_semantic_records_project_rich_text_links_to_line_fragments() {
+        let root = WidgetId::explicit("web-rich-link-root");
+        let paint = WidgetId::explicit("web-rich-link-paint");
+        let link = WidgetId::explicit("web-rich-link-semantics");
+        let hyperlink = fission_ir::Hyperlink::new("https://example.com/guide");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            link,
+            Op::Semantics(Semantics {
+                role: Role::Link,
+                label: Some("docs".into()),
+                identifier: Some("docs-link".into()),
+                hyperlink: Some(hyperlink.clone()),
+                focusable: true,
+                ..Semantics::default()
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            paint,
+            Op::Paint(fission_ir::PaintOp::DrawRichText {
+                runs: vec![fission_ir::op::TextRun {
+                    text: "Read docs".into(),
+                    style: fission_ir::op::TextStyle {
+                        font_size: 16.0,
+                        color: fission_ir::op::Color::BLACK,
+                        underline: false,
+                        font_family: None,
+                        locale: None,
+                        font_weight: 400,
+                        font_style: fission_ir::op::FontStyle::Normal,
+                        line_height: None,
+                        letter_spacing: 0.0,
+                        background_color: None,
+                        typography: Default::default(),
+                    },
+                }],
+                wrap: true,
+                caret_index: None,
+                caret_color: None,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: None,
+            }),
+            vec![link],
+        );
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::Box {
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            }),
+            vec![paint],
+        );
+        ir.set_root(root);
+        ir.custom_render_objects.insert(
+            paint,
+            std::sync::Arc::new(vec![fission_ir::op::RichTextAnnotation {
+                range: 5..9,
+                semantics_label: Some("docs".into()),
+                semantics_identifier: Some("docs-link".into()),
+                spell_out: None,
+                mouse_cursor: Some(fission_ir::op::MouseCursor::Pointer),
+                actions: Vec::new(),
+                hyperlink: Some(hyperlink),
+            }]),
+        );
+
+        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(160.0, 40.0));
+        for (id, rect, content_size) in [
+            (
+                root,
+                LayoutRect::new(0.0, 0.0, 160.0, 40.0),
+                LayoutSize::new(160.0, 40.0),
+            ),
+            (
+                paint,
+                LayoutRect::new(10.0, 8.0, 100.0, 20.0),
+                LayoutSize::new(100.0, 20.0),
+            ),
+        ] {
+            snapshot
+                .nodes
+                .insert(id, LayoutNodeGeometry { rect, content_size });
+        }
+        snapshot.paragraphs.insert(
+            paint,
+            fission_layout::ResolvedParagraphLayout {
+                constraint_width: Some(100.0),
+                size: LayoutSize::new(100.0, 20.0),
+                lines: Vec::new(),
+                inline_boxes: Vec::new(),
+                clusters: Vec::new(),
+                glyphs: Vec::new(),
+                caret_stops: Vec::new(),
+                selection_boxes: vec![fission_layout::ParagraphSelectionBox {
+                    start_index: 5,
+                    end_index: 9,
+                    line_index: 0,
+                    rect: LayoutRect::new(50.0, 0.0, 40.0, 16.0),
+                }],
+            },
+        );
+
+        let records = collect_semantic_records(&ir, &snapshot, &ScrollStateMap::default());
+        let record = records
+            .iter()
+            .find(|record| record.node.identifier.as_deref() == Some("docs-link"))
+            .expect("inline link semantic record");
+        assert_eq!(
+            record.semantics.hyperlink.as_ref().unwrap().href,
+            "https://example.com/guide"
+        );
+        assert_eq!(record.link_fragments.len(), 1);
+        assert_eq!(record.link_fragments[0].x, 60.0);
+        assert_eq!(record.link_fragments[0].y, 8.0);
+        assert_eq!(record.link_fragments[0].width, 40.0);
+        assert_eq!(record.link_fragments[0].height, 16.0);
+    }
+
+    #[test]
     fn get_tree_reports_effective_sequential_focusability() {
         let input = WidgetId::from_u128(10);
         let mut ir = CoreIR::new();
@@ -12689,6 +13203,111 @@ mod tests {
             schedule.wait_for_redraw_or_deadline(deadline),
             ControlFlow::WaitUntil(deadline)
         );
+    }
+
+    #[test]
+    fn web_live_test_event_loop_uses_a_short_timer_deadline() {
+        let now = Instant::now();
+        assert_eq!(
+            web_live_test_event_loop_wait_until(now),
+            ControlFlow::WaitUntil(now + Duration::from_millis(16))
+        );
+    }
+
+    #[test]
+    fn queued_capture_survives_accepted_but_undelivered_proxy_event() {
+        fn proxy_send_event() -> Result<(), ()> {
+            Ok(())
+        }
+
+        let proxy_send_result = proxy_send_event();
+        assert!(proxy_send_result.is_ok(), "the proxy accepts the event");
+        let delivered_proxy_callbacks = 0;
+        assert_eq!(delivered_proxy_callbacks, 0, "the event callback is lost");
+        let mut capture_handler_calls = 0;
+
+        let mut pending = VecDeque::new();
+        let (first_response_tx, first_response_rx) = mpsc::channel();
+        let (second_response_tx, second_response_rx) = mpsc::channel();
+        assert!(enqueue_bounded(&mut pending, first_response_tx, 2).is_ok());
+        assert!(enqueue_bounded(&mut pending, second_response_tx, 2).is_ok());
+
+        // Model the regular LiveTest event-loop pass. The proxy callback never
+        // arrives, but the bounded queue hands one request to the renderer at
+        // a time and preserves later captures while the slot is busy.
+        let first_capture = take_one(&mut pending).expect("first queued capture");
+        capture_handler_calls += 1;
+        let second_capture = take_one(&mut pending).expect("second queued capture");
+        assert!(
+            enqueue_bounded(&mut pending, second_capture, 2).is_ok(),
+            "a busy renderer slot requeues the next capture"
+        );
+
+        first_capture
+            .send(TestResponse::Screenshot {
+                png_base64: "cG5n".into(),
+                width: 16,
+                height: 9,
+            })
+            .expect("first capture response receiver remains connected");
+        let second_capture = take_one(&mut pending).expect("requeued capture");
+        capture_handler_calls += 1;
+        second_capture
+            .send(TestResponse::Screenshot {
+                png_base64: "cG5n".into(),
+                width: 16,
+                height: 9,
+            })
+            .expect("second capture response receiver remains connected");
+        assert!(
+            take_one(&mut pending).is_none(),
+            "captures drain exactly once"
+        );
+        assert_eq!(capture_handler_calls, 2, "each request is handled once");
+
+        for response_rx in [first_response_rx, second_response_rx] {
+            match response_rx.try_recv().expect("screenshot response") {
+                TestResponse::Screenshot {
+                    png_base64,
+                    width,
+                    height,
+                } => {
+                    assert_eq!(png_base64, "cG5n");
+                    assert_eq!((width, height), (16, 9));
+                }
+                other => panic!("unexpected capture response: {other:?}"),
+            }
+        }
+
+        let (overflow_tx, overflow_rx) = mpsc::channel();
+        let rejected =
+            enqueue_bounded(&mut pending, overflow_tx, 0).expect_err("queue capacity is enforced");
+        drop(rejected);
+        assert!(matches!(
+            overflow_rx.try_recv(),
+            Err(mpsc::TryRecvError::Disconnected)
+        ));
+    }
+
+    #[test]
+    fn web_test_poll_markers_are_classified_as_high_frequency() {
+        assert!(super::web_test_diagnostic_is_poll_stage(430));
+        assert!(super::web_test_diagnostic_is_poll_stage(432));
+        assert!(super::web_test_diagnostic_is_poll_stage(435));
+        assert!(!super::web_test_diagnostic_is_poll_stage(417));
+    }
+
+    #[test]
+    fn screenshot_redraw_restarts_a_stale_coalesced_frame() {
+        let mut schedule = FrameScheduleState::new(false);
+        let mut redraw_pending = true;
+        assert!(schedule.mark_redraw_scheduled());
+
+        prepare_capture_redraw(&mut redraw_pending, &mut schedule);
+
+        assert!(!redraw_pending);
+        assert!(!schedule.redraw_scheduled);
+        assert!(schedule.mark_redraw_scheduled());
     }
 
     #[test]

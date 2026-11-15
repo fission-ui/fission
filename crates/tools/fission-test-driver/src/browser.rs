@@ -1255,6 +1255,14 @@ struct ChromeSession {
 #[cfg(not(target_arch = "wasm32"))]
 impl ChromeSession {
     fn launch(chrome: &PathBuf, cdp_port: u16, options: &BrowserTestOptions) -> Result<Self> {
+        let webgpu_profile =
+            match std::env::var_os("FISSION_CHROME_WEBGPU_PROFILE") {
+                Some(value) => Some(value.into_string().map_err(|_| {
+                    anyhow!("FISSION_CHROME_WEBGPU_PROFILE must contain valid UTF-8")
+                })?),
+                None => None,
+            };
+        let webgpu_profile_args = chrome_webgpu_profile_args(webgpu_profile.as_deref())?;
         let profile_dir = std::env::temp_dir().join(format!(
             "fission-cdp-{}-{}",
             std::process::id(),
@@ -1271,6 +1279,7 @@ impl ChromeSession {
             .env_remove("DBUS_SESSION_BUS_ADDRESS")
             .arg("--headless=new")
             .arg("--enable-unsafe-webgpu")
+            .args(webgpu_profile_args)
             .arg("--no-first-run")
             .arg("--no-default-browser-check")
             .arg(format!("--remote-debugging-port={cdp_port}"))
@@ -1294,6 +1303,25 @@ impl ChromeSession {
         if let Some(mut child) = self.child.take() {
             let _ = child.terminate();
         }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn chrome_webgpu_profile_args(profile: Option<&str>) -> Result<&'static [&'static str]> {
+    match profile {
+        None | Some("default") => Ok(&[]),
+        // Chromium's default headless Linux ANGLE path can invalidate the native
+        // WebGPU instance when a canvas-backed surface is read back. This
+        // software Vulkan profile avoids that canvas/shared-image path.
+        Some("swiftshader-vulkan") => Ok(&[
+            "--use-angle=swiftshader",
+            "--enable-unsafe-swiftshader",
+            "--use-vulkan=swiftshader",
+            "--enable-features=Vulkan",
+        ]),
+        Some(other) => Err(anyhow!(
+            "unsupported FISSION_CHROME_WEBGPU_PROFILE '{other}'; supported values are 'default' and 'swiftshader-vulkan'"
+        )),
     }
 }
 
@@ -1643,6 +1671,24 @@ mod tests {
 
         let reduced = standard.reduced_motion();
         assert!(reduced.prefers_reduced_motion);
+    }
+
+    #[test]
+    fn chrome_webgpu_profile_selects_swiftshader_vulkan_only_when_requested() {
+        assert!(chrome_webgpu_profile_args(None).unwrap().is_empty());
+        assert!(chrome_webgpu_profile_args(Some("default"))
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            chrome_webgpu_profile_args(Some("swiftshader-vulkan")).unwrap(),
+            [
+                "--use-angle=swiftshader",
+                "--enable-unsafe-swiftshader",
+                "--use-vulkan=swiftshader",
+                "--enable-features=Vulkan",
+            ]
+        );
+        assert!(chrome_webgpu_profile_args(Some("unknown")).is_err());
     }
 
     #[test]

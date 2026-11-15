@@ -5691,6 +5691,25 @@ case "$SIMD_MODE" in
     ;;
 esac
 
+STACK_SIZE_BYTES="${FISSION_WEB_WASM_STACK_SIZE:-4194304}"
+if [[ ! "$STACK_SIZE_BYTES" =~ ^[0-9]+$ ]] || (( ${#STACK_SIZE_BYTES} > 8 )); then
+  printf '%s\n' "FISSION_WEB_WASM_STACK_SIZE must be a byte count from 1048576 to 67108864." >&2
+  exit 2
+fi
+STACK_SIZE_BYTES=$((10#$STACK_SIZE_BYTES))
+if (( STACK_SIZE_BYTES < 1048576 || STACK_SIZE_BYTES > 67108864 )); then
+  printf '%s\n' "FISSION_WEB_WASM_STACK_SIZE must be a byte count from 1048576 to 67108864." >&2
+  exit 2
+fi
+STACK_SIZE_FLAG="-C link-arg=-zstack-size=$STACK_SIZE_BYTES"
+if [[ -n "${CARGO_ENCODED_RUSTFLAGS:-}" ]]; then
+  export CARGO_ENCODED_RUSTFLAGS="${CARGO_ENCODED_RUSTFLAGS}"$'\x1f-C\x1f'"link-arg=-zstack-size=$STACK_SIZE_BYTES"
+elif [[ -n "${RUSTFLAGS:-}" ]]; then
+  export RUSTFLAGS="${RUSTFLAGS} $STACK_SIZE_FLAG"
+else
+  export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS="${CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS:-} $STACK_SIZE_FLAG"
+fi
+
 BUILD_ARGS=(build "$PROJECT_DIR" --target web --out-dir "$SCRIPT_DIR/pkg")
 
 if [[ "$PROFILE" == "release" ]]; then
@@ -6242,6 +6261,15 @@ fission_component! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generated_web_build_configures_the_wasm_stack_size() {
+        let script = render_web_build_script();
+
+        assert!(script.contains("FISSION_WEB_WASM_STACK_SIZE:-4194304"));
+        assert!(script.contains("link-arg=-zstack-size=$STACK_SIZE_BYTES"));
+        assert!(script.contains("CARGO_ENCODED_RUSTFLAGS"));
+    }
 
     #[test]
     fn generated_starter_teaches_compose_as_the_default_authoring_api() {

@@ -239,8 +239,12 @@ jobs:
 
       - name: Verify generated static site
         run: |
-          for asset in index.html site.css sitemap.xml robots.txt search/search.js search/manifest.json search/docs.json img/fission-mark.svg img/charts/line-gradient-area.png artifact-manifest.json crates/index.html es/crates/index.html; do
-            test -f "docs2/dist/site/$asset"
+          # `site build` emits the site, not `package`'s artifact-manifest.json.
+          for asset in index.html site.css sitemap.xml robots.txt search/search.js search/manifest.json search/docs.json img/fission-mark.svg img/charts/line-gradient-area.png crates/index.html es/crates/index.html; do
+            if [ ! -f "docs2/dist/site/$asset" ]; then
+              echo "Missing generated site asset: docs2/dist/site/$asset" >&2
+              exit 1
+            fi
           done
           scripts/check_homepage_seo.sh docs2/dist/site
           scripts/check_docs2_showcase_page.sh docs2/dist/site

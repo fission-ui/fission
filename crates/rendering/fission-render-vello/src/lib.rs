@@ -1743,6 +1743,7 @@ mod tests {
                     action_id: 1,
                     payload_data: Some(vec![1]),
                 }],
+                hyperlink: None,
             },
             RichTextAnnotation {
                 range: 5..9,
@@ -1755,6 +1756,7 @@ mod tests {
                     action_id: 2,
                     payload_data: Some(vec![2]),
                 }],
+                hyperlink: None,
             },
         ];
         let layout = renderer.paragraph_layout(

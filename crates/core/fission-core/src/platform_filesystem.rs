@@ -376,6 +376,15 @@ pub struct WritePickedFileResult {
     pub byte_len: u64,
 }
 
+/// Releases a writable file handle returned by `pick_save_file` or
+/// `restore_save_file` after the application no longer needs to write through
+/// it. This drops the host's in-memory handle without deleting the file or any
+/// persisted save-file grant.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReleaseWritableFileRequest {
+    pub file: WritableFileHandle,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CreateDirectoryRequest {
     pub location: FileSystemLocation,
@@ -522,6 +531,13 @@ filesystem_capability!(
     "fission.fs.write_picked_file"
 );
 filesystem_capability!(
+    ReleaseWritableFileCapability,
+    ReleaseWritableFileRequest,
+    (),
+    RELEASE_WRITABLE_FILE,
+    "fission.fs.release_writable_file"
+);
+filesystem_capability!(
     CreateDirectoryCapability,
     CreateDirectoryRequest,
     (),
@@ -619,5 +635,22 @@ mod tests {
         });
         let restored: WritableFileHandle = serde_json::from_value(legacy_handle).unwrap();
         assert_eq!(restored.permission, FileSystemPermission::Unknown);
+    }
+
+    #[test]
+    fn release_writable_file_request_round_trips_the_selected_handle() {
+        let request = ReleaseWritableFileRequest {
+            file: WritableFileHandle {
+                id: WritableFileHandleId(12),
+                name: "report.pdf".into(),
+                permission: FileSystemPermission::Granted,
+            },
+        };
+        let bytes = serde_json::to_vec(&request).unwrap();
+
+        assert_eq!(
+            serde_json::from_slice::<ReleaseWritableFileRequest>(&bytes).unwrap(),
+            request
+        );
     }
 }

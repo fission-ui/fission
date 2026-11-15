@@ -75,11 +75,7 @@ pub(super) fn build(
             "Building actual Static site preview: {} / {}",
             first.app, first.step
         );
-        let status = Command::new("cargo")
-            .args(["run", "--offline", "--manifest-path"])
-            .arg(directory.join("Cargo.toml"))
-            .args(["--bin", "site-preview", "--", "build", "--project-dir"])
-            .arg(&directory)
+        let status = preview_command(&directory)
             .env("CARGO_TARGET_DIR", target)
             .env("CARGO_BUILD_JOBS", "2")
             .status()
@@ -115,6 +111,19 @@ pub(super) fn build(
         eprintln!("  Ready (actual HTML): {} / {}", step.app, step.step);
     }
     Ok(())
+}
+
+fn preview_command(directory: &Path) -> Command {
+    let mut command = Command::new("cargo");
+    // A generated tutorial can need dependencies absent from the parent build's
+    // cache. Respect Cargo's normal network policy, including CARGO_NET_OFFLINE
+    // when explicitly requested, rather than forcing every fresh build offline.
+    command
+        .args(["run", "--manifest-path"])
+        .arg(directory.join("Cargo.toml"))
+        .args(["--bin", "site-preview", "--", "build", "--project-dir"])
+        .arg(directory);
+    command
 }
 
 pub(super) fn preview_manifest(
@@ -163,6 +172,30 @@ fn output_is_current(output: &Path, marker: &Path, source: &str) -> Result<bool>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn static_preview_inherits_cargos_network_policy() {
+        let directory = Path::new("tutorial-preview");
+        let command = preview_command(directory);
+        assert_eq!(command.get_program(), "cargo");
+        let mut expected = [
+            "run",
+            "--manifest-path",
+            "tutorial-preview/Cargo.toml",
+            "--bin",
+            "site-preview",
+            "--",
+            "build",
+            "--project-dir",
+            "tutorial-preview",
+        ]
+        .map(std::ffi::OsString::from);
+        expected[2] = directory.join("Cargo.toml").into_os_string();
+        assert_eq!(command.get_args().collect::<Vec<_>>(), expected);
+        assert!(command
+            .get_envs()
+            .all(|(key, _)| key != "CARGO_NET_OFFLINE"));
+    }
+
     #[test]
     fn static_preview_requires_the_project_and_real_website_entrypoint() {
         let mut files = BTreeMap::new();

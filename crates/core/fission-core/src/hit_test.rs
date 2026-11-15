@@ -6,7 +6,7 @@ use fission_ir::{
     ActionEntry, ActionTrigger, CoreIR, KeyCode, LayoutOp, Op, PaintOp, PopupKind, Role,
     SemanticOrientation, StructuralOp, WidgetId,
 };
-use fission_layout::{LayoutPoint, LayoutSnapshot};
+use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot};
 use glam::{Mat4, Vec4};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -527,7 +527,9 @@ fn hit_test_recursive(
         }
     }
 
-    if geom.rect.contains(point) && paint_op_blocks_hit_testing(&node.op) {
+    if geom.rect.contains(point)
+        && paint_op_blocks_hit_testing(ir, layout, node_id, geom.rect, point, &node.op)
+    {
         return Some(node_id);
     }
 
@@ -638,7 +640,14 @@ fn point_segment_distance_squared(point: LayoutPoint, start: LayoutPoint, end: L
     (point.x - nearest.x).powi(2) + (point.y - nearest.y).powi(2)
 }
 
-fn paint_op_blocks_hit_testing(op: &Op) -> bool {
+fn paint_op_blocks_hit_testing(
+    ir: &CoreIR,
+    layout: &LayoutSnapshot,
+    node_id: WidgetId,
+    rect: LayoutRect,
+    point: LayoutPoint,
+    op: &Op,
+) -> bool {
     match op {
         Op::Paint(PaintOp::DrawRect {
             fill,
@@ -657,13 +666,74 @@ fn paint_op_blocks_hit_testing(op: &Op) -> bool {
         }
         Op::Paint(PaintOp::DrawText { text, .. }) => !text.is_empty(),
         Op::Paint(PaintOp::DrawRichText { runs, .. }) => {
-            runs.iter().any(|run| !run.text.is_empty())
+            rich_text_annotation_blocks_hit_testing(ir, layout, node_id, rect, point, runs)
         }
         Op::Paint(PaintOp::DrawImage { .. }) => true,
         Op::Paint(PaintOp::DrawPath { fill, stroke, .. })
         | Op::Paint(PaintOp::DrawSvg { fill, stroke, .. }) => fill.is_some() || stroke.is_some(),
         _ => false,
     }
+}
+
+fn rich_text_annotation_blocks_hit_testing(
+    ir: &CoreIR,
+    layout: &LayoutSnapshot,
+    node_id: WidgetId,
+    rect: LayoutRect,
+    point: LayoutPoint,
+    runs: &[fission_ir::op::TextRun],
+) -> bool {
+    let Some(annotations) = ir
+        .custom_render_objects
+        .get(&node_id)
+        .and_then(|sidecar| sidecar.downcast_ref::<Vec<fission_ir::op::RichTextAnnotation>>())
+    else {
+        return false;
+    };
+    let Some(paragraph) = layout.get_resolved_paragraph(node_id) else {
+        return false;
+    };
+    let text_len = runs.iter().map(|run| run.text.len()).sum::<usize>();
+
+    annotations.iter().any(|annotation| {
+        let is_interactive = annotation.hyperlink.is_some()
+            || annotation.mouse_cursor.is_some()
+            || !annotation.actions.is_empty();
+        if !is_interactive
+            || annotation.range.start >= annotation.range.end
+            || annotation.range.end > text_len
+            || !rich_text_is_char_boundary(runs, annotation.range.start)
+            || !rich_text_is_char_boundary(runs, annotation.range.end)
+        {
+            return false;
+        }
+
+        paragraph.selection_boxes.iter().any(|selection| {
+            selection.start_index < annotation.range.end
+                && selection.end_index > annotation.range.start
+                && selection.rect.width() > 0.0
+                && selection.rect.height() > 0.0
+                && LayoutRect::new(
+                    rect.x() + selection.rect.x(),
+                    rect.y() + selection.rect.y(),
+                    selection.rect.width(),
+                    selection.rect.height(),
+                )
+                .contains(point)
+        })
+    })
+}
+
+fn rich_text_is_char_boundary(runs: &[fission_ir::op::TextRun], index: usize) -> bool {
+    let mut offset = 0;
+    for run in runs {
+        let run_end = offset + run.text.len();
+        if index <= run_end {
+            return run.text.is_char_boundary(index - offset);
+        }
+        offset = run_end;
+    }
+    index == offset
 }
 
 pub fn find_next_focus_node(
