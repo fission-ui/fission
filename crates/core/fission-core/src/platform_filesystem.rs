@@ -170,7 +170,10 @@ pub struct PickDirectoryResult {
     pub directory: Option<DirectoryHandle>,
 }
 
-/// Opaque browser-owned writable file selected by a Save dialog.
+/// Opaque Web writable destination returned by a file-save request.
+///
+/// This can wrap a browser-owned File System Access handle, or a temporary
+/// download writer when the browser does not provide `showSaveFilePicker`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WritableFileHandle {
     pub id: WritableFileHandleId,
@@ -185,7 +188,7 @@ pub struct WritableFileHandle {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WritableFileHandleId(pub u64);
 
-/// Destination selected by a Save dialog.
+/// Destination returned by a file-save request.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SaveFileDestination {
     /// Native host path, writable through the ordinary filesystem operations.
@@ -194,7 +197,7 @@ pub enum SaveFileDestination {
     WritableFile(WritableFileHandle),
 }
 
-/// Requests a native file-save dialog.
+/// Requests a user-visible file-save destination.
 ///
 /// Hosts that cannot expose a writable file destination should return an
 /// `unsupported` filesystem error rather than substituting an application
@@ -204,20 +207,22 @@ pub enum SaveFileDestination {
 #[serde(default)]
 pub struct PickSaveFileRequest {
     pub suggested_name: String,
-    /// File extensions shown by the host filter. Extensions may include a
-    /// leading dot; hosts normalize that detail for their native dialog.
+    /// File extensions offered by the host picker, when it has one. Extensions
+    /// may include a leading dot; hosts normalize that detail.
     pub extensions: Vec<String>,
-    /// MIME types that can be translated into a native extension filter.
+    /// MIME types that can be translated into a picker filter or download type.
     pub mime_types: Vec<String>,
-    /// Optional browser-only key used to restore this writable file handle in a
-    /// later Web runtime. Web hosts persist the handle in IndexedDB, not its
-    /// contents. Other hosts may ignore this browser-specific key.
+    /// Optional browser-only key used to restore a File System Access handle in
+    /// a later Web runtime. Web hosts persist the granted handle in IndexedDB,
+    /// not its contents. The Web download fallback cannot persist a destination,
+    /// and other hosts may ignore this browser-specific key.
     pub persistence_key: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PickSaveFileResult {
-    /// `None` means the user dismissed the save dialog.
+    /// `None` means the user dismissed a save picker. Download fallbacks return
+    /// a destination and cannot report whether a later download was blocked.
     pub destination: Option<SaveFileDestination>,
 }
 
