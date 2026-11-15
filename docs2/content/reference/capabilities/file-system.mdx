@@ -64,7 +64,7 @@ On Web, Fission uses `showSaveFilePicker` when the browser provides it. Otherwis
 
 | Target | Behavior |
 | --- | --- |
-| Web | Open-file selection through an HTML file input; save-file selection uses the File System Access API when available and otherwise starts a Blob download when the writer closes; directory selection uses the File System Access API. Direct host paths are unsupported. Only File System Access handles can be persisted in IndexedDB. Save and directory pickers require a secure context and browser support. |
+| Web | Open-file selection through an HTML file input; save-file selection uses the File System Access API when available and otherwise starts a Blob download when the writer closes; directory selection uses the File System Access API. Direct host paths are unsupported. Only File System Access handles can be persisted in IndexedDB. The File System Access save and directory pickers require a secure context; the download fallback requires Blob URL and anchor-download support. |
 | macOS, Windows, Linux | Direct OS paths plus native open/save and folder pickers. Picked save files use path destinations. |
 | Android | Direct OS paths plus system open/save and document-tree pickers, persisted URI grants, and document-provider operations. |
 | iOS | Direct OS paths plus system open/save and folder pickers, security-scoped access, and persisted bookmarks. |
