@@ -27,6 +27,24 @@ pub(crate) fn web_test_trace_enabled() -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(target_arch = "wasm32")]
+#[inline]
+fn web_test_trace_renderer_ops_enabled() -> bool {
+    use wasm_bindgen::JsValue;
+
+    let key = JsValue::from_str("__FISSION_TEST__");
+    let Ok(bridge) = js_sys::Reflect::get(&js_sys::global(), &key) else {
+        return false;
+    };
+    if bridge.is_undefined() || bridge.is_null() {
+        return false;
+    }
+
+    js_sys::Reflect::get(&bridge, &JsValue::from_str("trace_renderer_ops"))
+        .map(|enabled| enabled.as_bool().unwrap_or(false))
+        .unwrap_or(false)
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[inline]
 pub(crate) fn web_test_trace_enabled() -> bool {
@@ -2057,6 +2075,8 @@ pub struct VelloRenderer<'a> {
     exact_root_clip_elision: bool,
     #[cfg(target_arch = "wasm32")]
     web_render_timing: Option<WebRenderTiming>,
+    #[cfg(target_arch = "wasm32")]
+    web_render_op_trace_index: Option<u32>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -2178,6 +2198,8 @@ impl<'a> VelloRenderer<'a> {
             exact_root_clip_elision: false,
             #[cfg(target_arch = "wasm32")]
             web_render_timing: None,
+            #[cfg(target_arch = "wasm32")]
+            web_render_op_trace_index: None,
         }
     }
 
@@ -3895,6 +3917,12 @@ impl<'a> VelloRenderer<'a> {
                 }
                 previous_op_started = Some((display_op_timing_slot(op), web_time::Instant::now()));
             }
+            #[cfg(target_arch = "wasm32")]
+            if let Some(index) = self.web_render_op_trace_index.as_mut() {
+                let packed = (*index << 5) | display_op_timing_slot(op) as u32;
+                trace_web_test_stage(365, packed);
+                *index = index.wrapping_add(1);
+            }
             match op {
                 DisplayOp::Save => {
                     self.transform_stack.push(self.current_transform);
@@ -4711,10 +4739,18 @@ impl<'a> Renderer for VelloRenderer<'a> {
         #[cfg(target_arch = "wasm32")]
         let trace_web = web_test_trace_enabled();
         #[cfg(target_arch = "wasm32")]
-        let render_started = trace_web.then(web_time::Instant::now);
+        let trace_renderer_ops = trace_web && web_test_trace_renderer_ops_enabled();
         #[cfg(target_arch = "wasm32")]
-        if trace_web {
+        let render_started = trace_renderer_ops.then(web_time::Instant::now);
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.web_render_op_trace_index = trace_renderer_ops.then_some(0);
+        }
+        #[cfg(target_arch = "wasm32")]
+        if trace_renderer_ops {
             self.web_render_timing = Some(WebRenderTiming::default());
+        } else {
+            self.web_render_timing = None;
         }
         for (index, root) in scene.roots.iter().enumerate() {
             let elide_root_clip = self.exact_root_clip_elision
