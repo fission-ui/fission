@@ -68,6 +68,9 @@ test("static adapters preserve command, frame, diagnostics and grown-memory ABI"
       inFlightRequestIds: [],
       deferredWakeSchedules: 0,
       deferredWakeCalls: 0,
+      deferredWakeExportReturns: 0,
+      deferredWakeSendSuccesses: 0,
+      lastDeferredWakeSendResult: null,
       deferredWakeFailures: 0,
     },
   });
@@ -93,7 +96,10 @@ test("poll stays observational until the deferred command dispatch runs", () => 
       new Uint8Array(memory.buffer, 512, 2).set(new TextEncoder().encode("{}"));
       return 1;
     },
-    fission_web_test_wake_event_loop: () => wakeEvents.push("wake"),
+    fission_web_test_wake_event_loop: () => {
+      wakeEvents.push("wake");
+      return 1;
+    },
     fission_web_test_deferred_wake_scheduled: () => wakeEvents.push("scheduled"),
     fission_web_test_poll_json_len: () => dispatched.length === 0 ? 4 : 2,
     fission_web_test_poll_json_ptr: () => 512,
@@ -129,6 +135,9 @@ test("poll stays observational until the deferred command dispatch runs", () => 
       inFlightRequestIds: [],
       deferredWakeSchedules: 1,
       deferredWakeCalls: 1,
+      deferredWakeExportReturns: 1,
+      deferredWakeSendSuccesses: 1,
+      lastDeferredWakeSendResult: true,
       deferredWakeFailures: 0,
     });
     assert.equal(adapters.poll(requestId), "{}");
@@ -156,7 +165,10 @@ test("capture wake remains deferred after hundreds of requests", () => {
       dispatchCount += 1;
       return 1;
     },
-    fission_web_test_wake_event_loop: () => { wakeCount += 1; },
+    fission_web_test_wake_event_loop: () => {
+      wakeCount += 1;
+      return 1;
+    },
     fission_web_test_deferred_wake_scheduled: () => { scheduledWakeCount += 1; },
     fission_web_test_poll_json_len: () => 4,
     fission_web_test_poll_json_ptr: () => 512,
@@ -191,6 +203,52 @@ test("capture wake remains deferred after hundreds of requests", () => {
       inFlightRequestIds: [],
       deferredWakeSchedules: 600,
       deferredWakeCalls: 600,
+      deferredWakeExportReturns: 600,
+      deferredWakeSendSuccesses: 600,
+      lastDeferredWakeSendResult: true,
+      deferredWakeFailures: 0,
+    });
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+test("wake diagnostics distinguish a timer callback from a rejected proxy send", () => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const timers = [];
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  const exports = {
+    fission_web_test_diagnostics_ptr: () => 64,
+    fission_web_test_command_json_ptr: () => 256,
+    fission_web_test_command_json_capacity: () => 128,
+    fission_web_test_submit_json: () => 1,
+    fission_web_test_dispatch_command: () => 1,
+    fission_web_test_wake_event_loop: () => 0,
+    fission_web_test_deferred_wake_scheduled: () => {},
+  };
+  globalThis.setTimeout = (callback) => {
+    timers.push(callback);
+    return timers.length;
+  };
+
+  try {
+    const adapters = createWebTestAdapters(exports, memory, 48);
+    adapters.submit('{"cmd":"CaptureScreenshot"}');
+    timers.shift()();
+    timers.shift()();
+
+    assert.deepEqual(adapters.diagnostics().bridgeDispatch, {
+      attempts: 1,
+      completions: 1,
+      failures: 0,
+      lastRequestId: 1,
+      pendingRequestIds: [],
+      inFlightRequestIds: [],
+      deferredWakeSchedules: 1,
+      deferredWakeCalls: 1,
+      deferredWakeExportReturns: 1,
+      deferredWakeSendSuccesses: 0,
+      lastDeferredWakeSendResult: false,
       deferredWakeFailures: 0,
     });
   } finally {

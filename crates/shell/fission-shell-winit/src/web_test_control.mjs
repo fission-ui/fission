@@ -13,6 +13,9 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
   let lastDispatchRequestId = 0;
   let deferredWakeSchedules = 0;
   let deferredWakeCalls = 0;
+  let deferredWakeExportReturns = 0;
+  let deferredWakeSendSuccesses = 0;
+  let lastDeferredWakeSendResult = null;
   let deferredWakeFailures = 0;
 
   const dispatch = (requestId) => {
@@ -40,7 +43,13 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
         globalThis.setTimeout(() => {
           deferredWakeCalls += 1;
           try {
-            exports.fission_web_test_wake_event_loop();
+            // A scheduled callback is not evidence that the Wasm wake export
+            // ran or that Winit accepted its proxy event. Keep all three
+            // boundaries visible to LiveTest diagnostics.
+            const sent = (exports.fission_web_test_wake_event_loop() >>> 0) === 1;
+            deferredWakeExportReturns += 1;
+            lastDeferredWakeSendResult = sent;
+            if (sent) deferredWakeSendSuccesses += 1;
           } catch (error) {
             deferredWakeFailures += 1;
             throw error;
@@ -115,6 +124,9 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
           inFlightRequestIds: [...dispatchesInFlight],
           deferredWakeSchedules,
           deferredWakeCalls,
+          deferredWakeExportReturns,
+          deferredWakeSendSuccesses,
+          lastDeferredWakeSendResult,
           deferredWakeFailures,
         },
       };

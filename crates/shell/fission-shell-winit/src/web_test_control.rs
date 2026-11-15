@@ -1,5 +1,5 @@
 use std::cell::UnsafeCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
@@ -101,9 +101,9 @@ fn should_log_diagnostic(stage: u32, iteration: u32) -> bool {
         364 => WEB_LAST_PENDING_WORK_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
         365 => WEB_LAST_REDRAW_PENDING_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
         366 => WEB_LAST_REDRAW_REQUEST_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
-        400 | 402 | 410 | 411 | 414 | 416 | 417 | 418 | 419 | 420 | 424 | 425 | 426 | 427 | 436 => {
-            true
-        }
+        400 | 402 | 410 | 411 | 414 | 416 | 417 | 418 | 419 | 420 | 424 | 425 | 426 | 427 | 428
+        | 429 | 436 | 480 | 481 | 483 => true,
+        482 => iteration > 0,
         473 if iteration == 1 => {
             WEB_REDRAW_WAIT_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 256 == 0
         }
@@ -137,6 +137,7 @@ static mut COMMAND_JSON: [u8; MAX_COMMAND_JSON_BYTES] = [0; MAX_COMMAND_JSON_BYT
 struct WebTestBridgeState {
     next_request_id: u32,
     responses: HashMap<u32, PendingResponse>,
+    pending_capture_requests: VecDeque<mpsc::Sender<TestResponse>>,
     frame: Option<WebTestFrame>,
     poll_json: Vec<u8>,
     event_proxy: Option<EventLoopProxy<TestEvent>>,
@@ -147,6 +148,7 @@ impl Default for WebTestBridgeState {
         Self {
             next_request_id: 1,
             responses: HashMap::new(),
+            pending_capture_requests: VecDeque::new(),
             frame: None,
             poll_json: Vec::new(),
             event_proxy: None,
@@ -418,6 +420,31 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     true
 }
 
+/// Drain captures queued by the Web LiveTest bridge. This is called from the
+/// event loop's periodic `AboutToWait` pass as a delivery fallback: the browser
+/// event proxy may accept a message before Winit actually runs its microtask.
+pub(crate) fn take_pending_capture_requests() -> Option<Vec<mpsc::Sender<TestResponse>>> {
+    let pending = with_bridge_state(|state| {
+        (!state.pending_capture_requests.is_empty())
+            .then(|| super::take_all(&mut state.pending_capture_requests))
+    });
+    if let Some(pending) = &pending {
+        record_diagnostic(482, pending.len() as u32);
+    }
+    pending
+}
+
+pub(crate) fn fail_pending_capture_requests() {
+    if let Some(pending) = take_pending_capture_requests() {
+        for response_tx in pending {
+            let _ = response_tx.send(TestResponse::Error {
+                message: "Fission browser event loop is closed".into(),
+            });
+        }
+        record_diagnostic(483, 1);
+    }
+}
+
 // Keep these as plain Wasm exports. The `#[wasm_bindgen]` synchronous wrapper
 // routes calls through `maybe_catch_unwind`, which consults thread-local panic
 // state and can trap in a long-running Web LiveTest session.
@@ -507,11 +534,12 @@ pub extern "C" fn fission_web_test_dispatch_command(request_id: u32) -> u32 {
 
 #[cfg(fission_web_test_control)]
 #[no_mangle]
-pub extern "C" fn fission_web_test_wake_event_loop() {
+pub extern "C" fn fission_web_test_wake_event_loop() -> u32 {
     record_diagnostic(426, 1);
     let proxy = with_bridge_state(|state| state.event_proxy.clone());
     let sent = proxy.is_some_and(|proxy| proxy.send_event(TestEvent::Wake).is_ok());
     record_diagnostic(427, u32::from(sent));
+    u32::from(sent)
 }
 
 #[cfg(fission_web_test_control)]
@@ -958,11 +986,7 @@ fn dispatch(command: TestCommand, proxy: &EventLoopProxy<TestEvent>) -> PendingR
             ms,
             response_tx,
         }),
-        TestCommand::CaptureScreenshot {} => query_with_deferred_wake(
-            proxy,
-            |response_tx| TestEvent::CaptureScreenshot { response_tx },
-            true,
-        ),
+        TestCommand::CaptureScreenshot {} => queue_capture_screenshot(),
         TestCommand::CaptureAt { ms } => query(proxy, |response_tx| TestEvent::CaptureAt {
             ms,
             response_tx,
@@ -1002,6 +1026,26 @@ fn dispatch(command: TestCommand, proxy: &EventLoopProxy<TestEvent>) -> PendingR
     }
 }
 
+fn queue_capture_screenshot() -> PendingResponse {
+    let (response_tx, response_rx) = mpsc::channel();
+    let queued = with_bridge_state(|state| {
+        super::enqueue_bounded(
+            &mut state.pending_capture_requests,
+            response_tx,
+            MAX_PENDING_RESPONSES,
+        )
+        .is_ok()
+    });
+    record_diagnostic(480, u32::from(queued));
+    if queued {
+        PendingResponse::Waiting(response_rx)
+    } else {
+        PendingResponse::Ready(TestResponse::Error {
+            message: "too many pending browser screenshot requests".into(),
+        })
+    }
+}
+
 fn ready_after(
     proxy: &EventLoopProxy<TestEvent>,
     events: impl IntoIterator<Item = TestEvent>,
@@ -1020,14 +1064,6 @@ fn query(
     proxy: &EventLoopProxy<TestEvent>,
     make_event: impl FnOnce(mpsc::Sender<TestResponse>) -> TestEvent,
 ) -> PendingResponse {
-    query_with_deferred_wake(proxy, make_event, false)
-}
-
-fn query_with_deferred_wake(
-    proxy: &EventLoopProxy<TestEvent>,
-    make_event: impl FnOnce(mpsc::Sender<TestResponse>) -> TestEvent,
-    deferred_wake: bool,
-) -> PendingResponse {
     record_diagnostic(420, 0);
     let (response_tx, response_rx) = mpsc::channel();
     record_diagnostic(421, 0);
@@ -1038,7 +1074,7 @@ fn query_with_deferred_wake(
             message: "Fission browser event loop is closed".into(),
         })
     } else {
-        record_diagnostic(424, u32::from(deferred_wake));
+        record_diagnostic(424, 0);
         PendingResponse::Waiting(response_rx)
     }
 }

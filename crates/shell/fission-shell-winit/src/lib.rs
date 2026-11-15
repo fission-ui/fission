@@ -286,6 +286,19 @@ fn record_web_test_diagnostic(stage: u32, iteration: u32) {
     let _ = (stage, iteration);
 }
 
+fn enqueue_bounded<T>(queue: &mut VecDeque<T>, value: T, capacity: usize) -> Result<(), T> {
+    if queue.len() >= capacity {
+        Err(value)
+    } else {
+        queue.push_back(value);
+        Ok(())
+    }
+}
+
+fn take_all<T>(queue: &mut VecDeque<T>) -> Vec<T> {
+    std::mem::take(queue).into_iter().collect()
+}
+
 const fn web_test_diagnostic_is_poll_stage(stage: u32) -> bool {
     matches!(stage, 430 | 432 | 435)
 }
@@ -7803,6 +7816,8 @@ where
                     }
                 }
                 Event::LoopExiting => {
+                    #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                    web_test_control::fail_pending_capture_requests();
                     native_surface_handlers.detach_host();
                 }
                 // ═══════════════════════════════════════════════════════
@@ -7820,6 +7835,9 @@ where
                     if matches!(diagnostic_kind, 43 | 44) {
                         record_web_test_diagnostic(436, diagnostic_kind);
                     }
+                    if matches!(&test_event, TestEvent::Wake) {
+                        record_web_test_diagnostic(428, 1);
+                    }
                     #[cfg(target_arch = "wasm32")]
                     if matches!(&test_event, TestEvent::Wake) {
                         web_wake_dispatched_in_cycle = true;
@@ -7833,6 +7851,9 @@ where
                         return;
                     }
                     handle_test_event(test_event);
+                    if diagnostic_kind == 31 {
+                        record_web_test_diagnostic(429, 1);
+                    }
                     record_web_test_diagnostic(437, diagnostic_kind);
                 }
 
@@ -7841,6 +7862,17 @@ where
                 // ═══════════════════════════════════════════════════════
                 Event::AboutToWait => {
                     record_web_test_diagnostic(360, 0);
+                    // A successful EventLoopProxy send only means Winit accepted
+                    // the channel message; Web dispatches it in a later task.
+                    // Keep capture requests in the bridge until the regular
+                    // LiveTest event-loop pass can hand them to the render path.
+                    #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                    if let Some(requests) = web_test_control::take_pending_capture_requests() {
+                        for response_tx in requests {
+                            record_web_test_diagnostic(481, 1);
+                            handle_test_event(TestEvent::CaptureScreenshot { response_tx });
+                        }
+                    }
                     let Some(window) = platform_window.active_window() else {
                         elwt.set_control_flow(ControlFlow::Wait);
                         #[cfg(target_arch = "wasm32")]
@@ -11739,8 +11771,8 @@ mod tests {
     use super::{
         animation_redraw_interval, build_window_attributes, clamp_copy_extent_to_texture,
         classify_web_text_value, collect_semantic_records, collect_startup_deep_links_from,
-        cursor_icon_for, downscale_rgba_box, fission_key_down_event, focused_text_input_id,
-        handle_fill_text_selector, handle_scroll_into_view_selector,
+        cursor_icon_for, downscale_rgba_box, enqueue_bounded, fission_key_down_event,
+        focused_text_input_id, handle_fill_text_selector, handle_scroll_into_view_selector,
         layout_size_to_image_dimensions, logical_viewport_to_physical_size,
         logical_viewport_to_render_target_size, magnification_scale_factor, map_test_pointer_id,
         map_test_pointer_kind, map_test_pointer_phase, map_test_scroll_delta_mode, map_touch_phase,
@@ -11752,7 +11784,7 @@ mod tests {
         repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
         resolve_selector_record, runtime_timer_wake_at, scroll_build_dependency_offsets,
         scroll_build_dependency_offsets_changed, should_present_startup_clear_frame,
-        surface_acquire_recovery, sync_tracked_target_texture_size_to_surface,
+        surface_acquire_recovery, sync_tracked_target_texture_size_to_surface, take_all,
         test_pump_can_ack_current_frame, text_input_blink_enabled, texture_plans_fit_device_limits,
         visual_rect_for_node, web_effective_render_scale, web_live_test_event_loop_wait_until,
         window_insets_from_safe_area_frames, windows_shell_execute_succeeded, windows_wide,
@@ -11773,7 +11805,11 @@ mod tests {
     use fission_ir::semantics::{ActionTrigger, MouseCursor};
     use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, Role, Semantics};
     use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
-    use fission_test_driver::{TestPointerKind, TestPointerPhase, TestScrollDeltaMode};
+    use fission_test_driver::{
+        TestPointerKind, TestPointerPhase, TestResponse, TestScrollDeltaMode,
+    };
+    use std::collections::VecDeque;
+    use std::sync::mpsc;
     use wgpu::PresentMode;
 
     #[derive(Debug, Default, Clone)]
@@ -13162,6 +13198,64 @@ mod tests {
             web_live_test_event_loop_wait_until(now),
             ControlFlow::WaitUntil(now + Duration::from_millis(16))
         );
+    }
+
+    #[test]
+    fn queued_capture_survives_accepted_but_undelivered_proxy_event() {
+        fn proxy_send_event() -> Result<(), ()> {
+            Ok(())
+        }
+
+        let proxy_send_result = proxy_send_event();
+        assert!(proxy_send_result.is_ok(), "the proxy accepts the event");
+        let delivered_proxy_callbacks = 0;
+        assert_eq!(delivered_proxy_callbacks, 0, "the event callback is lost");
+        let mut capture_handler_calls = 0;
+
+        let mut pending = VecDeque::new();
+        let (response_tx, response_rx) = mpsc::channel();
+        assert!(enqueue_bounded(&mut pending, response_tx, 1).is_ok());
+
+        // Model the regular LiveTest event-loop pass. The proxy callback never
+        // arrives, but the bounded capture queue still hands the request to
+        // the existing renderer response path exactly once.
+        let mut requests = take_all(&mut pending).into_iter();
+        let queued_response = requests.next().expect("queued capture");
+        capture_handler_calls += 1;
+        assert!(requests.next().is_none());
+        queued_response
+            .send(TestResponse::Screenshot {
+                png_base64: "cG5n".into(),
+                width: 16,
+                height: 9,
+            })
+            .expect("capture response receiver remains connected");
+        assert!(
+            take_all(&mut pending).is_empty(),
+            "a capture is drained once"
+        );
+        assert_eq!(capture_handler_calls, 1, "the fallback handles it once");
+
+        match response_rx.try_recv().expect("screenshot response") {
+            TestResponse::Screenshot {
+                png_base64,
+                width,
+                height,
+            } => {
+                assert_eq!(png_base64, "cG5n");
+                assert_eq!((width, height), (16, 9));
+            }
+            other => panic!("unexpected capture response: {other:?}"),
+        }
+
+        let (overflow_tx, overflow_rx) = mpsc::channel();
+        let rejected =
+            enqueue_bounded(&mut pending, overflow_tx, 0).expect_err("queue capacity is enforced");
+        drop(rejected);
+        assert!(matches!(
+            overflow_rx.try_recv(),
+            Err(mpsc::TryRecvError::Disconnected)
+        ));
     }
 
     #[test]
