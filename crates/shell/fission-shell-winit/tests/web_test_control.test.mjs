@@ -88,10 +88,14 @@ test("poll stays observational until the deferred command dispatch runs", () => 
     assert.equal(requestId, 118);
     assert.equal(adapters.poll(requestId), "null");
     assert.deepEqual(dispatched, [], "polling must not enter the event loop synchronously");
+    assert.equal(timers.length, 2, "poll must schedule a deferred retry for a pending request");
 
-    timers[0]();
+    // Simulate the submit timer being missed: the deferred retry still dispatches.
+    timers[1]();
     assert.deepEqual(dispatched, [requestId], "the timer must not dispatch twice");
     assert.equal(adapters.poll(requestId), "{}");
+    timers[0]();
+    assert.deepEqual(dispatched, [requestId], "the original timer must be idempotent");
   } finally {
     globalThis.setTimeout = originalSetTimeout;
   }

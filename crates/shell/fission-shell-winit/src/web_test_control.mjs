@@ -33,6 +33,12 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
       return requestId;
     },
     poll(requestId) {
+      // Runtime.evaluate polls can overtake a queued zero-delay timer. Retry
+      // dispatch on a later task while the request is still pending, but never
+      // enter Wasm from inside poll: the CDP response must return first.
+      if (pendingDispatches.has(requestId)) {
+        globalThis.setTimeout(() => dispatch(requestId), 0);
+      }
       const length = exports.fission_web_test_poll_json_len(requestId) >>> 0;
       const address = exports.fission_web_test_poll_json_ptr() >>> 0;
       return decoder.decode(new Uint8Array(memory.buffer, address, length));
