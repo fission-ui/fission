@@ -992,38 +992,20 @@ fn query_with_deferred_wake(
             message: "Fission browser event loop is closed".into(),
         })
     } else {
-        record_diagnostic(424, 0);
+        record_diagnostic(424, u32::from(deferred_wake));
         if deferred_wake {
-            defer_test_event_wake(proxy);
+            send_test_event_wake(proxy);
         }
         PendingResponse::Waiting(response_rx)
     }
 }
 
-fn defer_test_event_wake(proxy: &EventLoopProxy<TestEvent>) {
-    let deferred_proxy = proxy.clone();
-    let callback = Closure::once(move || {
-        record_diagnostic(426, 1);
-        let sent = deferred_proxy.send_event(TestEvent::Wake).is_ok();
-        record_diagnostic(427, u32::from(sent));
-    });
-
-    if let Some(window) = web_sys::window() {
-        if window
-            .set_timeout_with_callback_and_timeout_and_arguments_0(
-                callback.as_ref().unchecked_ref(),
-                0,
-            )
-            .is_ok()
-        {
-            record_diagnostic(425, 1);
-            callback.forget();
-            return;
-        }
-    }
-
-    record_diagnostic(425, 0);
-    drop(callback);
+fn send_test_event_wake(proxy: &EventLoopProxy<TestEvent>) {
+    // CaptureScreenshot is dispatched from a JS task, after the CDP submit
+    // call has returned. Queue the Wake with the capture request immediately
+    // so the browser event loop cannot strand the request waiting for a later
+    // timer callback of its own.
+    record_diagnostic(426, 1);
     let sent = proxy.send_event(TestEvent::Wake).is_ok();
     record_diagnostic(427, u32::from(sent));
 }

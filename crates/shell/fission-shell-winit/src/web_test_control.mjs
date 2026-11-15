@@ -6,10 +6,28 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
   const decoder = new TextDecoder();
   const diagnosticsAddress = exports.fission_web_test_diagnostics_ptr() >>> 0;
   const pendingDispatches = new Set();
+  const dispatchesInFlight = new Set();
+  let dispatchAttempts = 0;
+  let dispatchCompletions = 0;
+  let dispatchFailures = 0;
+  let lastDispatchRequestId = 0;
 
   const dispatch = (requestId) => {
-    if (!pendingDispatches.delete(requestId)) return;
-    exports.fission_web_test_dispatch_command(requestId);
+    if (!pendingDispatches.has(requestId) || dispatchesInFlight.has(requestId)) return;
+    dispatchesInFlight.add(requestId);
+    dispatchAttempts += 1;
+    lastDispatchRequestId = requestId;
+    try {
+      exports.fission_web_test_dispatch_command(requestId);
+      pendingDispatches.delete(requestId);
+      dispatchCompletions += 1;
+    } catch (error) {
+      pendingDispatches.delete(requestId);
+      dispatchFailures += 1;
+      throw error;
+    } finally {
+      dispatchesInFlight.delete(requestId);
+    }
   };
 
   return {
@@ -63,6 +81,14 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
         stage: view.getUint32(diagnosticsAddress, true),
         stackPointer: view.getUint32(diagnosticsAddress + 4, true),
         iteration: view.getUint32(diagnosticsAddress + 8, true),
+        bridgeDispatch: {
+          attempts: dispatchAttempts,
+          completions: dispatchCompletions,
+          failures: dispatchFailures,
+          lastRequestId: lastDispatchRequestId,
+          pendingRequestIds: [...pendingDispatches],
+          inFlightRequestIds: [...dispatchesInFlight],
+        },
       };
     },
   };

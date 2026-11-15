@@ -52,7 +52,19 @@ test("static adapters preserve command, frame, diagnostics and grown-memory ABI"
   view.setUint32(72, 6, true);
   assert.equal(adapters.poll(7), "{}");
   assert.equal(adapters.pollDiagnostics(), 3);
-  assert.deepEqual(adapters.diagnostics(), { stage: 4, stackPointer: 5, iteration: 6 });
+  assert.deepEqual(adapters.diagnostics(), {
+    stage: 4,
+    stackPointer: 5,
+    iteration: 6,
+    bridgeDispatch: {
+      attempts: 1,
+      completions: 1,
+      failures: 0,
+      lastRequestId: 7,
+      pendingRequestIds: [],
+      inFlightRequestIds: [],
+    },
+  });
   assert.deepEqual(JSON.parse(adapters.frame()), {
     width: 400, height: 300, frame: 4294967298, phase: "submitted",
   });
@@ -89,10 +101,19 @@ test("poll stays observational until the deferred command dispatch runs", () => 
     assert.equal(adapters.poll(requestId), "null");
     assert.deepEqual(dispatched, [], "polling must not enter the event loop synchronously");
     assert.equal(timers.length, 2, "poll must schedule a deferred retry for a pending request");
+    assert.deepEqual(adapters.diagnostics().bridgeDispatch.pendingRequestIds, [requestId]);
 
     // Simulate the submit timer being missed: the deferred retry still dispatches.
     timers[1]();
     assert.deepEqual(dispatched, [requestId], "the timer must not dispatch twice");
+    assert.deepEqual(adapters.diagnostics().bridgeDispatch, {
+      attempts: 1,
+      completions: 1,
+      failures: 0,
+      lastRequestId: requestId,
+      pendingRequestIds: [],
+      inFlightRequestIds: [],
+    });
     assert.equal(adapters.poll(requestId), "{}");
     timers[0]();
     assert.deepEqual(dispatched, [requestId], "the original timer must be idempotent");
