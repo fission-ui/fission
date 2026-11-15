@@ -59,6 +59,7 @@ test("static adapters preserve command, frame, diagnostics and grown-memory ABI"
     stage: 4,
     stackPointer: 5,
     iteration: 6,
+    captureRequestsPending: null,
     bridgeDispatch: {
       attempts: 1,
       completions: 1,
@@ -219,7 +220,7 @@ test("capture wake remains deferred after hundreds of requests", () => {
   }
 });
 
-test("queued screenshot retries an accepted wake until the event-loop pass drains it", () => {
+test("queued screenshot retries accepted wakes through queue drain and readback", () => {
   const originalSetTimeout = globalThis.setTimeout;
   const originalClearTimeout = globalThis.clearTimeout;
   const timers = [];
@@ -237,10 +238,13 @@ test("queued screenshot retries an accepted wake until the event-loop pass drain
     fission_web_test_wake_event_loop: () => {
       wakeCalls += 1;
       // Model EventLoopProxy::send_event returning Ok while Winit misses its
-      // callback once. The next wake reaches the regular queue drain.
+      // callback once. The second wake drains the queue, and a later pass
+      // completes the asynchronous screenshot readback.
       if (wakeCalls === 2 && queuePending) {
         queuePending = false;
         captureHandlerCalls += 1;
+      }
+      if (wakeCalls === 3) {
         responseJson = JSON.stringify({
           status: "Screenshot",
           png_base64: "cG5n",
@@ -277,14 +281,19 @@ test("queued screenshot retries an accepted wake until the event-loop pass drain
     const retry = timers.shift();
     assert.equal(retry.delay, 16);
     retry.callback(); // second wake reaches AboutToWait and drains once
+    assert.equal(adapters.diagnostics().captureRequestsPending, false);
+    assert.equal(adapters.poll(requestId), "null");
+    const readbackRetry = timers.shift();
+    assert.equal(readbackRetry.delay, 32);
+    readbackRetry.callback(); // third wake advances the screenshot readback
 
     const response = JSON.parse(adapters.poll(requestId));
     assert.equal(response.status, "Screenshot");
     assert.equal(response.png_base64, "cG5n");
     assert.equal(captureHandlerCalls, 1, "the queued request is drained once");
-    assert.equal(wakeCalls, 2, "a successful proxy send is retried while queued");
-    assert.equal(adapters.diagnostics().bridgeDispatch.deferredWakeRetrySchedules, 1);
-    assert.equal(adapters.diagnostics().bridgeDispatch.deferredWakeRetryCalls, 1);
+    assert.equal(wakeCalls, 3, "accepted wakes continue through screenshot readback");
+    assert.equal(adapters.diagnostics().bridgeDispatch.deferredWakeRetrySchedules, 2);
+    assert.equal(adapters.diagnostics().bridgeDispatch.deferredWakeRetryCalls, 2);
     assert.equal(adapters.poll(requestId), responseJson, "the response remains stable after polling");
     assert.equal(timers.length, 0, "response completion clears all wake retries");
   } finally {

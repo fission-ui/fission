@@ -127,11 +127,7 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
       if (pendingCaptureWakes.has(requestId)) {
         if (json !== "null") {
           clearCaptureWake(requestId);
-        } else {
-          const captureStillQueued = typeof exports.fission_web_test_capture_requests_pending !== "function"
-            || (exports.fission_web_test_capture_requests_pending() >>> 0) === 1;
-          if (captureStillQueued) sendDeferredWake(requestId, true);
-        }
+        } else sendDeferredWake(requestId, true);
       }
       return json;
     },
@@ -155,6 +151,9 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
         stage: view.getUint32(diagnosticsAddress, true),
         stackPointer: view.getUint32(diagnosticsAddress + 4, true),
         iteration: view.getUint32(diagnosticsAddress + 8, true),
+        captureRequestsPending: typeof exports.fission_web_test_capture_requests_pending === "function"
+          ? (exports.fission_web_test_capture_requests_pending() >>> 0) === 1
+          : null,
         bridgeDispatch: {
           attempts: dispatchAttempts,
           completions: dispatchCompletions,
