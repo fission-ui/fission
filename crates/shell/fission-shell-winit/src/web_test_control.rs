@@ -104,6 +104,7 @@ fn should_log_diagnostic(stage: u32, iteration: u32) -> bool {
         400 | 402 | 410 | 411 | 414 | 416 | 417 | 418 | 419 | 420 | 424 | 425 | 426 | 427 | 428
         | 429 | 436 | 480 | 481 | 483 => true,
         482 => iteration > 0,
+        484 => iteration == 0,
         473 if iteration == 1 => {
             WEB_REDRAW_WAIT_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 256 == 0
         }
@@ -425,13 +426,34 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
 /// event proxy may accept a message before Winit actually runs its microtask.
 pub(crate) fn take_pending_capture_requests() -> Option<Vec<mpsc::Sender<TestResponse>>> {
     let pending = with_bridge_state(|state| {
-        (!state.pending_capture_requests.is_empty())
-            .then(|| super::take_all(&mut state.pending_capture_requests))
+        (!state.pending_capture_requests.is_empty()).then(|| {
+            std::mem::take(&mut state.pending_capture_requests)
+                .into_iter()
+                .collect::<Vec<_>>()
+        })
     });
     if let Some(pending) = &pending {
         record_diagnostic(482, pending.len() as u32);
     }
     pending
+}
+
+pub(crate) fn take_next_pending_capture_request() -> Option<mpsc::Sender<TestResponse>> {
+    with_bridge_state(|state| super::take_one(&mut state.pending_capture_requests))
+}
+
+pub(crate) fn requeue_pending_capture_request(
+    response_tx: mpsc::Sender<TestResponse>,
+) -> Result<(), mpsc::Sender<TestResponse>> {
+    let result = with_bridge_state(|state| {
+        super::enqueue_bounded(
+            &mut state.pending_capture_requests,
+            response_tx,
+            MAX_PENDING_RESPONSES,
+        )
+    });
+    record_diagnostic(484, u32::from(result.is_ok()));
+    result
 }
 
 pub(crate) fn fail_pending_capture_requests() {

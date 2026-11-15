@@ -295,8 +295,8 @@ fn enqueue_bounded<T>(queue: &mut VecDeque<T>, value: T, capacity: usize) -> Res
     }
 }
 
-fn take_all<T>(queue: &mut VecDeque<T>) -> Vec<T> {
-    std::mem::take(queue).into_iter().collect()
+fn take_one<T>(queue: &mut VecDeque<T>) -> Option<T> {
+    queue.pop_front()
 }
 
 const fn web_test_diagnostic_is_poll_stage(stage: u32) -> bool {
@@ -7342,6 +7342,22 @@ where
                         record_web_test_diagnostic(347, u32::from(scheduled));
                     }
                     TestEvent::CaptureScreenshot { response_tx } => {
+                        #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                        if pending_screenshot_path.is_some()
+                            || pending_screenshot_response_tx.is_some()
+                        {
+                            if let Err(response_tx) =
+                                web_test_control::requeue_pending_capture_request(response_tx)
+                            {
+                                let _ =
+                                    response_tx.send(fission_test_driver::TestResponse::Error {
+                                        message: "too many pending browser screenshot requests"
+                                            .into(),
+                                    });
+                            }
+                            return;
+                        }
+                        record_web_test_diagnostic(481, 1);
                         record_web_test_diagnostic(346, 1);
                         let Some(window) = platform_window.active_window() else {
                             let _ = response_tx.send(fission_test_driver::TestResponse::Error {
@@ -7867,11 +7883,9 @@ where
                     // Keep capture requests in the bridge until the regular
                     // LiveTest event-loop pass can hand them to the render path.
                     #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
-                    if let Some(requests) = web_test_control::take_pending_capture_requests() {
-                        for response_tx in requests {
-                            record_web_test_diagnostic(481, 1);
-                            handle_test_event(TestEvent::CaptureScreenshot { response_tx });
-                        }
+                    if let Some(response_tx) = web_test_control::take_next_pending_capture_request()
+                    {
+                        handle_test_event(TestEvent::CaptureScreenshot { response_tx });
                     }
                     let Some(window) = platform_window.active_window() else {
                         elwt.set_control_flow(ControlFlow::Wait);
@@ -11784,7 +11798,7 @@ mod tests {
         repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
         resolve_selector_record, runtime_timer_wake_at, scroll_build_dependency_offsets,
         scroll_build_dependency_offsets_changed, should_present_startup_clear_frame,
-        surface_acquire_recovery, sync_tracked_target_texture_size_to_surface, take_all,
+        surface_acquire_recovery, sync_tracked_target_texture_size_to_surface, take_one,
         test_pump_can_ack_current_frame, text_input_blink_enabled, texture_plans_fit_device_limits,
         visual_rect_for_node, web_effective_render_scale, web_live_test_event_loop_wait_until,
         window_insets_from_safe_area_frames, windows_shell_execute_succeeded, windows_wide,
@@ -13213,39 +13227,56 @@ mod tests {
         let mut capture_handler_calls = 0;
 
         let mut pending = VecDeque::new();
-        let (response_tx, response_rx) = mpsc::channel();
-        assert!(enqueue_bounded(&mut pending, response_tx, 1).is_ok());
+        let (first_response_tx, first_response_rx) = mpsc::channel();
+        let (second_response_tx, second_response_rx) = mpsc::channel();
+        assert!(enqueue_bounded(&mut pending, first_response_tx, 2).is_ok());
+        assert!(enqueue_bounded(&mut pending, second_response_tx, 2).is_ok());
 
         // Model the regular LiveTest event-loop pass. The proxy callback never
-        // arrives, but the bounded capture queue still hands the request to
-        // the existing renderer response path exactly once.
-        let mut requests = take_all(&mut pending).into_iter();
-        let queued_response = requests.next().expect("queued capture");
+        // arrives, but the bounded queue hands one request to the renderer at
+        // a time and preserves later captures while the slot is busy.
+        let first_capture = take_one(&mut pending).expect("first queued capture");
         capture_handler_calls += 1;
-        assert!(requests.next().is_none());
-        queued_response
+        let second_capture = take_one(&mut pending).expect("second queued capture");
+        assert!(
+            enqueue_bounded(&mut pending, second_capture, 2).is_ok(),
+            "a busy renderer slot requeues the next capture"
+        );
+
+        first_capture
             .send(TestResponse::Screenshot {
                 png_base64: "cG5n".into(),
                 width: 16,
                 height: 9,
             })
-            .expect("capture response receiver remains connected");
+            .expect("first capture response receiver remains connected");
+        let second_capture = take_one(&mut pending).expect("requeued capture");
+        capture_handler_calls += 1;
+        second_capture
+            .send(TestResponse::Screenshot {
+                png_base64: "cG5n".into(),
+                width: 16,
+                height: 9,
+            })
+            .expect("second capture response receiver remains connected");
         assert!(
-            take_all(&mut pending).is_empty(),
-            "a capture is drained once"
+            take_one(&mut pending).is_none(),
+            "captures drain exactly once"
         );
-        assert_eq!(capture_handler_calls, 1, "the fallback handles it once");
+        assert_eq!(capture_handler_calls, 2, "each request is handled once");
 
-        match response_rx.try_recv().expect("screenshot response") {
-            TestResponse::Screenshot {
-                png_base64,
-                width,
-                height,
-            } => {
-                assert_eq!(png_base64, "cG5n");
-                assert_eq!((width, height), (16, 9));
+        for response_rx in [first_response_rx, second_response_rx] {
+            match response_rx.try_recv().expect("screenshot response") {
+                TestResponse::Screenshot {
+                    png_base64,
+                    width,
+                    height,
+                } => {
+                    assert_eq!(png_base64, "cG5n");
+                    assert_eq!((width, height), (16, 9));
+                }
+                other => panic!("unexpected capture response: {other:?}"),
             }
-            other => panic!("unexpected capture response: {other:?}"),
         }
 
         let (overflow_tx, overflow_rx) = mpsc::channel();
