@@ -1175,12 +1175,7 @@ impl LiveTestClient {
     }
 
     pub fn activate_selector(&self, query: SelectorQuery) -> Result<()> {
-        self.pump()?;
-        self.send(TestCommand::ActivateSelector {
-            query: self.scoped_query(query),
-        })?;
-        self.pump()?;
-        Ok(())
+        activate_selector_with(self.scoped_query(query), |command| self.send(command))
     }
 
     pub fn focus_selector(&self, query: SelectorQuery) -> Result<()> {
@@ -1834,6 +1829,19 @@ fn ensure_success_response(operation: &str, response: TestResponse) -> Result<()
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn activate_selector_with(
+    query: SelectorQuery,
+    mut send: impl FnMut(TestCommand) -> Result<TestResponse>,
+) -> Result<()> {
+    ensure_success_response("pre-activate pump", send(TestCommand::Pump {})?)?;
+    ensure_success_response(
+        "activate_selector",
+        send(TestCommand::ActivateSelector { query })?,
+    )?;
+    ensure_success_response("post-activate pump", send(TestCommand::Pump {})?)
+}
+
 fn rectangles_intersect(left: Bounds, right: Bounds) -> bool {
     left.x < right.x + right.width
         && left.x + left.width > right.x
@@ -1896,6 +1904,46 @@ mod tests {
         assert!(unexpected
             .to_string()
             .contains("unexpected response from pump"));
+    }
+
+    #[test]
+    fn activate_selector_propagates_error_and_unexpected_action_responses() {
+        for (action_response, expected_message) in [
+            (
+                TestResponse::Error {
+                    message: "selector action was rejected".into(),
+                },
+                "activate_selector failed: selector action was rejected",
+            ),
+            (
+                TestResponse::MotionStatus {
+                    finite: 1,
+                    repeating: 0,
+                    ripples: 0,
+                },
+                "unexpected response from activate_selector",
+            ),
+        ] {
+            let mut commands = Vec::new();
+            let error = super::activate_selector_with(
+                SelectorQuery::semantic_identifier("sheet.tab.2"),
+                |command| match command {
+                    TestCommand::Pump {} => {
+                        commands.push("pump");
+                        Ok(TestResponse::Ok {})
+                    }
+                    TestCommand::ActivateSelector { .. } => {
+                        commands.push("activate");
+                        Ok(action_response.clone())
+                    }
+                    other => panic!("unexpected activation command: {other:?}"),
+                },
+            )
+            .expect_err("activation failures must reach the caller");
+
+            assert!(error.to_string().contains(expected_message));
+            assert_eq!(commands, ["pump", "activate"]);
+        }
     }
 
     fn populated_semantic_node() -> SemanticNode {
