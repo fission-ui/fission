@@ -11,14 +11,18 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
   let dispatchCompletions = 0;
   let dispatchFailures = 0;
   let lastDispatchRequestId = 0;
+  let deferredWakeSchedules = 0;
+  let deferredWakeCalls = 0;
+  let deferredWakeFailures = 0;
 
   const dispatch = (requestId) => {
     if (!pendingDispatches.has(requestId) || dispatchesInFlight.has(requestId)) return;
     dispatchesInFlight.add(requestId);
     dispatchAttempts += 1;
     lastDispatchRequestId = requestId;
+    let wakeAfterDispatch = false;
     try {
-      exports.fission_web_test_dispatch_command(requestId);
+      wakeAfterDispatch = (exports.fission_web_test_dispatch_command(requestId) >>> 0) === 1;
       pendingDispatches.delete(requestId);
       dispatchCompletions += 1;
     } catch (error) {
@@ -27,6 +31,27 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
       throw error;
     } finally {
       dispatchesInFlight.delete(requestId);
+    }
+    if (wakeAfterDispatch) {
+      // Run the extra Winit wake only after the command's Wasm export has
+      // returned. A browser-owned timer avoids retaining a Rust Closure for
+      // the deferred event and cannot re-enter the shell during dispatch.
+      try {
+        globalThis.setTimeout(() => {
+          deferredWakeCalls += 1;
+          try {
+            exports.fission_web_test_wake_event_loop();
+          } catch (error) {
+            deferredWakeFailures += 1;
+            throw error;
+          }
+        }, 0);
+        deferredWakeSchedules += 1;
+        exports.fission_web_test_deferred_wake_scheduled();
+      } catch (error) {
+        deferredWakeFailures += 1;
+        throw error;
+      }
     }
   };
 
@@ -88,6 +113,9 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
           lastRequestId: lastDispatchRequestId,
           pendingRequestIds: [...pendingDispatches],
           inFlightRequestIds: [...dispatchesInFlight],
+          deferredWakeSchedules,
+          deferredWakeCalls,
+          deferredWakeFailures,
         },
       };
     },

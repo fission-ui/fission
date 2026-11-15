@@ -290,7 +290,20 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         &JsValue::from_str("fission_web_test_dispatch_command"),
     )
     .unwrap_or(JsValue::UNDEFINED);
-    if !dispatch_command.is_function() {
+    let wake_event_loop = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_wake_event_loop"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
+    let deferred_wake_scheduled = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_deferred_wake_scheduled"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
+    if !dispatch_command.is_function()
+        || !wake_event_loop.is_function()
+        || !deferred_wake_scheduled.is_function()
+    {
         return false;
     }
     let poll_diagnostics_address = std::ptr::addr_of!(LAST_POLL_STAGE) as usize;
@@ -483,10 +496,28 @@ pub extern "C" fn fission_web_test_submit_json(length: u32) -> u32 {
 // to a later browser task so the CDP command can return its request id first.
 #[cfg(fission_web_test_control)]
 #[no_mangle]
-pub extern "C" fn fission_web_test_dispatch_command(request_id: u32) {
+pub extern "C" fn fission_web_test_dispatch_command(request_id: u32) -> u32 {
     record_diagnostic(417, request_id);
-    dispatch_queued_command(request_id);
+    // The JavaScript adapter schedules a browser-owned timer when this returns
+    // true, so the follow-up wake cannot re-enter Wasm command dispatch.
+    let wake_after_dispatch = dispatch_queued_command(request_id);
     record_diagnostic(419, request_id);
+    u32::from(wake_after_dispatch)
+}
+
+#[cfg(fission_web_test_control)]
+#[no_mangle]
+pub extern "C" fn fission_web_test_wake_event_loop() {
+    record_diagnostic(426, 1);
+    let proxy = with_bridge_state(|state| state.event_proxy.clone());
+    let sent = proxy.is_some_and(|proxy| proxy.send_event(TestEvent::Wake).is_ok());
+    record_diagnostic(427, u32::from(sent));
+}
+
+#[cfg(fission_web_test_control)]
+#[no_mangle]
+pub extern "C" fn fission_web_test_deferred_wake_scheduled() {
+    record_diagnostic(425, 1);
 }
 
 #[cfg(fission_web_test_control)]
@@ -586,7 +617,8 @@ fn queue_command(command: Result<TestCommand, String>) -> u32 {
     request_id
 }
 
-fn dispatch_queued_command(request_id: u32) {
+/// Returns whether the caller must schedule a browser-task wake after dispatch.
+fn dispatch_queued_command(request_id: u32) -> bool {
     let (command, proxy) = with_bridge_state(|state| {
         let command = match state.responses.remove(&request_id) {
             Some(PendingResponse::Queued(command)) => Some(command),
@@ -600,8 +632,10 @@ fn dispatch_queued_command(request_id: u32) {
     });
     record_diagnostic(418, u32::from(command.is_some()));
     let Some(command) = command else {
-        return;
+        return false;
     };
+
+    let wake_after_dispatch = matches!(&command, Ok(TestCommand::CaptureScreenshot {}));
 
     let response = match (command, proxy) {
         (Ok(command), Some(proxy)) => dispatch(command, &proxy),
@@ -613,6 +647,7 @@ fn dispatch_queued_command(request_id: u32) {
     with_bridge_state(|state| {
         state.responses.insert(request_id, response);
     });
+    wake_after_dispatch
 }
 
 fn response_json_string(response: &TestResponse) -> String {
@@ -1004,50 +1039,6 @@ fn query_with_deferred_wake(
         })
     } else {
         record_diagnostic(424, u32::from(deferred_wake));
-        if deferred_wake {
-            send_test_event_wake(proxy);
-        }
         PendingResponse::Waiting(response_rx)
     }
-}
-
-fn send_test_event_wake(proxy: &EventLoopProxy<TestEvent>) {
-    // Do not send a second Winit event while the LiveTest dispatcher is still
-    // on the Wasm stack. Winit's Web proxy can queue a microtask from this
-    // call; deferring the Wake to a browser task lets the capture dispatch
-    // return first and avoids re-entering the shell during bridge callbacks.
-    #[cfg(target_arch = "wasm32")]
-    {
-        let deferred_proxy = proxy.clone();
-        let callback = Closure::once(move || {
-            record_diagnostic(426, 1);
-            let sent = deferred_proxy.send_event(TestEvent::Wake).is_ok();
-            record_diagnostic(427, u32::from(sent));
-        });
-
-        if let Some(window) = web_sys::window() {
-            if window
-                .set_timeout_with_callback_and_timeout_and_arguments_0(
-                    callback.as_ref().unchecked_ref(),
-                    0,
-                )
-                .is_ok()
-            {
-                record_diagnostic(425, 1);
-                callback.forget();
-                return;
-            }
-        }
-
-        record_diagnostic(425, 0);
-        drop(callback);
-        let sent = proxy.send_event(TestEvent::Wake).is_ok();
-        record_diagnostic(427, u32::from(sent));
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    let sent = proxy.send_event(TestEvent::Wake).is_ok();
-
-    #[cfg(not(target_arch = "wasm32"))]
-    record_diagnostic(427, u32::from(sent));
 }
