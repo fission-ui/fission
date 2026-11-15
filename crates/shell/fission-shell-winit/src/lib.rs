@@ -286,6 +286,10 @@ fn record_web_test_diagnostic(stage: u32, iteration: u32) {
     let _ = (stage, iteration);
 }
 
+const fn web_test_diagnostic_is_poll_stage(stage: u32) -> bool {
+    matches!(stage, 430 | 432 | 435)
+}
+
 type EffectResult = AsyncMessage;
 
 type ServiceKey = (String, String);
@@ -13158,6 +13162,14 @@ mod tests {
             web_live_test_event_loop_wait_until(now),
             ControlFlow::WaitUntil(now + Duration::from_millis(16))
         );
+    }
+
+    #[test]
+    fn web_test_poll_markers_are_classified_as_high_frequency() {
+        assert!(super::web_test_diagnostic_is_poll_stage(430));
+        assert!(super::web_test_diagnostic_is_poll_stage(432));
+        assert!(super::web_test_diagnostic_is_poll_stage(435));
+        assert!(!super::web_test_diagnostic_is_poll_stage(417));
     }
 
     #[test]

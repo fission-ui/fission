@@ -76,11 +76,22 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
         std::ptr::read_volatile(std::ptr::addr_of!(marker));
     }
 
+    if should_log_diagnostic(stage, iteration) {
+        web_sys::console::log_1(&JsValue::from_str(&format!(
+            "FISSION_WEB_TEST_TRACE {stage} {iteration}"
+        )));
+    }
+}
+
+fn should_log_diagnostic(stage: u32, iteration: u32) -> bool {
     // LiveTest can become unable to evaluate JavaScript while the Wasm main
     // thread is stuck in synchronous work. Keep useful boundaries visible
-    // through CDP, but avoid logging every idle-loop step and every Wake: a
-    // trace flood can itself delay browser tasks and obscure the original bug.
-    let should_log = match stage {
+    // through CDP, but avoid logging every idle-loop step, every poll, and
+    // every Wake. Poll exports are called synchronously from JS and must stay
+    // cheap; logging each poll both floods CDP and risks JS re-entry while the
+    // bridge's UnsafeCell is borrowed.
+    match stage {
+        _ if super::web_test_diagnostic_is_poll_stage(stage) => false,
         300..=353 => true,
         // These markers can run for every browser event-loop iteration. Keep a
         // sparse heartbeat for 360 and report state changes for the other
@@ -90,8 +101,9 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
         364 => WEB_LAST_PENDING_WORK_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
         365 => WEB_LAST_REDRAW_PENDING_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
         366 => WEB_LAST_REDRAW_REQUEST_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
-        400 | 402 | 410 | 411 | 414 | 416 | 417 | 418 | 419 | 420 | 424 | 425 | 426 | 427 | 430
-        | 432 | 435 | 436 => true,
+        400 | 402 | 410 | 411 | 414 | 416 | 417 | 418 | 419 | 420 | 424 | 425 | 426 | 427 | 436 => {
+            true
+        }
         473 if iteration == 1 => {
             WEB_REDRAW_WAIT_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 256 == 0
         }
@@ -103,11 +115,6 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
         450..=470 | 474 | 475 | 476 => true,
         90 | 91 if iteration == 42 => true,
         _ => false,
-    };
-    if should_log {
-        web_sys::console::log_1(&JsValue::from_str(&format!(
-            "FISSION_WEB_TEST_TRACE {stage} {iteration}"
-        )));
     }
 }
 
@@ -496,14 +503,18 @@ pub extern "C" fn fission_web_test_poll_json_len(request_id: u32) -> u32 {
         None => "null".to_owned(),
     };
     record_diagnostic(433, json.len() as u32);
-    with_bridge_state(|state| {
+    let length = with_bridge_state(|state| {
         record_diagnostic(434, request_id);
         state.poll_json.clear();
         state.poll_json.extend_from_slice(json.as_bytes());
         record_poll_stage(request_id, POLL_STAGE_JSON_READY);
-        record_diagnostic(435, state.poll_json.len() as u32);
         state.poll_json.len() as u32
-    })
+    });
+    // Keep this marker outside the bridge-state borrow. record_diagnostic can
+    // call into JavaScript for CDP tracing, and JS must never re-enter an
+    // export while `WebTestBridgeState` is mutably borrowed.
+    record_diagnostic(435, length);
+    length
 }
 
 #[cfg(fission_web_test_control)]
@@ -1001,11 +1012,42 @@ fn query_with_deferred_wake(
 }
 
 fn send_test_event_wake(proxy: &EventLoopProxy<TestEvent>) {
-    // CaptureScreenshot is dispatched from a JS task, after the CDP submit
-    // call has returned. Queue the Wake with the capture request immediately
-    // so the browser event loop cannot strand the request waiting for a later
-    // timer callback of its own.
-    record_diagnostic(426, 1);
+    // Do not send a second Winit event while the LiveTest dispatcher is still
+    // on the Wasm stack. Winit's Web proxy can queue a microtask from this
+    // call; deferring the Wake to a browser task lets the capture dispatch
+    // return first and avoids re-entering the shell during bridge callbacks.
+    #[cfg(target_arch = "wasm32")]
+    {
+        let deferred_proxy = proxy.clone();
+        let callback = Closure::once(move || {
+            record_diagnostic(426, 1);
+            let sent = deferred_proxy.send_event(TestEvent::Wake).is_ok();
+            record_diagnostic(427, u32::from(sent));
+        });
+
+        if let Some(window) = web_sys::window() {
+            if window
+                .set_timeout_with_callback_and_timeout_and_arguments_0(
+                    callback.as_ref().unchecked_ref(),
+                    0,
+                )
+                .is_ok()
+            {
+                record_diagnostic(425, 1);
+                callback.forget();
+                return;
+            }
+        }
+
+        record_diagnostic(425, 0);
+        drop(callback);
+        let sent = proxy.send_event(TestEvent::Wake).is_ok();
+        record_diagnostic(427, u32::from(sent));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     let sent = proxy.send_event(TestEvent::Wake).is_ok();
+
+    #[cfg(not(target_arch = "wasm32"))]
     record_diagnostic(427, u32::from(sent));
 }
