@@ -2664,7 +2664,9 @@ impl<'a> VelloRenderer<'a> {
         offset: (f64, f64),
         clip: Option<TextClip>,
     ) -> bool {
-        let Some(image) = browser_text_fallback::rasterize(
+        let trace_text = self.web_render_op_trace_index.is_some();
+        let fallback_started = trace_text.then(web_time::Instant::now);
+        let image = browser_text_fallback::rasterize(
             text,
             font_size,
             width,
@@ -2675,7 +2677,12 @@ impl<'a> VelloRenderer<'a> {
             family,
             weight,
             italic,
-        ) else {
+            trace_text,
+        );
+        let Some(image) = image else {
+            if let Some(started) = fallback_started {
+                trace_web_test_stage(399, started.elapsed().as_millis() as u32);
+            }
             return false;
         };
 
@@ -2707,6 +2714,9 @@ impl<'a> VelloRenderer<'a> {
             });
         } else {
             self.painter.fill_rect(transform, paint, &destination);
+        }
+        if let Some(started) = fallback_started {
+            trace_web_test_stage(399, started.elapsed().as_millis() as u32);
         }
         true
     }
@@ -2825,9 +2835,7 @@ impl<'a> VelloRenderer<'a> {
                         for shadow in &rich_style.typography.shadows {
                             for (dx, dy, shadow_color) in text_effects::shadow_samples(*shadow) {
                                 #[cfg(target_arch = "wasm32")]
-                                let fallback_started = trace_text.then(web_time::Instant::now);
-                                #[cfg(target_arch = "wasm32")]
-                                if fallback_started.is_some() {
+                                if trace_text {
                                     trace_web_test_stage(396, 0);
                                 }
                                 self.draw_browser_text_fallback(
@@ -2851,18 +2859,12 @@ impl<'a> VelloRenderer<'a> {
                                     (dx, dy),
                                     clip,
                                 );
-                                #[cfg(target_arch = "wasm32")]
-                                if let Some(started) = fallback_started {
-                                    trace_web_test_stage(397, started.elapsed().as_millis() as u32);
-                                }
                             }
                         }
                     }
 
                     #[cfg(target_arch = "wasm32")]
-                    let fallback_started = trace_text.then(web_time::Instant::now);
-                    #[cfg(target_arch = "wasm32")]
-                    if fallback_started.is_some() {
+                    if trace_text {
                         trace_web_test_stage(396, 0);
                     }
                     let used_browser_fallback = self.draw_browser_text_fallback(
@@ -2881,10 +2883,6 @@ impl<'a> VelloRenderer<'a> {
                         (0.0, 0.0),
                         clip,
                     );
-                    #[cfg(target_arch = "wasm32")]
-                    if let Some(started) = fallback_started {
-                        trace_web_test_stage(397, started.elapsed().as_millis() as u32);
-                    }
                     used_browser_fallback
                 } else {
                     false

@@ -8,11 +8,13 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use crate::trace_web_test_stage;
 use lazy_static::lazy_static;
 use vello_cpu::peniko::ImageAlphaType;
 use vello_cpu::{PixelMetadata, Pixmap};
 use wasm_bindgen::JsCast;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement};
+use web_time::Instant;
 
 pub(crate) const RASTER_PADDING: f32 = 1.0;
 const MAX_CANVAS_DIMENSION: f32 = 16_384.0;
@@ -52,6 +54,7 @@ pub(crate) fn rasterize(
     family: &str,
     weight: u16,
     italic: bool,
+    trace_stages: bool,
 ) -> Option<Arc<Pixmap>> {
     if text.is_empty()
         || !font_size.is_finite()
@@ -72,6 +75,13 @@ pub(crate) fn rasterize(
     let logical_height = ascent + descent + RASTER_PADDING * 2.0;
     let pixel_width = pixel_dimension(logical_width, scale)?;
     let pixel_height = pixel_dimension(logical_height, scale)?;
+    let raster_started = trace_stages.then(Instant::now);
+    if trace_stages {
+        trace_web_test_stage(
+            398,
+            (u32::from(pixel_width) << 16) | u32::from(pixel_height),
+        );
+    }
     let key = CacheKey {
         text: text.to_owned(),
         font_size: font_size.to_bits(),
@@ -86,6 +96,9 @@ pub(crate) fn rasterize(
     };
 
     if let Some(image) = RASTER_CACHE.lock().ok()?.get(&key).cloned() {
+        if let Some(started) = raster_started {
+            trace_web_test_stage(397, started.elapsed().as_millis() as u32);
+        }
         return Some(image);
     }
 
@@ -111,6 +124,9 @@ pub(crate) fn rasterize(
         }
     }
     cache.insert(key, Arc::clone(&image));
+    if let Some(started) = raster_started {
+        trace_web_test_stage(397, started.elapsed().as_millis() as u32);
+    }
     Some(image)
 }
 
