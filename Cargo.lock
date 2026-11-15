@@ -3462,6 +3462,7 @@ dependencies = [
  "fission-winit",
  "fontique",
  "futures-core",
+ "futures-util",
  "glam 0.29.3",
  "gstreamer",
  "gstreamer-video",

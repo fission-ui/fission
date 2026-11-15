@@ -98,6 +98,8 @@ use fission_test_driver::{TestEvent, TestPointerKind, TestPointerPhase, TestScro
 
 #[cfg(target_arch = "wasm32")]
 static WEB_WAKE_EVENT_PENDING: AtomicBool = AtomicBool::new(false);
+#[cfg(target_arch = "wasm32")]
+static WEBGPU_SCREENSHOT_READBACK_TIMED_OUT: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn send_wake_event(proxy: &EventLoopProxy<TestEvent>) {
     #[cfg(target_arch = "wasm32")]
@@ -2266,6 +2268,17 @@ fn request_redraw_once(window: &Window, frame_schedule: &mut FrameScheduleState)
     true
 }
 
+fn request_capture_redraw_once(window: &Window, frame_schedule: &mut FrameScheduleState) -> bool {
+    let scheduled = request_redraw_once(window, frame_schedule);
+    #[cfg(target_arch = "wasm32")]
+    if let Some(web_redraw) = frame_schedule.web_redraw.as_ref() {
+        if let Err(error) = web_redraw.request_fallback(250) {
+            eprintln!("failed to schedule Web capture redraw fallback: {error}");
+        }
+    }
+    scheduled
+}
+
 #[cfg(any(test, target_arch = "wasm32"))]
 fn prepare_capture_redraw(redraw_pending: &mut bool, frame_schedule: &mut FrameScheduleState) {
     frame_schedule.redraw_started();
@@ -2329,7 +2342,10 @@ struct FrameScheduleState {
 struct WebRedrawScheduler {
     window: web_sys::Window,
     callback: wasm_bindgen::closure::Closure<dyn FnMut(f64)>,
+    fallback_callback: wasm_bindgen::closure::Closure<dyn FnMut()>,
     handle: Rc<Cell<Option<i32>>>,
+    fallback_handle: Rc<Cell<Option<i32>>>,
+    scheduled: Rc<Cell<bool>>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -2340,37 +2356,98 @@ impl WebRedrawScheduler {
         let window =
             web_sys::window().ok_or_else(|| anyhow::anyhow!("browser window is unavailable"))?;
         let handle = Rc::new(Cell::new(None));
+        let fallback_handle = Rc::new(Cell::new(None));
+        let scheduled = Rc::new(Cell::new(false));
         let callback_handle = handle.clone();
+        let callback_fallback_handle = fallback_handle.clone();
+        let callback_scheduled = scheduled.clone();
+        let callback_window = window.clone();
+        let callback_proxy = proxy.clone();
         let callback = wasm_bindgen::closure::Closure::wrap(Box::new(move |_timestamp: f64| {
+            if !callback_scheduled.replace(false) {
+                return;
+            }
             callback_handle.set(None);
+            if let Some(fallback_handle) = callback_fallback_handle.take() {
+                let _ = callback_window.clear_timeout_with_handle(fallback_handle);
+            }
             record_web_test_diagnostic(438, 1);
-            let _ = proxy.send_event(TestEvent::WebRedrawFrame);
+            let _ = callback_proxy.send_event(TestEvent::WebRedrawFrame);
         }) as Box<dyn FnMut(f64)>);
+        let fallback_window = window.clone();
+        let fallback_handle_for_callback = fallback_handle.clone();
+        let fallback_raf_handle = handle.clone();
+        let fallback_scheduled = scheduled.clone();
+        let fallback_callback = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
+            if !fallback_scheduled.replace(false) {
+                return;
+            }
+            fallback_handle_for_callback.set(None);
+            if let Some(handle) = fallback_raf_handle.take() {
+                let _ = fallback_window.cancel_animation_frame(handle);
+            }
+            record_web_test_diagnostic(485, 1);
+            // A LiveTest capture must not wait indefinitely for a paused or
+            // starved animation-frame callback. This event enters the same
+            // redraw path as the regular RAF callback.
+            let _ = proxy.send_event(TestEvent::HeadlessFrame);
+        })
+            as Box<dyn FnMut()>);
 
         Ok(Self {
             window,
             callback,
+            fallback_callback,
             handle,
+            fallback_handle,
+            scheduled,
         })
     }
 
     fn request(&self) -> Result<(), String> {
         use wasm_bindgen::JsCast;
 
-        if self.handle.get().is_some() {
+        if self.scheduled.replace(true) {
             return Ok(());
         }
-        let handle = self
+        let handle = match self
             .window
             .request_animation_frame(self.callback.as_ref().unchecked_ref())
-            .map_err(js_error_to_string)?;
+        {
+            Ok(handle) => handle,
+            Err(error) => {
+                self.scheduled.set(false);
+                return Err(js_error_to_string(error));
+            }
+        };
         self.handle.set(Some(handle));
         Ok(())
     }
 
+    fn request_fallback(&self, delay_ms: i32) -> Result<(), String> {
+        use wasm_bindgen::JsCast;
+
+        if !self.scheduled.get() || self.fallback_handle.get().is_some() {
+            return Ok(());
+        }
+        let handle = self
+            .window
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                self.fallback_callback.as_ref().unchecked_ref(),
+                delay_ms,
+            )
+            .map_err(js_error_to_string)?;
+        self.fallback_handle.set(Some(handle));
+        Ok(())
+    }
+
     fn cancel(&self) {
+        self.scheduled.set(false);
         if let Some(handle) = self.handle.take() {
             let _ = self.window.cancel_animation_frame(handle);
+        }
+        if let Some(handle) = self.fallback_handle.take() {
+            let _ = self.window.clear_timeout_with_handle(handle);
         }
     }
 }
@@ -7338,7 +7415,7 @@ where
                         #[cfg(target_arch = "wasm32")]
                         prepare_capture_redraw(&mut redraw_pending, &mut frame_trace);
                         invalidations.mark_paint();
-                        let scheduled = request_redraw_once(window, &mut frame_trace);
+                        let scheduled = request_capture_redraw_once(window, &mut frame_trace);
                         record_web_test_diagnostic(347, u32::from(scheduled));
                     }
                     TestEvent::CaptureScreenshot { response_tx } => {
@@ -7376,7 +7453,7 @@ where
                         #[cfg(target_arch = "wasm32")]
                         prepare_capture_redraw(&mut redraw_pending, &mut frame_trace);
                         invalidations.mark_paint();
-                        let scheduled = request_redraw_once(window, &mut frame_trace);
+                        let scheduled = request_capture_redraw_once(window, &mut frame_trace);
                         record_web_test_diagnostic(347, u32::from(scheduled));
                     }
                     TestEvent::PauseAnimations { response_tx } => {
@@ -7426,7 +7503,7 @@ where
                             live_resize.is_live(Instant::now()),
                         );
                         invalidations.mark_paint();
-                        request_redraw_once(window, &mut frame_trace);
+                        request_capture_redraw_once(window, &mut frame_trace);
                     }
                     TestEvent::MotionStatus { response_tx } => {
                         let finite = runtime
@@ -7537,7 +7614,7 @@ where
                                 resize_needs_settled_frame,
                                 live_resize.is_live(Instant::now()),
                             );
-                            request_redraw_once(window, &mut frame_trace);
+                            request_capture_redraw_once(window, &mut frame_trace);
                         }
                     }
                     // Mapped to a redraw before dispatch.
@@ -9777,6 +9854,35 @@ where
                                                             screenshot_dimensions.0,
                                                             screenshot_dimensions.1,
                                                             response_tx,
+                                                            pipeline.retained_scene().cloned(),
+                                                            fission_render::Color {
+                                                                r: env
+                                                                    .theme
+                                                                    .tokens
+                                                                    .colors
+                                                                    .background
+                                                                    .r,
+                                                                g: env
+                                                                    .theme
+                                                                    .tokens
+                                                                    .colors
+                                                                    .background
+                                                                    .g,
+                                                                b: env
+                                                                    .theme
+                                                                    .tokens
+                                                                    .colors
+                                                                    .background
+                                                                    .b,
+                                                                a: env
+                                                                    .theme
+                                                                    .tokens
+                                                                    .colors
+                                                                    .background
+                                                                    .a,
+                                                            },
+                                                            scale_factor,
+                                                            measurer.clone(),
                                                         );
                                                         record_web_test_diagnostic(368, 3);
                                                     } else {
@@ -11373,6 +11479,10 @@ fn gpu_screenshot_async(
     output_width: u32,
     output_height: u32,
     response_tx: mpsc::Sender<fission_test_driver::TestResponse>,
+    fallback_scene: Option<fission_render::RenderScene>,
+    fallback_background: fission_render::Color,
+    scale_factor: f64,
+    measurer: Arc<VelloTextMeasurer>,
 ) {
     let (texture_width, texture_height) = clamp_copy_extent_to_texture(
         texture_width,
@@ -11384,6 +11494,20 @@ fn gpu_screenshot_async(
         let _ = response_tx.send(fission_test_driver::TestResponse::Error {
             message: "zero-size viewport".into(),
         });
+        return;
+    }
+    if WEBGPU_SCREENSHOT_READBACK_TIMED_OUT.load(Ordering::Acquire) {
+        let response = cpu_screenshot_response(
+            fallback_scene,
+            fallback_background,
+            scale_factor,
+            measurer,
+            texture_width,
+            texture_height,
+            output_width,
+            output_height,
+        );
+        let _ = response_tx.send(response);
         return;
     }
 
@@ -11443,18 +11567,26 @@ fn gpu_screenshot_async(
 
     wasm_bindgen_futures::spawn_local(async move {
         let _keepalive = (instance_keepalive, device_keepalive, queue_keepalive);
-        let gpu_error = out_of_memory_error.await.or(validation_error.await);
-        let response = if let Some(error) = gpu_error {
-            fission_test_driver::TestResponse::Error {
-                message: format!(
-                    "WebGPU screenshot readback GPU error for {texture_width}x{texture_height} ({buffer_size} bytes, {padded_bytes_per_row} bytes per row): {error}"
-                ),
+        record_web_test_diagnostic(486, texture_height);
+        let readback = async move {
+            let gpu_error = out_of_memory_error.await.or(validation_error.await);
+            if let Some(error) = gpu_error {
+                return fission_test_driver::TestResponse::Error {
+                    message: format!(
+                        "renderer_screenshot_unavailable: WebGPU screenshot readback GPU error for {texture_width}x{texture_height} ({buffer_size} bytes, {padded_bytes_per_row} bytes per row): {error}"
+                    ),
+                };
             }
-        } else if let Err(error) = wasm_bindgen_futures::JsFuture::from(work_done).await {
-            fission_test_driver::TestResponse::Error {
-                message: format!("WebGPU screenshot queue completion failed: {error:?}"),
+
+            if let Err(error) = wasm_bindgen_futures::JsFuture::from(work_done).await {
+                return fission_test_driver::TestResponse::Error {
+                    message: format!(
+                        "renderer_screenshot_unavailable: WebGPU screenshot queue completion failed: {error:?}"
+                    ),
+                };
             }
-        } else {
+            record_web_test_diagnostic(487, texture_height);
+
             // WebGPU mapping completes through the browser event loop. Keep the frame callback
             // free to process input and subsequent frames while the staging buffer is readable.
             let promise = js_sys::Promise::new(&mut |resolve, reject| {
@@ -11476,6 +11608,7 @@ fn gpu_screenshot_async(
             });
             match wasm_bindgen_futures::JsFuture::from(promise).await {
                 Ok(_) => {
+                    record_web_test_diagnostic(488, texture_height);
                     let data = staging.slice(..).get_mapped_range();
                     let mut rgba =
                         Vec::with_capacity((texture_width * texture_height * 4) as usize);
@@ -11502,8 +11635,98 @@ fn gpu_screenshot_async(
                 },
             }
         };
+        let timeout = async {
+            let _ = wasm_bindgen_futures::JsFuture::from(browser_timeout_promise(5_000)).await;
+        };
+        let response =
+            match futures_util::future::select(Box::pin(readback), Box::pin(timeout)).await {
+                futures_util::future::Either::Left((response, _timeout)) => response,
+                futures_util::future::Either::Right(((), _readback)) => {
+                    WEBGPU_SCREENSHOT_READBACK_TIMED_OUT.store(true, Ordering::Release);
+                    record_web_test_diagnostic(489, texture_height);
+                    cpu_screenshot_response(
+                        fallback_scene,
+                        fallback_background,
+                        scale_factor,
+                        measurer,
+                        texture_width,
+                        texture_height,
+                        output_width,
+                        output_height,
+                    )
+                }
+            };
+        record_web_test_diagnostic(490, texture_height);
         let _ = response_tx.send(response);
     });
+}
+
+#[cfg(target_arch = "wasm32")]
+fn browser_timeout_promise(timeout_ms: i32) -> js_sys::Promise {
+    use wasm_bindgen::JsCast;
+
+    js_sys::Promise::new(&mut |resolve, _reject| {
+        let Some(window) = web_sys::window() else {
+            let _ = resolve.call0(&wasm_bindgen::JsValue::UNDEFINED);
+            return;
+        };
+        let resolve_timer = resolve.clone();
+        let callback = wasm_bindgen::closure::Closure::once_into_js(move || {
+            let _ = resolve_timer.call0(&wasm_bindgen::JsValue::UNDEFINED);
+        });
+        if window
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                callback.unchecked_ref(),
+                timeout_ms,
+            )
+            .is_err()
+        {
+            let _ = resolve.call0(&wasm_bindgen::JsValue::UNDEFINED);
+        }
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn cpu_screenshot_response(
+    scene: Option<fission_render::RenderScene>,
+    background: fission_render::Color,
+    scale_factor: f64,
+    measurer: Arc<VelloTextMeasurer>,
+    render_width: u32,
+    render_height: u32,
+    output_width: u32,
+    output_height: u32,
+) -> fission_test_driver::TestResponse {
+    let Some(scene) = scene else {
+        return fission_test_driver::TestResponse::Error {
+            message:
+                "renderer_screenshot_unavailable: no retained scene was available for CPU fallback"
+                    .into(),
+        };
+    };
+
+    match fission_render_vello::cpu::render_to_rgba8_for_screenshot(
+        &scene,
+        render_width,
+        render_height,
+        background,
+        scale_factor,
+        measurer,
+    ) {
+        Ok(rgba) => rgba_screenshot_response(
+            rgba,
+            render_width,
+            render_height,
+            output_width,
+            output_height,
+            None,
+        ),
+        Err(error) => fission_test_driver::TestResponse::Error {
+            message: format!(
+                "renderer_screenshot_unavailable: CPU screenshot fallback failed: {error}"
+            ),
+        },
+    }
 }
 
 /// Answers a screenshot from a software rendering of the retained scene when the presented surface

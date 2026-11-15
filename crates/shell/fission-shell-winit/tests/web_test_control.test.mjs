@@ -65,8 +65,16 @@ test("static adapters preserve command, frame, diagnostics and grown-memory ABI"
       completions: 1,
       failures: 0,
       lastRequestId: 7,
+      lastStatus: 2,
+      accepted: 1,
+      unacknowledged: 0,
+      lastAccepted: true,
+      lastWakeRequested: false,
       pendingRequestIds: [],
       inFlightRequestIds: [],
+      pendingCaptureWakeCount: 0,
+      lastCaptureWakeRequestId: null,
+      lastCapturePollPending: null,
       deferredWakeSchedules: 0,
       deferredWakeCalls: 0,
       deferredWakeExportReturns: 0,
@@ -120,12 +128,18 @@ test("an unacknowledged command remains queued until a deferred retry accepts it
     assert.equal(dispatchAttempts, 1);
     assert.equal(adapters.poll(requestId), "null");
     assert.deepEqual(adapters.diagnostics().bridgeDispatch.pendingRequestIds, [requestId]);
+    assert.equal(adapters.diagnostics().bridgeDispatch.lastStatus, 0);
+    assert.equal(adapters.diagnostics().bridgeDispatch.lastAccepted, false);
+    assert.equal(adapters.diagnostics().bridgeDispatch.unacknowledged, 1);
     assert.equal(timers.length, 1, "poll schedules a new deferred dispatch attempt");
 
     timers.shift()();
     assert.equal(dispatchAttempts, 2);
     assert.deepEqual(adapters.diagnostics().bridgeDispatch.pendingRequestIds, []);
     assert.equal(adapters.poll(requestId), "{}");
+    assert.equal(adapters.diagnostics().bridgeDispatch.lastStatus, 2);
+    assert.equal(adapters.diagnostics().bridgeDispatch.lastAccepted, true);
+    assert.equal(adapters.diagnostics().bridgeDispatch.accepted, 1);
     assert.equal(timers.length, 0);
   } finally {
     globalThis.setTimeout = originalSetTimeout;
@@ -184,8 +198,16 @@ test("poll stays observational until the deferred command dispatch runs", () => 
       completions: 1,
       failures: 0,
       lastRequestId: requestId,
+      lastStatus: 3,
+      accepted: 1,
+      unacknowledged: 0,
+      lastAccepted: true,
+      lastWakeRequested: true,
       pendingRequestIds: [],
       inFlightRequestIds: [],
+      pendingCaptureWakeCount: 1,
+      lastCaptureWakeRequestId: requestId,
+      lastCapturePollPending: true,
       deferredWakeSchedules: 1,
       deferredWakeCalls: 1,
       deferredWakeExportReturns: 1,
@@ -254,8 +276,16 @@ test("capture wake remains deferred after hundreds of requests", () => {
       completions: 600,
       failures: 0,
       lastRequestId: 600,
+      lastStatus: 3,
+      accepted: 600,
+      unacknowledged: 0,
+      lastAccepted: true,
+      lastWakeRequested: true,
       pendingRequestIds: [],
       inFlightRequestIds: [],
+      pendingCaptureWakeCount: 600,
+      lastCaptureWakeRequestId: 600,
+      lastCapturePollPending: true,
       deferredWakeSchedules: 600,
       deferredWakeCalls: 600,
       deferredWakeExportReturns: 600,
@@ -344,6 +374,11 @@ test("queued screenshot retries accepted wakes through queue drain and readback"
     assert.equal(wakeCalls, 3, "accepted wakes continue through screenshot readback");
     assert.equal(adapters.diagnostics().bridgeDispatch.deferredWakeRetrySchedules, 2);
     assert.equal(adapters.diagnostics().bridgeDispatch.deferredWakeRetryCalls, 2);
+    assert.equal(adapters.diagnostics().bridgeDispatch.lastStatus, 3);
+    assert.equal(adapters.diagnostics().bridgeDispatch.lastWakeRequested, true);
+    assert.equal(adapters.diagnostics().bridgeDispatch.pendingCaptureWakeCount, 0);
+    assert.equal(adapters.diagnostics().bridgeDispatch.lastCaptureWakeRequestId, requestId);
+    assert.equal(adapters.diagnostics().bridgeDispatch.lastCapturePollPending, false);
     assert.equal(adapters.poll(requestId), responseJson, "the response remains stable after polling");
     assert.equal(timers.length, 0, "response completion clears all wake retries");
   } finally {
@@ -381,8 +416,16 @@ test("wake diagnostics distinguish a timer callback from a rejected proxy send",
       completions: 1,
       failures: 0,
       lastRequestId: 1,
+      lastStatus: 3,
+      accepted: 1,
+      unacknowledged: 0,
+      lastAccepted: true,
+      lastWakeRequested: true,
       pendingRequestIds: [],
       inFlightRequestIds: [],
+      pendingCaptureWakeCount: 1,
+      lastCaptureWakeRequestId: 1,
+      lastCapturePollPending: true,
       deferredWakeSchedules: 1,
       deferredWakeCalls: 1,
       deferredWakeExportReturns: 1,

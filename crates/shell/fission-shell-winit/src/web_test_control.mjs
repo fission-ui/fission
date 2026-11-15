@@ -16,6 +16,13 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
   let dispatchCompletions = 0;
   let dispatchFailures = 0;
   let lastDispatchRequestId = 0;
+  let lastDispatchStatus = null;
+  let acceptedDispatches = 0;
+  let unacknowledgedDispatches = 0;
+  let lastDispatchAccepted = null;
+  let lastDispatchWakeRequested = null;
+  let lastCaptureWakeRequestId = null;
+  let lastCapturePollPending = null;
   let deferredWakeSchedules = 0;
   let deferredWakeCalls = 0;
   let deferredWakeExportReturns = 0;
@@ -74,6 +81,11 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
       const status = exports.fission_web_test_dispatch_command(requestId) >>> 0;
       const accepted = (status & dispatchStatusAccepted) !== 0;
       wakeAfterDispatch = (status & dispatchStatusWake) !== 0;
+      lastDispatchStatus = status;
+      lastDispatchAccepted = accepted;
+      lastDispatchWakeRequested = wakeAfterDispatch;
+      if (accepted) acceptedDispatches += 1;
+      else unacknowledgedDispatches += 1;
       if (accepted) pendingDispatches.delete(requestId);
       dispatchCompletions += 1;
     } catch (error) {
@@ -89,6 +101,8 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
       // later null poll schedules another wake while this capture remains in
       // Rust's queue. Poll never invokes Wasm recursively.
       pendingCaptureWakes.add(requestId);
+      lastCaptureWakeRequestId = requestId;
+      lastCapturePollPending = true;
       try {
         sendDeferredWake(requestId, false);
       } catch (error) {
@@ -129,9 +143,14 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
       const address = exports.fission_web_test_poll_json_ptr() >>> 0;
       const json = decoder.decode(new Uint8Array(memory.buffer, address, length));
       if (pendingCaptureWakes.has(requestId)) {
+        lastCaptureWakeRequestId = requestId;
         if (json !== "null") {
+          lastCapturePollPending = false;
           clearCaptureWake(requestId);
-        } else sendDeferredWake(requestId, true);
+        } else {
+          lastCapturePollPending = true;
+          sendDeferredWake(requestId, true);
+        }
       }
       return json;
     },
@@ -163,8 +182,16 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
           completions: dispatchCompletions,
           failures: dispatchFailures,
           lastRequestId: lastDispatchRequestId,
+          lastStatus: lastDispatchStatus,
+          accepted: acceptedDispatches,
+          unacknowledged: unacknowledgedDispatches,
+          lastAccepted: lastDispatchAccepted,
+          lastWakeRequested: lastDispatchWakeRequested,
           pendingRequestIds: [...pendingDispatches],
           inFlightRequestIds: [...dispatchesInFlight],
+          pendingCaptureWakeCount: pendingCaptureWakes.size,
+          lastCaptureWakeRequestId,
+          lastCapturePollPending,
           deferredWakeSchedules,
           deferredWakeCalls,
           deferredWakeExportReturns,

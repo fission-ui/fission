@@ -103,8 +103,27 @@ fn should_log_diagnostic(stage: u32, iteration: u32) -> bool {
         364 => WEB_LAST_PENDING_WORK_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
         365 => WEB_LAST_REDRAW_PENDING_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
         366 => WEB_LAST_REDRAW_REQUEST_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
-        400 | 402 | 410 | 411 | 414 | 416 | 417 | 418 | 419 | 420 | 424 | 425 | 426 | 427 | 428
-        | 429 | 436 | 480 | 481 | 483 => true,
+        400
+        | 402
+        | 410
+        | 411
+        | 414
+        | 416
+        | 417
+        | 418
+        | 419
+        | 420
+        | 424
+        | 425
+        | 426
+        | 427
+        | 428
+        | 429
+        | 436
+        | 480
+        | 481
+        | 483
+        | 485..=490 => true,
         482 => iteration > 0,
         484 => iteration == 0,
         473 if iteration == 1 => {
