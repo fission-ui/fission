@@ -2390,7 +2390,8 @@ impl WebRedrawScheduler {
             // A LiveTest capture must not wait indefinitely for a paused or
             // starved animation-frame callback. This event enters the same
             // redraw path as the regular RAF callback.
-            let _ = proxy.send_event(TestEvent::HeadlessFrame);
+            let sent = proxy.send_event(TestEvent::HeadlessFrame).is_ok();
+            record_web_test_diagnostic(491, u32::from(sent));
         })
             as Box<dyn FnMut()>);
 
@@ -6234,14 +6235,33 @@ where
             let _keep_navigation_listeners_alive = &web_navigation_listeners;
             #[cfg(target_arch = "wasm32")]
             let _keep_motion_preference_listener_alive = &web_motion_preference_listener;
+            #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+            record_web_test_diagnostic(
+                492,
+                match &event {
+                    Event::UserEvent(TestEvent::HeadlessFrame) => 1,
+                    Event::UserEvent(TestEvent::WebRedrawFrame) => 2,
+                    Event::WindowEvent {
+                        event: WindowEvent::RedrawRequested,
+                        ..
+                    } => 3,
+                    _ => 0,
+                },
+            );
             elwt.set_control_flow(ControlFlow::Wait);
             // A covered window receives no redraws, so live test commands waiting on a frame run
             // one through this event instead.
             let event = match event {
                 Event::UserEvent(TestEvent::HeadlessFrame) => {
+                    #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                    record_web_test_diagnostic(493, 1);
                     let Some(window_id) = platform_window.active_window_id() else {
+                        #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                        record_web_test_diagnostic(494, 0);
                         return;
                     };
+                    #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                    record_web_test_diagnostic(494, 1);
                     Event::WindowEvent {
                         window_id,
                         event: WindowEvent::RedrawRequested,
@@ -8827,7 +8847,9 @@ where
                             }
                         }
                         WindowEvent::RedrawRequested => {
+                            record_web_test_diagnostic(495, 1);
                             frame_trace.redraw_started();
+                            record_web_test_diagnostic(496, 1);
                             record_web_test_diagnostic(
                                 300,
                                 pipeline

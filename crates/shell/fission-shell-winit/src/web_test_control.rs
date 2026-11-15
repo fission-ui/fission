@@ -134,7 +134,7 @@ fn should_log_diagnostic(stage: u32, iteration: u32) -> bool {
         479 if iteration == 1 => {
             WEB_TEST_WAIT_LOOP_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 256 == 0
         }
-        450..=470 | 474 | 475 | 476 => true,
+        450..=470 | 474 | 475 | 476 | 491..=496 => true,
         90 | 91 if iteration == 42 => true,
         _ => false,
     }
