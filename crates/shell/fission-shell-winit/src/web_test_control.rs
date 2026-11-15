@@ -471,10 +471,11 @@ pub extern "C" fn fission_web_test_submit_json(length: u32) -> u32 {
 // to a later browser task so the CDP command can return its request id first.
 #[cfg(fission_web_test_control)]
 #[no_mangle]
-pub extern "C" fn fission_web_test_dispatch_command(request_id: u32) {
+pub extern "C" fn fission_web_test_dispatch_command(request_id: u32) -> u32 {
     record_diagnostic(417, request_id);
-    dispatch_queued_command(request_id);
+    let dispatched = dispatch_queued_command(request_id);
     record_diagnostic(419, request_id);
+    u32::from(dispatched)
 }
 
 #[cfg(fission_web_test_control)]
@@ -570,7 +571,7 @@ fn queue_command(command: Result<TestCommand, String>) -> u32 {
     request_id
 }
 
-fn dispatch_queued_command(request_id: u32) {
+fn dispatch_queued_command(request_id: u32) -> bool {
     let (command, proxy) = with_bridge_state(|state| {
         let command = match state.responses.remove(&request_id) {
             Some(PendingResponse::Queued(command)) => Some(command),
@@ -584,7 +585,7 @@ fn dispatch_queued_command(request_id: u32) {
     });
     record_diagnostic(418, u32::from(command.is_some()));
     let Some(command) = command else {
-        return;
+        return false;
     };
 
     let response = match (command, proxy) {
@@ -597,6 +598,7 @@ fn dispatch_queued_command(request_id: u32) {
     with_bridge_state(|state| {
         state.responses.insert(request_id, response);
     });
+    true
 }
 
 fn response_json_string(response: &TestResponse) -> String {

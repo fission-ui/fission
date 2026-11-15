@@ -57,3 +57,55 @@ test("static adapters preserve command, frame, diagnostics and grown-memory ABI"
     width: 400, height: 300, frame: 4294967298, phase: "submitted",
   });
 });
+
+test("a queued request retries until Rust acknowledges dispatch", () => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const timers = [];
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  let dispatchAttempts = 0;
+  let response = "null";
+  const writeResponse = () => {
+    const bytes = new TextEncoder().encode(response);
+    new Uint8Array(memory.buffer, 512, bytes.length).set(bytes);
+    return bytes.length;
+  };
+  const exports = {
+    fission_web_test_diagnostics_ptr: () => 64,
+    fission_web_test_command_json_ptr: () => 256,
+    fission_web_test_command_json_capacity: () => 128,
+    fission_web_test_submit_json: () => 9,
+    fission_web_test_dispatch_command: () => {
+      dispatchAttempts += 1;
+      if (dispatchAttempts === 2) {
+        response = "{}";
+        return 1;
+      }
+      return 0;
+    },
+    fission_web_test_poll_json_len: writeResponse,
+    fission_web_test_poll_json_ptr: () => 512,
+  };
+  globalThis.setTimeout = (callback) => {
+    timers.push(callback);
+    return timers.length;
+  };
+
+  try {
+    const adapters = createWebTestAdapters(exports, memory, 48);
+    const requestId = adapters.submit('{"cmd":"CaptureScreenshot"}');
+    assert.equal(requestId, 9);
+    assert.equal(dispatchAttempts, 0, "submit must not dispatch before its deferred task");
+
+    timers.shift()();
+    assert.equal(dispatchAttempts, 1);
+    assert.equal(adapters.poll(requestId), "null");
+    assert.equal(timers.length, 1, "a null poll retries an unacknowledged dispatch");
+
+    timers.shift()();
+    assert.equal(dispatchAttempts, 2);
+    assert.equal(adapters.poll(requestId), "{}");
+    assert.equal(timers.length, 0, "an acknowledged request is not dispatched again");
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});

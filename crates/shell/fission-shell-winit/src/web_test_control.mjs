@@ -5,6 +5,20 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
   const diagnosticsAddress = exports.fission_web_test_diagnostics_ptr() >>> 0;
+  const pendingDispatches = new Set();
+  const dispatchesInFlight = new Set();
+
+  const dispatch = (requestId) => {
+    if (!pendingDispatches.has(requestId) || dispatchesInFlight.has(requestId)) return;
+    dispatchesInFlight.add(requestId);
+    try {
+      const accepted = (exports.fission_web_test_dispatch_command(requestId) >>> 0) === 1;
+      if (accepted) pendingDispatches.delete(requestId);
+    } finally {
+      dispatchesInFlight.delete(requestId);
+    }
+  };
+
   return {
     diagnosticsAddress,
     submit(commandJson) {
@@ -20,14 +34,23 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
       new Uint8Array(memory.buffer, address, bytes.length).set(bytes);
       const requestId = exports.fission_web_test_submit_json(bytes.length) >>> 0;
       if (requestId !== 0) {
-        globalThis.setTimeout(() => exports.fission_web_test_dispatch_command(requestId), 0);
+        pendingDispatches.add(requestId);
+        globalThis.setTimeout(() => dispatch(requestId), 0);
       }
       return requestId;
     },
     poll(requestId) {
+      // CDP polling can repeatedly run before a deferred browser timer. Keep a
+      // queued request eligible for dispatch until Rust confirms that it took
+      // ownership; a no-op dispatch must not strand the request forever.
+      if (pendingDispatches.has(requestId)) {
+        globalThis.setTimeout(() => dispatch(requestId), 0);
+      }
       const length = exports.fission_web_test_poll_json_len(requestId) >>> 0;
       const address = exports.fission_web_test_poll_json_ptr() >>> 0;
-      return decoder.decode(new Uint8Array(memory.buffer, address, length));
+      const json = decoder.decode(new Uint8Array(memory.buffer, address, length));
+      if (json !== "null") pendingDispatches.delete(requestId);
+      return json;
     },
     pollDiagnostics() {
       return new DataView(memory.buffer).getUint32(pollStageAddress, true);
