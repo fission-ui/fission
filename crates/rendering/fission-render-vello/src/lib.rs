@@ -43,9 +43,21 @@ pub(crate) fn trace_web_test_stage(stage: u32, iteration: u32) {
     )));
 }
 
+#[cfg(target_arch = "wasm32")]
+#[inline]
+fn trace_web_test_render_timing(message: &str) {
+    use wasm_bindgen::JsValue;
+
+    web_sys::console::log_1(&JsValue::from_str(message));
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[inline]
 pub(crate) fn trace_web_test_stage(_stage: u32, _iteration: u32) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[inline]
+fn trace_web_test_render_timing(_message: &str) {}
 
 use anyhow::Result;
 use fission_ir::op::{
@@ -2043,6 +2055,108 @@ pub struct VelloRenderer<'a> {
     scale_factor: f64,
     backdrop_filters_enabled: bool,
     exact_root_clip_elision: bool,
+    #[cfg(target_arch = "wasm32")]
+    web_render_timing: Option<WebRenderTiming>,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone, Copy, Default)]
+struct DisplayOpTiming {
+    count: u64,
+    total_ns: u128,
+    max_ns: u128,
+}
+
+#[cfg(target_arch = "wasm32")]
+struct WebRenderTiming {
+    ops: [DisplayOpTiming; 17],
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Default for WebRenderTiming {
+    fn default() -> Self {
+        Self {
+            ops: [DisplayOpTiming::default(); 17],
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn display_op_timing_slot(op: &DisplayOp) -> usize {
+    match op {
+        DisplayOp::Save => 0,
+        DisplayOp::Restore => 1,
+        DisplayOp::ClipRect(_) => 2,
+        DisplayOp::ClipRoundedRect { .. } => 3,
+        DisplayOp::OpacityLayer { .. } => 4,
+        DisplayOp::Translate(_) => 5,
+        DisplayOp::Transform(_) => 6,
+        DisplayOp::CachedScene { .. } => 7,
+        DisplayOp::BackdropFilter { .. } => 8,
+        DisplayOp::DrawRect { .. } => 9,
+        DisplayOp::DrawText { .. } => 10,
+        DisplayOp::DrawRichText { .. } => 11,
+        DisplayOp::DrawImage { .. } => 12,
+        DisplayOp::DrawImageBatch { .. } => 13,
+        DisplayOp::DrawPath { .. } => 14,
+        DisplayOp::DrawSvg { .. } => 15,
+        DisplayOp::DrawSurface { .. } => 16,
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn display_op_timing_name(slot: usize) -> &'static str {
+    match slot {
+        0 => "Save",
+        1 => "Restore",
+        2 => "ClipRect",
+        3 => "ClipRoundedRect",
+        4 => "OpacityLayer",
+        5 => "Translate",
+        6 => "Transform",
+        7 => "CachedScene",
+        8 => "BackdropFilter",
+        9 => "DrawRect",
+        10 => "DrawText",
+        11 => "DrawRichText",
+        12 => "DrawImage",
+        13 => "DrawImageBatch",
+        14 => "DrawPath",
+        15 => "DrawSvg",
+        16 => "DrawSurface",
+        _ => "Unknown",
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn count_display_list(list: &DisplayList, paint_lists: &mut u64, display_ops: &mut u64) {
+    *paint_lists += 1;
+    *display_ops += list.ops.len() as u64;
+    for op in &list.ops {
+        if let DisplayOp::CachedScene { list, .. } = op {
+            count_display_list(list, paint_lists, display_ops);
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn count_render_node(
+    node: &RenderNode,
+    nodes: &mut u64,
+    layers: &mut u64,
+    paint_lists: &mut u64,
+    display_ops: &mut u64,
+) {
+    *nodes += 1;
+    match node {
+        RenderNode::Layer(layer) => {
+            *layers += 1;
+            for child in &layer.children {
+                count_render_node(child, nodes, layers, paint_lists, display_ops);
+            }
+        }
+        RenderNode::Paint(list) => count_display_list(list, paint_lists, display_ops),
+    }
 }
 
 impl<'a> VelloRenderer<'a> {
@@ -2062,7 +2176,21 @@ impl<'a> VelloRenderer<'a> {
             scale_factor,
             backdrop_filters_enabled: true,
             exact_root_clip_elision: false,
+            #[cfg(target_arch = "wasm32")]
+            web_render_timing: None,
         }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn record_web_op_timing(&mut self, slot: usize, started: web_time::Instant) {
+        let Some(timing) = self.web_render_timing.as_mut() else {
+            return;
+        };
+        let elapsed_ns = started.elapsed().as_nanos();
+        let op = &mut timing.ops[slot];
+        op.count += 1;
+        op.total_ns += elapsed_ns;
+        op.max_ns = op.max_ns.max(elapsed_ns);
     }
 
     /// Configure whether backdrop filters are encoded for the painter.
@@ -3757,7 +3885,16 @@ impl<'a> VelloRenderer<'a> {
     }
 
     fn render_paint_list(&mut self, list: &DisplayList) -> Result<()> {
+        #[cfg(target_arch = "wasm32")]
+        let mut previous_op_started = None;
         for op in &list.ops {
+            #[cfg(target_arch = "wasm32")]
+            if self.web_render_timing.is_some() {
+                if let Some((slot, started)) = previous_op_started.take() {
+                    self.record_web_op_timing(slot, started);
+                }
+                previous_op_started = Some((display_op_timing_slot(op), web_time::Instant::now()));
+            }
             match op {
                 DisplayOp::Save => {
                     self.transform_stack.push(self.current_transform);
@@ -4281,6 +4418,10 @@ impl<'a> VelloRenderer<'a> {
                 }
             }
         }
+        #[cfg(target_arch = "wasm32")]
+        if let Some((slot, started)) = previous_op_started {
+            self.record_web_op_timing(slot, started);
+        }
         Ok(())
     }
 
@@ -4567,6 +4708,14 @@ impl<'a> VelloRenderer<'a> {
 
 impl<'a> Renderer for VelloRenderer<'a> {
     fn render_scene(&mut self, scene: &RenderScene) -> Result<()> {
+        #[cfg(target_arch = "wasm32")]
+        let trace_web = web_test_trace_enabled();
+        #[cfg(target_arch = "wasm32")]
+        let render_started = trace_web.then(web_time::Instant::now);
+        #[cfg(target_arch = "wasm32")]
+        if trace_web {
+            self.web_render_timing = Some(WebRenderTiming::default());
+        }
         for (index, root) in scene.roots.iter().enumerate() {
             let elide_root_clip = self.exact_root_clip_elision
                 && index == 0
@@ -4586,6 +4735,45 @@ impl<'a> Renderer for VelloRenderer<'a> {
                 }
             } else {
                 self.render_node(root)?;
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        if let Some(started) = render_started {
+            let elapsed = started.elapsed();
+            if elapsed.as_secs() >= 1 {
+                let mut nodes = 0;
+                let mut layers = 0;
+                let mut paint_lists = 0;
+                let mut display_ops = 0;
+                for root in &scene.roots {
+                    count_render_node(
+                        root,
+                        &mut nodes,
+                        &mut layers,
+                        &mut paint_lists,
+                        &mut display_ops,
+                    );
+                }
+                let mut summary = format!(
+                    "FISSION_WEB_RENDER_TIMING elapsed_ms={} nodes={} layers={} paint_lists={} display_ops={}",
+                    elapsed.as_millis(), nodes, layers, paint_lists, display_ops
+                );
+                if let Some(timing) = self.web_render_timing.take() {
+                    for (slot, op) in timing.ops.iter().enumerate() {
+                        if op.count > 0 {
+                            summary.push_str(&format!(
+                                " {}={{count:{},total_ms:{},max_ms:{}}}",
+                                display_op_timing_name(slot),
+                                op.count,
+                                op.total_ns / 1_000_000,
+                                op.max_ns / 1_000_000,
+                            ));
+                        }
+                    }
+                }
+                trace_web_test_render_timing(&summary);
+            } else {
+                self.web_render_timing = None;
             }
         }
         Ok(())
