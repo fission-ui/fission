@@ -2721,6 +2721,8 @@ impl<'a> VelloRenderer<'a> {
         styles: &[(std::ops::Range<usize>, RenderTextStyle)],
         clip: Option<TextClip>,
     ) {
+        #[cfg(target_arch = "wasm32")]
+        let trace_text = self.web_render_op_trace_index.is_some();
         if let Some(clip) = clip {
             if !clip.intersects_y(top_y, top_y + line_height) {
                 return;
@@ -2822,6 +2824,12 @@ impl<'a> VelloRenderer<'a> {
                     if let Some(rich_style) = rich_style {
                         for shadow in &rich_style.typography.shadows {
                             for (dx, dy, shadow_color) in text_effects::shadow_samples(*shadow) {
+                                #[cfg(target_arch = "wasm32")]
+                                let fallback_started = trace_text.then(web_time::Instant::now);
+                                #[cfg(target_arch = "wasm32")]
+                                if fallback_started.is_some() {
+                                    trace_web_test_stage(396, 0);
+                                }
                                 self.draw_browser_text_fallback(
                                     fallback_text,
                                     font_size,
@@ -2843,11 +2851,21 @@ impl<'a> VelloRenderer<'a> {
                                     (dx, dy),
                                     clip,
                                 );
+                                #[cfg(target_arch = "wasm32")]
+                                if let Some(started) = fallback_started {
+                                    trace_web_test_stage(397, started.elapsed().as_millis() as u32);
+                                }
                             }
                         }
                     }
 
-                    self.draw_browser_text_fallback(
+                    #[cfg(target_arch = "wasm32")]
+                    let fallback_started = trace_text.then(web_time::Instant::now);
+                    #[cfg(target_arch = "wasm32")]
+                    if fallback_started.is_some() {
+                        trace_web_test_stage(396, 0);
+                    }
+                    let used_browser_fallback = self.draw_browser_text_fallback(
                         fallback_text,
                         font_size,
                         glyph_run.advance(),
@@ -2862,7 +2880,12 @@ impl<'a> VelloRenderer<'a> {
                         glyph_run.baseline() + baseline_shift,
                         (0.0, 0.0),
                         clip,
-                    )
+                    );
+                    #[cfg(target_arch = "wasm32")]
+                    if let Some(started) = fallback_started {
+                        trace_web_test_stage(397, started.elapsed().as_millis() as u32);
+                    }
+                    used_browser_fallback
                 } else {
                     false
                 };
@@ -3189,6 +3212,14 @@ impl<'a> VelloRenderer<'a> {
         caret_radius: Option<f32>,
         resolved_layout: Option<&fission_render::ResolvedParagraphLayout>,
     ) {
+        #[cfg(target_arch = "wasm32")]
+        let trace_text = self.web_render_op_trace_index.is_some();
+        #[cfg(target_arch = "wasm32")]
+        let prepare_started = trace_text.then(web_time::Instant::now);
+        #[cfg(target_arch = "wasm32")]
+        if trace_text {
+            trace_web_test_stage(392, 0);
+        }
         let prepared = prepare_paragraph_layout(
             text,
             base_style,
@@ -3197,6 +3228,16 @@ impl<'a> VelloRenderer<'a> {
             styles,
             caret_index,
         );
+        #[cfg(target_arch = "wasm32")]
+        if let Some(started) = prepare_started {
+            trace_web_test_stage(393, started.elapsed().as_millis() as u32);
+        }
+        #[cfg(target_arch = "wasm32")]
+        let layout_started = trace_text.then(web_time::Instant::now);
+        #[cfg(target_arch = "wasm32")]
+        if trace_text {
+            trace_web_test_stage(390, 0);
+        }
         let layout = self.paragraph_layout_from_prepared(
             &prepared,
             wrap,
@@ -3204,6 +3245,10 @@ impl<'a> VelloRenderer<'a> {
             alignment_bounds,
             paragraph,
         );
+        #[cfg(target_arch = "wasm32")]
+        if let Some(started) = layout_started {
+            trace_web_test_stage(391, started.elapsed().as_millis() as u32);
+        }
         let lines: Vec<_> = layout.lines().collect();
         let total_lines = lines.len();
         let visible_lines = paragraph
@@ -3221,6 +3266,12 @@ impl<'a> VelloRenderer<'a> {
         );
         let text_clip = self.text_clip(draw_position, bounds);
 
+        #[cfg(target_arch = "wasm32")]
+        let drawing_started = trace_text.then(web_time::Instant::now);
+        #[cfg(target_arch = "wasm32")]
+        if trace_text {
+            trace_web_test_stage(394, 0);
+        }
         for (line_idx, line) in lines.iter().take(visible_lines).enumerate() {
             let metrics = *line.metrics();
             let line_height = metrics
@@ -3368,6 +3419,10 @@ impl<'a> VelloRenderer<'a> {
                 }
             }
         }
+        #[cfg(target_arch = "wasm32")]
+        if let Some(started) = drawing_started {
+            trace_web_test_stage(395, started.elapsed().as_millis() as u32);
+        }
 
         if let Some(idx) = prepared.caret_index {
             if self.draw_resolved_caret(
@@ -3415,6 +3470,8 @@ impl<'a> VelloRenderer<'a> {
         inline_boxes: &[crate::text::RichInlineBox],
         styles: &[(std::ops::Range<usize>, RenderTextStyle)],
     ) {
+        #[cfg(target_arch = "wasm32")]
+        let trace_text = self.web_render_op_trace_index.is_some();
         // The paragraph resolved during layout decides wrapping: text that layout broke at a width,
         // and sized to that many lines, is painted broken at the same width even when the draw op
         // does not ask to wrap. Editable text keeps its own single-line behaviour.
@@ -3639,6 +3696,12 @@ impl<'a> VelloRenderer<'a> {
         }
 
         // Slow path for rich text
+        #[cfg(target_arch = "wasm32")]
+        let layout_started = trace_text.then(web_time::Instant::now);
+        #[cfg(target_arch = "wasm32")]
+        if trace_text {
+            trace_web_test_stage(390, 0);
+        }
         let layout = self.measurer.layout_rich(
             text,
             base_size,
@@ -3651,8 +3714,18 @@ impl<'a> VelloRenderer<'a> {
                 None
             },
         );
+        #[cfg(target_arch = "wasm32")]
+        if let Some(started) = layout_started {
+            trace_web_test_stage(391, started.elapsed().as_millis() as u32);
+        }
 
         // Draw Glyphs for rich text (uses brushes from layout)
+        #[cfg(target_arch = "wasm32")]
+        let drawing_started = trace_text.then(web_time::Instant::now);
+        #[cfg(target_arch = "wasm32")]
+        if trace_text {
+            trace_web_test_stage(394, 0);
+        }
         for line in layout.lines() {
             let metrics = *line.metrics();
             let line_height = metrics
@@ -3674,6 +3747,10 @@ impl<'a> VelloRenderer<'a> {
                 styles,
                 text_clip,
             );
+        }
+        #[cfg(target_arch = "wasm32")]
+        if let Some(started) = drawing_started {
+            trace_web_test_stage(395, started.elapsed().as_millis() as u32);
         }
 
         if let Some(idx) = caret_index {
@@ -4064,8 +4141,20 @@ impl<'a> VelloRenderer<'a> {
                     if !self.local_rect_visible(Self::layout_rect_to_rect(*bounds)) {
                         continue;
                     }
+                    #[cfg(target_arch = "wasm32")]
+                    let trace_text = self.web_render_op_trace_index.is_some();
+                    #[cfg(target_arch = "wasm32")]
+                    let rich_input_started = trace_text.then(web_time::Instant::now);
+                    #[cfg(target_arch = "wasm32")]
+                    if trace_text {
+                        trace_web_test_stage(386, 0);
+                    }
                     let rich =
                         crate::text::VelloTextMeasurer::rich_layout_input_from_render_runs(runs);
+                    #[cfg(target_arch = "wasm32")]
+                    if let Some(started) = rich_input_started {
+                        trace_web_test_stage(387, started.elapsed().as_millis() as u32);
+                    }
                     if let Some(first) = runs.first() {
                         if runs.iter().all(|run| run.style == first.style)
                             && rich.inline_boxes.is_empty()
@@ -4093,6 +4182,12 @@ impl<'a> VelloRenderer<'a> {
                         }
                     }
 
+                    #[cfg(target_arch = "wasm32")]
+                    let render_started = trace_text.then(web_time::Instant::now);
+                    #[cfg(target_arch = "wasm32")]
+                    if trace_text {
+                        trace_web_test_stage(388, 0);
+                    }
                     self.render_text(
                         &rich.text,
                         rich.base_size,
@@ -4111,6 +4206,10 @@ impl<'a> VelloRenderer<'a> {
                         &rich.inline_boxes,
                         &rich.styles,
                     );
+                    #[cfg(target_arch = "wasm32")]
+                    if let Some(started) = render_started {
+                        trace_web_test_stage(389, started.elapsed().as_millis() as u32);
+                    }
                 }
                 DisplayOp::DrawImage {
                     request,
