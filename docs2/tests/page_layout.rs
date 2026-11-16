@@ -6,7 +6,12 @@ use fission_test_driver::{BrowserTestOptions, LiveTestClient};
 #[ignore = "requires FISSION_DOCS2_QA_URL, a built Docs2 site and Chromium"]
 fn goal_pages_keep_their_heading_scale_and_responsive_regions() -> Result<()> {
     let base = std::env::var("FISSION_DOCS2_QA_URL").context("set FISSION_DOCS2_QA_URL")?;
-    for path in ["/", "/docs/", "/blog/build-a-login-page-in-rust/"] {
+    for path in [
+        "/",
+        "/docs/",
+        "/blog/build-a-login-page-in-rust/",
+        "/docs/learn/whatsapp-clone/",
+    ] {
         let mut options =
             BrowserTestOptions::new(format!("{}{path}", base.trim_end_matches('/'))).website();
         options.viewport_width = 1536;
@@ -18,6 +23,7 @@ fn goal_pages_keep_their_heading_scale_and_responsive_regions() -> Result<()> {
                 r#"(() => {
                     const heading = document.querySelector('h1 .fission-site-text-run');
                     const finished = document.querySelector('[data-fission-semantics="goal-finished-preview"] iframe');
+                    const hero = document.querySelector('[data-fission-semantics="home-hero-preview"] iframe');
                     return {
                         width: innerWidth,
                         usableWidth: document.documentElement.clientWidth,
@@ -33,6 +39,12 @@ fn goal_pages_keep_their_heading_scale_and_responsive_regions() -> Result<()> {
                             visible: !finished.closest('details:not([open])'),
                             title: finished.title,
                             url: finished.src
+                        } : null,
+                        hero: hero ? {
+                            url: hero.src,
+                            title: hero.title,
+                            height: hero.getBoundingClientRect().height,
+                            tutorial: document.querySelector('[data-fission-semantics="home-hero-preview"] a').pathname
                         } : null,
                         falseStableClaim: document.body.innerText.includes('Latest stable release')
                     };
@@ -52,6 +64,22 @@ fn goal_pages_keep_their_heading_scale_and_responsive_regions() -> Result<()> {
             };
             assert!((heading_size - expected).abs() < 0.1, "{layout}");
             assert_eq!(layout["falseStableClaim"], false);
+            if path == "/" {
+                let hero = &layout["hero"];
+                assert!(
+                    hero["url"]
+                        .as_str()
+                        .unwrap()
+                        .contains("/rust-whatsapp-clone/responsive-conversations/"),
+                    "{layout}"
+                );
+                assert!(
+                    hero["title"].as_str().unwrap().contains("WhatsApp"),
+                    "{layout}"
+                );
+                assert!(hero["height"].as_f64().unwrap() >= 440.0, "{layout}");
+                assert_eq!(hero["tutorial"], "/docs/learn/whatsapp-clone/");
+            }
             if path == "/docs/" {
                 let cards = layout["cards"].as_array().unwrap();
                 assert_eq!(cards.len(), 4);
@@ -68,15 +96,17 @@ fn goal_pages_keep_their_heading_scale_and_responsive_regions() -> Result<()> {
                     );
                 }
             }
-            if path.contains("login") {
+            if path.contains("login") || path.contains("whatsapp") {
                 let finished = &layout["finished"];
                 assert!(finished["width"].as_f64().unwrap() > 200.0);
                 assert!(finished["height"].as_f64().unwrap() >= 440.0);
                 assert_eq!(finished["visible"], true);
-                assert!(finished["url"]
-                    .as_str()
-                    .unwrap()
-                    .contains("/rust-login-page/main-flow/"));
+                let expected_preview = if path.contains("whatsapp") {
+                    "/rust-whatsapp-clone/responsive-conversations/"
+                } else {
+                    "/rust-login-page/main-flow/"
+                };
+                assert!(finished["url"].as_str().unwrap().contains(expected_preview));
                 assert!(!finished["title"].as_str().unwrap().is_empty());
             }
         }

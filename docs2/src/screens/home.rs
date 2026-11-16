@@ -12,6 +12,7 @@ fission_component! {
             tutorials: Vec<GoalMeta>,
             hero_source: String,
             hero_preview_url: String,
+            hero_tutorial_url: String,
         }
     }
     view(home, _state, cx) {
@@ -22,7 +23,7 @@ fission_component! {
         child: Container(
             Column(children: [
                 SiteHeader(),
-                HomeHero(home.hero_source.clone(), home.hero_preview_url.clone()),
+                HomeHero(home.hero_source.clone(), home.hero_preview_url.clone(), home.hero_tutorial_url.clone()),
                 PlatformStrip(),
                 GoalChooser(home.tutorials.clone()),
                 FeatureSection(),

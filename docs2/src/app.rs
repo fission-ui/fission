@@ -17,7 +17,7 @@ use fission::site::FissionSite;
 use std::collections::BTreeSet;
 use std::path::Path;
 
-const HOMEPAGE_PREVIEW_APP: &str = "rust-product-inventory";
+const HOMEPAGE_PREVIEW_APP: &str = "rust-whatsapp-clone";
 
 pub fn site_app() -> Result<FissionSite> {
     let project_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -40,7 +40,12 @@ pub fn site_app() -> Result<FissionSite> {
         .context("homepage showcase step is missing src/app.rs")?
         .clone();
     let hero_preview_url = home_showcase.preview_url(&hero_tutorial.meta.app);
-    let homepage = HomePage::new(tutorials.clone(), hero_source, hero_preview_url);
+    let homepage = HomePage::new(
+        tutorials.clone(),
+        hero_source,
+        hero_preview_url,
+        hero_tutorial.meta.path.clone(),
+    );
     let packages =
         crate::registry::load_registry(&project_dir.join("data/fission-crates.sqlite3"))?;
     let products = product_routes();

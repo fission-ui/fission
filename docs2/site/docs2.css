@@ -240,7 +240,7 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
 [data-fission-semantics="home-hero-preview"] iframe {
   display: block;
   width: 100% !important;
-  height: 312px !important;
+  height: 460px !important;
   min-height: 0;
   border: 0;
   background: #fff;
