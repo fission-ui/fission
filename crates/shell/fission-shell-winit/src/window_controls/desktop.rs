@@ -1,7 +1,10 @@
 //! Window commands cross back to the owned event loop before touching native UI.
 
 use crate::Pipeline;
-use fission_core::{Runtime, WindowCommand, WindowControlError, WINDOW_CONTROL};
+use fission_core::{
+    hit_test::hit_test_with_min_target, LayoutSnapshot, PointerKind, Runtime, WindowCommand,
+    WindowControlError, WINDOW_CONTROL,
+};
 use fission_ir::{CoreIR, Op, WidgetId};
 use fission_render::LayoutPoint;
 use fission_shell::async_host::AsyncRegistry;
@@ -119,6 +122,25 @@ fn is_drag_target(ir: &CoreIR, mut target: WidgetId) -> bool {
     }
 }
 
+fn is_drag_surface_at(
+    runtime: &Runtime,
+    ir: &CoreIR,
+    layout: &LayoutSnapshot,
+    point: LayoutPoint,
+) -> bool {
+    // Native dragging must not consume the expanded target of a child control
+    // that ordinary mouse input would activate.
+    hit_test_with_min_target(
+        ir,
+        layout,
+        &runtime.runtime_state.scroll,
+        &runtime.runtime_state.viewport,
+        point,
+        runtime.hit_target_policy().min_size(PointerKind::Mouse),
+    )
+    .is_some_and(|target| is_drag_target(ir, target))
+}
+
 fn resize_direction(point: LayoutPoint, width: f32, height: f32) -> Option<ResizeDirection> {
     // Reserve a narrow native resize border; title-bar controls belong inside it.
     let edge = 5.0;
@@ -194,12 +216,7 @@ impl WindowDragState {
             .prev_ir
             .as_ref()
             .zip(pipeline.last_snapshot.as_ref())
-            .and_then(|(ir, layout)| {
-                runtime
-                    .hit_test(point, ir, layout)
-                    .map(|target| is_drag_target(ir, target))
-            })
-            .unwrap_or(false);
+            .is_some_and(|(ir, layout)| is_drag_surface_at(runtime, ir, layout, point));
         if !target {
             self.last_press = None;
             return false;
