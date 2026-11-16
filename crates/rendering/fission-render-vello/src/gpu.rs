@@ -129,6 +129,7 @@ impl GpuSceneRenderer {
         external_textures: &ExternalTextureBindings,
     ) -> Result<()> {
         let trace_web = crate::web_test_trace_enabled();
+        let trace_renderer_ops = crate::web_test_trace_renderer_ops_enabled();
         let width = target_dimension(width, "width")?;
         let height = target_dimension(height, "height")?;
         if self.scene.width() != width || self.scene.height() != height {
@@ -179,6 +180,11 @@ impl GpuSceneRenderer {
         }
         self.images
             .end_frame(&mut self.renderer, &mut self.resources, &mut encoder);
+        if trace_renderer_ops {
+            // Separate image/atlas end-of-frame work from the main Vello render call
+            // when diagnosing synchronous WebGPU stalls in a browser frame.
+            crate::trace_web_test_stage(515, 0);
+        }
 
         let target_init = if background.is_some() {
             vello_gpu::TargetInit::Clear(vello_gpu::ClearSettings::default())
@@ -186,8 +192,25 @@ impl GpuSceneRenderer {
             vello_gpu::TargetInit::SrcOver
         };
         let renderer_started = Instant::now();
-        self.renderer
-            .render(
+        if trace_renderer_ops {
+            crate::trace_web_test_stage(516, 0);
+        }
+        let render_result = if trace_renderer_ops {
+            self.renderer.render_with_diagnostic_callback(
+                &self.scene,
+                &mut self.resources,
+                device,
+                queue,
+                &mut encoder,
+                &vello_gpu::RenderSize { width, height },
+                view,
+                None,
+                &external_textures.bindings,
+                target_init,
+                crate::trace_web_test_stage,
+            )
+        } else {
+            self.renderer.render(
                 &self.scene,
                 &mut self.resources,
                 device,
@@ -199,14 +222,20 @@ impl GpuSceneRenderer {
                 &external_textures.bindings,
                 target_init,
             )
+        };
+        render_result
             .map_err(|error| anyhow!("vello_gpu failed to render the scene: {error:?}"))?;
-        if trace_web {
+        if trace_renderer_ops {
+            crate::trace_web_test_stage(517, 0);
             crate::trace_web_test_stage(383, renderer_started.elapsed().as_millis() as u32);
             crate::trace_web_test_stage(384, 0);
         }
         let submit_started = Instant::now();
+        if trace_renderer_ops {
+            crate::trace_webgpu_queue_submission(3);
+        }
         queue.submit([encoder.finish()]);
-        if trace_web {
+        if trace_renderer_ops {
             crate::trace_web_test_stage(385, submit_started.elapsed().as_millis() as u32);
         }
         Ok(())

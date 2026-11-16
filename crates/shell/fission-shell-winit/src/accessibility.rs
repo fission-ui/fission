@@ -31,6 +31,8 @@ mod imp {
 
     const ROOT_NODE_ID: NodeId = NodeId(1);
 
+    use fission_core::ui::widgets::text::rich_text_link_rects;
+
     #[derive(Debug)]
     enum QueuedAccessibilityEvent {
         ActionRequested(ActionRequest),
@@ -534,14 +536,22 @@ mod imp {
                         return Vec::new();
                     }
                     let access_id = self.node_id_for(node_id);
-                    let mut node = Node::new(AccessRole::Label);
-                    node.set_value(text.clone());
-                    self.apply_resolved_text_geometry(&mut node, node_id, &text);
+                    let links = self.rich_text_link_children(node_id, &text);
+                    let mut node = if links.is_empty() {
+                        let mut node = Node::new(AccessRole::Label);
+                        node.set_value(text.clone());
+                        self.apply_resolved_text_geometry(&mut node, node_id, &text);
+                        if inside_semantics {
+                            node.set_read_only();
+                        }
+                        node
+                    } else {
+                        let mut node = Node::new(AccessRole::Paragraph);
+                        node.set_children(links);
+                        node
+                    };
                     if let Some(rect) = self.visual_rect(node_id) {
                         node.set_bounds(accesskit_rect(rect, self.scale_factor));
-                    }
-                    if inside_semantics {
-                        node.set_read_only();
                     }
                     self.nodes.push((access_id, node));
                     vec![access_id]
@@ -622,6 +632,9 @@ mod imp {
             }
             if let Some(identifier) = semantics.identifier.as_deref() {
                 node.set_author_id(identifier);
+            }
+            if let Some(hyperlink) = &semantics.hyperlink {
+                node.set_url(hyperlink.href.as_str());
             }
             let value = semantic_value(self.runtime, node_id, semantics);
             let label = semantics.label.clone().or_else(|| {
@@ -855,10 +868,145 @@ mod imp {
                     node.set_scroll_x_max(max as f64);
                 }
             }
-            if has_default_action(semantics) && !semantics.disabled {
+            if (has_default_action(semantics) || semantics.hyperlink.is_some())
+                && !semantics.disabled
+            {
                 node.add_action(Action::Click);
             }
             node
+        }
+
+        fn rich_text_link_children(&mut self, node_id: WidgetId, text: &str) -> Vec<NodeId> {
+            let Some(annotations) = self
+                .ir
+                .custom_render_objects
+                .get(&node_id)
+                .and_then(|sidecar| {
+                    sidecar.downcast_ref::<Vec<fission_ir::op::RichTextAnnotation>>()
+                })
+                .cloned()
+            else {
+                return Vec::new();
+            };
+            let Some(ir_children) = self
+                .ir
+                .nodes
+                .get(&node_id)
+                .map(|node| node.children.clone())
+            else {
+                return Vec::new();
+            };
+            let mut links = annotations
+                .into_iter()
+                .filter(|annotation| {
+                    annotation.hyperlink.is_some()
+                        && annotation.range.start < annotation.range.end
+                        && annotation.range.end <= text.len()
+                })
+                .collect::<Vec<_>>();
+            links.sort_by(|left, right| {
+                left.range
+                    .start
+                    .cmp(&right.range.start)
+                    .then_with(|| left.range.end.cmp(&right.range.end))
+            });
+
+            let mut children = Vec::new();
+            let mut byte_cursor = 0;
+            for annotation in links {
+                if annotation.range.start < byte_cursor
+                    || !text.is_char_boundary(annotation.range.start)
+                    || !text.is_char_boundary(annotation.range.end)
+                {
+                    continue;
+                }
+                let Some(identifier) = annotation.semantics_identifier.as_deref() else {
+                    continue;
+                };
+                let link_node = ir_children.iter().find(|child_id| {
+                    self.ir.nodes.get(child_id).is_some_and(|child| {
+                        matches!(&child.op, Op::Semantics(semantics)
+                            if semantics.role == Role::Link
+                                && semantics.identifier.as_deref() == Some(identifier))
+                    })
+                });
+                let Some(link_node) = link_node.copied() else {
+                    continue;
+                };
+                if annotation.range.start > byte_cursor {
+                    children.extend(self.push_rich_text_text_run(
+                        node_id,
+                        byte_cursor..annotation.range.start,
+                        text,
+                    ));
+                }
+                children.extend(self.collect_subtree(link_node, true));
+                byte_cursor = annotation.range.end;
+            }
+            if byte_cursor < text.len() {
+                children.extend(self.push_rich_text_text_run(
+                    node_id,
+                    byte_cursor..text.len(),
+                    text,
+                ));
+            }
+            children
+        }
+
+        fn push_rich_text_text_run(
+            &mut self,
+            paragraph_id: WidgetId,
+            range: std::ops::Range<usize>,
+            text: &str,
+        ) -> Vec<NodeId> {
+            let Some(value) = text.get(range.clone()).filter(|value| !value.is_empty()) else {
+                return Vec::new();
+            };
+            let fragment_id = WidgetId::derived(
+                paragraph_id.as_u128(),
+                &[
+                    0x5254_5458,
+                    range.start.min(u32::MAX as usize) as u32,
+                    range.end.min(u32::MAX as usize) as u32,
+                ],
+            );
+            let access_id = self.node_id_for(fragment_id);
+            let mut node = Node::new(AccessRole::TextRun);
+            node.set_value(value);
+            node.set_character_lengths(
+                value
+                    .chars()
+                    .map(|character| character.len_utf8() as u8)
+                    .collect::<Vec<_>>(),
+            );
+            if let Some(rect) = self.rich_text_range_rect(paragraph_id, range) {
+                node.set_bounds(accesskit_rect(rect, self.scale_factor));
+            }
+            self.nodes.push((access_id, node));
+            vec![access_id]
+        }
+
+        fn rich_text_range_rect(
+            &self,
+            paragraph_id: WidgetId,
+            range: std::ops::Range<usize>,
+        ) -> Option<LayoutRect> {
+            let paragraph = self.layout.get_resolved_paragraph(paragraph_id)?;
+            let paragraph_rect = self.layout.get_node_rect(paragraph_id)?;
+            union_layout_rects(
+                &paragraph
+                    .selection_rects(range.start, range.end)
+                    .into_iter()
+                    .map(|rect| {
+                        LayoutRect::new(
+                            paragraph_rect.x() + rect.x(),
+                            paragraph_rect.y() + rect.y(),
+                            rect.width(),
+                            rect.height(),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            )
         }
 
         fn relationship_nodes(&self, ids: &[WidgetId]) -> Vec<NodeId> {
@@ -891,7 +1039,10 @@ mod imp {
         }
 
         fn visual_rect(&self, node_id: WidgetId) -> Option<LayoutRect> {
-            let mut rect = self.layout.get_node_rect(node_id)?;
+            let mut rect = self.layout.get_node_rect(node_id).or_else(|| {
+                let (_, rects) = rich_text_link_rects(self.ir, self.layout, node_id)?;
+                union_layout_rects(&rects)
+            })?;
             let mut current = self.ir.nodes.get(&node_id).and_then(|node| node.parent);
             while let Some(parent_id) = current {
                 let parent = self.ir.nodes.get(&parent_id)?;
@@ -948,6 +1099,22 @@ mod imp {
             }
             Some(rect)
         }
+    }
+
+    fn union_layout_rects(rects: &[LayoutRect]) -> Option<LayoutRect> {
+        let first = *rects.first()?;
+        let (left, top, right, bottom) = rects.iter().skip(1).fold(
+            (first.x(), first.y(), first.right(), first.bottom()),
+            |(left, top, right, bottom), rect| {
+                (
+                    left.min(rect.x()),
+                    top.min(rect.y()),
+                    right.max(rect.right()),
+                    bottom.max(rect.bottom()),
+                )
+            },
+        );
+        Some(LayoutRect::new(left, top, right - left, bottom - top))
     }
 
     fn include_semantics(semantics: &Semantics) -> bool {
@@ -1274,22 +1441,45 @@ mod imp {
         trigger: ActionTrigger,
         input: ActionInput,
     ) -> bool {
-        let Some(entry) = semantics
+        let entry = semantics
             .actions
             .entries
             .iter()
-            .find(|entry| entry.trigger == trigger)
-        else {
-            return false;
-        };
-        let envelope = ActionEnvelope {
-            id: ActionId::from_u128(entry.action_id),
-            payload: entry.payload_data.clone().unwrap_or_default(),
-        };
+            .find(|entry| entry.trigger == trigger);
         let input = scoped_semantics_input(ir, target, input);
-        runtime
-            .dispatch_with_input(envelope, target, &input)
-            .is_ok()
+        let mut handled = false;
+        if let Some(entry) = entry {
+            handled |= runtime
+                .dispatch_with_input(
+                    ActionEnvelope {
+                        id: ActionId::from_u128(entry.action_id),
+                        payload: entry.payload_data.clone().unwrap_or_default(),
+                    },
+                    target,
+                    &input,
+                )
+                .is_ok();
+        }
+
+        let navigation_already_bound = entry.is_some_and(|entry| {
+            ActionId::from_u128(entry.action_id)
+                == <fission_core::NavigationRequested as fission_core::Action>::static_id()
+        });
+        if trigger == ActionTrigger::Default && !navigation_already_bound {
+            if let Some(hyperlink) = semantics.hyperlink.clone() {
+                handled |= runtime
+                    .dispatch_with_input(
+                        fission_core::NavigationRequested::new(
+                            fission_core::NavigationCommand::Open(hyperlink),
+                        )
+                        .into(),
+                        target,
+                        &input,
+                    )
+                    .is_ok();
+            }
+        }
+        handled
     }
 
     fn scoped_semantics_input(ir: &CoreIR, target: WidgetId, input: ActionInput) -> ActionInput {

@@ -1,3 +1,5 @@
+#![cfg(not(target_arch = "wasm32"))]
+
 use anyhow::Result;
 use fission_test_driver::{run_browser_smoke, BrowserTestOptions};
 

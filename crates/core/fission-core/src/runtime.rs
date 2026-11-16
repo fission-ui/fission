@@ -3,7 +3,7 @@ mod runtime_hover;
 #[path = "runtime_text_focus.rs"]
 mod text_focus;
 
-use crate::action::{Action, ActionEnvelope, ActionId, GlobalState};
+use crate::action::{Action, ActionEnvelope, ActionId, GlobalState, ViewportResized};
 use crate::async_runtime::ServiceStopPayload;
 use crate::effect::{
     ActionInput, Effect, EffectEnvelope, KeyPressInput, RuntimeEffect, ScrollAlignment, ScrollAxis,
@@ -101,7 +101,12 @@ fn focus_candidates(
 ) -> Vec<WidgetId> {
     crate::hit_test::get_all_focusable_nodes(ir)
         .into_iter()
-        .filter(|id| layout.is_none_or(|layout| layout.get_node_geometry(*id).is_some()))
+        .filter(|id| {
+            layout.is_none_or(|layout| {
+                layout.get_node_geometry(*id).is_some()
+                    || crate::ui::widgets::text::rich_text_link_rects(ir, layout, *id).is_some()
+            })
+        })
         .filter(|id| {
             matches!(
                 ir.nodes.get(id).map(|node| &node.op),
@@ -417,7 +422,10 @@ impl Runtime {
             }
         }
 
-        let current_is_active = current.is_some_and(|id| layout.get_node_geometry(id).is_some());
+        let current_is_active = current.is_some_and(|id| {
+            layout.get_node_geometry(id).is_some()
+                || crate::ui::widgets::text::rich_text_link_rects(ir, layout, id).is_some()
+        });
         let mut changed = false;
         if !current_is_active {
             if let Some(anchor) = self.focus_semantic_anchor.clone() {
@@ -591,6 +599,27 @@ impl Runtime {
 
     pub fn dispatch(&mut self, action: ActionEnvelope, target: WidgetId) -> Result<()> {
         self.dispatch_with_input(action, target, &ActionInput::None)
+    }
+
+    /// Notify persistent app reducers when a shell commits a new logical viewport.
+    ///
+    /// The initial size is not a resize notification. Shells should pass the
+    /// previous committed size, if any, and the newly committed size before
+    /// building the next frame.
+    pub fn dispatch_viewport_resize_if_changed(
+        &mut self,
+        previous: Option<LayoutSize>,
+        current: LayoutSize,
+    ) -> Result<bool> {
+        if previous.is_some_and(|previous| previous != current) {
+            self.dispatch(
+                ViewportResized { size: current }.into(),
+                WidgetId::from_u128(0),
+            )?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     fn enqueue_effect(&mut self, mut envelope: EffectEnvelope) {
@@ -1039,7 +1068,7 @@ impl Runtime {
                 continue;
             }
 
-            let mut request = ScrollIntoViewRequest {
+            let request = ScrollIntoViewRequest {
                 container: None,
                 target,
                 axis: ScrollAxis::Both,
@@ -1049,13 +1078,12 @@ impl Runtime {
                 if_needed: true,
             };
 
-            let Some(container) = self.resolve_scroll_container(&request, ir, layout) else {
+            let Some(_containers) = self.resolve_scroll_containers(&request, ir, layout) else {
                 // An active descendant that is not inside a scroll container is
                 // already fully governed by ordinary layout.
                 self.revealed_active_descendants.insert(owner, target);
                 continue;
             };
-            request.container = Some(container);
 
             match self.apply_scroll_into_view(&request, ir, layout) {
                 ScrollIntoViewOutcome::Applied { changed } => {
@@ -1104,80 +1132,127 @@ impl Runtime {
             return ScrollIntoViewOutcome::Retry;
         };
 
-        let Some(container_id) = self.resolve_scroll_container(request, ir, layout) else {
+        let Some(container_ids) = self.resolve_scroll_containers(request, ir, layout) else {
             Self::emit_scroll_container_chain_diag(request, ir, layout);
             Self::emit_scroll_into_view_diag("missing_container", request, None);
             return ScrollIntoViewOutcome::Retry;
         };
 
-        if !Self::is_descendant_or_self(ir, request.target, container_id)
-            && !Self::is_descendant_via_children(ir, request.target, container_id)
-        {
-            Self::emit_scroll_into_view_diag("target_not_descendant", request, Some(container_id));
+        let mut matched_container = false;
+        let mut changed = false;
+        for container_id in container_ids {
+            if !Self::is_descendant_or_self(ir, request.target, container_id)
+                && !Self::is_descendant_via_children(ir, request.target, container_id)
+            {
+                Self::emit_scroll_into_view_diag(
+                    "target_not_descendant",
+                    request,
+                    Some(container_id),
+                );
+                continue;
+            }
+
+            let Some(container_geom) = layout.get_node_geometry(container_id) else {
+                Self::emit_scroll_into_view_diag(
+                    "missing_container_layout",
+                    request,
+                    Some(container_id),
+                );
+                return ScrollIntoViewOutcome::Retry;
+            };
+
+            let Some(direction) = Self::scroll_direction(ir, container_id) else {
+                Self::emit_scroll_into_view_diag(
+                    "not_scroll_container",
+                    request,
+                    Some(container_id),
+                );
+                continue;
+            };
+
+            if !Self::axis_matches(request.axis, direction) {
+                Self::emit_scroll_into_view_diag("axis_mismatch", request, Some(container_id));
+                continue;
+            }
+
+            matched_container = true;
+            if matches!(request.behavior, ScrollBehavior::Smooth) {
+                Self::emit_scroll_into_view_diag(
+                    "smooth_resolved_as_instant",
+                    request,
+                    Some(container_id),
+                );
+            }
+
+            let current_offset = self.runtime_state.scroll.get_offset(container_id);
+            let new_offset = match direction {
+                FlexDirection::Column => Self::compute_scroll_offset(
+                    current_offset,
+                    target_geom.rect.y() - container_geom.rect.y(),
+                    target_geom.rect.height(),
+                    container_geom.rect.height(),
+                    container_geom.content_size.height,
+                    request.padding[2],
+                    request.padding[3],
+                    request.alignment,
+                    request.if_needed,
+                ),
+                FlexDirection::Row => Self::compute_scroll_offset(
+                    current_offset,
+                    target_geom.rect.x() - container_geom.rect.x(),
+                    target_geom.rect.width(),
+                    container_geom.rect.width(),
+                    container_geom.content_size.width,
+                    request.padding[0],
+                    request.padding[1],
+                    request.alignment,
+                    request.if_needed,
+                ),
+            };
+
+            if (new_offset - current_offset).abs() > f32::EPSILON {
+                self.runtime_state
+                    .scroll
+                    .set_offset(container_id, new_offset);
+                changed = true;
+            }
+        }
+
+        if !matched_container {
             return ScrollIntoViewOutcome::Ignored;
         }
 
-        let Some(container_geom) = layout.get_node_geometry(container_id) else {
-            Self::emit_scroll_into_view_diag(
-                "missing_container_layout",
-                request,
-                Some(container_id),
-            );
-            return ScrollIntoViewOutcome::Retry;
-        };
+        ScrollIntoViewOutcome::Applied { changed }
+    }
 
-        let Some(direction) = Self::scroll_direction(ir, container_id) else {
-            Self::emit_scroll_into_view_diag("not_scroll_container", request, Some(container_id));
-            return ScrollIntoViewOutcome::Ignored;
-        };
-
-        if !Self::axis_matches(request.axis, direction) {
-            Self::emit_scroll_into_view_diag("axis_mismatch", request, Some(container_id));
-            return ScrollIntoViewOutcome::Ignored;
+    fn resolve_scroll_containers(
+        &self,
+        request: &ScrollIntoViewRequest,
+        ir: &CoreIR,
+        layout: &LayoutSnapshot,
+    ) -> Option<Vec<WidgetId>> {
+        if request.container.is_some() || request.axis != ScrollAxis::Both {
+            return self
+                .resolve_scroll_container(request, ir, layout)
+                .map(|container| vec![container]);
         }
 
-        if matches!(request.behavior, ScrollBehavior::Smooth) {
-            Self::emit_scroll_into_view_diag(
-                "smooth_resolved_as_instant",
-                request,
-                Some(container_id),
-            );
+        // A Both-axis request may cross nested orthogonal scroll views. Resolve
+        // the nearest matching container independently for each axis so an
+        // already-aligned inner horizontal view cannot hide an outer vertical
+        // view that still needs to reveal the target.
+        let mut containers = Vec::with_capacity(2);
+        for axis in [ScrollAxis::Vertical, ScrollAxis::Horizontal] {
+            let mut axis_request = request.clone();
+            axis_request.axis = axis;
+            if let Some(container) = self.resolve_scroll_container(&axis_request, ir, layout) {
+                if !containers.contains(&container) {
+                    containers.push(container);
+                }
+            }
         }
 
-        let current_offset = self.runtime_state.scroll.get_offset(container_id);
-        let new_offset = match direction {
-            FlexDirection::Column => Self::compute_scroll_offset(
-                current_offset,
-                target_geom.rect.y() - container_geom.rect.y(),
-                target_geom.rect.height(),
-                container_geom.rect.height(),
-                container_geom.content_size.height,
-                request.padding[2],
-                request.padding[3],
-                request.alignment,
-                request.if_needed,
-            ),
-            FlexDirection::Row => Self::compute_scroll_offset(
-                current_offset,
-                target_geom.rect.x() - container_geom.rect.x(),
-                target_geom.rect.width(),
-                container_geom.rect.width(),
-                container_geom.content_size.width,
-                request.padding[0],
-                request.padding[1],
-                request.alignment,
-                request.if_needed,
-            ),
-        };
-
-        if (new_offset - current_offset).abs() > f32::EPSILON {
-            self.runtime_state
-                .scroll
-                .set_offset(container_id, new_offset);
-            ScrollIntoViewOutcome::Applied { changed: true }
-        } else {
-            ScrollIntoViewOutcome::Applied { changed: false }
-        }
+        (!containers.is_empty()).then_some(containers)
     }
 
     fn resolve_scroll_container(

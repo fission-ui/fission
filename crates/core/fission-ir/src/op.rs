@@ -1898,6 +1898,9 @@ pub struct RichTextAnnotation {
     pub mouse_cursor: Option<MouseCursor>,
     #[serde(default)]
     pub actions: Vec<ActionEntry>,
+    /// Optional navigational destination for this text range.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hyperlink: Option<crate::semantics::Hyperlink>,
 }
 
 pub const INLINE_WIDGET_MARKER_PREFIX: &str = "__fission_inline_widget__:";

@@ -395,7 +395,7 @@ pub mod public {
 
     pub use crate::action::{
         Action, ActionEnvelope, ActionId, ActionScopeId, GlobalState, UpdateTextInput,
-        UpdateTextSelection,
+        UpdateTextSelection, ViewportResized,
     };
     pub use crate::async_runtime::{
         AppEffect, AppEffectJob, BoxFuture, InlineJob, InlineJobError, JobCtx, JobRef, JobSpec,
@@ -619,7 +619,7 @@ mod tests;
 
 pub use action::{
     Action, ActionEnvelope, ActionId, ActionScopeId, GlobalState, ShellRouteChanged,
-    UpdateTextInput, UpdateTextSelection,
+    UpdateTextInput, UpdateTextSelection, ViewportResized,
 };
 pub use async_runtime::{
     AppEffect, AppEffectJob, BoxFuture, InlineJob, InlineJobError, JobCtx, JobRef, JobSpec,

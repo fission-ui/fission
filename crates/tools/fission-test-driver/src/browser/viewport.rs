@@ -1,6 +1,31 @@
 //! Shared observed CSS viewport, canvas and submitted-layout verification.
 use super::*;
 
+const PAINT_BOUNDARY_EXPRESSION: &str = r#"new Promise(resolve => {
+  let completed = false;
+  let firstFrame = 0;
+  let secondFrame = 0;
+  let timeout = 0;
+  const finish = painted => {
+    if (completed) return;
+    completed = true;
+    clearTimeout(timeout);
+    if (typeof cancelAnimationFrame === 'function') {
+      if (firstFrame) cancelAnimationFrame(firstFrame);
+      if (secondFrame) cancelAnimationFrame(secondFrame);
+    }
+    resolve(painted);
+  };
+  timeout = setTimeout(() => finish(false), 250);
+  try {
+    firstFrame = requestAnimationFrame(() => {
+      if (!completed) secondFrame = requestAnimationFrame(() => finish(true));
+    });
+  } catch (_) {
+    finish(false);
+  }
+})"#;
+
 pub(super) fn validate_dimensions(width: u32, height: u32) -> Result<()> {
     anyhow::ensure!(
         (1..=8192).contains(&width) && (1..=8192).contains(&height)
@@ -60,10 +85,9 @@ impl BrowserController {
         validate_dimensions(width, height)?; // before any host/runtime mutation
         let deadline =
             Instant::now() + Duration::from_millis(self.options.timeout_ms.clamp(1, 60_000));
-        let previous_deadline = self.client.operation_deadline.replace(deadline);
+        let _operation_deadline = self.client.operation_deadline.scoped(deadline);
         let mut last = Value::Null;
         let result = self.resize_until(width, height, deadline, &mut last);
-        self.client.operation_deadline = previous_deadline;
         // The report is observed state, including after an unsuccessful resize.
         if let (Some(w), Some(h)) = (last["width"].as_u64(), last["height"].as_u64()) {
             self.report.width = w as u32;
@@ -122,11 +146,16 @@ impl BrowserController {
             *last = read(&mut self.client)?;
             self.fail_on_browser_errors()?;
             if acknowledged(last, &self.options, canvas, after) {
-                self.paint_boundary()?;
+                let paint_boundary_reached = self.paint_boundary()?;
                 // Layout can change while waiting for presentation. Observe again.
                 *last = read(&mut self.client)?;
                 self.fail_on_browser_errors()?;
                 if acknowledged(last, &self.options, canvas, after) {
+                    if !paint_boundary_reached {
+                        eprintln!(
+                            "Fission browser resize acknowledged its submitted frame after the animation-frame paint boundary was throttled"
+                        );
+                    }
                     return Ok(());
                 }
             }
@@ -140,13 +169,25 @@ impl BrowserController {
         }
     }
 
-    pub(super) fn paint_boundary(&mut self) -> Result<()> {
-        let result = self.client.send("Runtime.evaluate", json!({
-            "expression":"new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))",
-            "awaitPromise":true, "returnByValue":true
-        }))?;
-        runtime_exception(&result)
+    pub(super) fn paint_boundary(&mut self) -> Result<bool> {
+        paint_boundary(&mut self.client)
     }
+}
+
+fn paint_boundary(client: &mut CdpClient) -> Result<bool> {
+    let result = client.send(
+        "Runtime.evaluate",
+        json!({
+            "expression": PAINT_BOUNDARY_EXPRESSION,
+            "awaitPromise": true,
+            "returnByValue": true
+        }),
+    )?;
+    runtime_exception(&result)?;
+    result
+        .pointer("/result/value")
+        .and_then(Value::as_bool)
+        .context("paint boundary evaluation returned no boolean result")
 }
 
 #[cfg(test)]
@@ -166,6 +207,42 @@ mod tests {
         for (w, h) in [(1, 1), (8192, 2048), (1280, 900), (390, 844)] {
             assert!(validate_dimensions(w, h).is_ok());
         }
+    }
+
+    #[test]
+    fn paint_boundary_uses_a_bounded_animation_frame_fallback() {
+        assert!(PAINT_BOUNDARY_EXPRESSION.contains("requestAnimationFrame"));
+        assert!(PAINT_BOUNDARY_EXPRESSION.contains("setTimeout(() => finish(false), 250)"));
+        assert!(PAINT_BOUNDARY_EXPRESSION.contains("resolve(painted)"));
+    }
+
+    #[test]
+    fn paint_boundary_returns_the_timer_fallback_result() -> Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let address = listener.local_addr()?;
+        let worker = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut socket = tungstenite::accept(stream).unwrap();
+            let command = socket.read().unwrap().into_text().unwrap();
+            let command: Value = serde_json::from_str(&command).unwrap();
+            let expression = command["params"]["expression"].as_str().unwrap();
+            assert!(expression.contains("requestAnimationFrame"));
+            assert!(expression.contains("setTimeout(() => finish(false), 250)"));
+            socket
+                .send(Message::Text(
+                    json!({
+                        "id": command["id"],
+                        "result": {"result": {"type": "boolean", "value": false}}
+                    })
+                    .to_string(),
+                ))
+                .unwrap();
+        });
+
+        let mut client = CdpClient::connect(&format!("ws://{address}"))?;
+        assert!(!paint_boundary(&mut client)?);
+        worker.join().unwrap();
+        Ok(())
     }
     fn measured() -> Value {
         json!({"width":1280,"height":900,"scale":1,"frame":{"width":1280,"height":900,"frame":42,"phase":"submitted"},"canvas":{"width":1280,"height":900,"pixel_width":1280,"pixel_height":900,"x":0,"y":0}})
@@ -268,7 +345,9 @@ mod tests {
                 }
             });
             let mut c = CdpClient::connect(&format!("ws://{address}")).unwrap();
-            c.operation_deadline = Some(Instant::now() + Duration::from_millis(50));
+            let _operation_deadline = c
+                .operation_deadline
+                .scoped(Instant::now() + Duration::from_millis(50));
             let start = Instant::now();
             let error = c
                 .send("Runtime.evaluate", json!({}))

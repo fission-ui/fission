@@ -322,7 +322,7 @@ fn webgpu_renderer_resizes_without_recreating_mapped_config_buffer() -> anyhow::
     capture_webgpu_frame(&client, "webgpu-initial", 1280)?;
     let initial = observe(&client)?;
     assert_eq!(initial["frame"]["phase"], "submitted");
-    for (step, width) in [390, 1280, 390].into_iter().enumerate() {
+    for (step, width) in [390, 800, 1280, 800, 390].into_iter().enumerate() {
         client.simulate_resize(width, 900)?;
         let resized = observe(&client)?;
         assert_eq!(resized["width"], width);
@@ -332,6 +332,51 @@ fn webgpu_renderer_resizes_without_recreating_mapped_config_buffer() -> anyhow::
         assert_eq!(resized["frame"]["phase"], "submitted");
         capture_webgpu_frame(&client, &format!("webgpu-step-{step}"), width)?;
     }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires FISSION_RESIZE_WEBGPU_URL, WebGPU-enabled Chromium, and loopback sockets"]
+fn webgpu_renderer_reloads_and_recreates_live_test_bridge() -> anyhow::Result<()> {
+    let url = std::env::var("FISSION_RESIZE_WEBGPU_URL")?;
+    let client = LiveTestClient::launch_browser(BrowserTestOptions::new(&url).fission_canvas())?;
+    let report = client
+        .browser_report()
+        .ok_or_else(|| anyhow::anyhow!("browser report is unavailable"))?;
+    assert_eq!(
+        report.renderer.as_deref(),
+        Some("webgpu-vello"),
+        "the fixture must exercise the WebGPU renderer: {report:?}"
+    );
+
+    let before = client.browser_evaluate_json(
+        "({timeOrigin:performance.timeOrigin,renderer:globalThis.__FISSION_RENDERER_INFO?.active,frames:globalThis.__FISSION_RENDERED_FRAME_COUNT||0})",
+    )?;
+    assert_eq!(before["renderer"], "webgpu-vello");
+    assert!(before["frames"].as_u64().unwrap_or_default() > 0);
+    capture_webgpu_frame(&client, "webgpu-before-reload", 1280)?;
+
+    client.browser_evaluate_json(
+        "globalThis.__FISSION_RELOAD_SENTINEL__='old document';window.location.reload();true",
+    )?;
+    client.wait_for_visible(SelectorQuery::label("Increment"), 60_000)?;
+
+    let after = client.browser_evaluate_json(
+        "({timeOrigin:performance.timeOrigin,sentinel:globalThis.__FISSION_RELOAD_SENTINEL__??null,bridgeReady:typeof globalThis.__FISSION_TEST__?.poll==='function'&&typeof globalThis.__FISSION_TEST__?.submit==='function',renderer:globalThis.__FISSION_RENDERER_INFO?.active,frames:globalThis.__FISSION_RENDERED_FRAME_COUNT||0})",
+    )?;
+    assert_ne!(
+        before["timeOrigin"], after["timeOrigin"],
+        "the test must observe a committed replacement document"
+    );
+    assert!(after["sentinel"].is_null());
+    assert_eq!(after["bridgeReady"], true);
+    assert_eq!(after["renderer"], "webgpu-vello");
+    assert!(after["frames"].as_u64().unwrap_or_default() > 0);
+    assert!(client
+        .get_text()?
+        .iter()
+        .any(|item| item.text == "Fission web smoke"));
+    capture_webgpu_frame(&client, "webgpu-after-reload", 1280)?;
     Ok(())
 }
 

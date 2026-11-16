@@ -107,6 +107,12 @@ last observed state; Chromium may already have changed size. Repair the cause
 and retry through the same client. Drop and relaunch for a closed page or lost
 host. Dropping a client releases only its owned Chromium process and CDP port.
 
+For a failing live browser command, set
+`FISSION_WEB_LIVE_HOLD_OPEN_AFTER_ERROR_MS` to keep the owned browser and CDP
+connection open briefly after the command returns an error. The value is
+clamped to 60 seconds, events continue to drain during the hold, and the
+original command deadline and error are unchanged. The default is zero.
+
 ## Focused regression fixtures
 
 `crates/tools/fission-test-driver/tests/fixtures/resize_app.rs` and
@@ -134,7 +140,8 @@ The WebGPU resize regression uses the same opt-in fixture, served with
 `?fission_renderer=webgpu-vello`, and requires a browser with a working WebGPU
 adapter. It grows and shrinks the renderer in one Chromium session, exercising
 the intermediate-texture config upload that previously recreated a mapped
-buffer on every size change. Its screenshots use Fission's retained scene and
+buffer on every size change. The resize sequence includes 390px mobile and
+800px tablet widths. Its screenshots use Fission's retained scene and
 software rasterizer, then assert that the captured pixels contain the rendered
 frame. This avoids relying on Chromium's headless WebGPU swapchain capture,
 which can be black. If `FISSION_RESIZE_OUTPUT` is set, each capture is retained
@@ -144,5 +151,16 @@ for visual inspection:
 FISSION_RESIZE_WEBGPU_URL=http://127.0.0.1:8123/?fission_renderer=webgpu-vello \
   cargo test -p fission-test-driver --test browser_resize \
   webgpu_renderer_resizes_without_recreating_mapped_config_buffer \
+  -- --ignored --nocapture
+```
+
+The reload regression verifies that a WebGPU page commits a replacement
+document, recreates the LiveTest bridge, initializes WebGPU again, and renders
+after `window.location.reload()`:
+
+```sh
+FISSION_RESIZE_WEBGPU_URL=http://127.0.0.1:8123/?fission_renderer=webgpu-vello \
+  cargo test -p fission-test-driver --test browser_resize \
+  webgpu_renderer_reloads_and_recreates_live_test_bridge \
   -- --ignored --nocapture
 ```

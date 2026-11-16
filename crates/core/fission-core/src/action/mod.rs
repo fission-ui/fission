@@ -13,6 +13,7 @@ use crate::env::RouteLocation;
 use blake3;
 use downcast_rs::{impl_downcast, Downcast};
 use fission_ir::WidgetId;
+use fission_layout::LayoutSize;
 // use fission_macros::Action;
 use lazy_static::lazy_static;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -55,6 +56,26 @@ impl Action for ShellRouteChanged {
                 ActionId::from_name("fission_core::ShellRouteChanged");
         }
         *SHELL_ROUTE_CHANGED_ACTION_ID
+    }
+}
+
+/// Built-in action dispatched when a running shell's logical viewport changes.
+///
+/// Register a persistent reducer with `with_viewport_resize_handler(...)` to
+/// update app state that depends on the available viewport.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ViewportResized {
+    /// The new logical viewport size in layout points.
+    pub size: LayoutSize,
+}
+
+impl Action for ViewportResized {
+    fn static_id() -> ActionId {
+        lazy_static! {
+            pub static ref VIEWPORT_RESIZED_ACTION_ID: ActionId =
+                ActionId::from_name("fission_core::ViewportResized");
+        }
+        *VIEWPORT_RESIZED_ACTION_ID
     }
 }
 

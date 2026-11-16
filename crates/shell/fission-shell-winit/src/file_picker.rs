@@ -2,10 +2,10 @@ use fission_core::{
     Bytes, CapabilityCtx, FileSystemError, FileSystemLocation, FissionDataStreamError,
     FissionDataStreamErrorKind, ForgetSaveFileRequest, PickOpenFilesError, PickOpenFilesRequest,
     PickOpenFilesResult, PickSaveFileRequest, PickSaveFileResult, PickedFile,
-    RestoreSaveFileRequest, RestoreSaveFileResult, SaveFileDestination,
+    ReleaseWritableFileRequest, RestoreSaveFileRequest, RestoreSaveFileResult, SaveFileDestination,
     WritableFilePermissionRequest, WritableFilePermissionResult, WritePickedFileRequest,
-    WritePickedFileResult, FORGET_SAVE_FILE, PICK_OPEN_FILES, PICK_SAVE_FILE, RESTORE_SAVE_FILE,
-    WRITABLE_FILE_PERMISSION, WRITE_PICKED_FILE,
+    WritePickedFileResult, FORGET_SAVE_FILE, PICK_OPEN_FILES, PICK_SAVE_FILE,
+    RELEASE_WRITABLE_FILE, RESTORE_SAVE_FILE, WRITABLE_FILE_PERMISSION, WRITE_PICKED_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
 use futures_core::Stream;
@@ -57,6 +57,10 @@ pub fn register_file_picker_capability(async_registry: &mut AsyncRegistry) {
                 "writable_file_permission",
             ))
         },
+    );
+    async_registry.register_operation_capability(
+        RELEASE_WRITABLE_FILE,
+        |_request: ReleaseWritableFileRequest, _| async move { Ok(()) },
     );
 }
 

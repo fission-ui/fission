@@ -6,9 +6,10 @@
 
 use std::fmt;
 
+use crate::surface_blitter::SurfaceBlitter;
 use wgpu::{
-    util::TextureBlitter, Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration,
-    SurfaceTarget, Texture, TextureFormat, TextureView,
+    Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration, SurfaceTarget,
+    Texture, TextureFormat, TextureView,
 };
 
 /// Errors raised while acquiring a device or configuring a surface.
@@ -160,6 +161,7 @@ impl RenderContext {
             view_formats: vec![],
         };
         let (target_texture, target_view) = create_targets(width, height, &device_handle.device);
+        let blitter = SurfaceBlitter::new(&device_handle.device, format, &target_view, None);
         let surface = RenderSurface {
             surface,
             config,
@@ -167,7 +169,7 @@ impl RenderContext {
             format,
             target_texture,
             target_view,
-            blitter: TextureBlitter::new(&device_handle.device, format),
+            blitter,
         };
         self.configure_surface(&surface);
         Ok(surface)
@@ -180,8 +182,10 @@ impl RenderContext {
     /// If `width` or `height` is zero.
     pub fn resize_surface(&self, surface: &mut RenderSurface<'_>, width: u32, height: u32) {
         let (texture, view) = create_targets(width, height, &self.devices[surface.dev_id].device);
+        let device = &self.devices[surface.dev_id].device;
         surface.target_texture = texture;
         surface.target_view = view;
+        surface.blitter.update_source(device, &surface.target_view);
         surface.config.width = width;
         surface.config.height = height;
         self.configure_surface(surface);
@@ -291,7 +295,7 @@ pub struct RenderSurface<'s> {
     pub format: TextureFormat,
     pub target_texture: Texture,
     pub target_view: TextureView,
-    pub blitter: TextureBlitter,
+    pub(crate) blitter: SurfaceBlitter,
 }
 
 impl fmt::Debug for RenderSurface<'_> {

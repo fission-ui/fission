@@ -1175,12 +1175,7 @@ impl LiveTestClient {
     }
 
     pub fn activate_selector(&self, query: SelectorQuery) -> Result<()> {
-        self.pump()?;
-        self.send(TestCommand::ActivateSelector {
-            query: self.scoped_query(query),
-        })?;
-        self.pump()?;
-        Ok(())
+        activate_selector_with(self.scoped_query(query), |command| self.send(command))
     }
 
     pub fn focus_selector(&self, query: SelectorQuery) -> Result<()> {
@@ -1605,11 +1600,13 @@ impl LiveTestClient {
 
     /// Waits for finite motion to settle, optionally ignoring repeating motion.
     pub fn wait_for_idle(&self, timeout_ms: u64, ignore_repeating_motion: bool) -> Result<()> {
-        self.send(TestCommand::WaitForIdle {
-            timeout_ms,
-            ignore_repeating_motion,
-        })?;
-        Ok(())
+        ensure_success_response(
+            "wait_for_idle",
+            self.send(TestCommand::WaitForIdle {
+                timeout_ms,
+                ignore_repeating_motion,
+            })?,
+        )
     }
 
     pub fn get_text(&self) -> Result<Vec<TextItem>> {
@@ -1693,8 +1690,7 @@ impl LiveTestClient {
     /// Waits for pending app work to render. Returns immediately if the current frame is already up
     /// to date.
     pub fn pump(&self) -> Result<()> {
-        self.send(TestCommand::Pump {})?;
-        Ok(())
+        ensure_success_response("pump", self.send(TestCommand::Pump {})?)
     }
 
     pub fn quit(&self) -> Result<()> {
@@ -1824,6 +1820,28 @@ fn screenshot_bytes(response: TestResponse) -> Result<Vec<u8>> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn ensure_success_response(operation: &str, response: TestResponse) -> Result<()> {
+    match response {
+        TestResponse::Ok {} => Ok(()),
+        TestResponse::Error { message } => Err(anyhow!("{operation} failed: {message}")),
+        other => Err(anyhow!("unexpected response from {operation}: {other:?}")),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn activate_selector_with(
+    query: SelectorQuery,
+    mut send: impl FnMut(TestCommand) -> Result<TestResponse>,
+) -> Result<()> {
+    ensure_success_response("pre-activate pump", send(TestCommand::Pump {})?)?;
+    ensure_success_response(
+        "activate_selector",
+        send(TestCommand::ActivateSelector { query })?,
+    )?;
+    ensure_success_response("post-activate pump", send(TestCommand::Pump {})?)
+}
+
 fn rectangles_intersect(left: Bounds, right: Bounds) -> bool {
     left.x < right.x + right.width
         && left.x + left.width > right.x
@@ -1859,6 +1877,73 @@ mod tests {
         let older_wire = serde_json::to_value(default).unwrap();
         let decoded: SelectorQuery = serde_json::from_value(older_wire).unwrap();
         assert!(decoded.include_candidates);
+    }
+
+    #[test]
+    fn wait_and_pump_operations_propagate_test_host_errors() {
+        let error = super::ensure_success_response(
+            "wait_for_idle",
+            TestResponse::Error {
+                message: "finite motion did not settle".into(),
+            },
+        )
+        .expect_err("a host error must be visible to callers");
+        assert!(error
+            .to_string()
+            .contains("wait_for_idle failed: finite motion did not settle"));
+
+        let unexpected = super::ensure_success_response(
+            "pump",
+            TestResponse::MotionStatus {
+                finite: 1,
+                repeating: 0,
+                ripples: 0,
+            },
+        )
+        .expect_err("unexpected responses must not look successful");
+        assert!(unexpected
+            .to_string()
+            .contains("unexpected response from pump"));
+    }
+
+    #[test]
+    fn activate_selector_propagates_error_and_unexpected_action_responses() {
+        for (action_response, expected_message) in [
+            (
+                TestResponse::Error {
+                    message: "selector action was rejected".into(),
+                },
+                "activate_selector failed: selector action was rejected",
+            ),
+            (
+                TestResponse::MotionStatus {
+                    finite: 1,
+                    repeating: 0,
+                    ripples: 0,
+                },
+                "unexpected response from activate_selector",
+            ),
+        ] {
+            let mut commands = Vec::new();
+            let error = super::activate_selector_with(
+                SelectorQuery::semantic_identifier("sheet.tab.2"),
+                |command| match command {
+                    TestCommand::Pump {} => {
+                        commands.push("pump");
+                        Ok(TestResponse::Ok {})
+                    }
+                    TestCommand::ActivateSelector { .. } => {
+                        commands.push("activate");
+                        Ok(action_response.clone())
+                    }
+                    other => panic!("unexpected activation command: {other:?}"),
+                },
+            )
+            .expect_err("activation failures must reach the caller");
+
+            assert!(error.to_string().contains(expected_message));
+            assert_eq!(commands, ["pump", "activate"]);
+        }
     }
 
     fn populated_semantic_node() -> SemanticNode {
