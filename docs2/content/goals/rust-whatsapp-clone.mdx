@@ -1,0 +1,3125 @@
+---
+layout: goal
+title: Build a WhatsApp clone in Rust with Fission
+description: Build a responsive WhatsApp-style Rust app with Fission Compose, searchable chats, per-conversation drafts, local messages and working Web previews.
+goal: Build a familiar messaging interface without losing drafts or mixing up conversations
+path: /docs/learn/whatsapp-clone/
+order: 119
+difficulty: Intermediate
+duration: 90 minutes
+run_command: "fission run --target web --project-dir ."
+app: rust-whatsapp-clone
+outcomes:
+  - Build a searchable inbox with stable conversation identities
+  - Open conversations and add messages without losing another chat's draft
+  - Share one Compose app across phone and desktop layouts
+---
+
+A WhatsApp-style app is easy to recognise: a coloured header, a list of people and a conversation made up of message bubbles. The more interesting part is what happens when you use it. Does a draft still belong to the same person after you search the list? Does opening another chat lose it? What happens when a narrow window becomes a wide one?
+
+We will build those behaviours in Rust using Fission Compose. The visual starting point is [Pawan Kumar's Flutter WhatsApp clone](https://github.com/iampawan/FlutterWhatsAppClone); this is a new implementation rather than a translation of its Flutter source. We keep the familiar chat structure and extend it with an actual conversation view and a responsive desktop layout.
+
+This is a local learning app, not a WhatsApp client. All people and conversations are fictional. Adding a message changes in-memory app data; it does not contact another person, provide encryption or acknowledge delivery. That distinction is visible in the interface, not left for the reader to discover afterwards.
+
+You should be comfortable reading a Rust struct, an `enum` and a `match` expression. The [finished repository](https://github.com/fission-ui/rust-whatsapp-clone) lets you run the complete app first and then follow the pieces below.
+
+## Create the project and add the target
+
+Install the CLI, create the project and add the browser and mobile hosts:
+
+```sh
+cargo install cargo-fission --version 0.16.0 --locked
+fission init rust-whatsapp-clone --app-id io.fission.whatsappclone
+cd rust-whatsapp-clone
+fission add-target web android ios --project-dir .
+cargo add serde_yaml@0.9
+cargo add --build fission-design-system-codegen@0.16.0
+rustup target add wasm32-unknown-unknown
+cargo install wasm-pack --locked
+fission doctor web --project-dir .
+```
+
+Keep the generated `platforms/` folders. They launch the shared Rust app; they are not where the inbox or message behaviour belongs. The full source files below replace the generated counter and add the named app modules.
+
+## Project layout
+
+```text
+rust-whatsapp-clone/
+├── Cargo.toml
+├── fission.toml
+├── build.rs
+├── design/
+│   ├── dsp.json
+│   └── tokens.json
+├── i18n/
+│   ├── en-US.yaml
+│   └── es-ES.yaml
+├── src/
+│   ├── main.rs
+│   ├── lib.rs
+│   ├── app.rs
+│   ├── state.rs
+│   ├── demo.rs
+│   ├── design.rs
+│   ├── i18n.rs
+│   └── widgets/
+└── platforms/
+```
+
+The browser previews on this page run the same Compose components as the normal app. Each checkpoint is compiled from its source files before the documentation can build. The previews do not emulate a phone's keyboard, permissions or platform shell; the native commands at the end are still necessary.
+
+<!-- fission:step id="searchable-inbox" -->
+## Build an inbox around conversation identities
+
+Start with the information the app needs to preserve. A `Chat` has an ID, a name and messages. A `Message` has its own ID. Neither identity depends on where an item happens to appear in a list. This matters because searching and reordering change positions, not which conversation a person is using.
+
+`ChatState` owns shared app data. Its default is empty; `ChatState::demo()` explicitly loads the authored examples for this demo. The launchers make that choice once when the app starts. The view does not load data or mutate state while constructing widgets.
+
+The state module also contains the finished message transition. It is ordinary Rust and can be tested independently of a window. We introduce the state model here so the second checkpoint can add the conversation interface without replacing its ownership rules.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use std::collections::BTreeMap;
+
+use fission::prelude::GlobalState;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Tab {
+    #[default]
+    Chats,
+    Updates,
+    Calls,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Message {
+    pub id: u64,
+    pub text: String,
+    pub outgoing: bool,
+    pub time: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Chat {
+    pub id: u64,
+    pub name: String,
+    pub time: String,
+    pub unread: u32,
+    pub messages: Vec<Message>,
+}
+
+/// Shared conversation data survives changes between phone and desktop layouts.
+/// This demo keeps it in memory; it does not claim to deliver messages remotely.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatState {
+    pub chats: Vec<Chat>,
+    pub selected: Option<u64>,
+    pub query: String,
+    pub drafts: BTreeMap<u64, String>,
+    pub tab: Tab,
+    pub notice: Option<String>,
+    pub locale: String,
+}
+
+impl Default for ChatState {
+    fn default() -> Self {
+        Self {
+            chats: Vec::new(),
+            selected: None,
+            query: String::new(),
+            drafts: BTreeMap::new(),
+            tab: Tab::Chats,
+            notice: None,
+            locale: "en-US".into(),
+        }
+    }
+}
+
+impl GlobalState for ChatState {}
+
+impl ChatState {
+    /// Fictional content is an explicit demo choice, not a production default.
+    pub fn demo() -> Self {
+        Self {
+            chats: crate::demo::chats(),
+            ..Self::default()
+        }
+    }
+
+    pub fn open_chat(&mut self, id: u64) {
+        let Some(chat) = self.chats.iter_mut().find(|chat| chat.id == id) else {
+            return;
+        };
+        chat.unread = 0;
+        self.selected = Some(id);
+        self.tab = Tab::Chats;
+        self.notice = None;
+    }
+
+    pub fn back(&mut self) {
+        self.selected = None;
+    }
+
+    pub fn set_tab(&mut self, tab: Tab) {
+        self.tab = tab;
+        self.selected = None;
+        self.notice = None;
+    }
+
+    /// Append a local message. `true` means it was added, not sent to a service.
+    pub fn send(&mut self) -> bool {
+        let Some(chat_id) = self.selected else {
+            return false;
+        };
+        let Some(text) = self
+            .drafts
+            .get(&chat_id)
+            .map(|draft| draft.trim().to_owned())
+        else {
+            return false;
+        };
+        if text.is_empty() {
+            return false;
+        }
+        let Some(chat_index) = self.chats.iter().position(|chat| chat.id == chat_id) else {
+            return false;
+        };
+        // Allocate from existing identities rather than an index or list length.
+        // Exhaustion fails without clearing the author's draft.
+        let Some(id) = self
+            .chats
+            .iter()
+            .flat_map(|chat| &chat.messages)
+            .map(|message| message.id)
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+        else {
+            return false;
+        };
+        let chat = &mut self.chats[chat_index];
+        // No clock dependency is needed for an in-memory demonstration. This
+        // label describes a local action, not a server delivery acknowledgement.
+        let time = if self.locale.starts_with("es") {
+            "Ahora"
+        } else {
+            "Now"
+        };
+        chat.messages.push(Message {
+            id,
+            text,
+            outgoing: true,
+            time: time.into(),
+        });
+        chat.time = time.into();
+        self.drafts.remove(&chat_id);
+        true
+    }
+
+    pub fn filtered_chats(&self) -> Vec<&Chat> {
+        let query = self.query.trim().to_lowercase();
+        self.chats
+            .iter()
+            .filter(|chat| {
+                query.is_empty()
+                    || chat.name.to_lowercase().contains(&query)
+                    || chat
+                        .messages
+                        .last()
+                        .is_some_and(|message| message.text.to_lowercase().contains(&query))
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn default_is_empty_and_demo_is_explicit() {
+        assert!(ChatState::default().chats.is_empty());
+        assert_eq!(ChatState::demo().chats.len(), 6);
+    }
+
+    #[test]
+    fn empty_or_unselected_messages_do_not_change_state() {
+        let mut state = ChatState::demo();
+        let original = state.clone();
+        assert!(!state.send());
+        assert_eq!(state, original);
+
+        state.open_chat(101);
+        assert!(!state.send());
+        state.drafts.insert(101, " \n\t ".into());
+        let original = state.clone();
+        assert!(!state.send());
+        assert_eq!(state, original);
+    }
+
+    #[test]
+    fn sends_trim_text_without_fake_replies_or_delivery_state() {
+        let mut state = ChatState::demo();
+        state.open_chat(101);
+        let before = state.chats[0].messages.len();
+        state.drafts.insert(101, "  See you at six! \n".into());
+        assert!(state.send());
+        let chat = &state.chats[0];
+        assert_eq!(chat.messages.len(), before + 1);
+        assert_eq!(chat.messages.last().unwrap().text, "See you at six!");
+        assert!(chat.messages.last().unwrap().outgoing);
+        assert!(!state.drafts.contains_key(&101));
+    }
+
+    #[test]
+    fn sending_changes_only_the_selected_conversation() {
+        let mut state = ChatState::demo();
+        state.open_chat(102);
+        let others: Vec<_> = state
+            .chats
+            .iter()
+            .filter(|chat| chat.id != 102)
+            .cloned()
+            .collect();
+        state.drafts.insert(101, "Keep this draft".into());
+        state.drafts.insert(102, "Thanks for the notes".into());
+        assert!(state.send());
+        assert_eq!(state.drafts[&101], "Keep this draft");
+        assert_eq!(
+            state
+                .chats
+                .iter()
+                .filter(|chat| chat.id != 102)
+                .cloned()
+                .collect::<Vec<_>>(),
+            others
+        );
+        let selected = state.chats.iter().find(|chat| chat.id == 102).unwrap();
+        assert_eq!(
+            selected.messages.last().unwrap().text,
+            "Thanks for the notes"
+        );
+    }
+
+    #[test]
+    fn draft_belongs_to_chat_not_current_screen() {
+        let mut state = ChatState::demo();
+        state.open_chat(101);
+        state.drafts.insert(101, "Bring a picnic blanket".into());
+        state.open_chat(102);
+        state.drafts.insert(102, "Thanks for the notes".into());
+        state.back();
+        state.set_tab(Tab::Updates);
+        state.open_chat(102);
+        assert!(state.send());
+        assert_eq!(state.drafts[&101], "Bring a picnic blanket");
+        assert!(!state.drafts.contains_key(&102));
+    }
+
+    #[test]
+    fn identities_remain_unique_after_reordering_and_sending() {
+        let mut state = ChatState::demo();
+        let chat_ids: BTreeSet<_> = state.chats.iter().map(|chat| chat.id).collect();
+        assert_eq!(chat_ids.len(), state.chats.len());
+        state.chats.reverse();
+        for id in [101, 102, 101] {
+            state.open_chat(id);
+            state.drafts.insert(id, "A local note".into());
+            assert!(state.send());
+        }
+        assert_eq!(chat_ids, state.chats.iter().map(|chat| chat.id).collect());
+        let ids: Vec<_> = state
+            .chats
+            .iter()
+            .flat_map(|chat| chat.messages.iter().map(|message| message.id))
+            .collect();
+        assert_eq!(ids.len(), ids.iter().collect::<BTreeSet<_>>().len());
+    }
+
+    #[test]
+    fn search_matches_names_and_last_message_case_insensitively() {
+        let mut state = ChatState::demo();
+        state.query = "  MAYA ".into();
+        assert_eq!(state.filtered_chats()[0].id, 101);
+        state.query = "PICNIC".into();
+        assert_eq!(state.filtered_chats()[0].id, 101);
+        state.query = "not present anywhere".into();
+        assert!(state.filtered_chats().is_empty());
+        state.query.clear();
+        assert_eq!(state.filtered_chats().len(), 6);
+    }
+
+    #[test]
+    fn search_lowercases_unicode_names_and_message_text() {
+        let mut state = ChatState::demo();
+        state.chats[0].name = "Élodie García".into();
+        state.query = "ÉLODIE".into();
+        assert_eq!(state.filtered_chats()[0].id, 101);
+        state.chats[0].messages.last_mut().unwrap().text = "До встречи завтра".into();
+        state.query = "ВСТРЕЧИ".into();
+        assert_eq!(state.filtered_chats()[0].id, 101);
+    }
+
+    #[test]
+    fn next_message_id_is_above_every_conversations_existing_ids() {
+        let mut state = ChatState::demo();
+        let previous_ids: BTreeSet<_> = state
+            .chats
+            .iter()
+            .flat_map(|chat| chat.messages.iter().map(|message| message.id))
+            .collect();
+        let previous_count: usize = state.chats.iter().map(|chat| chat.messages.len()).sum();
+        assert_eq!(previous_ids.len(), previous_count);
+        let expected = previous_ids.last().unwrap() + 1;
+        state.open_chat(101);
+        state.drafts.insert(101, "New local message".into());
+        assert!(state.send());
+        assert_eq!(state.chats[0].messages.last().unwrap().id, expected);
+    }
+
+    #[test]
+    fn opening_marks_only_selected_chat_read_and_rejects_unknown_ids() {
+        let mut state = ChatState::demo();
+        let others = state.chats[1..].to_vec();
+        state.open_chat(101);
+        assert_eq!(state.chats[0].unread, 0);
+        assert_eq!(&state.chats[1..], others.as_slice());
+        let original = state.clone();
+        state.open_chat(u64::MAX);
+        assert_eq!(state, original);
+    }
+
+    #[test]
+    fn missing_chat_and_exhausted_ids_preserve_drafts() {
+        let mut state = ChatState::demo();
+        state.selected = Some(999);
+        state.drafts.insert(999, "Unsent".into());
+        assert!(!state.send());
+        assert_eq!(state.drafts[&999], "Unsent");
+        state.open_chat(101);
+        state.chats[0].messages[0].id = u64::MAX;
+        state.drafts.insert(101, "Still unsent".into());
+        let original = state.clone();
+        assert!(!state.send());
+        assert_eq!(state, original);
+    }
+}
+```
+</TabItem>
+<TabItem label="src/demo.rs">
+<!-- fission:file path="src/demo.rs" -->
+```rust
+//! Authored fictional conversations for the explicitly labelled local demo.
+//! Nothing here comes from a real person's messages or a WhatsApp account.
+
+use crate::state::{Chat, Message};
+
+pub fn chats() -> Vec<Chat> {
+    vec![
+        chat(
+            101,
+            "Maya Chen",
+            "10:42",
+            2,
+            &[
+                (false, "Shall we meet by the lake on Saturday?", "10:36"),
+                (true, "Sounds good. I'll bring something to eat.", "10:38"),
+                (false, "Perfect! I'll bring the picnic blanket.", "10:42"),
+            ],
+        ),
+        chat(
+            102,
+            "Design study group",
+            "09:58",
+            3,
+            &[
+                (false, "The prototype review is at three tomorrow.", "09:50"),
+                (true, "I'll bring the mobile layout.", "09:54"),
+                (false, "Sam: I've added the accessibility notes.", "09:58"),
+            ],
+        ),
+        chat(
+            103,
+            "Alex Morgan",
+            "09:15",
+            0,
+            &[
+                (false, "How did the first Rust workshop go?", "09:10"),
+                (
+                    true,
+                    "Really well. We built a working chat screen!",
+                    "09:15",
+                ),
+            ],
+        ),
+        chat(
+            104,
+            "Weekend walkers",
+            "Yesterday",
+            0,
+            &[
+                (false, "The riverside path is open again.", "17:20"),
+                (true, "Let's start at the station entrance.", "17:24"),
+                (false, "Nine on Sunday works for everyone.", "17:31"),
+            ],
+        ),
+        chat(
+            105,
+            "Nora Patel",
+            "Yesterday",
+            0,
+            &[
+                (true, "Thanks for lending me your book.", "16:10"),
+                (false, "Keep it until next week. No rush!", "16:18"),
+            ],
+        ),
+        chat(
+            106,
+            "Community garden",
+            "Tuesday",
+            1,
+            &[
+                (false, "We're planting herbs this weekend.", "11:04"),
+                (true, "I can help with the raised beds.", "11:09"),
+                (false, "Thanks! Bring gloves if you have them.", "11:12"),
+            ],
+        ),
+    ]
+}
+
+fn chat(id: u64, name: &str, time: &str, unread: u32, messages: &[(bool, &str, &str)]) -> Chat {
+    Chat {
+        id,
+        name: name.into(),
+        time: time.into(),
+        unread,
+        messages: messages
+            .iter()
+            .enumerate()
+            .map(|(index, (outgoing, text, time))| Message {
+                id: id * 100 + index as u64 + 1,
+                text: (*text).into(),
+                outgoing: *outgoing,
+                time: (*time).into(),
+            })
+            .collect(),
+    }
+}
+```
+</TabItem>
+</Tabs>
+
+The first view is deliberately an inbox rather than the whole app. Search by name or the latest message, then select a row. The small panel at the bottom confirms which conversation was selected; we will replace that panel with a real conversation in the next step.
+
+`InboxRow` receives a chat ID as a prop. Its reducer uses that prop when the person presses the row. It does not capture a temporary reference to the `chat` found during the earlier view build. In the repeated collection, `key: chat.id` gives each retained component the same identity after filtering.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use crate::state::ChatState;
+use fission::prelude::*;
+
+fission_component! {
+    pub ChatApp<ChatState> {}
+    view(_app, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let selected = state.chats.iter().find(|chat| Some(chat.id) == state.selected);
+    } =>
+    SafeArea(child: Container(Column(children: [
+        Container(Column(gap: tokens.spacing.xs, children: [
+            Text("WhatsApp").size(tokens.typography.heading_size)
+                .weight(tokens.typography.font_weight_semibold)
+                .color(tokens.colors.on_primary),
+            Text(cx.tr("app.demo")).size(tokens.typography.font_size_xs)
+                .color(tokens.colors.on_primary),
+        ])).padding_all(tokens.spacing.m).bg(tokens.colors.primary),
+        Container(TextInput(
+            bind: state.query,
+            label: Some(cx.tr("search.label").into()),
+            placeholder: Some(cx.tr("search.placeholder").into()),
+            semantics_identifier: "inbox.search".to_string(),
+        )).padding_all(tokens.spacing.m),
+        Container(Scroll(flex_grow: 1.0, child: Column(children: [
+            for chat in state.filtered_chats() {
+                InboxRow(chat_id: chat.id, key: chat.id)
+            },
+            if state.filtered_chats().is_empty() {
+                EmptyState(title: cx.tr("inbox.empty"), description: cx.tr("inbox.empty_help"))
+            },
+        ]))).flex_grow(1.0).min_height(0.0).align_child(BoxAlignment::Stretch),
+        if let Some(chat) = selected {
+            Container(Text(format!("{}: {}", cx.tr("action.open"), chat.name)))
+                .padding_all(tokens.spacing.m).bg(tokens.colors.primary_subtle)
+        },
+    ]))
+    .width_length(Length::percent(100.0))
+    .height_length(Length::percent(100.0))
+    .align_child(BoxAlignment::Stretch)
+    .bg(tokens.colors.surface))
+}
+
+fission_component! {
+    #[derive(Default)]
+    pub InboxRow<ChatState> { props { chat_id: u64 } }
+    view(row, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let chat = state.chats.iter().find(|chat| chat.id == row.chat_id);
+    } =>
+    if let Some(chat) = chat {
+        Pressable(
+            label: chat.name.clone(),
+            semantics_identifier: format!("chat.open.{}", chat.id),
+            on_press: reduce { state.open_chat(row.chat_id); },
+            child: Container(Row(gap: tokens.spacing.m, children: [
+                Avatar(name: chat.name.clone(), size: 48.0),
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(chat.name.clone()).weight(tokens.typography.font_weight_semibold),
+                    Text(chat.messages.last().map(|message| message.text.clone()).unwrap_or_default())
+                        .color(tokens.colors.text_secondary).max_lines(1),
+                ]).flex_grow(1.0),
+                Text(chat.time.clone()).size(tokens.typography.font_size_xs)
+                    .color(tokens.colors.text_muted),
+            ])).padding_all(tokens.spacing.m).bg(
+                if state.selected == Some(chat.id) { tokens.colors.primary_subtle }
+                else { tokens.colors.surface }
+            ),
+        )
+    } else { Spacer(height: 0.0) }
+}
+```
+</TabItem>
+<TabItem label="src/widgets/mod.rs">
+<!-- fission:file path="src/widgets/mod.rs" -->
+```rust
+// Named presentation components are added in the next checkpoint.
+```
+</TabItem>
+</Tabs>
+
+The shell installs the design system and translation bundles, then runs `ChatApp`. Desktop, Web, Android and iOS share the same state and components. The target-specific functions only configure their host.
+
+For Web, `.mount("#fission-web-mount")` tells the shell where to put the app. The CLI's generated page and this tutorial's preview both provide that element, so the app stays inside the space its host gives it rather than being appended below the page. This is a Web host detail; the native launchers do not need it.
+
+<Tabs>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+pub mod demo;
+pub mod design;
+pub mod i18n;
+pub mod state;
+pub mod widgets;
+
+use app::ChatApp;
+use design::ChatDesignSystem;
+use fission::i18n::Locale;
+use fission::prelude::*;
+use state::ChatState;
+
+fn sync_env(state: &ChatState, env: &mut Env) {
+    env.locale = Locale::from(state.locale.as_str());
+}
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<ChatState, _>::new(ChatApp)
+        .with_title("WhatsApp · Rust UI demo")
+        .with_env(i18n::create_env()?)
+        .with_design_system::<ChatDesignSystem>(DesignMode::Light)
+        .with_state_init(|state| *state = ChatState::demo())
+        .with_sync_env(sync_env)
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> anyhow::Result<MobileApp<ChatState, ChatApp>> {
+    Ok(MobileApp::<ChatState, _>::new(ChatApp)
+        .with_title("WhatsApp · Rust UI demo")
+        .with_env(i18n::create_env()?)
+        .with_design_system::<ChatDesignSystem>(DesignMode::Light)
+        .with_state_init(|state| *state = ChatState::demo())
+        .with_sync_env(sync_env))
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app()?.run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    if let Err(error) = mobile_app().and_then(|app| app.run_with_android_app(app_handle)) {
+        eprintln!("WhatsApp demo failed to start: {error}");
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    let run = || -> anyhow::Result<()> {
+        WebApp::<ChatState, _>::new(ChatApp)
+            .mount("#fission-web-mount")
+            .with_title("WhatsApp · Rust UI demo")
+            .with_env(i18n::create_env()?)
+            .with_design_system::<ChatDesignSystem>(DesignMode::Light)
+            .with_state_init(|state| *state = ChatState::demo())
+            .with_sync_env(sync_env)
+            .run()
+    };
+    run().map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/main.rs">
+<!-- fission:file path="src/main.rs" -->
+```rust
+#[cfg(target_os = "android")]
+fn main() {}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}
+
+#[cfg(target_os = "ios")]
+fn main() -> anyhow::Result<()> {
+    rust_whatsapp_clone::run_mobile()
+}
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))]
+fn main() -> anyhow::Result<()> {
+    rust_whatsapp_clone::run_desktop()
+}
+```
+</TabItem>
+<TabItem label="src/i18n.rs">
+<!-- fission:file path="src/i18n.rs" -->
+```rust
+use std::collections::HashMap;
+
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::Env;
+
+const ENGLISH: &str = include_str!("../i18n/en-US.yaml");
+const SPANISH: &str = include_str!("../i18n/es-ES.yaml");
+
+fn bundle(locale: &str, source: &str) -> anyhow::Result<TranslationBundle> {
+    Ok(TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str::<HashMap<String, String>>(source)?,
+    })
+}
+
+pub fn create_env() -> anyhow::Result<Env> {
+    let mut env = Env::default();
+    env.i18n.add_bundle(bundle("en-US", ENGLISH)?);
+    env.i18n.add_bundle(bundle("es-ES", SPANISH)?);
+    Ok(env)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn translations_have_matching_nonempty_keys() {
+        let english = bundle("en-US", ENGLISH).unwrap();
+        let spanish = bundle("es-ES", SPANISH).unwrap();
+        let keys =
+            |bundle: &TranslationBundle| bundle.messages.keys().cloned().collect::<BTreeSet<_>>();
+        assert_eq!(keys(&english), keys(&spanish));
+        assert!(english.messages.values().all(|value| !value.is_empty()));
+        assert!(spanish.messages.values().all(|value| !value.is_empty()));
+    }
+
+    #[test]
+    fn lookup_follows_current_environment_locale() {
+        let mut env = create_env().unwrap();
+        assert_eq!(env.tr("tabs.chats"), "Chats");
+        env.locale = Locale::from("es-ES");
+        assert_eq!(env.tr("tabs.chats"), "Conversaciones");
+        env.locale = Locale::from("not-installed");
+        assert_eq!(env.tr("tabs.chats"), "tabs.chats");
+    }
+}
+```
+</TabItem>
+<TabItem label="Cargo.toml">
+<!-- fission:file path="Cargo.toml" -->
+```toml
+[package]
+name = "rust-whatsapp-clone"
+version = "0.1.0"
+edition = "2021"
+description = "A responsive, local WhatsApp-style messaging demo built with Fission Compose"
+license = "Apache-2.0"
+repository = "https://github.com/fission-ui/rust-whatsapp-clone"
+publish = false
+
+[lib]
+name = "rust_whatsapp_clone"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+fission = { version = "0.16.0", default-features = false, features = ["desktop", "web", "android", "ios"] }
+
+[build-dependencies]
+fission-design-system-codegen = "0.16.0"
+
+[dev-dependencies]
+fission-test-driver = "0.16.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1"
+wasm-bindgen = "0.2"
+
+# Optimise renderer and runtime dependencies for interactive debug builds.
+[profile.dev.package."*"]
+opt-level = 1
+```
+</TabItem>
+<TabItem label="fission.toml">
+<!-- fission:file path="fission.toml" -->
+```toml
+targets = [
+    "android",
+    "ios",
+    "linux",
+    "macos",
+    "web",
+    "windows",
+]
+
+[app]
+name = "rust-whatsapp-clone"
+app_id = "io.fission.whatsappclone"
+version = "0.1.0"
+build = 1
+
+[package.macos]
+bundle_id = "io.fission.whatsappclone"
+marketing_version = "0.1.0"
+build_number = "1"
+minimum_os = "13.0"
+
+[package.windows]
+identity_name = "io.fission.whatsappclone"
+publisher = "CN=Fission Developer"
+version = "0.1.0"
+installer = "msix"
+certificate_thumbprint_env = "WINDOWS_CERTIFICATE_THUMBPRINT"
+certificate_base64_env = "WINDOWS_CERTIFICATE_BASE64"
+certificate_password_env = "WINDOWS_CERTIFICATE_PASSWORD"
+
+[package.android]
+package_name = "io.fission.whatsappclone"
+version_code = 1
+version_name = "0.1.0"
+min_sdk = 24
+target_sdk = 35
+keystore_alias = "upload"
+keystore_env = "ANDROID_KEYSTORE"
+keystore_base64_env = "ANDROID_KEYSTORE_BASE64"
+keystore_password_env = "ANDROID_KEYSTORE_PASSWORD"
+key_password_env = "ANDROID_KEY_PASSWORD"
+
+[package.ios]
+bundle_id = "io.fission.whatsappclone"
+marketing_version = "0.1.0"
+build_number = "1"
+
+[distribution.microsoft_store]
+package_identity_name = "io.fission.whatsappclone"
+package_type = "msix"
+token_env = "MICROSOFT_STORE_TOKEN"
+tenant_id_env = "AZURE_TENANT_ID"
+client_id_env = "AZURE_CLIENT_ID"
+client_secret_env = "MICROSOFT_STORE_CLIENT_SECRET"
+seller_id_env = "MICROSOFT_STORE_SELLER_ID"
+
+[distribution.play_store]
+package_name = "io.fission.whatsappclone"
+default_track = "internal"
+release_status = "completed"
+access_token_env = "PLAY_STORE_ACCESS_TOKEN"
+service_account_json_env = "PLAY_STORE_SERVICE_ACCOUNT_JSON"
+service_account_json_base64_env = "PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64"
+google_application_credentials_env = "GOOGLE_APPLICATION_CREDENTIALS"
+
+[distribution.app_store]
+bundle_id = "io.fission.whatsappclone"
+access_token_env = "APP_STORE_CONNECT_ACCESS_TOKEN"
+issuer_id_env = "APP_STORE_CONNECT_ISSUER_ID"
+key_id_env = "APP_STORE_CONNECT_KEY_ID"
+api_key_env = "APP_STORE_CONNECT_API_KEY"
+api_key_base64_env = "APP_STORE_CONNECT_API_KEY_BASE64"
+api_key_path_env = "APP_STORE_CONNECT_API_KEY_PATH"
+default_track = "testflight"
+```
+</TabItem>
+</Tabs>
+
+Keep English and Spanish labels in checked-in bundles. A person's name or message remains app data rather than being treated as a translation key. The finished header will let you switch the interface language through app state and `.with_sync_env(...)`.
+
+<Tabs>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+app.demo: "Local demo · no messages leave this device"
+header.language: "Cambiar a español"
+header.about: "About this demo"
+tabs.chats: "Chats"
+tabs.updates: "Updates"
+tabs.calls: "Calls"
+search.label: "Search conversations"
+search.placeholder: "Search a name or latest message"
+inbox.empty: "No conversations found"
+inbox.empty_help: "Try another name or something from the last message."
+inbox.unread: "Unread messages"
+action.new_chat: "Start a conversation"
+action.dismiss: "Close"
+action.open: "Open conversation"
+about.title: "A clone for learning, not a messaging service"
+about.body: "This is an independent Fission demo inspired by the Flutter WhatsApp Clone. The people and conversations are fictional. Messages stay in memory on this device and disappear when you reload. There is no account, server, encryption protocol or connection to WhatsApp or Meta."
+updates.title: "Updates from your circle"
+calls.title: "Call history"
+calls.unavailable: "This demo has no calling service. No call has been placed."
+compose.pick: "Choose someone to chat with"
+compose.hint: "These are fictional contacts in the local demo."
+chat.back: "Back to conversations"
+chat.local_demo: "Local demo conversation"
+chat.messages: "Messages"
+chat.message_label: "Message"
+chat.message_placeholder: "Write a message"
+chat.send: "Send locally"
+chat.saved_locally: "Added locally"
+chat.session_only: "This conversation stays in memory until you reload."
+chat.welcome_title: "Your conversations, in Rust"
+chat.welcome_body: "Choose a chat to read the example messages or add one of your own. Nothing leaves this device."
+updates.description: "Fictional updates for this local demo."
+updates.my_status: "My update"
+updates.my_status_help: "Preview a local update"
+updates.viewed: "Viewed updates"
+updates.story_title: "A quiet afternoon outdoors"
+updates.story_body: "A good book, a little sunshine and nowhere else to be. This is an authored example, not a published update."
+updates.open_story: "Open update"
+calls.description: "Example history · no real calls were made"
+calls.history: "Recent calls"
+calls.start: "About voice calls"
+calls.sample_one: "Today, 09:20 · incoming voice call"
+calls.sample_two: "Yesterday, 17:45 · outgoing voice call"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+app.demo: "Demo local · ningún mensaje sale de este dispositivo"
+header.language: "Switch to English"
+header.about: "Acerca de esta demo"
+tabs.chats: "Conversaciones"
+tabs.updates: "Novedades"
+tabs.calls: "Llamadas"
+search.label: "Buscar conversaciones"
+search.placeholder: "Buscar un nombre o el último mensaje"
+inbox.empty: "No se encontraron conversaciones"
+inbox.empty_help: "Prueba otro nombre o algo del último mensaje."
+inbox.unread: "Mensajes sin leer"
+action.new_chat: "Iniciar una conversación"
+action.dismiss: "Cerrar"
+action.open: "Abrir conversación"
+about.title: "Un clon para aprender, no un servicio de mensajería"
+about.body: "Esta es una demo independiente de Fission inspirada en Flutter WhatsApp Clone. Las personas y las conversaciones son ficticias. Los mensajes se quedan en la memoria de este dispositivo y desaparecen al recargar. No hay cuenta, servidor, protocolo de cifrado ni conexión con WhatsApp o Meta."
+updates.title: "Novedades de tu círculo"
+calls.title: "Historial de llamadas"
+calls.unavailable: "Esta demo no tiene servicio de llamadas. No se ha iniciado ninguna llamada."
+compose.pick: "Elige con quién conversar"
+compose.hint: "Estos son contactos ficticios de la demo local."
+chat.back: "Volver a las conversaciones"
+chat.local_demo: "Conversación de la demo local"
+chat.messages: "Mensajes"
+chat.message_label: "Mensaje"
+chat.message_placeholder: "Escribe un mensaje"
+chat.send: "Enviar localmente"
+chat.saved_locally: "Añadido localmente"
+chat.session_only: "Esta conversación se queda en la memoria hasta que recargues."
+chat.welcome_title: "Tus conversaciones, en Rust"
+chat.welcome_body: "Elige un chat para leer los mensajes de ejemplo o añadir uno propio. Nada sale de este dispositivo."
+updates.description: "Novedades ficticias para esta demo local."
+updates.my_status: "Mi novedad"
+updates.my_status_help: "Vista previa de una novedad local"
+updates.viewed: "Novedades vistas"
+updates.story_title: "Una tarde tranquila al aire libre"
+updates.story_body: "Un buen libro, un poco de sol y ningún otro sitio donde estar. Este es un ejemplo creado para la demo, no una novedad publicada."
+updates.open_story: "Abrir novedad"
+calls.description: "Historial de ejemplo · no se hicieron llamadas reales"
+calls.history: "Llamadas recientes"
+calls.start: "Acerca de las llamadas de voz"
+calls.sample_one: "Hoy, 09:20 · llamada de voz entrante"
+calls.sample_two: "Ayer, 17:45 · llamada de voz saliente"
+```
+</TabItem>
+</Tabs>
+
+The design files are long because they include the base component recipes, not because each row needs its own styling system. They are checked-in app assets. `build.rs` generates the typed design system once, and the components read the active tokens from `cx.view.env().theme`. Change the design source when changing the app's visual language rather than scattering new colour values through its views.
+
+<Tabs>
+<TabItem label="build.rs">
+<!-- fission:file path="build.rs" -->
+```rust
+use std::path::PathBuf;
+
+fn main() {
+    println!("cargo:rerun-if-changed=design/dsp.json");
+    println!("cargo:rerun-if-changed=design/tokens.json");
+    let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    fission_design_system_codegen::generate(
+        fission_design_system_codegen::Config::new(root.join("design/dsp.json"))
+            .out_file("chat_design_system.rs")
+            .type_name("ChatDesignSystem")
+            .crate_path("fission::theme"),
+    )
+    .expect("failed to generate ChatDesignSystem from design/dsp.json");
+}
+```
+</TabItem>
+<TabItem label="src/design.rs">
+<!-- fission:file path="src/design.rs" -->
+```rust
+//! The checked-in DSP package is the authority for application visual tokens.
+
+include!(concat!(env!("OUT_DIR"), "/chat_design_system.rs"));
+```
+</TabItem>
+<TabItem label="design/dsp.json">
+<!-- fission:file path="design/dsp.json" -->
+```json
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "$comment": "Fission Design System Package (DSP). A self-contained, machine-readable manifest of the Fission visual language — brand metadata, design tokens (Material 3 architecture), component specifications with all variants and states, layout patterns, and an asset manifest. Consumable by design tools, codegen, theming engines, and AI agents. Token references use the W3C Design Tokens format ({namespace.token.path}).",
+
+  "$package": {
+    "name": "rust-whatsapp-clone-design-system",
+    "version": "0.2.0",
+    "description": "An independent chat-demo theme adapted from Fission's default DSP. Dark teal headers, clear neutral surfaces and mint outgoing messages.",
+    "license": "Apache-2.0",
+    "framework": {
+      "name": "fission",
+      "repository": "https://github.com/fission-ui/fission",
+      "theme_crate": "crates/core/fission-theme"
+    },
+    "structure": {
+      "tokens_format": "W3C Design Tokens (with $ref-style references)",
+      "component_format": "anatomy + sizes + hierarchies + states (per-property)",
+      "files": {
+        "tokens": "tokens.json — primitive design tokens (color, type, spacing, radius, elevation, motion)",
+        "css_mirror": "colors_and_type.css — CSS-variable mirror of tokens",
+        "assets": "assets/ — logos, marks, brand glyphs",
+        "fonts": "fonts/ — Inter font family"
+      }
+    }
+  },
+
+  "brand": {
+    "$comment": "Independent learning demo; not affiliated with WhatsApp or Meta.",
+    "name": "WhatsApp Clone in Rust",
+    "tagline": "A familiar chat interface, built with Fission Compose.",
+    "long_description": "A local, in-memory messaging UI for learning Fission. No messages leave the device and no WhatsApp service is used.",
+    "voice": {
+      "register": "technical, precise, deterministic",
+      "person": "second person (you) for developer-facing; third person for runtime behavior; avoid first person plural (we)",
+      "casing": "sentence case for headings; Title Case only for brand and product names; code identifiers preserve source casing",
+      "tone_examples": [
+        "Plain Rust data stays in charge. Product truth is not hidden inside widgets or host callbacks.",
+        "Every durable change has a named cause.",
+        "Fission is strict about where state changes happen, where host work starts, and how rendering is produced.",
+        "Start where your evaluation needs the most signal."
+      ],
+      "forbidden_words": ["blazingly fast", "revolutionary", "supercharged", "unleash", "game-changing", "synergy"],
+      "emoji_policy": "not used",
+      "punctuation_notes": "em-dash (—) used liberally as separator/aside; arrows (→) for CTA hints"
+    },
+    "logo": {
+      "wordmark_dark": { "path": null },
+      "wordmark_light": { "path": null },
+      "mark": { "path": null }
+    }
+  },
+
+  "tokens": {
+    "$comment": "Primitive design tokens. The complete machine-readable spec lives in tokens.json. This block summarises the structure; reference tokens.json for exhaustive values.",
+    "$ref": "./tokens.json",
+    "namespaces": [
+      { "name": "color.brand", "purpose": "Logo-derived signal accents (orange + blue). Decorative only." },
+      { "name": "color.teal", "purpose": "Interactive primary palette. Light: 700; Dark: 400; Focus: 500." },
+      { "name": "color.slate", "purpose": "Neutral ramp (matches Tailwind slate-*)." },
+      { "name": "color.semantic", "purpose": "Status: success, warning, error, info." },
+      { "name": "color.light", "purpose": "Semantic surface tokens for the light theme." },
+      { "name": "color.dark", "purpose": "Semantic surface tokens for the dark theme." },
+      { "name": "typography", "purpose": "Inter (sans), serif fallback (Iowan/Palatino/Georgia), SF Mono (mono). UUI Display/Text scale." },
+      { "name": "spacing", "purpose": "9-step scale: 0/4/8/16/24/32/48/64/96." },
+      { "name": "radius", "purpose": "7-step scale: 0/8/10/14/16/24/9999." },
+      { "name": "elevation", "purpose": "Box shadows. 5 levels + focus." },
+      { "name": "motion", "purpose": "Duration scale + easing curves." }
+    ]
+  },
+
+  "components": {
+    "code_syntax": {
+      "$description": "Token colours for syntax-highlighted source code, so code follows the active theme and mode.",
+      "keyword": { "color": "{color.light.primary}" },
+      "string": { "color": "{color.light.success}" },
+      "comment": { "color": "{color.light.text_muted}" },
+      "number": { "color": "{color.light.warning}" },
+      "type": { "color": "{color.light.secondary}" },
+      "function": { "color": "{color.light.text_link}" },
+      "variable": { "color": "{color.light.text_primary}" },
+      "constant": { "color": "{color.light.info}" },
+      "punctuation": { "color": "{color.light.text_secondary}" },
+      "inserted": { "color": "{color.light.success}" },
+      "deleted": { "color": "{color.light.error}" }
+    },
+    "accordion": {
+      "$description": "Stacked disclosure sections with a header and revealed panel.",
+      "anatomy": ["header*", "indicator*", "panel*"],
+      "header": {
+        "padding": "{spacing.m}",
+        "gap": "{spacing.s}",
+        "background": "{color.light.surface}",
+        "border": "1px solid {color.light.border}",
+        "color": "{color.light.text_primary}"
+      },
+      "indicator": {
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.xs}"
+      },
+      "panel": {
+        "padding": "{spacing.m}",
+        "background": "{color.light.background}",
+        "border": "1px solid {color.light.border}"
+      }
+    },
+    "breadcrumb": {
+      "$description": "Trail of ancestor links with directional separators.",
+      "anatomy": ["item*", "separator*"],
+      "gap": "{spacing.xs}",
+      "separator": {
+        "icon_size": "{spacing.m}",
+        "color": "{color.light.text_muted}"
+      },
+      "item": { "color": "{color.light.text_secondary}", "font_size": "{typography.font_size.base}" },
+      "current": { "color": "{color.light.text_primary}", "font_weight": "{typography.font_weight.medium}" }
+    },
+    "drawer": {
+      "$description": "Edge-anchored panel over a dismissal scrim.",
+      "anatomy": ["scrim", "panel"],
+      "scrim": { "background": "{color.light.on_background}" },
+      "panel": {
+        "background": "{color.light.surface}",
+        "box_shadow": "{elevation.level3}",
+        "width": "320px"
+      }
+    },
+    "popover": {
+      "$description": "Anchored surface holding transient content.",
+      "anatomy": ["surface"],
+      "background": "{color.light.surface}",
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.medium}",
+      "padding": "{spacing.s}",
+      "box_shadow": "{elevation.level2}"
+    },
+    "markdown": {
+      "$description": "Rendered prose with design-system typography.",
+      "anatomy": ["heading*", "paragraph*", "code*", "quote*"],
+      "gap": "{spacing.s}",
+      "paragraph": {
+        "color": "{color.light.text_primary}",
+        "font_size": "{typography.font_size.base}",
+        "line_height": "22px"
+      },
+      "heading": {
+        "color": "{color.light.heading}",
+        "font_weight": "{typography.font_weight.medium}"
+      },
+      "code": {
+        "background": "{color.light.surface_sunken}",
+        "radius": "{radius.small}",
+        "font_family": "{typography.font_family.mono}",
+        "font_size": "{typography.font_size.xs}"
+      },
+      "quote": {
+        "color": "{color.light.text_secondary}",
+        "border": "2px solid {color.light.border}",
+        "padding_x": "{spacing.s}"
+      }
+    },
+    "colour_picker": {
+      "$description": "Saturation field, hue slider and swatch previews.",
+      "anatomy": ["field", "slider*", "swatch*", "preview"],
+      "padding": "{spacing.s}",
+      "gap": "{spacing.s}",
+      "radius": "{radius.medium}",
+      "field": { "height": "92px", "radius": "{radius.small}" },
+      "swatch": { "size": "20px", "radius": "{radius.small}" },
+      "preview": { "width": "92px", "radius": "{radius.small}" }
+    },
+    "data_table": {
+      "$description": "Scrollable grid of records with selection.",
+      "anatomy": ["header", "row*", "cell*", "selection*"],
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.small}",
+      "header": {
+        "background": "{color.light.surface}",
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.medium}",
+        "padding": "{spacing.s}"
+      },
+      "cell": {
+        "color": "{color.light.text_primary}",
+        "font_size": "{typography.font_size.base}",
+        "padding": "{spacing.s}"
+      },
+      "row": { "background": "{color.light.surface}" },
+      "selection": { "width": "40px" },
+      "divider": { "height": "1px", "background": "{color.light.divider}" }
+    },
+    "dropdown": {
+      "$description": "Trigger presenting the current selection.",
+      "anatomy": ["value", "indicator"],
+      "gap": "{spacing.s}",
+      "padding_x": "{spacing.s}",
+      "value": { "color": "{color.light.text_primary}", "font_size": "{typography.font_size.base}" },
+      "indicator": { "icon_size": "18px", "color": "{color.light.text_secondary}" }
+    },
+    "number_input": {
+      "$description": "Numeric field between stepping controls.",
+      "anatomy": ["decrement", "field", "increment"],
+      "gap": "{spacing.xs}",
+      "padding": "2px",
+      "background": "{color.light.background}",
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.medium}",
+      "stepper": { "size": "36px" }
+    },
+    "range_slider": {
+      "$description": "Two-thumb range over a track.",
+      "anatomy": ["track", "selected", "thumb*"],
+      "track": { "height": "4px", "background": "{color.light.border_strong}" },
+      "selected": { "height": "4px", "background": "{color.light.primary}" },
+      "thumb": { "size": "16px", "radius": "{radius.full}", "background": "{color.light.primary}" }
+    },
+    "split_view": {
+      "$description": "Two panes with a resizable separator.",
+      "anatomy": ["pane*", "handle"],
+      "handle": { "size": "8px", "background": "{color.light.border}" }
+    },
+    "spinner": {
+      "$description": "Indeterminate busy indicator.",
+      "anatomy": ["dot*"],
+      "gap": "6px",
+      "dot": { "size": "8px", "radius": "{radius.full}", "background": "{color.light.primary}" }
+    },
+    "circular_progress": {
+      "$description": "Ring showing determinate or indeterminate progress.",
+      "anatomy": ["track", "indicator"],
+      "size": "40px",
+      "track": { "background": "{color.light.border}" },
+      "indicator": { "background": "{color.light.primary}" },
+      "thickness": "4px"
+    },
+    "refresh_indicator": {
+      "$description": "Pull-to-refresh affordance above scrollable content.",
+      "anatomy": ["indicator"],
+      "indicator": { "size": "28px", "background": "{color.light.surface}", "box_shadow": "{elevation.level2}" }
+    },
+    "file_upload": {
+      "$description": "Browse control beside the current selection.",
+      "anatomy": ["browse", "filename"],
+      "gap": "{spacing.s}",
+      "filename": { "color": "{color.light.text_secondary}", "font_size": "{typography.font_size.base}" }
+    },
+    "hero": {
+      "$description": "Shared-element transition surface.",
+      "anatomy": ["surface"],
+      "radius": "{radius.large}"
+    },
+    "terminal": {
+      "$description": "Embedded character grid with its own key handling.",
+      "anatomy": ["surface"],
+      "background": "{color.light.background}",
+      "color": "{color.light.text_primary}",
+      "font_family": "{typography.font_family.mono}",
+      "font_size": "{typography.font_size.xs}",
+      "padding": "{spacing.xs}"
+    },
+    "time_picker": {
+      "$description": "Hour and minute steppers around a separator.",
+      "anatomy": ["hour", "separator", "minute"],
+      "gap": "{spacing.xs}",
+      "separator": { "color": "{color.light.text_secondary}", "font_size": "{typography.font_size.base}" }
+    },
+    "date_picker": {
+      "$description": "Trigger opening a calendar surface.",
+      "anatomy": ["trigger", "calendar"],
+      "trigger": { "height": "36px", "padding_x": "{spacing.s}" }
+    },
+    "toast": {
+      "$description": "Transient notification surface with a tone icon and dismissal control.",
+      "anatomy": ["icon", "message", "dismiss?"],
+      "background": "{color.light.surface}",
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.medium}",
+      "padding": "{spacing.s}",
+      "max_width": "420px",
+      "gap": "{spacing.s}",
+      "box_shadow": "{elevation.level3}",
+      "icon": { "icon_size": "{spacing.m}" },
+      "message": {
+        "color": "{color.light.text_primary}",
+        "font_size": "{typography.font_size.base}",
+        "line_height": "20px"
+      },
+      "dismiss": { "icon_size": "{spacing.m}" }
+    },
+    "tag": {
+      "$description": "Removable pill labelling a filter, category or selection.",
+      "anatomy": ["label", "remove?"],
+      "background": "{color.light.surface}",
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.full}",
+      "height": "24px",
+      "padding_x": "{spacing.xs}",
+      "gap": "{spacing.xs}",
+      "font_size": "{typography.font_size.xs}",
+      "color": "{color.light.text_primary}",
+      "remove": { "size": "20px", "icon_size": "12px", "color": "{color.light.text_secondary}" }
+    },
+    "stat": {
+      "$description": "A caption with the figure it measures.",
+      "anatomy": ["label", "value", "delta?"],
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.medium}",
+      "padding": "{spacing.m}",
+      "gap": "{spacing.xs}",
+      "label": {
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.xs}",
+        "font_weight": "{typography.font_weight.medium}"
+      },
+      "value": {
+        "color": "{color.light.text_primary}",
+        "font_size": "{typography.font_size.h3}",
+        "font_weight": "{typography.font_weight.medium}"
+      }
+    },
+    "stepper": {
+      "$description": "Ordered progress through a finite workflow.",
+      "anatomy": ["node*", "connector*", "label*"],
+      "gap": "{spacing.s}",
+      "node": {
+        "size": "24px",
+        "radius": "{radius.full}",
+        "background": "{color.light.surface}",
+        "border": "1px solid {color.light.border}",
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.xs}"
+      },
+      "node_active": {
+        "background": "{color.light.primary}",
+        "color": "{color.light.on_primary}"
+      },
+      "connector": { "height": "2px", "background": "{color.light.border}", "width": "22px" },
+      "label": {
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.xs}"
+      },
+      "node_slot": "62px"
+    },
+    "divider": {
+      "$description": "Structural rule between adjacent groups.",
+      "background": "{color.light.divider}",
+      "height": "1px"
+    },
+    "skeleton": {
+      "$description": "Placeholder standing in for content that has not arrived.",
+      "background": "{color.light.placeholder}",
+      "radius": "{radius.small}"
+    },
+    "$comment": "Each component declares anatomy (named slots), sizes, hierarchies (visual variants), and states. Property values reference tokens via {namespace.path} or contain literal CSS values. Sourced from the Untitled UI Figma component matrix and bound to Fission's teal palette.",
+
+    "avatar": {
+      "$description": "An image or accessible initials fallback for a person.",
+      "fallback": { "background": "{color.light.primary}", "color": "{color.light.on_primary}" }
+    },
+
+    "button": {
+      "$source": "Figma /Buttons/Buttons-Button (node 3287:427074)",
+      "$description": "Compact primary action element with a 10px control radius.",
+      "anatomy": ["leading_icon?", "label", "trailing_icon?"],
+      "radius": "{radius.medium}",
+      "font_family": "{typography.font_family.sans}",
+      "font_weight": "{typography.font_weight.medium}",
+      "transition": "background {motion.duration.fast} {motion.easing.standard}, box-shadow {motion.duration.fast} {motion.easing.standard}, border-color {motion.duration.fast} {motion.easing.standard}, color {motion.duration.fast} {motion.easing.standard}",
+      "icon_size": "16px",
+      "padding_y": "0px",
+      "sizes": {
+        "sm": { "height": "32px", "padding_x": "12px", "padding_y": "0px", "gap": "4px", "radius": "{radius.small}", "font_size": "13px", "line_height": "18px", "icon_size": "14px" },
+        "md": { "height": "36px", "padding_x": "14px", "padding_y": "0px", "gap": "6px", "font_size": "14px", "line_height": "20px", "icon_size": "16px" },
+        "lg": { "height": "40px", "padding_x": "16px", "padding_y": "0px", "gap": "6px", "font_size": "14px", "line_height": "20px", "icon_size": "16px" },
+        "xl": { "height": "48px", "padding_x": "20px", "padding_y": "0px", "gap": "6px", "font_size": "16px", "line_height": "24px", "icon_size": "16px" }
+      },
+      "hierarchies": {
+        "primary": {
+          "default":  { "background": "{color.light.primary}", "color": "{color.light.on_primary}", "border": "1px solid transparent", "box_shadow": "none" },
+          "hover":    { "background": "{color.light.primary_hover_surface}", "box_shadow": "none" },
+          "active":   { "background": "{color.light.primary_hover_surface}", "box_shadow": "none" },
+          "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5, "cursor": "not-allowed" }
+        },
+        "secondary_color": {
+          "default":  { "background": "{color.light.surface}", "color": "{color.light.primary}", "border": "1px solid {color.light.primary_subtle}", "box_shadow": "none" },
+          "hover":    { "background": "{color.light.primary_subtle}", "color": "{color.light.primary_hover}" },
+          "active":   { "background": "{color.light.primary_subtle}" },
+          "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5 }
+        },
+        "secondary_gray": {
+          "default":  { "background": "{color.light.neutral_subtle}", "color": "{color.light.text_primary}", "border": "1px solid transparent", "box_shadow": "none" },
+          "hover":    { "background": "{color.light.neutral_border}", "color": "{color.light.text_primary}" },
+          "active":   { "background": "{color.light.neutral_border}" },
+          "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5 }
+        },
+        "outline": {
+          "default":  { "background": "{color.light.control_surface}", "color": "{color.light.text_primary}", "border": "1px solid {color.light.border}", "box_shadow": "none" },
+          "hover":    { "background": "{color.light.control_hover}", "color": "{color.light.text_primary}" },
+          "active":   { "background": "{color.light.control_hover}" },
+          "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5 }
+        },
+        "tertiary_color": {
+          "default":  { "background": "transparent", "color": "{color.light.primary}",  "border": "1px solid transparent" },
+          "hover":    { "background": "{color.light.primary_subtle}", "color": "{color.light.primary_hover}" },
+          "active":   { "background": "{color.light.primary_subtle}" },
+          "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5 }
+        },
+        "tertiary_gray": {
+          "default":  { "background": "transparent", "color": "{color.light.text_primary}", "border": "1px solid transparent" },
+          "hover":    { "background": "{color.light.surface_sunken}", "color": "{color.light.text_primary}" },
+          "active":   { "background": "{color.light.surface_sunken}" },
+          "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5 }
+        },
+        "link_color": {
+          "default":  { "background": "transparent", "color": "{color.light.primary}",  "border": "1px solid transparent", "padding_x": "0", "height": "auto" },
+          "hover":    { "color": "{color.light.primary_hover}", "text_decoration": "underline" },
+          "active":   { "text_decoration": "underline" },
+          "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5 }
+        },
+        "link_gray": {
+          "default":  { "background": "transparent", "color": "{color.light.text_secondary}", "border": "1px solid transparent", "padding_x": "0", "height": "auto" },
+          "hover":    { "color": "{color.light.text_primary}", "text_decoration": "underline" },
+          "active":   { "text_decoration": "underline" },
+          "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5 }
+        },
+        "destructive": {
+          "$source": "Figma /Buttons/Buttons-Button-destructive",
+          "default":  { "background": "{color.light.error_surface}", "color": "{color.light.error}", "border": "1px solid transparent", "box_shadow": "none" },
+          "hover":    { "background": "{color.light.error_hover}" },
+          "active":   { "background": "{color.light.error_hover}" },
+          "focus":    { "border": "1px solid {color.light.destructive_focus_border}", "box_shadow": "0 0 0 3px {color.light.error_focus_ring}" },
+          "disabled": { "opacity": 0.5 }
+        }
+      },
+      "css_classes": ["fs-btn", "fs-btn--{size}", "fs-btn--{hierarchy}"]
+    },
+
+    "input": {
+      "$source": "Figma /Inputs/Input + /Inputs/Input-field",
+      "$description": "Single-line text input with optional leading icon, label above, and helper text below.",
+      "anatomy": ["label?", "leading_icon?", "input", "trailing_icon?", "helper_text?", "error_text?"],
+      "radius": "{radius.medium}",
+      "font_family": "{typography.font_family.sans}",
+      "font_size": "{typography.font_size.base}",
+      "font_weight": "{typography.font_weight.regular}",
+      "line_height": "20px",
+      "sizes": {
+        "sm": { "height": "32px", "padding_x": "10px", "padding_y": "3px" },
+        "md": { "height": "36px", "padding_x": "10px", "padding_y": "4px" },
+        "lg": { "height": "40px", "padding_x": "12px", "padding_y": "6px" },
+        "xl": { "height": "48px", "padding_x": "14px", "padding_y": "10px" }
+      },
+      "states": {
+        "default":     { "background": "{color.light.control_surface}", "border": "1px solid {color.light.border}", "color": "{color.light.text_primary}", "box_shadow": "none" },
+        "hover":       { "border": "1px solid {color.light.border_strong}" },
+        "placeholder": { "color": "{color.light.text_secondary}" },
+        "focus":       { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+        "error":       { "border": "1px solid {color.light.error_control_border}", "box_shadow": "0 0 0 3px {color.light.error_focus_ring}", "$helper_color": "{color.light.error}" },
+        "disabled":    { "background": "{color.light.disabled_control_surface}", "opacity": 0.5, "cursor": "not-allowed" }
+      },
+      "label": { "font_size": "14px", "font_weight": 500, "line_height": "19.25px", "color": "{color.light.text_primary}", "margin_bottom": "6px" },
+      "helper_text": { "font_size": "14px", "color": "{color.light.text_secondary}", "margin_top": "6px" },
+      "css_classes": ["fs-input"]
+    },
+
+    "select": {
+      "$description": "Single-value selection trigger with a retained disclosure indicator.",
+      "anatomy": ["value", "indicator"],
+      "sizes": {
+        "sm": { "height": "32px", "radius": "{radius.small}", "padding": "3px 8px 3px 10px", "gap": "6px", "font_size": "14px", "font_weight": 400, "line_height": "20px", "icon_size": "16px" },
+        "md": { "height": "36px", "radius": "{radius.medium}", "padding": "5px 8px 5px 10px", "gap": "6px", "font_size": "14px", "font_weight": 400, "line_height": "20px", "icon_size": "16px" },
+        "lg": { "height": "40px", "radius": "{radius.medium}", "padding": "7px 8px 7px 10px", "gap": "6px", "font_size": "14px", "font_weight": 400, "line_height": "20px", "icon_size": "16px" },
+        "xl": { "height": "48px", "radius": "{radius.medium}", "padding": "9px 8px 9px 10px", "gap": "6px", "font_size": "16px", "font_weight": 400, "line_height": "24px", "icon_size": "16px" }
+      },
+      "trigger_states": {
+        "default":  { "background": "{color.light.control_surface}", "color": "{color.light.text_primary}", "border": "1px solid {color.light.border}" },
+        "hover":    { "background": "{color.light.control_hover}" },
+        "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+        "disabled": { "opacity": 0.5 },
+        "error":    { "border": "1px solid {color.light.error_control_border}", "box_shadow": "0 0 0 3px {color.light.error_focus_ring}" }
+      },
+      "placeholder": { "color": "{color.light.text_secondary}" },
+      "indicator": { "color": "{color.light.text_secondary}", "icon_size": "16px", "inset_end": "8px" }
+    },
+
+    "alert": {
+      "$description": "Compact persistent status surface with retained leading, message, and action regions.",
+      "anatomy": ["leading?", "content", "action?"],
+      "surface": {
+        "background": "{color.light.surface}",
+        "border": "1px solid {color.light.border}",
+        "radius": "{radius.medium}",
+        "min_height": "60px",
+        "padding": "8px 10px",
+        "gap": "8px",
+        "box_shadow": "none"
+      },
+      "icon": { "icon_size": "16px", "inset_top": "2px", "translate_y": "2px" },
+      "content": { "gap": "2px" },
+      "title": {
+        "color": "{color.light.text_primary}",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.medium}",
+        "line_height": "20px"
+      },
+      "description": {
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.regular}",
+        "line_height": "20px"
+      },
+      "action": { "width": "64px", "inset_top": "8px", "inset_end": "8px" },
+      "tones": {
+        "info": { "background": "{color.light.surface}", "color": "{color.light.info}" },
+        "warning": { "background": "{color.light.surface}", "color": "{color.light.warning}" },
+        "error": { "background": "{color.light.surface}", "color": "{color.light.error}" },
+        "success": { "background": "{color.light.surface}", "color": "{color.light.success}" }
+      }
+    },
+
+    "menu": {
+      "$description": "Compact popup content shared by action menus, selects, and editable option lists.",
+      "anatomy": ["group*", "label?", "item*", "separator*"],
+      "trigger": {
+        "sizes": {
+          "sm": { "height": "32px", "radius": "{radius.small}", "padding": "0px 6px 0px 10px", "gap": "4px", "font_size": "12.8px", "font_weight": 500, "line_height": "19.2px", "icon_size": "14px" },
+          "md": { "height": "36px", "radius": "{radius.medium}", "padding": "0px 8px 0px 10px", "gap": "6px", "font_size": "14px", "font_weight": 500, "line_height": "20px", "icon_size": "16px" }
+        },
+        "states": {
+          "default": { "background": "{color.light.control_surface}", "color": "{color.light.text_primary}", "border": "1px solid {color.light.border}", "box_shadow": "none" },
+          "hover": { "background": "{color.light.control_hover}", "color": "{color.light.text_primary}" },
+          "active": { "background": "{color.light.control_hover}" },
+          "focus": { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5 },
+          "selected": { "background": "{color.light.control_hover}", "color": "{color.light.text_primary}" }
+        }
+      },
+      "surface": {
+        "background": "{color.light.surface}",
+        "radius": "{radius.medium}",
+        "width": "208px",
+        "padding": "4px",
+        "gap": "0px",
+        "box_shadow": "0 0 0 1px {color.light.surface_ring}, {elevation.level2}"
+      },
+      "item": {
+        "anatomy": ["leading_icon?", "label", "description?", "trailing_shortcut_or_metadata?", "selected_indicator?"],
+        "states": {
+          "default": { "background": "transparent", "color": "{color.light.text_primary}", "radius": "{radius.small}", "height": "32px", "padding_x": "6px", "padding_y": "4px", "gap": "6px", "font_size": "{typography.font_size.base}", "font_weight": "{typography.font_weight.regular}", "line_height": "20px", "icon_size": "16px" },
+          "hover": { "background": "{color.light.surface_sunken}" },
+          "active": { "background": "{color.light.surface_sunken}" },
+          "focus": { "background": "{color.light.surface_sunken}" },
+          "disabled": { "opacity": 0.5 },
+          "selected": { "background": "{color.light.surface_sunken}" }
+        },
+        "destructive_states": {
+          "default": { "color": "{color.light.error}" },
+          "hover": { "background": "{color.light.error_surface}" },
+          "active": { "background": "{color.light.error_hover}" },
+          "focus": { "background": "{color.light.error_surface}" },
+          "disabled": { "opacity": 0.5 },
+          "selected": { "background": "{color.light.error_surface}" }
+        },
+        "description": { "color": "{color.light.text_secondary}", "font_size": "13px", "font_weight": 400, "line_height": "18px", "gap": "2px" },
+        "shortcut": { "color": "{color.light.text_secondary}", "font_size": "12px", "font_weight": 400, "line_height": "16px", "letter_spacing": "0.4px" },
+        "metadata": { "color": "{color.light.text_secondary}", "font_size": "13px", "font_weight": 400, "line_height": "18px" },
+        "indicator": { "color": "{color.light.text_primary}", "icon_size": "16px", "inset_end": "8px" }
+      },
+      "group_label": { "color": "{color.light.text_secondary}", "height": "24px", "padding_x": "6px", "padding_y": "4px", "font_size": "12px", "font_weight": 500, "line_height": "16px" },
+      "separator": { "border": "1px solid {color.light.divider}", "height": "9px", "padding_y": "4px", "margin": "0px -4px" }
+    },
+
+    "card": {
+      "$description": "Compact grouped-content surface with optional tint or explicit elevation.",
+      "anatomy": ["leading_media?", "header", "body", "footer?"],
+      "radius": "{radius.large}",
+      "border": "1px solid {color.light.border}",
+      "background": "{color.light.surface}",
+      "padding": "{spacing.m}",
+      "sizes": {
+        "sm": { "padding": "12px", "gap": "12px", "font_size": "14px", "line_height": "20px" },
+        "md": { "padding": "16px", "gap": "16px", "font_size": "16px", "line_height": "24px" }
+      },
+      "header": { "gap": "4px" },
+      "content": {},
+      "footer": { "background": "{color.light.surface_half}", "border": "1px solid {color.light.border}", "gap": "8px" },
+      "title": { "color": "{color.light.text_primary}", "font_size": "16px", "font_weight": 500, "line_height": "24px" },
+      "description": { "color": "{color.light.text_secondary}", "font_size": "14px", "font_weight": 400, "line_height": "20px" },
+      "separator": { "border": "1px solid {color.light.border}" },
+      "patterns": {
+        "plain":   { "background": "{color.light.surface}", "box_shadow": "none", "border": "1px solid {color.light.border}" },
+        "raised":  { "background": "{color.light.surface}", "box_shadow": "{elevation.level1}", "border": "1px solid {color.light.border}" },
+        "tinted":  { "background": "{color.light.primary_subtle}", "box_shadow": "none" },
+        "elevated": { "background": "{color.light.surface}", "box_shadow": "{elevation.level2}", "border": "1px solid {color.light.border}" }
+      },
+      "interaction": {
+        "hover":  { "box_shadow": "{elevation.level2}", "$comment": "Only when card is interactive (a link or button surface)." },
+        "selected": {},
+        "selected_indicator": { "background": "{color.light.primary}", "width": "4px" }
+      }
+    },
+
+    "code": {
+      "$description": "Inline machine-readable text with design-system-owned typography and surface treatment.",
+      "background": "{color.light.surface_sunken}",
+      "color": "{color.light.text_primary}",
+      "radius": "{radius.small}",
+      "padding_x": "{spacing.xs}",
+      "padding_y": "2px",
+      "font_size": "{typography.font_size.xs}",
+      "font_family": "{typography.font_family.mono}"
+    },
+
+    "empty_state": {
+      "$description": "Centered guidance for an empty content region and its next action.",
+      "anatomy": ["icon?", "header", "action?"],
+      "surface": { "border": "1px solid {color.light.border}", "border_dash": "4px 4px", "radius": "{radius.large}", "min_height": "160px", "padding": "24px", "gap": "16px" },
+      "narrow_breakpoint": "640px",
+      "narrow_surface": { "min_height": "128px" },
+      "header": { "max_width": "384px", "gap": "8px" },
+      "icon": { "background": "{color.light.surface_sunken}", "size": "32px", "radius": "{radius.medium}", "icon_size": "16px", "margin_bottom": "8px" },
+      "title": { "color": "{color.light.text_primary}", "font_size": "14px", "font_weight": 500, "line_height": "19.6px" },
+      "description": { "color": "{color.light.text_secondary}", "font_size": "14px", "font_weight": 400, "line_height": "23.52px" },
+      "action": { "max_width": "384px", "gap": "10px" }
+    },
+
+    "avatar_group": {
+      "$description": "A compact retained group of overlapping people with an accessible overflow count.",
+      "avatar": { "width": "32px", "height": "32px", "radius": "{radius.full}", "border": "2px solid {color.light.surface}" },
+      "overflow": { "background": "{color.light.surface_sunken}", "color": "{color.light.text_secondary}", "width": "32px", "height": "32px", "radius": "{radius.full}", "border": "2px solid {color.light.surface}", "font_size": "{typography.font_size.xs}", "font_weight": "{typography.font_weight.medium}", "line_height": "16px" },
+      "overlap": "10px",
+      "max_visible": 4
+    },
+
+    "badge": {
+      "$source": "Figma /Badges/Badge (1046:3819) — Size=md, Type=Pill color",
+      "$description": "Inline status pill. Lightest brand tint background + tinted border + brand-700 text.",
+      "anatomy": ["leading_dot?", "label", "leading_avatar?", "trailing_x?"],
+      "sizes": {
+        "sm": { "height": "20px", "padding_x": "8px",  "font_size": "12px", "line_height": "18px" },
+        "md": { "height": "24px", "padding_x": "10px", "font_size": "14px", "line_height": "20px" }
+      },
+      "radius": "{radius.full}",
+      "font_family": "{typography.font_family.sans}",
+      "font_weight": "{typography.font_weight.medium}",
+      "colors": {
+        "brand":   { "background": "{color.light.accent_subtle}",            "border": "1px solid {color.light.accent_border}",     "color": "{color.light.accent_text}" },
+        "gray":    { "background": "{color.light.neutral_subtle}",           "border": "1px solid {color.light.neutral_border}",    "color": "{color.light.neutral_text}" },
+        "success": { "background": "{color.light.success_subtle}",                    "border": "1px solid {color.light.success_border}",              "color": "{color.light.success_text}" },
+        "warning": { "background": "{color.light.warning_subtle}",                    "border": "1px solid {color.light.warning_border}",              "color": "{color.light.warning_text}" },
+        "error":   { "background": "{color.light.error_subtle}",                    "border": "1px solid {color.light.error_border}",              "color": "{color.light.error_text}" },
+        "blue":    { "background": "{color.light.info_subtle}",      "border": "1px solid {color.light.info_border}",              "color": "{color.light.info_text}" },
+        "orange":  { "background": "{color.light.highlight_subtle}",    "border": "1px solid {color.light.highlight_border}",              "color": "{color.light.highlight_text}" }
+      },
+      "css_classes": ["fs-badge", "fs-badge--{color}"]
+    },
+
+    "tabs": {
+      "$source": "Figma /Tabs/Horizontal-tabs",
+      "$description": "Compact segmented tabs with a muted track and raised active item.",
+      "anatomy": ["tab[]"],
+      "tab_anatomy": ["label", "leading_icon?", "trailing_count?"],
+      "sizes": {
+        "sm": { "height": "24px", "padding_x": "10px", "padding_y": "2px", "gap": "4px", "font_size": "13px", "line_height": "20px", "indicator_height": "0px" },
+        "md": { "height": "28px", "padding_x": "12px", "padding_y": "2px", "gap": "6px", "font_size": "14px", "line_height": "20px", "indicator_height": "0px" }
+      },
+      "track": { "background": "{color.light.surface_sunken}", "border": "none", "radius": "{radius.medium}", "height": "36px", "padding": "4px", "gap": "0px" },
+      "states": {
+        "default": { "background": "transparent", "color": "{color.light.tab_inactive}", "border": "1px solid transparent", "radius": "6px" },
+        "hover":   { "background": "{color.light.surface}", "color": "{color.light.text_primary}" },
+        "active":  { "background": "{color.light.tab_active_surface}", "color": "{color.light.text_primary}", "border": "1px solid {color.light.tab_active_border}", "radius": "6px", "font_weight": "{typography.font_weight.medium}", "box_shadow": "{elevation.level1}" },
+        "focus":   { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+        "disabled": { "opacity": 0.5 }
+      },
+      "variants": {
+        "underline": {
+          "sizes": {
+            "sm": { "height": "44px", "padding_x": "8px", "gap": "4px", "font_size": "13px", "line_height": "20px", "indicator_height": "2px" },
+            "md": { "height": "48px", "padding_x": "12px", "gap": "6px", "font_size": "14px", "line_height": "20px", "indicator_height": "2px" }
+          },
+          "track": { "background": "transparent", "padding": "0px", "gap": "0px" },
+          "states": {
+            "default": { "background": "transparent", "color": "{color.light.tab_inactive}" },
+            "hover": { "color": "{color.light.text_primary}" },
+            "active": { "background": "transparent", "color": "{color.light.primary}", "font_weight": "{typography.font_weight.medium}" },
+            "focus": { "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+            "disabled": { "opacity": 0.5 }
+          }
+        }
+      },
+      "variants_available": ["underline", "button_brand", "button_gray", "button_border"]
+    },
+
+    "progress_bar": {
+      "$source": "Figma /Progress-indicators/Progress-bar (1085:57382)",
+      "$description": "Horizontal progress indicator. Track + fill, both rounded-full.",
+      "anatomy": ["track", "fill", "label?"],
+      "height": "8px",
+      "radius": "{radius.full}",
+      "track": { "background": "{color.light.border}" },
+      "fill":  { "background": "{color.light.accent}" },
+      "label_patterns": {
+        "right": { "layout": "row", "label_position": "right",  "label_min_width": "32px" },
+        "bottom":{ "layout": "column", "label_position": "bottom_end" }
+      }
+    },
+
+    "feature_icon": {
+      "$source": "Figma /Misc-icons/Featured-icon",
+      "$description": "Pill icon container used as visual anchor for feature blocks, list items, target rows.",
+      "anatomy": ["icon"],
+      "sizes": {
+        "md": { "size": "40px", "radius": "{radius.medium}",  "icon_size": "20px" },
+        "lg": { "size": "48px", "radius": "10px",             "icon_size": "24px" },
+        "xl": { "size": "56px", "radius": "12px",             "icon_size": "28px" }
+      },
+      "tones": {
+        "brand":  { "background": "{color.light.accent_subtle}",          "color": "{color.light.accent_text}",  "border": "1px solid {color.light.accent_border}" },
+        "gray":   { "background": "{color.light.neutral_subtle}",         "color": "{color.light.neutral_text}", "border": "1px solid {color.light.neutral_border}" },
+        "blue":   { "background": "{color.light.info_subtle}",    "color": "{color.light.info_text}",   "border": "1px solid {color.light.info_border}" },
+        "orange": { "background": "{color.light.highlight_subtle}",  "color": "{color.light.highlight_text}", "border": "1px solid {color.light.highlight_border}" }
+      },
+      "box_shadow": "0 1px 2px rgba(10,13,18,0.05)",
+      "css_classes": ["fs-feature-icon", "fs-feature-icon--{tone}"]
+    },
+
+    "pagination": {
+      "$description": "Compact page navigation whose directional controls follow layout direction.",
+      "anatomy": ["previous", "page*", "ellipsis?", "next"],
+      "gap": "{spacing.xs}",
+      "item": {
+        "color": "{color.light.text_primary}",
+        "size": "36px",
+        "padding": "0px",
+        "radius": "{radius.medium}",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.regular}",
+        "line_height": "20px",
+        "icon_size": "16px",
+        "box_shadow": "none"
+      },
+      "selected": {
+        "background": "{color.light.surface}",
+        "border": "1px solid {color.light.border}",
+        "color": "{color.light.text_primary}",
+        "font_weight": "{typography.font_weight.medium}",
+        "box_shadow": "none"
+      },
+      "ellipsis": {
+        "color": "{color.light.text_muted}",
+        "size": "36px",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.regular}",
+        "line_height": "20px"
+      }
+    },
+
+    "modal": {
+      "$source": "Fission ModalTheme (fission-theme/src/lib.rs)",
+      "anatomy": ["scrim", "container", "header", "body", "footer?"],
+      "radius": "{radius.large}",
+      "background": "{color.light.surface}",
+      "padding": "{spacing.m}",
+      "gap": "{spacing.m}",
+      "max_width": "384px",
+      "box_shadow": "0 0 0 1px {color.light.surface_ring}",
+      "viewport_margin": "16px",
+      "action_stack_breakpoint": "640px",
+      "motion_duration": "100ms",
+      "motion_initial_scale": 0.95,
+      "scrim": { "background": "rgba(0,0,0,0.1)", "backdrop_filter": "blur(4px)" },
+      "header": { "gap": "8px" },
+      "title": {
+        "color": "{color.light.text_primary}",
+        "font_size": "16px",
+        "font_weight": 500,
+        "line_height": "16px"
+      },
+      "description": {
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.regular}",
+        "line_height": "20px"
+      },
+      "body": {},
+      "footer": { "background": "{color.light.surface_half}", "border": "1px solid {color.light.border}", "padding": "16px", "margin": "0px -16px -16px", "gap": "{spacing.s}" },
+      "close": { "size": "32px", "padding": "0px", "icon_size": "16px", "inset_top": "8px", "inset_end": "8px" }
+    },
+
+    "tooltip": {
+      "$source": "Fission TooltipTheme",
+      "anatomy": ["bubble", "arrow?"],
+      "radius": "{radius.small}",
+      "background": "{color.light.inverse_surface}",
+      "color": "{color.light.inverse_text}",
+      "font_size": "12px",
+      "padding": "8px 10px",
+      "max_width": "240px",
+      "box_shadow": "{elevation.level2}"
+    },
+
+    "kicker_eyebrow": {
+      "$description": "Small uppercase label above section titles.",
+      "font_size": "14px",
+      "font_weight": 600,
+      "color": "{color.light.text_link}",
+      "letter_spacing": "0",
+      "text_transform": "none",
+      "$variant_uppercase": { "text_transform": "uppercase", "letter_spacing": "{typography.letter_spacing.kicker}", "font_size": "12px" }
+    }
+  },
+
+  "patterns": {
+    "$comment": "Composition patterns — proven layouts the design system endorses.",
+
+    "marketing_hero": {
+      "$description": "Centered hero: pill announcement → display-lg headline → text-xl lead → CTA row → command panel grid.",
+      "max_width": "1280px",
+      "padding": "96px 32px 80px",
+      "alignment": "center",
+      "components": ["pill_announcement", "display_lg_headline", "text_xl_lead", "cta_row", "command_panel_grid_2col"]
+    },
+
+    "marketing_features_4up": {
+      "$description": "4-column feature grid: feature_icon → 18px heading → text-md body.",
+      "grid": "repeat(4, minmax(0, 1fr))",
+      "gap": "{spacing.xl}",
+      "section_padding": "80px 0"
+    },
+
+    "marketing_target_rail": {
+      "$description": "Vertical list of target rows in a single bordered card: feature_icon + name+badge+summary + command + link button.",
+      "container": "card.elevated, radius xl, 1px border, overflow hidden",
+      "row_height_min": "80px",
+      "row_columns": "auto minmax(0, 1fr) minmax(280px, 0.9fr) auto"
+    },
+
+    "marketing_examples_3up": {
+      "$description": "3-column product cards with screenshot, badge, title, command, body, feature tags, and dual CTAs.",
+      "grid": "repeat(3, minmax(0, 1fr))",
+      "gap": "{spacing.l}",
+      "card_screenshot_aspect": "16 / 10"
+    },
+
+    "marketing_cta_strip_dark": {
+      "$description": "Final-call section on slate-950 with teal/blue radial-gradient overlays. Centered headline + 2 CTAs.",
+      "background": "radial-gradient(circle at 20% 0%, rgba(45,212,191,0.12), transparent 50%), radial-gradient(circle at 80% 100%, rgba(77,166,224,0.10), transparent 55%), {color.slate.950}"
+    },
+
+    "form_field_stack": {
+      "$description": "Vertical stack for a form field: label → input → helper or error text.",
+      "gap": "6px",
+      "elements": ["label", "input", "helper_text"]
+    }
+  },
+
+  "assets": {
+    "$comment": "Use the shell's default font support and Fission's bundled vector icon paths. No upstream logo, photograph or custom font asset is copied into this demo.",
+    "logos": [],
+    "fonts": [],
+    "iconography": {
+      "$comment": "Material Symbols Rounded — the same set bundled by fission-icons.",
+      "set": "material-symbols-rounded",
+      "weight": 400,
+      "optical_size": 24,
+      "fill": 0,
+      "grad": 0,
+      "cdn": "https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0",
+      "rust_source": "https://github.com/worka-ai/material-design-icons"
+    }
+  },
+
+  "data_visualization": {
+    "$description": "Default qualitative chart palette used by Fission charts when an app does not provide a chart-specific palette.",
+    "palette": [
+      "{color.teal.700}",
+      "{color.brand.blue.600}",
+      "{color.semantic.warning}",
+      "{color.semantic.error}",
+      "{color.semantic.success}",
+      "{color.semantic.info}",
+      "{color.brand.orange.600}",
+      "{color.teal.500}"
+    ]
+  },
+
+  "preview": {
+    "$comment": "Static HTML cards used by the design system review UI. Each card is ~700px wide, height varies.",
+    "cards": [
+      { "asset": "Brand · Logo",                   "group": "Brand",      "path": "preview/brand-logo.html" },
+      { "asset": "Brand · Atom mark",              "group": "Brand",      "path": "preview/brand-mark.html" },
+      { "asset": "Colors · Teal interactive",      "group": "Colors",     "path": "preview/colors-teal.html" },
+      { "asset": "Colors · Brand signal (logo)",   "group": "Colors",     "path": "preview/colors-brand-signal.html" },
+      { "asset": "Colors · Slate neutrals",        "group": "Colors",     "path": "preview/colors-slate.html" },
+      { "asset": "Colors · Semantic status",       "group": "Colors",     "path": "preview/colors-semantic.html" },
+      { "asset": "Colors · Light surface tokens",  "group": "Colors",     "path": "preview/colors-light-surface.html" },
+      { "asset": "Colors · Dark surface tokens",   "group": "Colors",     "path": "preview/colors-dark-surface.html" },
+      { "asset": "Type · Display serif",           "group": "Type",       "path": "preview/type-display.html" },
+      { "asset": "Type · Sans scale",              "group": "Type",       "path": "preview/type-sans-scale.html" },
+      { "asset": "Type · Mono / code",             "group": "Type",       "path": "preview/type-mono.html" },
+      { "asset": "Type · Semantic classes",        "group": "Type",       "path": "preview/type-semantic.html" },
+      { "asset": "Spacing · Scale",                "group": "Spacing",    "path": "preview/spacing-scale.html" },
+      { "asset": "Spacing · Radius scale",         "group": "Spacing",    "path": "preview/spacing-radius.html" },
+      { "asset": "Spacing · Elevation",            "group": "Spacing",    "path": "preview/spacing-elevation.html" },
+      { "asset": "Spacing · Motion",               "group": "Spacing",    "path": "preview/spacing-motion.html" },
+      { "asset": "Components · Buttons",           "group": "Components", "path": "preview/comp-buttons.html" },
+      { "asset": "Components · Inputs",            "group": "Components", "path": "preview/comp-inputs.html" },
+      { "asset": "Components · Card",              "group": "Components", "path": "preview/comp-card.html" },
+      { "asset": "Components · Badges & tags",     "group": "Components", "path": "preview/comp-badges-tags.html" },
+      { "asset": "Components · Tabs & progress",   "group": "Components", "path": "preview/comp-tabs-progress.html" },
+      { "asset": "Components · Iconography",       "group": "Components", "path": "preview/comp-icons.html" },
+      { "asset": "Components · CTA strip",         "group": "Components", "path": "preview/comp-cta-pattern.html" },
+      { "asset": "Fission documentation site",     "group": "Components", "path": "ui_kits/documentation-site/index.html" }
+    ]
+  },
+
+  "sources": {
+    "$comment": "Upstream references this DSP was distilled from.",
+    "github_repos": [
+      {
+        "url": "https://github.com/fission-ui/fission",
+        "purpose": "The framework itself. fission-theme crate defines the Material 3 token structure; docs2/ is the canonical brand surface.",
+        "key_files": [
+          "crates/core/fission-theme/src/lib.rs",
+          "docs2/site/docs2.css",
+          "docs2/src/screens/home.rs",
+          "docs2/site/assets/img/fission_logo.png"
+        ]
+      }
+    ],
+    "figma_files": [
+      {
+        "name": "❖ Untitled UI – PRO VARIABLES(D)",
+        "purpose": "Component vocabulary reference (Buttons, Inputs, Badges, Tabs, Progress, Featured Icon). Tokens are NOT inherited from Untitled UI — only component shapes are.",
+        "components_used": [
+          "/Buttons/Buttons-Button (3287:427074)",
+          "/Buttons/Buttons-Button-destructive",
+          "/Inputs/Input (8460:196140)",
+          "/Inputs/Input-field (1091:61577)",
+          "/Badges/Badge (1046:3819)",
+          "/Tabs/Horizontal-tabs",
+          "/Progress-indicators/Progress-bar (1085:57382)",
+          "/Misc-icons/Featured-icon"
+        ]
+      }
+    ]
+  }
+}
+```
+</TabItem>
+<TabItem label="design/tokens.json">
+<!-- fission:file path="design/tokens.json" -->
+```json
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "$description": "Fission Design System tokens. Mirrors the Material Design 3 token architecture used by Fission's own `fission-theme` crate. Primitive tokens (color.*, spacing.*, typography.*, radius.*, elevation.*) cascade into semantic and component tokens.",
+  "$meta": {
+    "name": "Rust WhatsApp Clone Design System",
+    "version": "0.2.0",
+    "framework": "fission (fission-ui/fission)",
+    "license": "Apache-2.0"
+  },
+
+  "color": {
+    "$description": "Primitive color tokens. The Fission palette has two parallel families: the teal *interactive* palette (from the docs site) and the orange/blue *signal* palette (from the logo). Slate is the neutral ramp.",
+
+    "brand": {
+      "orange": {
+        "$description": "Logo nucleus / signal accent / energy.",
+        "50":  { "value": "#FEF6EE", "type": "color" },
+        "100": { "value": "#FDE8D2", "type": "color" },
+        "200": { "value": "#FACBA0", "type": "color" },
+        "300": { "value": "#F6A86A", "type": "color" },
+        "400": { "value": "#F2904A", "type": "color" },
+        "500": { "value": "#F08820", "type": "color", "$extensions": {"role": "brand-accent"} },
+        "600": { "value": "#D8741A", "type": "color" },
+        "700": { "value": "#A85916", "type": "color" },
+        "800": { "value": "#7A3F10", "type": "color" },
+        "900": { "value": "#4A2609", "type": "color" }
+      },
+      "blue": {
+        "$description": "Logo orbit / signal accent / structure.",
+        "50":  { "value": "#EEF6FD", "type": "color" },
+        "100": { "value": "#D5E8F8", "type": "color" },
+        "200": { "value": "#A8D0F2", "type": "color" },
+        "300": { "value": "#7AB7EB", "type": "color" },
+        "400": { "value": "#4DA6E0", "type": "color", "$extensions": {"role": "brand-accent"} },
+        "500": { "value": "#2D8FCB", "type": "color" },
+        "600": { "value": "#1F76AB", "type": "color" },
+        "700": { "value": "#175C85", "type": "color" },
+        "800": { "value": "#0F3F5C", "type": "color" },
+        "900": { "value": "#082336", "type": "color" }
+      }
+    },
+
+    "teal": {
+      "$description": "Interactive palette for links, primary buttons, and focus rings, aligned with the Fission documentation site.",
+      "50":  { "value": "#F0FDFA", "type": "color" },
+      "100": { "value": "#CCFBF1", "type": "color" },
+      "200": { "value": "#99F6E4", "type": "color" },
+      "300": { "value": "#5EEAD4", "type": "color" },
+      "400": { "value": "#2DD4BF", "type": "color", "$extensions": {"role": "primary-dark"} },
+      "500": { "value": "#14B8A6", "type": "color" },
+      "600": { "value": "#0D9488", "type": "color" },
+      "700": { "value": "#0F766E", "type": "color", "$extensions": {"role": "primary-light"} },
+      "800": { "value": "#115E59", "type": "color" },
+      "900": { "value": "#134E4A", "type": "color" }
+    },
+
+    "slate": {
+      "$description": "Neutral ramp. Matches Tailwind slate so direct Tailwind use stays on-brand.",
+      "0":    { "value": "#FFFFFF", "type": "color" },
+      "50":   { "value": "#F8FAFC", "type": "color" },
+      "100":  { "value": "#F1F5F9", "type": "color" },
+      "200":  { "value": "#E2E8F0", "type": "color" },
+      "300":  { "value": "#CBD5E1", "type": "color" },
+      "400":  { "value": "#94A3B8", "type": "color" },
+      "500":  { "value": "#64748B", "type": "color" },
+      "600":  { "value": "#475569", "type": "color" },
+      "700":  { "value": "#334155", "type": "color" },
+      "800":  { "value": "#1E293B", "type": "color" },
+      "900":  { "value": "#0F172A", "type": "color" },
+      "950":  { "value": "#020617", "type": "color" }
+    },
+
+    "zinc": {
+      "$description": "Graphite neutral ramp, cool and nearly hueless.",
+      "0": { "value": "#FFFFFF", "type": "color" },
+      "50": { "value": "#FAFAFA", "type": "color" },
+      "100": { "value": "#F4F4F5", "type": "color" },
+      "200": { "value": "#E4E4E7", "type": "color" },
+      "300": { "value": "#D4D4D8", "type": "color" },
+      "400": { "value": "#A1A1AA", "type": "color" },
+      "500": { "value": "#71717A", "type": "color" },
+      "600": { "value": "#52525B", "type": "color" },
+      "700": { "value": "#3F3F46", "type": "color" },
+      "800": { "value": "#27272A", "type": "color" },
+      "900": { "value": "#18181B", "type": "color" },
+      "950": { "value": "#09090B", "type": "color" }
+    },
+
+    "blue": {
+      "$description": "Graphite accent ramp: focus rings, links, and the on state of selection controls.",
+      "50": { "value": "#EFF6FF", "type": "color" },
+      "100": { "value": "#DBEAFE", "type": "color" },
+      "200": { "value": "#BFDBFE", "type": "color" },
+      "300": { "value": "#93C5FD", "type": "color" },
+      "400": { "value": "#60A5FA", "type": "color" },
+      "500": { "value": "#3B82F6", "type": "color" },
+      "600": { "value": "#2563EB", "type": "color" },
+      "700": { "value": "#1D4ED8", "type": "color" },
+      "800": { "value": "#1E40AF", "type": "color" },
+      "900": { "value": "#1E3A8A", "type": "color" },
+      "950": { "value": "#172554", "type": "color" }
+    },
+
+    "semantic": {
+      "success": { "value": "#10B981", "type": "color" },
+      "warning": { "value": "#F59E0B", "type": "color" },
+      "error":   { "value": "#E11D48", "type": "color" },
+      "info":    { "value": "#0EA5E9", "type": "color" }
+    },
+
+    "light": {
+      "$description": "Chat demo: deep teal on white, warm conversation canvas, mint outgoing messages. Text and icons accompany every state; colour is not the only signal.",
+      "primary":         { "value": "#075E54", "type": "color" },
+      "on_primary":      { "value": "#FFFFFF",  "type": "color" },
+      "primary_hover":   { "value": "#064D45", "type": "color" },
+      "primary_subtle":  { "value": "#DCF8C6",  "type": "color" },
+      "secondary":       { "value": "#2F4443", "type": "color" },
+      "on_secondary":    { "value": "#FFFFFF",  "type": "color" },
+      "surface":         { "value": "#FFFFFF",  "type": "color" },
+      "surface_raised":  { "value": "#FFFFFF",  "type": "color" },
+      "surface_sunken":  { "value": "#F0F2F5", "type": "color" },
+      "placeholder":     { "value": "#F0F2F5", "type": "color" },
+      "background":      { "value": "#ECE5DD",  "type": "color" },
+      "border":          { "value": "#DFE3E5", "type": "color" },
+      "border_strong":   { "value": "#BFCDCC", "type": "color" },
+      "divider":         { "value": "#DFE3E5", "type": "color" },
+      "text_primary":    { "value": "#17252A", "type": "color" },
+      "text_secondary":  { "value": "#455A64", "type": "color" },
+      "text_muted":      { "value": "#52636A", "type": "color" },
+      "text_link":       { "value": "#075E54", "type": "color" },
+      "heading":         { "value": "#17252A", "type": "color" },
+      "focus_ring":      { "value": "#005FCC", "type": "color" },
+      "focus_soft":      { "value": "rgba(20, 184, 166, 0.35)", "type": "color" },
+      "primary_hover_surface": { "value": "rgba(13, 109, 102, 0.85)", "type": "color" },
+      "control_surface": { "value": "rgba(0, 0, 0, 0)", "type": "color" },
+      "control_hover":   { "value": "#EDF3F3", "type": "color" },
+      "disabled_control_surface": { "value": "rgba(220, 229, 229, 0.5)", "type": "color" },
+      "surface_half":    { "value": "rgba(244, 247, 247, 0.5)", "type": "color" },
+      "surface_ring":    { "value": "rgba(14, 26, 26, 0.08)", "type": "color" },
+      "tab_inactive":    { "value": "rgba(14, 26, 26, 0.6)", "type": "color" },
+      "tab_active_surface": { "value": "#FFFFFF", "type": "color" },
+      "tab_active_border": { "value": "rgba(0, 0, 0, 0)", "type": "color" },
+      "error_surface":   { "value": "rgba(225, 29, 72, 0.1)", "type": "color" },
+      "error_hover":     { "value": "rgba(225, 29, 72, 0.2)", "type": "color" },
+      "error_control_border": { "value": "{color.semantic.error}", "type": "color" },
+      "destructive_focus_border": { "value": "rgba(225, 29, 72, 0.4)", "type": "color" },
+      "error_focus_ring": { "value": "rgba(225, 29, 72, 0.2)", "type": "color" },
+      "error":           { "value": "{color.semantic.error}", "type": "color" },
+      "on_error":        { "value": "#FFFFFF", "type": "color" },
+      "success":         { "value": "{color.semantic.success}", "type": "color" },
+      "warning":         { "value": "{color.semantic.warning}", "type": "color" },
+      "info":            { "value": "{color.semantic.info}", "type": "color" },
+      "accent": { "value": "#075E54", "type": "color" },
+      "on_accent": { "value": "#FFFFFF", "type": "color" },
+      "accent_subtle": { "value": "#DDF3F0", "type": "color" },
+      "accent_border": { "value": "#99E0D6", "type": "color" },
+      "accent_text": { "value": "#0B5F58", "type": "color" },
+      "neutral_subtle": { "value": "#EDF3F3", "type": "color" },
+      "neutral_border": { "value": "#DCE5E5", "type": "color" },
+      "neutral_text": { "value": "#2F4443", "type": "color" },
+      "success_subtle": { "value": "#ECFDF5", "type": "color" },
+      "success_border": { "value": "#A7F3D0", "type": "color" },
+      "success_text": { "value": "#047857", "type": "color" },
+      "warning_subtle": { "value": "#FFFAEB", "type": "color" },
+      "warning_border": { "value": "#FEDF89", "type": "color" },
+      "warning_text": { "value": "#B54708", "type": "color" },
+      "error_subtle": { "value": "#FEF3F2", "type": "color" },
+      "error_border": { "value": "#FECDCA", "type": "color" },
+      "error_text": { "value": "#B42318", "type": "color" },
+      "info_subtle": { "value": "#EEF6FD", "type": "color" },
+      "info_border": { "value": "#A8D0F2", "type": "color" },
+      "info_text": { "value": "#175C85", "type": "color" },
+      "highlight_subtle": { "value": "#FEF6EE", "type": "color" },
+      "highlight_border": { "value": "#FACBA0", "type": "color" },
+      "highlight_text": { "value": "#9A4A10", "type": "color" },
+      "inverse_surface": { "value": "#0E1A1A", "type": "color" },
+      "inverse_text": { "value": "#F4F7F7", "type": "color" }
+    },
+
+    "dark": {
+      "$description": "Dark theme, Tidewater: bright teal on deep teal-black.",
+      "primary":         { "value": "#1FC2AD", "type": "color" },
+      "on_primary":      { "value": "#04201C",          "type": "color" },
+      "primary_hover":   { "value": "#2DD4BF", "type": "color" },
+      "primary_subtle":  { "value": "#0F3532", "type": "color" },
+      "secondary":       { "value": "#C4D4D2", "type": "color" },
+      "on_secondary":    { "value": "#0B1414", "type": "color" },
+      "surface":         { "value": "#111D1D", "type": "color" },
+      "surface_raised":  { "value": "#1A2A2A",           "type": "color" },
+      "surface_sunken":  { "value": "#0D1818", "type": "color" },
+      "placeholder":     { "value": "#1E3030", "type": "color" },
+      "background":      { "value": "#0B1414", "type": "color" },
+      "border":          { "value": "#1E2E2E", "type": "color" },
+      "border_strong":   { "value": "#2E4443", "type": "color" },
+      "divider":         { "value": "#1E2E2E", "type": "color" },
+      "text_primary":    { "value": "#E6F0EF",  "type": "color" },
+      "text_secondary":  { "value": "#C4D4D2", "type": "color" },
+      "text_muted":      { "value": "#97ADAB", "type": "color" },
+      "text_link":       { "value": "#5EEAD4",           "type": "color" },
+      "heading":         { "value": "#E6F0EF",  "type": "color" },
+      "focus_ring":      { "value": "#5EEAD4", "type": "color" },
+      "focus_soft":      { "value": "rgba(94, 234, 212, 0.35)", "type": "color" },
+      "primary_hover_surface": { "value": "rgba(31, 194, 173, 0.85)", "type": "color" },
+      "control_surface": { "value": "rgba(30, 46, 46, 0.3)", "type": "color" },
+      "control_hover":   { "value": "rgba(30, 46, 46, 0.6)", "type": "color" },
+      "disabled_control_surface": { "value": "rgba(30, 46, 46, 0.8)", "type": "color" },
+      "surface_half":    { "value": "rgba(11, 20, 20, 0.5)", "type": "color" },
+      "surface_ring":    { "value": "rgba(230, 240, 239, 0.1)", "type": "color" },
+      "tab_inactive":    { "value": "#97ADAB", "type": "color" },
+      "tab_active_surface": { "value": "rgba(30, 46, 46, 0.6)", "type": "color" },
+      "tab_active_border": { "value": "#1E2E2E", "type": "color" },
+      "error_surface":   { "value": "rgba(225, 29, 72, 0.2)", "type": "color" },
+      "error_hover":     { "value": "rgba(225, 29, 72, 0.3)", "type": "color" },
+      "error_control_border": { "value": "rgba(225, 29, 72, 0.5)", "type": "color" },
+      "destructive_focus_border": { "value": "rgba(225, 29, 72, 0.4)", "type": "color" },
+      "error_focus_ring": { "value": "rgba(225, 29, 72, 0.4)", "type": "color" },
+      "error":           { "value": "{color.semantic.error}", "type": "color" },
+      "on_error":        { "value": "#FFFFFF", "type": "color" },
+      "success":         { "value": "{color.semantic.success}", "type": "color" },
+      "warning":         { "value": "{color.semantic.warning}", "type": "color" },
+      "info":            { "value": "{color.semantic.info}", "type": "color" },
+      "accent": { "value": "#1FC2AD", "type": "color" },
+      "on_accent": { "value": "#04201C", "type": "color" },
+      "accent_subtle": { "value": "#0F3532", "type": "color" },
+      "accent_border": { "value": "#1B5A53", "type": "color" },
+      "accent_text": { "value": "#5EEAD4", "type": "color" },
+      "neutral_subtle": { "value": "#172626", "type": "color" },
+      "neutral_border": { "value": "#2E4443", "type": "color" },
+      "neutral_text": { "value": "#C4D4D2", "type": "color" },
+      "success_subtle": { "value": "#052E1C", "type": "color" },
+      "success_border": { "value": "#14532D", "type": "color" },
+      "success_text": { "value": "#6EE7B7", "type": "color" },
+      "warning_subtle": { "value": "#2D1B04", "type": "color" },
+      "warning_border": { "value": "#713F12", "type": "color" },
+      "warning_text": { "value": "#FCD34D", "type": "color" },
+      "error_subtle": { "value": "#3B0A0F", "type": "color" },
+      "error_border": { "value": "#7F1D1D", "type": "color" },
+      "error_text": { "value": "#FCA5A5", "type": "color" },
+      "info_subtle": { "value": "#0B2233", "type": "color" },
+      "info_border": { "value": "#1F4E6E", "type": "color" },
+      "info_text": { "value": "#8EC7F0", "type": "color" },
+      "highlight_subtle": { "value": "#2E1605", "type": "color" },
+      "highlight_border": { "value": "#7A3F10", "type": "color" },
+      "highlight_text": { "value": "#FDBA74", "type": "color" },
+      "inverse_surface": { "value": "#E6F0EF", "type": "color" },
+      "inverse_text": { "value": "#0B1414", "type": "color" }
+    },
+
+    "material_baseline": {
+      "$description": "The literal `Theme::default()` palette shipped by fission-theme/src/lib.rs (Material 3 baseline with purple primary). Recorded for completeness; the Fission *brand* uses teal instead — see color.light.*.",
+      "primary":   { "value": "#67558F", "type": "color" },
+      "secondary": { "value": "#625B71", "type": "color" },
+      "error":     { "value": "#B3261E", "type": "color" }
+    }
+  },
+
+  "typography": {
+    "$description": "Type scale. Sizes match the Fission TypographyTokens (label_large 15, body_large 17, heading 28) extended with marketing display sizes from the docs site.",
+
+    "font_family": {
+      "sans":    { "value": "\"Inter\", \"Avenir Next\", \"Segoe UI\", Arial, sans-serif", "type": "fontFamily" },
+      "serif":   { "value": "\"Iowan Old Style\", \"Palatino Linotype\", \"Book Antiqua\", Georgia, serif", "type": "fontFamily" },
+      "mono":    { "value": "\"SFMono-Regular\", Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace", "type": "fontFamily" }
+    },
+
+    "font_weight": {
+      "regular":  { "value": "400", "type": "fontWeight" },
+      "medium":   { "value": "500", "type": "fontWeight" },
+      "semibold": { "value": "600", "type": "fontWeight" },
+      "bold":     { "value": "700", "type": "fontWeight" }
+    },
+
+    "font_size": {
+      "xs":   { "value": "12px", "type": "dimension" },
+      "sm":   { "value": "13px", "type": "dimension" },
+      "base": { "value": "14px", "type": "dimension" },
+      "label_large": { "value": "14px", "type": "dimension", "$description": "Maps to TypographyTokens.label_large_size in fission-theme." },
+      "body": { "value": "14px", "type": "dimension", "$description": "Maps to TypographyTokens.body_medium_size." },
+      "body_large": { "value": "16px", "type": "dimension", "$description": "Maps to TypographyTokens.body_large_size." },
+      "lg":   { "value": "18px", "type": "dimension" },
+      "xl":   { "value": "20px", "type": "dimension" },
+      "h3":   { "value": "24px", "type": "dimension", "$description": "Maps to TypographyTokens.heading_size." },
+      "h2":   { "value": "30px", "type": "dimension" },
+      "h1":   { "value": "36px", "type": "dimension" },
+      "display_sm": { "value": "48px", "type": "dimension" },
+      "display_md": { "value": "60px", "type": "dimension" }
+    },
+
+    "line_height": {
+      "display": { "value": "0.98", "type": "number" },
+      "heading": { "value": "1.05", "type": "number" },
+      "snug":    { "value": "1.4",  "type": "number" },
+      "normal":  { "value": "1.6",  "type": "number" },
+      "relaxed": { "value": "1.68", "type": "number" }
+    },
+
+    "letter_spacing": {
+      "tight":  { "value": "-0.01em", "type": "dimension" },
+      "normal": { "value": "0",       "type": "dimension" },
+      "label":  { "value": "0.1em",   "type": "dimension" },
+      "kicker": { "value": "0.14em",  "type": "dimension" }
+    }
+  },
+
+  "spacing": {
+    "$description": "Six-step scale from fission-theme SpacingTokens (none/xs/s/m/l/xl) plus marketing extensions.",
+    "none": { "value": "0px",  "type": "dimension" },
+    "xs":   { "value": "4px",  "type": "dimension" },
+    "s":    { "value": "8px",  "type": "dimension" },
+    "m":    { "value": "16px", "type": "dimension" },
+    "l":    { "value": "24px", "type": "dimension" },
+    "xl":   { "value": "32px", "type": "dimension" },
+    "2xl":  { "value": "48px", "type": "dimension" },
+    "3xl":  { "value": "64px", "type": "dimension" },
+    "4xl":  { "value": "96px", "type": "dimension" },
+    "2xs":  { "value": "2px",  "type": "dimension", "$description": "Hairline nudges: icon-to-text optical alignment, badge offsets." },
+    "ms":   { "value": "12px", "type": "dimension", "$description": "Between s and m. Compact control padding and list-row gaps." },
+    "ml":   { "value": "20px", "type": "dimension", "$description": "Between m and l. Card padding on compact windows." }
+  },
+
+  "sizing": {
+    "$description": "Geometry that is not spacing. Touch targets follow Fitts's law: WCAG 2.5.8 sets 24px for pointers; Fission uses 48px for touch, Material's 48dp and above Apple's 44pt.",
+    "target": {
+      "pointer": { "value": "24px", "type": "dimension", "$description": "Smallest hit area for mouse and stylus input." },
+      "touch":   { "value": "48px", "type": "dimension", "$description": "Smallest hit area for touch input (Material's 48dp; above Apple's 44pt)." }
+    },
+    "control": {
+      "$description": "Control heights at comfortable density. Theme::with_density moves them by density_step.",
+      "sm": { "value": "32px", "type": "dimension" },
+      "md": { "value": "36px", "type": "dimension" },
+      "lg": { "value": "40px", "type": "dimension" },
+      "xl": { "value": "48px", "type": "dimension" }
+    },
+    "density_step": { "value": "4px", "type": "dimension", "$description": "How far control heights move between compact, comfortable and spacious." },
+    "icon": {
+      "xs": { "value": "12px", "type": "dimension" },
+      "sm": { "value": "16px", "type": "dimension" },
+      "md": { "value": "20px", "type": "dimension" },
+      "lg": { "value": "24px", "type": "dimension" },
+      "xl": { "value": "32px", "type": "dimension" }
+    },
+    "border": {
+      "hairline": { "value": "1px", "type": "dimension" },
+      "thick":    { "value": "2px", "type": "dimension" }
+    },
+    "focus_ring": {
+      "width":  { "value": "3px", "type": "dimension" },
+      "offset": { "value": "0px", "type": "dimension" }
+    },
+    "default_density": { "value": "compact", "type": "string" }
+  },
+
+  "opacity": {
+    "$description": "Opacity for disabled content, interaction state layers laid over a surface, and modal scrims.",
+    "disabled": { "value": 0.5,  "type": "number" },
+    "muted":    { "value": 0.72, "type": "number" },
+    "scrim":    { "value": 0.4,  "type": "number" },
+    "state": {
+      "hover":    { "value": 0.08, "type": "number" },
+      "pressed":  { "value": 0.12, "type": "number" },
+      "focus":    { "value": 0.12, "type": "number" },
+      "selected": { "value": 0.12, "type": "number" },
+      "dragged":  { "value": 0.16, "type": "number" }
+    }
+  },
+
+  "breakpoint": {
+    "$description": "Lower bounds of window size classes. Below compact_max is compact; see BreakpointTokens::class_for.",
+    "compact_max":  { "value": "600px",  "type": "dimension" },
+    "medium_max":   { "value": "840px",  "type": "dimension" },
+    "expanded_max": { "value": "1200px", "type": "dimension" },
+    "large_max":    { "value": "1600px", "type": "dimension" }
+  },
+
+  "layer": {
+    "$description": "Stacking order for surfaces that float above content. Higher draws on top.",
+    "base":     { "value": 0,    "type": "number" },
+    "raised":   { "value": 10,   "type": "number" },
+    "sticky":   { "value": 100,  "type": "number" },
+    "dropdown": { "value": 1000, "type": "number" },
+    "overlay":  { "value": 1100, "type": "number" },
+    "modal":    { "value": 1200, "type": "number" },
+    "popover":  { "value": 1300, "type": "number" },
+    "toast":    { "value": 1400, "type": "number" },
+    "tooltip":  { "value": 1500, "type": "number" }
+  },
+
+  "radius": {
+    "$description": "Compact control and surface radii, plus marketing extensions for hero cards.",
+    "none":   { "value": "0px",     "type": "dimension" },
+    "small":  { "value": "8px",     "type": "dimension" },
+    "medium": { "value": "10px",    "type": "dimension" },
+    "large":  { "value": "14px",    "type": "dimension" },
+    "xl":     { "value": "16px",    "type": "dimension" },
+    "2xl":    { "value": "24px",    "type": "dimension" },
+    "full":   { "value": "9999px",  "type": "dimension" }
+  },
+
+  "elevation": {
+    "$description": "Six levels from fission-theme ElevationTokens. level0/level4/level5 are None in Rust; level4 is repurposed for marketing card hover, level5 for slide-deck cards.",
+    "level0": { "value": "none", "type": "shadow" },
+    "level1": { "value": "0 1px 3px 0 rgba(14, 26, 26, 0.1), 0 1px 2px -1px rgba(14, 26, 26, 0.1)", "type": "shadow" },
+    "level2": { "value": "0 4px 6px -1px rgba(14, 26, 26, 0.1), 0 2px 4px -2px rgba(14, 26, 26, 0.1)", "type": "shadow" },
+    "level3": { "value": "0 4px 8px -2px rgba(14, 26, 26, 0.1), 0 12px 24px -4px rgba(14, 26, 26, 0.12)",  "type": "shadow" },
+    "level4": { "value": "0 18px 45px rgba(14, 26, 26, 0.14)", "type": "shadow" },
+    "level5": { "value": "0 32px 80px rgba(14, 26, 26, 0.2)", "type": "shadow" },
+    "focus":  { "value": "0 0 0 3px rgba(20, 184, 166, 0.35)", "type": "shadow" }
+  },
+
+  "motion": {
+    "duration": {
+      "instant": { "value": "0ms",   "type": "duration" },
+      "micro":   { "value": "120ms", "type": "duration" },
+      "fast":    { "value": "150ms", "type": "duration", "$description": "Default. Used for hover/press/focus on links and buttons." },
+      "normal":  { "value": "200ms", "type": "duration" },
+      "slow":    { "value": "300ms", "type": "duration" },
+      "deliberate": { "value": "480ms", "type": "duration" }
+    },
+    "easing": {
+      "linear":     { "value": "linear", "type": "cubicBezier" },
+      "standard":   { "value": "cubic-bezier(0.16, 0.84, 0.32, 1)", "type": "cubicBezier", "$description": "Soft ease-out — default for almost everything." },
+      "in":         { "value": "cubic-bezier(0.4, 0, 1, 1)", "type": "cubicBezier" },
+      "out":        { "value": "cubic-bezier(0, 0, 0.2, 1)", "type": "cubicBezier" },
+      "ease":       { "value": "ease", "type": "cubicBezier" }
+    }
+  },
+
+  "component": {
+    "$description": "Compatibility aliases kept exactly aligned with the authoritative component recipes in dsp.json.",
+
+    "button": {
+      "height":             { "value": "36px",          "type": "dimension" },
+      "padding_horizontal": { "value": "14px",          "type": "dimension" },
+      "padding_vertical":   { "value": "0px",           "type": "dimension" },
+      "radius":             { "value": "{radius.medium}", "type": "dimension" },
+      "text_size":          { "value": "{typography.font_size.base}", "type": "dimension" },
+      "elevation_rest":     { "value": "{elevation.level0}", "type": "shadow" },
+      "elevation_hover":    { "value": "{elevation.level0}", "type": "shadow" },
+      "elevation_pressed":  { "value": "{elevation.level0}", "type": "shadow" }
+    },
+
+    "text_input": {
+      "height":        { "value": "36px",          "type": "dimension" },
+      "padding_h":     { "value": "10px",          "type": "dimension" },
+      "radius":        { "value": "{radius.medium}", "type": "dimension" },
+      "font_size":     { "value": "{typography.font_size.base}", "type": "dimension" },
+      "border_width":  { "value": "1px",            "type": "dimension" }
+    },
+
+    "card": {
+      "padding":     { "value": "{spacing.m}",    "type": "dimension" },
+      "radius":      { "value": "{radius.large}", "type": "dimension" },
+      "border_width": { "value": "1px",           "type": "dimension" },
+      "elevation_rest":  { "value": "{elevation.level1}", "type": "shadow" },
+      "elevation_hover": { "value": "{elevation.level2}", "type": "shadow" }
+    },
+
+    "modal": {
+      "radius":     { "value": "{radius.large}",   "type": "dimension" },
+      "shadow":     { "value": "0 0 0 1px {color.light.surface_ring}", "type": "shadow" },
+      "max_width":  { "value": "384px",            "type": "dimension" }
+    },
+
+    "badge": {
+      "radius":     { "value": "{radius.full}",        "type": "dimension" },
+      "font_size":  { "value": "{typography.font_size.base}", "type": "dimension" }
+    },
+
+    "tooltip": {
+      "radius":     { "value": "{radius.small}",        "type": "dimension" },
+      "font_size":  { "value": "{typography.font_size.xs}", "type": "dimension" }
+    },
+
+    "progress": {
+      "height": { "value": "8px", "type": "dimension" }
+    },
+
+    "tabs": {
+      "indicator_height": { "value": "0px", "type": "dimension" }
+    }
+  }
+}
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Search for Maya, select her row and clear the search. The selected conversation remains Maya's even though the visible list changed. Try a search with no matches and confirm the app explains the empty result.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="responsive-conversations" -->
+## Keep drafts attached to the right conversation
+
+A draft belongs to a conversation, not to the currently visible text field. That is why the shared state uses `BTreeMap<chat_id, draft>`. A person can leave one chat, type in another and return without borrowing the other person's draft. It also means changing between phone and desktop layouts does not give a newly constructed composer an empty copy of that data.
+
+The message action trims the draft and rejects empty text. It checks that the selected conversation still exists before adding anything, allocates a new message ID and only clears the matching draft after the message has been appended. There is no fake reply or delivery receipt. The result is a local state transition, not evidence that a service received a message.
+
+The input has an explicit identity containing the layout and conversation ID. A text-change event is accepted only when that identity still belongs to the selected conversation; an event arriving from the previous chat must not overwrite the new chat's draft. After adding a message, the reducer requests a scroll to the conversation's final marker through a Fission effect. The view describes the scroll region; it does not perform host work whilst building it.
+
+The finished `ChatApp` selects independent phone and desktop trees through Fission's responsive widget. The phone shows the inbox or conversation; the desktop shows both. Both trees read the same `ChatState`, but neither reuses a retained `Widget` value constructed for the other branch.
+
+The message history needs a bounded area, otherwise adding messages can push the composer out of the window. A stretching, full-height shell establishes that bound. Inside it, `Container(Scroll(...)).flex_grow(1.0).min_height(0.0)` gives the history the remaining space and lets that space shrink when necessary; its contents scroll rather than deciding how tall the whole conversation should be. The inbox uses the same arrangement so its header and actions stay outside the scrolling rows.
+
+Replace `src/app.rs` and add the named presentation modules below. Each file owns a meaningful piece of the interface instead of hiding the entire app in one conversion function.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use crate::state::ChatState;
+use crate::widgets::{Conversation, Header, InboxPanel, Notice};
+use fission::op::AlignItems;
+use fission::prelude::*;
+
+fission_component! {
+    pub ChatApp<ChatState> {}
+    view(_app, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let layout = Responsive::new_with_id(
+            WidgetId::explicit("messenger.responsive"), PhoneShell::new,
+        ).case_min_width_with(840.0, DesktopShell::new);
+    } =>
+    SafeArea(child: Container(ZStack(children: [layout, Notice()]))
+        .width_length(Length::percent(100.0))
+        .height_length(Length::percent(100.0))
+        .align_child(BoxAlignment::Stretch)
+        .bg(tokens.colors.background))
+}
+
+fission_component! {
+    pub PhoneShell<ChatState> {}
+    view(_shell, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        if state.selected.is_some() { Conversation(compact: true) }
+        else { Column(children: [Header(),
+            Container(InboxPanel(compact: true)).flex_grow(1.0).min_height(0.0)
+                .align_child(BoxAlignment::Stretch),
+        ]).flex_grow(1.0) }
+    ).height_length(Length::percent(100.0))
+        .align_child(BoxAlignment::Stretch).bg(tokens.colors.surface)
+}
+
+fission_component! {
+    pub DesktopShell<ChatState> {}
+    view(_shell, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Row(align_items: AlignItems::Stretch, children: [
+        Container(Column(children: [Header(),
+            Container(InboxPanel(compact: false)).flex_grow(1.0).min_height(0.0)
+                .align_child(BoxAlignment::Stretch),
+        ]).flex_grow(1.0))
+            .width(380.0).height_length(Length::percent(100.0))
+            .align_child(BoxAlignment::Stretch)
+            .bg(tokens.colors.surface),
+        Container(Conversation(compact: false))
+            .flex_grow(1.0).height_length(Length::percent(100.0))
+            .align_child(BoxAlignment::Stretch),
+    ]).flex_grow(1.0)
+}
+```
+</TabItem>
+<TabItem label="src/widgets/mod.rs">
+<!-- fission:file path="src/widgets/mod.rs" -->
+```rust
+mod chat_row;
+mod conversation;
+mod header;
+mod inbox;
+mod notice;
+mod secondary;
+
+pub use chat_row::ChatRow;
+pub use conversation::Conversation;
+pub use header::Header;
+pub use inbox::{Inbox, InboxPanel};
+pub use notice::Notice;
+pub use secondary::Secondary;
+```
+</TabItem>
+<TabItem label="src/widgets/chat_row.rs">
+<!-- fission:file path="src/widgets/chat_row.rs" -->
+```rust
+use crate::state::ChatState;
+use fission::prelude::*;
+
+fission_component! {
+    #[derive(Default)]
+    pub ChatRow<ChatState> { props { chat_id: u64 } }
+    view(row, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let chat = state.chats.iter().find(|chat| chat.id == row.chat_id);
+    } =>
+    if let Some(chat) = chat {
+        Pressable(
+            label: format!("{} · {} {}", chat.name, chat.unread, cx.tr("inbox.unread")),
+            semantics_identifier: format!("chat.open.{}", chat.id),
+            on_press: reduce { state.open_chat(row.chat_id); },
+            child: Container(Row(gap: tokens.spacing.ms, children: [
+                Avatar(name: chat.name.clone(), size: 48.0),
+                Column(gap: tokens.spacing.xs, children: [
+                    Row(children: [
+                        Text(chat.name.clone()).size(tokens.typography.body_large_size)
+                            .weight(tokens.typography.font_weight_semibold),
+                        Spacer(flex_grow: 1.0),
+                        Text(chat.time.clone()).size(tokens.typography.font_size_xs)
+                            .color(tokens.colors.text_muted),
+                    ]),
+                    Row(gap: tokens.spacing.s, children: [
+                        Container(Text(chat.messages.last().map(|m| m.text.clone()).unwrap_or_default())
+                            .size(tokens.typography.font_size_sm)
+                            .color(tokens.colors.text_muted).max_lines(1)).flex_grow(1.0),
+                        if chat.unread > 0 {
+                            Container(Text(chat.unread.to_string())
+                                .size(tokens.typography.font_size_xs)
+                                .color(tokens.colors.on_primary))
+                                .padding([tokens.spacing.s, tokens.spacing.s, tokens.spacing.xs, tokens.spacing.xs])
+                                .border_radius(tokens.radii.full).bg(tokens.colors.primary)
+                        },
+                    ]),
+                ]).flex_grow(1.0),
+            ])).padding_all(tokens.spacing.m)
+                .bg(if state.selected == Some(chat.id) {
+                    tokens.colors.primary_subtle
+                } else { tokens.colors.surface }),
+        )
+    } else { Spacer(height: 0.0) }
+}
+```
+</TabItem>
+<TabItem label="src/widgets/inbox.rs">
+<!-- fission:file path="src/widgets/inbox.rs" -->
+```rust
+use crate::state::{ChatState, Tab};
+use crate::widgets::{ChatRow, Secondary};
+use fission::prelude::*;
+
+#[fission_action]
+pub struct ChooseTab(pub Tab);
+
+fn choose_tab(state: &mut ChatState, action: ChooseTab, _cx: &mut ReducerContext<ChatState>) {
+    state.set_tab(action.0);
+}
+
+fission_component! {
+    #[derive(Default)]
+    pub InboxPanel<ChatState> { props { compact: bool } }
+    view(panel, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let base = WidgetId::explicit(if panel.compact { "phone.tabs" } else { "desktop.tabs" });
+        let tabs = [Tab::Chats, Tab::Updates, Tab::Calls];
+        let keys = ["tabs.chats", "tabs.updates", "tabs.calls"];
+        let triggers = tabs.into_iter().enumerate().map(|(index, tab)| {
+            TabTrigger::new(
+                WidgetId::derived(base.as_u128(), &[0x54414253, index as u32, 0x54524947]),
+                WidgetId::derived(base.as_u128(), &[0x54414253, index as u32, 0x50414e4c]), cx.tr(keys[index]),
+            ).selected(state.tab == tab)
+                .on_press(cx.bind(ChooseTab(tab), reduce!(choose_tab)))
+                .semantics_identifier(format!("tab.{}", keys[index]))
+        }).collect();
+        let list = TabList::new(WidgetId::derived(base.as_u128(), &[0x5441424c]), triggers)
+            .presentation(TabPresentation::Underline);
+        let index = match state.tab { Tab::Chats => 0, Tab::Updates => 1, Tab::Calls => 2 };
+        let content: Widget = if state.tab == Tab::Chats { Inbox::new().into() }
+            else { Secondary::new().into() };
+        let panel = TabPanel::new(
+            WidgetId::derived(base.as_u128(), &[0x54414253, index, 0x50414e4c]),
+            WidgetId::derived(base.as_u128(), &[0x54414253, index, 0x54524947]), content,
+        );
+    } =>
+    Column(gap: tokens.spacing.none, children: [
+        Container(list).padding([tokens.spacing.m, tokens.spacing.m, tokens.spacing.s, tokens.spacing.s]),
+        Container(panel).flex_grow(1.0).min_height(0.0).align_child(BoxAlignment::Stretch),
+    ]).flex_grow(1.0)
+}
+
+fission_component! {
+    pub Inbox<ChatState> {}
+    view(_inbox, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(children: [
+        Container(TextInput(
+            bind: state.query,
+            label: Some(cx.tr("search.label").into()),
+            placeholder: Some(cx.tr("search.placeholder").into()),
+            semantics_identifier: "inbox.search".to_string(),
+        )).padding_all(tokens.spacing.m),
+        Container(Scroll(flex_grow: 1.0, semantic_label: cx.tr("tabs.chats"),
+            child: Column(children: [
+                for chat in state.filtered_chats() {
+                    ChatRow(chat_id: chat.id, key: chat.id)
+                },
+                if state.filtered_chats().is_empty() {
+                    EmptyState(title: cx.tr("inbox.empty"), description: cx.tr("inbox.empty_help"))
+                },
+            ]),
+        )).flex_grow(1.0).min_height(0.0).align_child(BoxAlignment::Stretch),
+        Container(Button(
+            content: ButtonContent::new(cx.tr("action.new_chat"))
+                .leading_icon(Icon::svg(material::communication::chat::outlined())),
+            on_press: reduce { state.notice = Some("compose.pick".into()); },
+        ).semantics_identifier("inbox.new-chat"))
+            .padding_all(tokens.spacing.m),
+    ]).flex_grow(1.0)
+}
+```
+</TabItem>
+<TabItem label="src/widgets/header.rs">
+<!-- fission:file path="src/widgets/header.rs" -->
+```rust
+use crate::state::ChatState;
+use fission::prelude::*;
+
+fission_component! {
+    pub Header<ChatState> {}
+    view(_header, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.s, children: [
+        Row(children: [
+            Text("WhatsApp").size(tokens.typography.heading_size)
+                .weight(tokens.typography.font_weight_semibold)
+                .color(tokens.colors.on_primary),
+            Spacer(flex_grow: 1.0),
+            Button(
+                icon_content: ButtonIconContent::new(
+                    Icon::svg(material::action::language::outlined()),
+                    cx.tr("header.language"),
+                ),
+                variant: ButtonVariant::Filled,
+                on_press: reduce {
+                    state.locale = if state.locale == "en-US" { "es-ES" } else { "en-US" }.into();
+                },
+            ).semantics_identifier("app.language"),
+            Button(
+                icon_content: ButtonIconContent::new(
+                    Icon::svg(material::action::info::outlined()),
+                    cx.tr("header.about"),
+                ),
+                variant: ButtonVariant::Filled,
+                on_press: reduce { state.notice = Some("about.body".into()); },
+            ).semantics_identifier("app.about"),
+        ]),
+        Text(cx.tr("app.demo")).size(tokens.typography.font_size_xs)
+            .color(tokens.colors.on_primary),
+    ])).padding_all(tokens.spacing.m).bg(tokens.colors.primary)
+}
+```
+</TabItem>
+<TabItem label="src/widgets/conversation.rs">
+<!-- fission:file path="src/widgets/conversation.rs" -->
+```rust
+use fission::op::AlignItems;
+use fission::prelude::*;
+
+use crate::state::ChatState;
+
+fn identity(compact: bool, chat_id: u64, part: &str) -> WidgetId {
+    WidgetId::explicit(&format!("conversation.{compact}.{chat_id}.{part}"))
+}
+
+fn reveal_latest(compact: bool, chat_id: u64) -> ScrollIntoViewRequest {
+    ScrollIntoViewRequest {
+        container: Some(identity(compact, chat_id, "scroll")),
+        target: identity(compact, chat_id, "end"),
+        axis: ScrollAxis::Vertical,
+        alignment: ScrollAlignment::End,
+        padding: [0.0; 4],
+        behavior: ScrollBehavior::Instant,
+        if_needed: true,
+    }
+}
+
+fission_component! {
+    #[derive(Default)]
+    pub Conversation<ChatState> {
+        props { compact: bool }
+    }
+    view(conversation, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let selected = state.selected.and_then(|id| state.chats.iter().find(|chat| chat.id == id)).cloned();
+        let draft = state.selected.and_then(|id| state.drafts.get(&id)).cloned().unwrap_or_default();
+        let can_send = !draft.trim().is_empty();
+        let selected_id = state.selected.unwrap_or_default();
+        let input_id = identity(conversation.compact, selected_id, "draft");
+        let scroll_id = identity(conversation.compact, selected_id, "scroll");
+    } =>
+    if let Some(chat) = selected {
+        Container(Column(gap: tokens.spacing.none, children: [
+            Container(
+                Row(gap: tokens.spacing.ms, children: [
+                    if conversation.compact {
+                        Button(
+                            icon_content: ButtonIconContent::new(
+                                Icon::svg(material::navigation::arrow_back::outlined()),
+                                cx.view.env().tr("chat.back"),
+                            ),
+                            variant: ButtonVariant::Ghost,
+                            key: "back",
+                            on_press: reduce { state.back(); },
+                        ).semantics_identifier("chat.back")
+                    },
+                    Avatar(name: chat.name.clone(), size: tokens.spacing.xxl),
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(chat.name.clone()).weight(tokens.typography.font_weight_semibold),
+                        Text(cx.view.env().tr("chat.local_demo"))
+                            .size(tokens.typography.font_size_sm)
+                            .color(tokens.colors.text_secondary),
+                    ]).flex_grow(1.0),
+                ]).align_items(AlignItems::Center),
+            ).padding_all(tokens.spacing.m)
+                .bg(tokens.colors.surface)
+                .border_bottom(tokens.colors.border, 1.0),
+            Container(Scroll(
+                id: Some(scroll_id),
+                flex_grow: 1.0,
+                semantic_label: cx.view.env().tr("chat.messages"),
+                child: Container(
+                    Column(gap: tokens.spacing.ms, children: [
+                        Text(cx.view.env().tr("chat.session_only"))
+                            .size(tokens.typography.font_size_sm)
+                            .color(tokens.colors.text_secondary),
+                        for message in chat.messages {
+                            MessageBubble(
+                                text: message.text.clone(),
+                                outgoing: message.outgoing,
+                                time: message.time.clone(),
+                                key: message.id,
+                            )
+                        },
+                        Spacer(id: Some(identity(conversation.compact, chat.id, "end")), height: 1.0),
+                    ]),
+                ).padding_all(tokens.spacing.l),
+            )).flex_grow(1.0).min_height(0.0).align_child(BoxAlignment::Stretch),
+            Container(
+                Row(gap: tokens.spacing.ms, children: [
+                    Container(
+                        FormControl(
+                            label: cx.view.env().tr("chat.message_label"),
+                            child: TextInput(
+                                id: Some(input_id),
+                                value: draft,
+                                placeholder: Some(cx.view.env().tr("chat.message_placeholder").into()),
+                                semantics_identifier: Some("chat.draft".into()),
+                                on_input: reduce {
+                                    if let (Some(chat_id), Some(change)) = (state.selected, cx.input.text_change()) {
+                                        if change.node_id == identity(conversation.compact, chat_id, "draft") {
+                                            state.drafts.insert(chat_id, change.new_text.clone());
+                                        }
+                                    }
+                                },
+                                on_submit: reduce {
+                                    if state.send() {
+                                        if let Some(id) = state.selected {
+                                            cx.effects.scroll_into_view(reveal_latest(conversation.compact, id));
+                                        }
+                                    }
+                                },
+                            ),
+                        ),
+                    ).flex_grow(1.0),
+                    Button(
+                        child: Text(cx.view.env().tr("chat.send")),
+                        disabled: !can_send,
+                        key: "send",
+                        on_press: reduce {
+                            if state.send() {
+                                if let Some(id) = state.selected {
+                                    cx.effects.scroll_into_view(reveal_latest(conversation.compact, id));
+                                }
+                            }
+                        },
+                    ).semantics_identifier("chat.send"),
+                ]).align_items(AlignItems::End),
+            ).padding_all(tokens.spacing.m)
+                .bg(tokens.colors.surface),
+        ]).flex_grow(1.0))
+            .height_length(Length::percent(100.0))
+            .align_child(BoxAlignment::Stretch)
+            .bg(tokens.colors.background)
+    } else {
+        Container(
+            Column(gap: tokens.spacing.m, children: [
+                Icon::svg(material::communication::forum::outlined())
+                    .size(tokens.spacing.xxxl).color(tokens.colors.primary),
+                Text(cx.view.env().tr("chat.welcome_title"))
+                    .size(tokens.typography.heading2_size)
+                    .weight(tokens.typography.font_weight_bold),
+                Text(cx.view.env().tr("chat.welcome_body"))
+                    .color(tokens.colors.text_secondary).max_width(420.0),
+            ]).align_items(AlignItems::Center),
+        ).align_child(BoxAlignment::Center)
+            .padding_all(tokens.spacing.xl)
+            .height_length(Length::percent(100.0))
+            .flex_grow(1.0)
+    }
+}
+
+fission_component! {
+    #[derive(Default)]
+    pub MessageBubble<ChatState> {
+        props { text: String, outgoing: bool, time: String }
+    }
+    view(message, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let bubble_color = if message.outgoing { tokens.colors.primary_subtle } else { tokens.colors.surface };
+    } =>
+    Row(children: [
+        if message.outgoing { Spacer(flex_grow: 1.0) },
+        Container(Container(
+            Column(gap: tokens.spacing.xs, children: [
+                Text(message.text.clone()).color(tokens.colors.text_primary),
+                Row(gap: tokens.spacing.s, children: [
+                    Text(message.time.clone()).size(tokens.typography.font_size_xs)
+                        .color(tokens.colors.text_secondary),
+                    if message.outgoing {
+                        Text(cx.view.env().tr("chat.saved_locally"))
+                            .size(tokens.typography.font_size_xs)
+                            .color(tokens.colors.text_secondary)
+                    },
+                ]),
+            ]),
+        ).padding_all(tokens.spacing.ms)
+            .border_radius(tokens.radii.large)
+            .bg(bubble_color)
+            .width_length(Length::fit_content(Length::points(480.0))))
+            .align_child(if message.outgoing { BoxAlignment::End } else { BoxAlignment::Start })
+            .flex_grow(3.0),
+        if !message.outgoing { Spacer(flex_grow: 1.0) },
+    ])
+}
+```
+</TabItem>
+<TabItem label="src/widgets/secondary.rs">
+<!-- fission:file path="src/widgets/secondary.rs" -->
+```rust
+use fission::prelude::*;
+
+use crate::state::{ChatState, Tab};
+
+// Additional tabs deliberately distinguish authored examples from host services.
+fission_component! {
+    pub Secondary<ChatState> {}
+    view(_secondary, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Scroll(flex_grow: 1.0, child: Container(
+        if state.tab == Tab::Updates {
+            Column(gap: tokens.spacing.l, children: [
+                Text(cx.view.env().tr("updates.title"))
+                    .size(tokens.typography.heading2_size)
+                    .weight(tokens.typography.font_weight_bold),
+                Text(cx.view.env().tr("updates.description"))
+                    .color(tokens.colors.text_secondary),
+                Container(Row(gap: tokens.spacing.m, children: [
+                    Avatar(name: cx.view.env().tr("updates.my_status"), size: tokens.spacing.xxl),
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(cx.view.env().tr("updates.my_status"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.view.env().tr("updates.my_status_help"))
+                            .color(tokens.colors.text_secondary),
+                    ]).flex_grow(1.0),
+                ])).padding_all(tokens.spacing.m).bg(tokens.colors.surface)
+                    .border_radius(tokens.radii.large),
+                Text(cx.view.env().tr("updates.viewed"))
+                    .weight(tokens.typography.font_weight_semibold),
+                Container(Column(gap: tokens.spacing.m, children: [
+                    Row(gap: tokens.spacing.ms, children: [
+                        Avatar(name: Some("Maya Chen".into()), size: tokens.spacing.xxl),
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text("Maya Chen").weight(tokens.typography.font_weight_semibold),
+                            Text(cx.view.env().tr("updates.story_title"))
+                                .color(tokens.colors.text_secondary),
+                        ]).flex_grow(1.0),
+                    ]),
+                    Button(
+                        child: Text(cx.view.env().tr("updates.open_story")),
+                        key: "open-story",
+                        variant: ButtonVariant::Outline,
+                        on_press: reduce {
+                            state.notice = Some("updates.story_body".into());
+                        },
+                    ).semantics_identifier("updates.open-story"),
+                ])).padding_all(tokens.spacing.m).bg(tokens.colors.surface)
+                    .border_radius(tokens.radii.large),
+            ])
+        } else {
+            Column(gap: tokens.spacing.l, children: [
+                Text(cx.view.env().tr("calls.title"))
+                    .size(tokens.typography.heading2_size)
+                    .weight(tokens.typography.font_weight_bold),
+                Text(cx.view.env().tr("calls.description"))
+                    .color(tokens.colors.text_secondary),
+                Text(cx.view.env().tr("calls.history"))
+                    .weight(tokens.typography.font_weight_semibold),
+                Container(Column(gap: tokens.spacing.l, children: [
+                    Row(gap: tokens.spacing.ms, children: [
+                        Avatar(name: Some("Alex Morgan".into()), size: tokens.spacing.xxl),
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text("Alex Morgan").weight(tokens.typography.font_weight_semibold),
+                            Text(cx.view.env().tr("calls.sample_one"))
+                                .color(tokens.colors.text_secondary),
+                        ]).flex_grow(1.0),
+                    ]),
+                    Divider(),
+                    Row(gap: tokens.spacing.ms, children: [
+                        Avatar(name: Some("Nora Patel".into()), size: tokens.spacing.xxl),
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text("Nora Patel").weight(tokens.typography.font_weight_semibold),
+                            Text(cx.view.env().tr("calls.sample_two"))
+                                .color(tokens.colors.text_secondary),
+                        ]).flex_grow(1.0),
+                    ]),
+                ])).padding_all(tokens.spacing.m).bg(tokens.colors.surface)
+                    .border_radius(tokens.radii.large),
+                Button(
+                    child: Text(cx.view.env().tr("calls.start")),
+                    key: "call-information",
+                    variant: ButtonVariant::Outline,
+                    on_press: reduce {
+                        state.notice = Some("calls.unavailable".into());
+                    },
+                ).semantics_identifier("calls.information"),
+            ])
+        },
+    ).padding_all(tokens.spacing.l))
+}
+```
+</TabItem>
+<TabItem label="src/widgets/notice.rs">
+<!-- fission:file path="src/widgets/notice.rs" -->
+```rust
+use crate::state::ChatState;
+use fission::prelude::*;
+
+fission_component! {
+    pub Notice<ChatState> {}
+    view(_notice, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Modal(
+        id: WidgetId::explicit("app.notice"),
+        title: cx.tr(match state.notice.as_deref() {
+            Some("compose.pick") => "compose.pick",
+            Some("updates.story_body") => "updates.story_title",
+            Some("calls.unavailable") => "calls.title",
+            _ => "about.title",
+        }),
+        is_open: state.notice.is_some(),
+        on_dismiss: reduce { state.notice = None; },
+        close_semantics_identifier: "notice.close".to_string(),
+        content: Column(gap: tokens.spacing.l, children: [
+            if state.notice.as_deref() == Some("compose.pick") {
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("compose.hint")),
+                    for chat in &state.chats {
+                        ContactChoice(chat_id: chat.id, key: chat.id)
+                    },
+                ])
+            } else {
+                Text(cx.tr(state.notice.as_deref().unwrap_or("about.body")))
+            },
+            Button(child: Text(cx.tr("action.dismiss")),
+                on_press: reduce { state.notice = None; },
+            ).semantics_identifier("notice.dismiss"),
+        ]),
+    )
+}
+
+fission_component! {
+    #[derive(Default)]
+    pub ContactChoice<ChatState> { props { chat_id: u64 } }
+    view(contact, state, _cx) {
+        let chat = state.chats.iter().find(|chat| chat.id == contact.chat_id);
+    } =>
+    if let Some(chat) = chat {
+        Button(
+            child: Text(chat.name.clone()),
+            variant: ButtonVariant::Ghost,
+            on_press: reduce { state.open_chat(contact.chat_id); },
+        ).semantics_identifier(format!("contact.open.{}", chat.id))
+    } else { Spacer(height: 0.0) }
+}
+```
+</TabItem>
+</Tabs>
+
+The tabs are real controls, not painted labels. Search updates the inbox, a chat row opens its conversation, the composer adds a local message, the language action updates the environment, and the information actions explain the demo's boundaries. Updates and call history are authored examples; a call button must not pretend that a connection was made.
+
+Notice the difference between a component prop and a temporary view value. `Conversation` can decide its presentation from the current state; `ChatRow` passes its stable ID into a reducer. The code does not retain a build context or hold a reference to a row across an asynchronous boundary.
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Open Maya's conversation and type an unsent message. Open another chat, write a different draft, then return to Maya. Add her message and confirm only her draft clears. Resize between a phone-sized and wide window, switch language, open an update and check that a call action clearly says no call was placed.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Run the finished app
+
+From the project root:
+
+```sh
+fission run --target web --project-dir .
+cargo fmt --check
+cargo test --lib
+fission test --target web --project-dir .
+```
+
+For a native desktop window, use `fission run --target macos --project-dir .`, `--target windows` or `--target linux` as appropriate. Run `fission doctor macos --project-dir .`, substituting your target, when it reports a missing tool. The first build compiles the framework and its dependencies; later builds can reuse that work.
+
+Check the real browser layout as well as the Rust types:
+
+```sh
+fission test --visual-review --target web --project-dir . --output-dir review --json
+```
+
+Inspect the generated report and screenshots. Check that the inbox still fits at a narrow width, long messages wrap, the composer remains reachable and the Spanish labels are readable. A successful compilation does not establish any of those things.
+
+## Run on Android and iOS
+
+For Android, first complete the [SDK and NDK setup tutorial](/blog/set-up-rust-android-gui-development-with-fission/), then the [Android emulator tutorial](/blog/create-and-launch-a-fission-android-emulator/) or [physical Android phone tutorial](/blog/run-a-fission-app-on-a-physical-android-phone/). Those pages cover the platform commands and device preparation so we do not keep a second, slowly diverging copy here.
+
+```sh
+fission doctor android --project-dir .
+fission devices --project-dir .
+fission run --target android --project-dir .
+```
+
+For iOS, use a Mac and complete the [Xcode and Rust setup tutorial](/blog/set-up-rust-ios-development-with-fission/). The normal run command uses an [iOS Simulator](/blog/choose-boot-and-launch-an-ios-simulator-with-fission/):
+
+```sh
+fission doctor ios --project-dir .
+fission devices --project-dir .
+fission run --target ios --project-dir .
+```
+
+Installing on a physical iPhone requires signing and provisioning; use the [physical iPhone tutorial](/blog/install-a-fission-app-on-a-physical-iphone/). The Web preview checks shared app behaviour, not native keyboard handling, system integration or a device installation.
+
+## Where to take it next
+
+The useful result here is a recognisable, interactive messaging interface with clear ownership of conversations and drafts. It is not a secure messaging system. Restarting the app loses its in-memory messages, and no remote person receives them.
+
+Persistence would need a deliberate store model. A real send operation would need authentication, an asynchronous effect, retry behaviour and separate pending, failed and acknowledged states. Delivery and end-to-end encryption require their own protocols; painting check marks next to a message does not provide either. Keep the local app honest whilst deciding which of those problems your next project actually needs to solve.
+
+The [standalone source](https://github.com/fission-ui/rust-whatsapp-clone) includes the Apache-2.0 licence and attribution to the original Flutter reference. Its avatars use initials and its conversations are fictional; the reference project's photographs and story assets are not copied.
+
+## Related Fission reference
+
+- [Compose components](/compose/)
+- [State, handles and providers](/docs/guides/state-handles-and-providers/)
+- [Design system](/docs/guides/design-system/)
+- [Platform targets](/reference/platform/targets/)

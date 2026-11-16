@@ -597,13 +597,13 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("content/goals");
         let goals = load_goals(root).unwrap();
 
-        assert_eq!(goals.len(), 118);
+        assert_eq!(goals.len(), 119);
         assert_eq!(goals[0].meta.order, 1);
         assert_eq!(
             goals[0].meta.path,
             "/tutorials/build-a-rust-website-with-dropdown-navigation/"
         );
-        assert_eq!(goals[117].meta.order, 118);
+        assert_eq!(goals[118].meta.order, 119);
         for route in [crate::navigation::LOGIN_PAGE, crate::navigation::LIVE_TEST] {
             assert!(
                 goals.iter().any(|goal| goal.meta.path == route),
