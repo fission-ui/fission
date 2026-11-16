@@ -66,6 +66,9 @@ jobs:
       - name: Test generated platform scripts
         run: cargo test -p cargo-fission
 
+      - name: Test release tutorial examples and API parity
+        run: cargo test --locked -p compose-example --test release_post
+
   serving-windows:
     name: Windows owned serving paths
     if: >-
